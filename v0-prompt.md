@@ -287,6 +287,14 @@ type GradingDraftSection = {
 // `editedScoreEarned ?? scoreEarned`.
 ```
 
+## Future Development
+
+I do not yet have the functionality to run a "Grading Session" where the instructor can
+generate multiple reports at once but that is something I want to leave room for. The idea
+is that there could be a "Generate Reports" button that would generate reports for all
+submissions that need a grade. I don't yet have the backend functionality to make that work
+but leave space for it.
+
 ## Do not
 
 - Do not show `instructorNotes` anywhere a student could see them, and do not merge them

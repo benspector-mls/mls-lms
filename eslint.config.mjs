@@ -29,6 +29,9 @@ const eslintConfig = [
       "lib/generated/**",
       "swe-assignment-grading-guides/**",
       "assignment-templates/**",
+      // The v0 output, kept as a reference copy while its screens are ported one at a
+      // time. It is a separate project with its own dependencies and is not built.
+      "v0/**",
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
