@@ -62,16 +62,20 @@ export function Gradebook({ data }: { data: Gradebook }) {
             <TableHead className="sticky left-0 z-10 bg-card">Student</TableHead>
             {assignments.map((assignment) => (
               <TableHead key={assignment.id} className="text-center">
+                {/*
+                  `mx-auto` because the truncation needs a block with a max width, and a
+                  block without it sits left however the cell is aligned.
+
+                  No point value here: every cell below already reads earned/possible, so
+                  a column total would be the same number said twice.
+                */}
                 <Link
                   href={gradingQueueHref(assignment.id)}
-                  className="block max-w-28 truncate hover:underline"
+                  className="mx-auto block max-w-28 truncate hover:underline"
                   title={assignment.title}
                 >
                   {assignment.title}
                 </Link>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {assignment.pointValue} pts
-                </span>
               </TableHead>
             ))}
           </TableRow>

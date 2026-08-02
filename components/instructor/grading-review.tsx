@@ -699,18 +699,18 @@ function DraftEditor({
 
   const busy = approve.isPending || updateSection.isPending;
   const canApprove = !approvalBlocked && mismatches.length === 0 && totalPossible > 0;
+  const unsaved = changedSections.length > 0;
 
-  async function saveThenApprove() {
-    /*
-      Written before approving. Approval reads the stored draft rather than anything the
-      browser sends it, so an unsaved edit would simply not be part of the grade.
-
-      Two different comparisons, deliberately. `changedSections` asks what the instructor
-      touched since the draft was loaded, and compares against the effective values.
-      Whether each field is sent as an edit or as null compares against the *model's*
-      values, because null is how an edit is discarded: an instructor who types a score
-      back to what the model proposed has withdrawn their edit, not made a new one.
-    */
+  /**
+   * Writes the sections the instructor has touched.
+   *
+   * Two different comparisons, deliberately. `changedSections` asks what was touched
+   * since the draft was loaded, and compares against the effective values. Whether each
+   * field is sent as an edit or as null compares against the *model's* values, because
+   * null is how an edit is discarded: typing a score back to what the model proposed
+   * withdraws the edit rather than making a new one.
+   */
+  async function saveEdits() {
     for (const section of changedSections) {
       const report = reports[section.id] ?? '';
       const score = scores[section.id] ?? 0;
@@ -721,23 +721,28 @@ function DraftEditor({
         scoreEarned: score === (section.scoreEarned ?? 0) ? null : score,
       });
     }
+  }
 
+  async function save() {
+    await saveEdits();
+    toast.success(
+      changedSections.length === 1 ? 'Change saved.' : `${changedSections.length} changes saved.`,
+    );
+    void queryClient.invalidateQueries();
+  }
+
+  /*
+    Approving saves first regardless. The explicit Save button exists so an edit can be
+    kept without releasing anything, not because approving needs it — approval reads the
+    stored draft, so an unsaved edit would silently not be part of the grade.
+  */
+  async function saveThenApprove() {
+    await saveEdits();
     approve.mutate({ draftId: draft.id });
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <Alert>
-        <Bot />
-        <AlertTitle>A proposal, not a grade</AlertTitle>
-        <AlertDescription>
-          Nothing here reaches the student until you approve. Change any score or any
-          sentence first — your edit is kept alongside the original, not over it.
-        </AlertDescription>
-      </Alert>
-
-      <ModelMetaBar draft={draft} />
-
       {faults.length > 0 && (
         <Alert variant="destructive">
           <AlertTriangle />
@@ -785,6 +790,7 @@ function DraftEditor({
               setScores((prev) => ({ ...prev, [section.id]: effectiveScore(section) ?? 0 }));
               setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? '' }));
             }}
+            unsaved={changedSections.some((changed) => changed.id === section.id)}
           />
         ))}
       </div>
@@ -792,9 +798,7 @@ function DraftEditor({
       <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
-            <span className="text-xs text-muted-foreground">
-              Total{changedSections.length > 0 ? ' (edited)' : ''}
-            </span>
+            <span className="text-xs text-muted-foreground">Total</span>
             <span className="text-lg font-semibold tabular-nums">
               {totalEarned}
               <span className="text-muted-foreground"> / {totalPossible}</span>
@@ -812,12 +816,34 @@ function DraftEditor({
           >
             {isComplete ? 'Meets the threshold' : 'Below the threshold'}
           </Badge>
+          {/*
+            Said plainly, next to the number it affects. Approving saves first anyway, but
+            an instructor should never have to wonder whether what is on screen is what
+            would go out.
+          */}
+          {unsaved && (
+            <span className="text-xs text-amber-700 dark:text-amber-300">
+              {changedSections.length === 1
+                ? '1 unsaved change'
+                : `${changedSections.length} unsaved changes`}
+            </span>
+          )}
         </div>
 
-        <Button size="lg" disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
-          <CheckCircle2 data-icon="inline-start" />
-          Approve and release
-        </Button>
+        <div className="flex items-center gap-2">
+          {unsaved && (
+            <Button variant="outline" disabled={busy} onClick={() => void save()}>
+              {updateSection.isPending && (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              )}
+              {updateSection.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          )}
+          <Button size="lg" disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
+            <CheckCircle2 data-icon="inline-start" />
+            Approve and release
+          </Button>
+        </div>
       </div>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -880,6 +906,13 @@ function DraftEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/*
+        Last, because it is provenance rather than part of the review: which model wrote
+        this, from which prompt, against which commit of the grading assets. Worth being
+        able to find when a report reads oddly, and worth nothing while reading one.
+      */}
+      <ModelMetaBar draft={draft} />
     </div>
   );
 }
@@ -958,6 +991,7 @@ function SectionEditor({
   onScore,
   onReport,
   onReset,
+  unsaved,
 }: {
   section: Section;
   score: number;
@@ -965,10 +999,11 @@ function SectionEditor({
   onScore: (value: number) => void;
   onReport: (value: string) => void;
   onReset: () => void;
+  /** True when this section differs from what is stored. */
+  unsaved: boolean;
 }) {
   const [editing, setEditing] = React.useState(false);
   const possible = section.scorePossible ?? 0;
-  const changed = score !== (effectiveScore(section) ?? 0) || report !== (effectiveReport(section) ?? '');
   const rubricItems = readRubricItems(section.rubricItems);
 
   return (
@@ -978,6 +1013,19 @@ function SectionEditor({
           <div className="flex flex-col gap-1.5">
             <CardTitle className="text-base">{sectionLabel(section.sectionType)}</CardTitle>
             <div className="flex flex-wrap items-center gap-1.5">
+              {unsaved && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+                >
+                  Unsaved
+                </Badge>
+              )}
+              {section.editedAt && !unsaved && (
+                <Badge variant="outline" className="font-normal text-muted-foreground">
+                  Edited by you
+                </Badge>
+              )}
               {section.confidence && (
                 <Badge
                   variant="outline"
@@ -1044,7 +1092,7 @@ function SectionEditor({
               What the student will read
             </span>
             <div className="flex items-center gap-1">
-              {changed && (
+              {unsaved && (
                 <Button size="sm" variant="ghost" onClick={onReset}>
                   <Undo2 data-icon="inline-start" />
                   Undo

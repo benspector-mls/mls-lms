@@ -39,9 +39,8 @@ async function Queue({ params }: { params: Promise<{ assignmentId: string }> }) 
   const { assignmentId } = await params;
   const queryClient = getQueryClient();
 
-  // Fetched together: the queue needs the course name for its heading and the
-  // completion threshold to say whether a score passes, and neither is on the
-  // submission list.
+  // Both, because the completion threshold decides whether a score passes and is not on
+  // the submission list.
   const [data, assignment] = await Promise.all([
     queryClient.fetchQuery(trpc.submissions.listForAssignment.queryOptions({ assignmentId })),
     queryClient.fetchQuery(trpc.assignments.get.queryOptions({ assignmentId })),
@@ -50,7 +49,6 @@ async function Queue({ params }: { params: Promise<{ assignmentId: string }> }) 
   return (
     <GradingQueue
       data={data}
-      courseName={assignment.course.name}
       completionThreshold={assignment.completionThreshold}
       now={new Date()}
     />

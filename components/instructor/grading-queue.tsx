@@ -1,15 +1,12 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import * as React from 'react';
-import { ArrowLeft, Inbox, Search } from 'lucide-react';
+import { Inbox, Search } from 'lucide-react';
 
 import { GradingReview } from '@/components/instructor/grading-review';
-import { PageHeader } from '@/components/page-header';
 import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatRelative, shortSha } from '@/lib/status';
 import { cn } from '@/lib/utils';
@@ -31,12 +28,10 @@ type Filter = 'needs_review' | 'graded' | 'all';
 
 export function GradingQueue({
   data,
-  courseName,
   completionThreshold,
   now,
 }: {
   data: Data;
-  courseName: string;
   completionThreshold: number;
   now: Date;
 }) {
@@ -97,26 +92,14 @@ export function GradingQueue({
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
+  /*
+    No page heading. The shell's breadcrumb already reads "Triage · Grading · {title}"
+    with Triage linked, so a heading here would repeat the assignment name and spend a
+    fifth of the viewport doing it. This screen is worked down, not read — the list and
+    the submission get the whole height.
+  */
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
-      <div className="border-b border-border px-4 py-4 sm:px-6">
-        <Link
-          href="/instructor"
-          className={cn(
-            buttonVariants({ variant: 'ghost', size: 'sm' }),
-            '-ml-2 mb-1 w-fit text-muted-foreground',
-          )}
-        >
-          <ArrowLeft data-icon="inline-start" />
-          Triage
-        </Link>
-        <PageHeader
-          eyebrow={courseName}
-          title={data.assignment.title}
-          description="Read each report against the test evidence, change what you disagree with, then release."
-        />
-      </div>
-
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
         <aside className="flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0">
           <div className="flex flex-col gap-3 border-b border-border p-3">
