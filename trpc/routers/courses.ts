@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { triageBucket } from '@/lib/grade/triage';
+
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
 
 export const coursesRouter = createTRPCRouter({
@@ -109,6 +111,138 @@ export const coursesRouter = createTRPCRouter({
           ? moduleStructure.filter((tag): tag is string => typeof tag === 'string')
           : [],
         teaches: isAdmin || instructors.length > 0,
+      };
+    }),
+
+  /**
+   * A whole course at once: its assignments, its roster, and every cell where the two
+   * meet. Instructors only.
+   *
+   * The one read in the application that crosses both students and assignments, which is
+   * what a gradebook is. Every other instructor procedure is scoped to one assignment or
+   * one submission, and building this out of those would be a request per student per
+   * assignment.
+   *
+   * Each cell carries the same `bucket` the triage screen and the grading queue sort on,
+   * so the "still to grade" count against an assignment here is the same count that
+   * screen shows.
+   */
+  gradebook: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const teaches =
+        ctx.profile.role === 'ADMIN' ||
+        (await ctx.db.courseInstructor.findFirst({
+          where: { courseId: input.courseId, userId: ctx.profile.id },
+          select: { id: true },
+        })) !== null;
+
+      if (!teaches) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not teach this course.',
+        });
+      }
+
+      const course = await ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: { id: true, name: true, cohortTerm: true, moduleStructure: true },
+      });
+
+      if (!course) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+      }
+
+      const [assignments, enrollments] = await Promise.all([
+        ctx.db.assignment.findMany({
+          where: { courseId: course.id },
+          orderBy: [{ moduleTag: 'asc' }, { assignmentRepoName: 'asc' }],
+          select: {
+            id: true,
+            title: true,
+            moduleTag: true,
+            pointValue: true,
+            dueAt: true,
+            githubOrg: true,
+          },
+        }),
+        ctx.db.enrollment.findMany({
+          where: { courseId: course.id, status: { not: 'REMOVED' } },
+          orderBy: { invitedEmail: 'asc' },
+          select: {
+            id: true,
+            status: true,
+            invitedEmail: true,
+            student: {
+              select: { id: true, displayName: true, email: true, githubUsername: true },
+            },
+          },
+        }),
+      ]);
+
+      const submissions = await ctx.db.submission.findMany({
+        where: { assignment: { courseId: course.id } },
+        select: {
+          id: true,
+          assignmentId: true,
+          studentId: true,
+          status: true,
+          isLate: true,
+          headSha: true,
+          gradedHeadSha: true,
+          finalScore: true,
+          finalScorePossible: true,
+          isComplete: true,
+          gradingDrafts: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { status: true, headSha: true },
+          },
+        },
+      });
+
+      const undelivered = await ctx.db.gradingDraft.findMany({
+        where: {
+          submission: { assignment: { courseId: course.id } },
+          status: 'APPROVED',
+          postedPrCommentId: null,
+        },
+        select: { submissionId: true },
+        distinct: ['submissionId'],
+      });
+      const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+
+      return {
+        course: {
+          id: course.id,
+          name: course.name,
+          cohortTerm: course.cohortTerm,
+          moduleStructure: Array.isArray(course.moduleStructure)
+            ? course.moduleStructure.filter((tag): tag is string => typeof tag === 'string')
+            : [],
+        },
+        assignments,
+        enrollments,
+        /**
+         * One entry per submission that exists. A student who has not accepted an
+         * assignment has no row, and the grid renders that gap as a gap rather than as a
+         * zero — never having started is not the same as having scored nothing.
+         */
+        cells: submissions.map(({ gradingDrafts, ...submission }) => {
+          const draft = gradingDrafts[0] ?? null;
+          const draftIsStale =
+            draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
+
+          return {
+            ...submission,
+            bucket: triageBucket(
+              submission.status,
+              draft,
+              draftIsStale,
+              undeliveredIds.has(submission.id),
+            ),
+          };
+        }),
       };
     }),
 
