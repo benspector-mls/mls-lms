@@ -6,6 +6,7 @@ import {
   CircleCheck,
   Clock,
   FileClock,
+  FileText,
   Inbox,
   Loader2,
   MessageSquareOff,
@@ -29,19 +30,33 @@ import type { RouterOutputs } from '@/trpc/types';
  * What is waiting on the instructor, across every course they teach.
  *
  * Organized by what to do about it rather than by course or assignment, because the
- * question this screen answers is "what next". A submission appears here only while it
- * needs a person; approving it is what takes it off the list.
+ * question this screen answers is "what next". The buckets together are the whole of the
+ * outstanding grading: everything a student has declared finished and nobody has
+ * approved is in one of them, so clearing them is being caught up.
  */
 
 type Triage = RouterOutputs['submissions']['triage'];
 type Row = Triage['submissions'][number];
 
 /**
- * The buckets that represent work. `generating` and `awaiting` are not among them — a
- * run in progress and a pull request nobody has run yet are both states to watch rather
- * than act on, and they share the section at the foot of the screen.
+ * The buckets that represent work. `generating` is not among them — a run already in
+ * flight needs waiting on rather than doing, and it sits at the foot of the screen.
  */
-type BucketKey = 'draft_ready' | 'needs_manual_review' | 'grading_failed' | 'comment_not_posted';
+type BucketKey =
+  | 'needs_report'
+  | 'draft_ready'
+  | 'needs_manual_review'
+  | 'grading_failed'
+  | 'comment_not_posted';
+
+/** Every bucket that counts toward "how much is left", in the order they are worked. */
+const WORK_BUCKETS: BucketKey[] = [
+  'needs_report',
+  'draft_ready',
+  'needs_manual_review',
+  'grading_failed',
+  'comment_not_posted',
+];
 
 const BUCKET_META: Record<
   BucketKey,
@@ -53,6 +68,14 @@ const BUCKET_META: Record<
     accent: string;
   }
 > = {
+  needs_report: {
+    label: 'No report yet',
+    description:
+      'Submitted work with no current report. Generating one is the first step; a draft describing code the student has since replaced counts as none.',
+    icon: FileText,
+    tone: 'text-sky-600 dark:text-sky-400',
+    accent: 'bg-sky-500/10',
+  },
   draft_ready: {
     label: 'Drafts ready to review',
     description: 'A report was produced. Read it, edit what you disagree with, then approve.',
@@ -98,15 +121,11 @@ export function TriageOverview({
   now: Date;
 }) {
   const buckets = bucketize(triage.submissions);
-  const awaiting = triage.submissions.filter(
-    (row) => row.bucket === 'awaiting' || row.bucket === 'generating',
-  );
+  const generating = triage.submissions.filter((row) => row.bucket === 'generating');
 
-  const total =
-    buckets.draft_ready.length +
-    buckets.needs_manual_review.length +
-    buckets.grading_failed.length +
-    buckets.comment_not_posted.length;
+  // The whole of what is left. Every bucket counts toward it, so the number at the top
+  // of the screen and the piles below it are the same claim stated two ways.
+  const remaining = WORK_BUCKETS.reduce((total, key) => total + buckets[key].length, 0);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
@@ -114,13 +133,22 @@ export function TriageOverview({
         title="Grading triage"
         description={[
           instructorName,
-          `${total} ${total === 1 ? 'item' : 'items'} waiting on you`,
+          remaining === 0
+            ? 'Caught up'
+            : `${remaining} ${remaining === 1 ? 'submission' : 'submissions'} left to grade`,
+          `${triage.gradedCount} approved`,
         ]
           .filter(Boolean)
           .join(' · ')}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="No report yet"
+          value={buckets.needs_report.length}
+          icon={FileText}
+          tone="text-sky-600 dark:text-sky-400"
+        />
         <StatCard label="Ready to review" value={buckets.draft_ready.length} icon={Sparkles} tone="text-primary" />
         <StatCard
           label="Manual grading"
@@ -129,22 +157,23 @@ export function TriageOverview({
           tone="text-amber-600 dark:text-amber-400"
         />
         <StatCard label="Failed runs" value={buckets.grading_failed.length} icon={XCircle} tone="text-destructive" />
-        <StatCard
-          label="Approved"
-          value={triage.gradedCount}
-          icon={CircleCheck}
-          tone="text-emerald-600 dark:text-emerald-400"
-        />
       </div>
 
-      {total === 0 ? (
+      {remaining === 0 ? (
         <EmptyState
           icon={Inbox}
           title="Nothing is waiting on you"
-          description="Submissions appear here once a report has been generated for them, or once one needs grading by hand."
+          description="Every submission that has been declared finished has been graded and delivered."
         />
       ) : (
         <div className="flex flex-col gap-4">
+          {/*
+            Ordered as the work is done: everything without a report, then everything with
+            one to read, then the two ways a run can end badly. The cards for those last
+            two are usually empty and sit side by side so they take one row rather than
+            two.
+          */}
+          <TriageBucket bucketKey="needs_report" rows={buckets.needs_report} now={now} />
           <TriageBucket bucketKey="draft_ready" rows={buckets.draft_ready} now={now} />
           <div className="grid gap-4 lg:grid-cols-2">
             <TriageBucket bucketKey="needs_manual_review" rows={buckets.needs_manual_review} now={now} />
@@ -161,29 +190,30 @@ export function TriageOverview({
         </div>
       )}
 
-      <Separator />
-
-      <section>
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="text-sm font-medium">Open, no report yet</h2>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-            {awaiting.length}
-          </span>
-        </div>
-        {awaiting.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No open pull requests are waiting for a report.
-          </p>
-        ) : (
-          <Card>
-            <CardContent className="flex flex-col gap-1 py-2">
-              {awaiting.map((row) => (
-                <TriageRow key={row.id} row={row} now={now} />
-              ))}
-            </CardContent>
-          </Card>
-        )}
-      </section>
+      {/*
+        Runs already in flight. Below the fold and outside the count on purpose: they are
+        neither work remaining nor work done, and nothing about them needs deciding.
+      */}
+      {generating.length > 0 && (
+        <>
+          <Separator />
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-sm font-medium">Reports being generated</h2>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                {generating.length}
+              </span>
+            </div>
+            <Card>
+              <CardContent className="flex flex-col gap-1 py-2">
+                {generating.map((row) => (
+                  <TriageRow key={row.id} row={row} now={now} />
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        </>
+      )}
     </div>
   );
 }
@@ -194,6 +224,7 @@ export function TriageOverview({
  */
 function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
   const buckets: Record<BucketKey, Row[]> = {
+    needs_report: [],
     draft_ready: [],
     needs_manual_review: [],
     grading_failed: [],
