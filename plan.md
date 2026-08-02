@@ -687,6 +687,24 @@ A section reaching the model without a point value is refused rather than defaul
 
 This is also what the instructor authoring form collects: a point value per section, not one per assignment.
 
+### Why a section has no test results
+
+Four outcomes rather than two, recorded as one flag per section. "This assignment has no
+suite" and "this assignment has a suite and none of it ran" are opposite situations that
+looked identical while both were `NO_TEST_EVIDENCE`.
+
+| Flag | Meaning | |
+| --- | --- | --- |
+| `TEST_EVIDENCE` | Claims were checked against a real run | ordinary |
+| `NO_TESTS_EXPECTED` | The section declares no `evidence: "tests"` | ordinary |
+| `TEST_RUN_MISSING` | Tests expected, no completed run at this commit | a fault |
+| `TEST_MATCH_MISSING` | Tests ran, the section's `testNamePattern` matched none of them | a fault |
+
+Short response and frontend work carry `NO_TESTS_EXPECTED` as a plain statement of fact
+and nothing is wrong. The last two mean the model graded without a constraint it was
+supposed to have, so each adds a review reason naming what is missing and what to do —
+run the tests, or fix the pattern.
+
 ### Notes to the instructor
 
 `instructorNotes` is free text the model writes for the instructor and that is never shown to the student. It exists because the two audiences need different things: "the point value I was given does not divide evenly into this README's checklist" is exactly what an instructor needs before approving a score, and exactly what a student should not read.
@@ -801,7 +819,7 @@ Either way the commit SHA is recorded in `grading_drafts.model_metadata` alongsi
 3. **Done.** `swe-1-4-loops` with every test passing scores 30/30 at high confidence. A submission that broke its code and edited the assertion to match scored 12/13 with the template's own assertion executing.
 4. **Done.** Full credit claimed alongside a failing test is caught as `FULL_CREDIT_DESPITE_FAILURES`; claiming a failed test passed is caught as `TEST_CLAIM_CONTRADICTION`, in both the bare and `Suite › name` forms the prompt uses.
 5. **Done.** A submission with all tests passing but hardcoded return values is not flagged merely for scoring below full credit. No check compares score against pass rate, and one exists specifically to keep it that way.
-6. **Done.** The checkpoint assignment has no test suite, produced a draft, and the arithmetic check applied to it. The section is flagged `NO_TEST_EVIDENCE` on the row and labelled as unverified in the review interface.
+6. **Done.** The checkpoint assignment has no test suite, produced a draft, and the arithmetic check applied to it. The section is flagged `NO_TESTS_EXPECTED` on the row and labelled in the review interface as having no suite by design, which is distinct from a section that expected one and did not get it.
 7. **Done.** `npm run calibrate` grades a sample submission and compares the result against the report an instructor wrote about it. The toolkit holds two short response pairs; pair 1 is the exemplar embedded in the prompt, and **pair 2 is held out**, which is the only reason grading it measures anything.
 
    | | pair 1 (exemplar) | pair 2 (held out) |

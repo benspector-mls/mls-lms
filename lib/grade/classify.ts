@@ -1,3 +1,5 @@
+import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
+
 /**
  * Which gradable sections a pull request contains.
  *
@@ -219,6 +221,60 @@ export function belongsToSection(path: string, sectionType: SectionType): boolea
       return /\.(js|ts|py)$/i.test(path);
   }
 }
+
+/**
+ * Why a section has no test results, or the results if it has them.
+ *
+ * Four outcomes rather than "results or null", because the reasons are not equivalent
+ * and collapsing them hides two faults behind one ordinary case. A frontend assignment
+ * with no suite is working as intended. A section that declares `evidence: "tests"` and
+ * has nothing to show is either a run that never happened or a `testNamePattern` that
+ * matches none of the tests that did — and in both of those the model graded without a
+ * constraint it was supposed to have, which an instructor needs to know.
+ */
+type SectionTests =
+  | { kind: "results"; results: NormalizedResults }
+  /** No `evidence: "tests"`. Ordinary for short response and frontend work. */
+  | { kind: "not-expected" }
+  /** Tests expected, but the submission has no completed run at this commit. */
+  | { kind: "run-missing" }
+  /** Tests expected and a run exists, but this section's pattern matched none of them. */
+  | { kind: "pattern-matched-nothing" };
+
+export function resolveSectionTests(
+  section: AssignmentSection | undefined,
+  allTests: NormalizedTest[],
+): SectionTests {
+  if (!hasTestEvidence(section)) return { kind: "not-expected" };
+  if (allTests.length === 0) return { kind: "run-missing" };
+
+  const tests = section?.testNamePattern
+    ? allTests.filter((test) =>
+        new RegExp(section.testNamePattern!).test(`${test.suite} ${test.name}`),
+      )
+    : allTests;
+
+  if (tests.length === 0) return { kind: "pattern-matched-nothing" };
+
+  return {
+    kind: "results",
+    results: {
+      total: tests.length,
+      passed: tests.filter((t) => t.status === "passed").length,
+      failed: tests.filter((t) => t.status === "failed").length,
+      skipped: tests.filter((t) => t.status === "skipped").length,
+      tests,
+    },
+  };
+}
+
+/** The flag recorded on the section row for each outcome. */
+export const TEST_EVIDENCE_FLAG: Record<SectionTests["kind"], string> = {
+  results: "TEST_EVIDENCE",
+  "not-expected": "NO_TESTS_EXPECTED",
+  "run-missing": "TEST_RUN_MISSING",
+  "pattern-matched-nothing": "TEST_MATCH_MISSING",
+};
 
 /** Finds the assignment's configuration for one detected section. */
 export function findSection(

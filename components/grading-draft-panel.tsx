@@ -14,16 +14,17 @@ import { useTRPC } from '@/trpc/client';
  * Two things this interface has to get right, because both are easy to get wrong in a
  * way that quietly misleads an instructor.
  *
- * **The report is shown as raw markdown, deliberately.** It is the exact text that
- * gets posted as a pull request comment on approval. Rendering it by default would hide
- * markdown that does not render, and broken markdown in a report is a defect an
- * instructor needs to see rather than have the browser paper over. A Preview toggle
- * shows the rendered form using the same component the student's page uses, so the two
- * cannot drift apart.
+ * **The report is rendered by default, with the raw text a toggle away.** Rendered is
+ * what the student receives, and markdown that fails to render shows up there as
+ * visibly wrong output — a broken table as literal pipes, a wrong code fence as
+ * unhighlighted text. The raw view is for editing and for working out *why* something
+ * renders wrongly, not for noticing that it does. Both views use the same component the
+ * student's page uses, so a preview cannot drift from what is delivered.
  *
- * **A section graded without test evidence is labelled as such.** Nothing constrains a
- * claimed score where there are no results to compare it against, so presenting a
- * verified section and an unverified one with the same authority would be misleading.
+ * **Why a section has no test evidence is stated, not just that it has none.** A
+ * frontend assignment with no suite is working as designed; a section that expects tests
+ * and has none was graded without a constraint it was supposed to have. Those look
+ * identical on a row unless the interface says which it is.
  */
 
 type RubricItem = {
@@ -461,7 +462,7 @@ function SectionView({
 }) {
   const trpc = useTRPC();
   const [showReport, setShowReport] = useState(true);
-  const [preview, setPreview] = useState(false);
+  const [preview, setPreview] = useState(true);
   const [editing, setEditing] = useState(false);
 
   const effectiveMarkdown = section.editedReportMarkdown ?? section.reportMarkdown ?? '';
@@ -483,12 +484,12 @@ function SectionView({
     ? (section.rubricItems as RubricItem[])
     : [];
 
-  // Written by the pipeline rather than the model, so the interface can distinguish a
-  // section whose test claims were checked against a run from one that rests entirely
-  // on the model's reading of the code.
-  const verified = section.flags.includes('TEST_EVIDENCE');
+  // Written by the pipeline rather than the model. Four outcomes rather than two,
+  // because "this assignment has no tests" and "this assignment has tests and none
+  // ran" look identical on a section row and mean opposite things.
+  const evidence = TEST_EVIDENCE_STATES.find((state) => section.flags.includes(state.flag));
   const otherFlags = section.flags.filter(
-    (flag) => flag !== 'TEST_EVIDENCE' && flag !== 'NO_TEST_EVIDENCE',
+    (flag) => !TEST_EVIDENCE_STATES.some((state) => state.flag === flag),
   );
 
   // The number in the prose against the number that would be recorded. Approving
@@ -516,9 +517,11 @@ function SectionView({
               edited by you
             </Badge>
           )}
-          <Badge variant={verified ? 'secondary' : 'outline'} className="text-xs">
-            {verified ? 'test claims verified' : 'no test evidence'}
-          </Badge>
+          {evidence && (
+            <Badge variant={evidence.variant} className="text-xs">
+              {evidence.label}
+            </Badge>
+          )}
           {section.confidence === 'LOW' && (
             <Badge variant="destructive" className="text-xs">
               low confidence
@@ -558,10 +561,15 @@ function SectionView({
         </p>
       )}
 
-      {!verified && (
-        <p className="mt-1 text-xs text-muted-foreground">
-          Nothing automatic constrains this score — there were no test results to check it
-          against. Read the code before approving.
+      {evidence?.detail && (
+        <p
+          className={
+            evidence.variant === 'destructive'
+              ? 'mt-1 rounded border border-red-500/50 bg-red-500/10 p-2 text-xs'
+              : 'mt-1 text-xs text-muted-foreground'
+          }
+        >
+          {evidence.detail}
         </p>
       )}
 
@@ -715,6 +723,50 @@ function SectionView({
     </div>
   );
 }
+
+/**
+ * How each test-evidence outcome is presented.
+ *
+ * Ordered, and the first flag present wins — a section carries exactly one of these.
+ *
+ * The distinction that matters is between the second entry and the last two. A frontend
+ * assignment with no suite is working as designed and should read as a plain fact; a
+ * section that expects tests and has none was graded without a constraint it was
+ * supposed to have, and that is a fault worth interrupting for.
+ */
+const TEST_EVIDENCE_STATES = [
+  {
+    flag: 'TEST_EVIDENCE',
+    label: 'test claims verified',
+    variant: 'secondary' as const,
+    detail: null,
+  },
+  {
+    flag: 'NO_TESTS_EXPECTED',
+    label: 'no automated tests',
+    variant: 'outline' as const,
+    detail:
+      'This assignment has no test suite, which is expected for this kind of work. The ' +
+      'score rests on a reading of the code, so read it too before approving.',
+  },
+  {
+    flag: 'TEST_RUN_MISSING',
+    label: 'test run missing',
+    variant: 'destructive' as const,
+    detail:
+      'This section expects test results and there are none for this commit. It was ' +
+      'graded without them. Run the tests and regenerate the report before approving.',
+  },
+  {
+    flag: 'TEST_MATCH_MISSING',
+    label: 'test match missing',
+    variant: 'destructive' as const,
+    detail:
+      'The tests ran, but none of them matched this section\'s test name pattern, so ' +
+      'the score was reached without them. Either the pattern is wrong or the tests it ' +
+      'names do not exist.',
+  },
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

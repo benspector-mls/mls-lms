@@ -5,13 +5,14 @@ import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { getPullRequestFiles } from "../github/prs";
 import type { GradingDraft } from "../generated/prisma/client";
-import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
+import type { NormalizedTest } from "../sandbox/parsers";
 import { GradingAssetsError, loadGradingAssets } from "./assets";
 import {
   belongsToSection,
   classifySections,
   findSection,
-  hasTestEvidence,
+  resolveSectionTests,
+  TEST_EVIDENCE_FLAG,
   type AssignmentSection,
 } from "./classify";
 import { crossCheck, type Facts } from "./cross-check";
@@ -202,10 +203,32 @@ export async function generateReportForSubmission(
       });
       assetsCommitSha = assets.commitSha;
 
-      // Which tests count toward this section. Absent pattern with evidence
-      // "tests" means the whole suite counts; no evidence means none of it does,
-      // which is ordinary rather than a deficiency.
+      // Which tests count toward this section, or why there are none. Absent pattern
+      // with evidence "tests" means the whole suite counts.
       const sectionTests = resolveSectionTests(section, allTests);
+      const sectionResults =
+        sectionTests.kind === "results" ? sectionTests.results : null;
+
+      // A section that was supposed to be checked against a suite and was not. The
+      // report still gets written — a model reading the code is better than nothing —
+      // but it rests on judgment alone where it was meant to rest on facts, and that
+      // is an instructor's call rather than something to pass over quietly.
+      if (sectionTests.kind === "run-missing") {
+        reviewReasons.push(
+          `${sectionType}: graded without test results. This section expects them and ` +
+          `the submission has no completed run at ${submission.headSha.slice(0, 7)}. ` +
+          `Run the tests and regenerate.`,
+        );
+      }
+      if (sectionTests.kind === "pattern-matched-nothing") {
+        reviewReasons.push(
+          `${sectionType}: graded without test results. The tests ran, but this ` +
+          `section's testNamePattern ` +
+          `(${JSON.stringify(section?.testNamePattern ?? "")}) matched none of the ` +
+          `${allTests.length} tests in the suite. Either the pattern is wrong or the ` +
+          `tests it names do not exist.`,
+        );
+      }
 
       const studentFiles = await fetchChangedFiles(installationId, {
         ...studentRepo,
@@ -229,7 +252,7 @@ export async function generateReportForSubmission(
             pointValue: sectionPointValue,
             readme,
             studentFiles,
-            testResults: sectionTests,
+            testResults: sectionResults,
             tamperedPaths,
             headBranch: submission.headBranch,
           },
@@ -241,7 +264,7 @@ export async function generateReportForSubmission(
       usageTotals.cachedPromptTokens += response.usage.cachedPromptTokens ?? 0;
       usageTotals.cacheWriteTokens += response.usage.cacheWriteTokens ?? 0;
 
-      const facts: Facts = { tests: sectionTests?.tests ?? null, tamperedPaths };
+      const facts: Facts = { tests: sectionResults?.tests ?? null, tamperedPaths };
       const check = crossCheck(response.output, facts);
 
       await db.gradingDraftSection.create({
@@ -257,7 +280,7 @@ export async function generateReportForSubmission(
             // Recorded on the row so the review interface can show, at a glance,
             // which sections had their claims verified against a run and which rest
             // entirely on the model's reading of the code.
-            sectionTests ? "TEST_EVIDENCE" : "NO_TEST_EVIDENCE",
+            TEST_EVIDENCE_FLAG[sectionTests.kind],
             ...check.findings.map((finding) => finding.code),
           ],
           instructorNotes: response.output.instructorNotes,
@@ -321,28 +344,6 @@ const PROMPT_VERSION = "2026-08-02.3";
  * Returns null when the section declares no test evidence, which is what keeps an
  * untested section from being handed results that describe someone else's work.
  */
-function resolveSectionTests(
-  section: AssignmentSection | undefined,
-  allTests: NormalizedTest[],
-): NormalizedResults | null {
-  if (!hasTestEvidence(section) || allTests.length === 0) return null;
-
-  const tests = section?.testNamePattern
-    ? allTests.filter((test) =>
-        new RegExp(section.testNamePattern!).test(`${test.suite} ${test.name}`),
-      )
-    : allTests;
-
-  if (tests.length === 0) return null;
-
-  return {
-    total: tests.length,
-    passed: tests.filter((t) => t.status === "passed").length,
-    failed: tests.filter((t) => t.status === "failed").length,
-    skipped: tests.filter((t) => t.status === "skipped").length,
-    tests,
-  };
-}
 
 /**
  * Whether a changed path is part of a section, so a short response report is not

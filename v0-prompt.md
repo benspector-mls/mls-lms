@@ -9,6 +9,13 @@ that cannot be wired up.
 
 ---
 
+You have generated a strong initial draft of the frontend application. However, things have
+changed since I first asked you to build this. What follows is an updated prompt for you
+to build, some of which makes large changes to your design, primarily in regard to the 
+assignment grading views, and some of which uses your existing design. First identify
+the differences and ask for clarification when there isn't enough information to make a 
+design choice. Here is the new prompt:
+
 Build the interface for **Marcy LMS**, the assignment and grading application for The
 Marcy Lab School, a nine-month software engineering programme. It replaces GitHub
 Classroom. Students accept an assignment, work in their own GitHub repository, and open
@@ -33,8 +40,8 @@ score is a proposal that an instructor accepts, edits, or rejects, and the inter
 job is to make the reasons for doubt visible rather than presenting every number with
 the same confidence. Four things must never be flattened into a generic "status" chip:
 
-1. **A score checked against a real test run** and one resting only on a model reading
-   the code are not equally trustworthy. Say which is which, in words.
+1. **A score checked against a real test run** and a score resting only on a model reading
+   the code are not the same. Say which is which, in words.
 2. **A draft describing an older commit** is not wrong, but it describes different code.
 3. **Notes written for the instructor** must be visibly separate from the report the
    student reads. Mixing them risks an instructor sending a student an internal remark.
@@ -74,19 +81,26 @@ submission if one exists. Depending on state the card shows:
 **Feedback accumulates.** A student who resubmits gets a second report about different
 work; earlier rounds stay, collapsed behind "Earlier feedback (N rounds)", each labelled
 with its date and score. Reading them in order is how a student sees what changed, so
-design that as a feature rather than an archive.
+design that as a feature rather than an archive since we eventually want to be able to 
+analyze a students history of feedback to make claims about their growth and progression.
 
 ### 3. `/instructor/assignments/[assignmentId]` — the grading queue
 
-The screen where the real work happens. One row or card per student submission, showing
+The screen where the real work happens and it is the most important screen of the application
+to get right. There is a lot of information to show and if it is too crowded then using it will
+be painful rather than enjoyable. It needs one row or card per student submission, showing
 the student, status, late badge, "revised since grading" badge, links to the repository
-and pull request, and the current commit.
+and pull request, and the current commit. 
 
 Sorting and filtering matter here: an instructor grading a cohort of twenty-five wants
 the ones needing attention first. Offer filters for "needs review", "not yet graded",
 "revised since grading", and "graded".
 
-Each submission expands to two panels.
+Perhaps this list of assignments appears as a side panel such that an instructor may click
+on a submission and the submission details appear on the right. This view should be optimized
+for desktop use as it is not recommended for instructors to be grading in a mobile format.
+
+The submission must display the following:
 
 **Test results.** Suite name, pass count, duration, and the individual test names with
 their status. Also, when present, a list of protected files the student changed — test
@@ -98,20 +112,25 @@ score. Include a "Run tests" button and a run history.
 > if it were the score, and never place them so close together that they read as the
 > same number.
 
-**Grading drafts.** For each section of the assignment (a checkpoint has two — a short
+**Grading drafts.** For each section of the assignment (an assignment may have two — a short
 response and a coding section, graded against different rubrics with different point
-values), show:
+values, though most will just have one section), show:
 
 - The section score and percentage.
-- A badge saying **"test claims verified"** or **"no test evidence"**, and for the
-  latter a sentence: nothing automatic constrains this score, read the code first.
+- A badge saying whether automated tests were used, and which framework. Some assignments
+  — frontend design work, short responses — have none by design, so this is a statement of
+  fact rather than a warning. The framework comes from the test run's `runnerPreset`: `node-jest`, 
+  `node-vitest`, `python-pytest`, etc., or none
+- If it is determined that tests *should* have run add a badge to indicate it ("Test Run Missing")
+- If it is determined that tests should exist but `testNamePattern` matched nothing, add a badge indicating it ("Test File Missing")
 - Flag badges (short codes, see the types below).
-- A visibly separate block, **"The model's caveats — not shown to the student"**,
+- A visibly separate block, **"Instructor Notes"** (not shown to the student),
   holding prose notes for the instructor.
-- The report itself. **Default to raw markdown in a monospace block**, with a "Preview"
-  toggle that renders it exactly as the student will see it. Raw is the default on
-  purpose: the instructor is deciding whether to send this text, and markdown that does
-  not render is a defect they need to see.
+- The report itself, as **rendered markdown by default**, with a toggle to the raw text.
+  Rendered is the default because it is what the student will receive, and markdown that
+  fails to render shows up there as visibly wrong output — a broken table appears as
+  literal pipes, a wrong code fence as unhighlighted text. The raw view is for editing
+  and for working out *why* something renders wrongly, not for spotting that it does.
 - An **Edit** control giving a textarea for the report and a number input for the score.
   Warn inline when the score written in the report text disagrees with the score in the
   input — approving is blocked while they disagree. Offer "Discard my edits" to restore
@@ -123,12 +142,16 @@ values), show:
 Draft history is collapsed by default. Approved drafts are labelled "sent to the
 student" with a date; unapproved ones are proposals.
 
-### 4. `/instructor/courses/[courseId]/gradebook` — new, does not exist yet
+### 4. `/instructor/courses/[courseId]/gradebook` — exists in the current design
 
-A table: students down the side, assignments across the top, scores in the cells. Show
-completion against the threshold rather than only a raw score, mark late submissions,
-and make ungraded cells obviously different from zero-scored ones. A student who did not
-submit and a student who scored zero are not the same thing and must not look alike.
+I love the current design but the cells should be clickable (when a student has something
+to be graded) that takes the instructor to that `/instructor/assignments/[assignmentId]` page
+with the clicked-on student's submission pulled up.
+
+For that to work the grading queue has to be addressable by submission, not only by
+assignment: link to `/instructor/assignments/[assignmentId]?submission=<submissionId>` and
+have that page open with the named submission selected in the detail pane. Falling back to
+the first submission when the parameter is absent or unrecognised.
 
 ## Data shapes
 
@@ -214,7 +237,12 @@ type GradingDraftSection = {
   // Short codes, rendered as badges. Each names why points were lost.
   //   writing:   MECHANICAL | CLARITY | MARKDOWN | STRUCTURE
   //   technical: INCOMPLETE | UNDERSTANDING | TERMINOLOGY
-  //   added by the pipeline: TEST_EVIDENCE | NO_TEST_EVIDENCE | LOW_CONFIDENCE
+  //   test evidence, exactly one per section:
+  //     TEST_EVIDENCE      — claims checked against a real run
+  //     NO_TESTS_EXPECTED  — this section has no suite by design; ordinary
+  //     TEST_RUN_MISSING   — tests expected, no run at this commit; a fault
+  //     TEST_MATCH_MISSING — tests ran, the section's pattern matched none; a fault
+  //   added by the pipeline: LOW_CONFIDENCE
   //     ARITHMETIC_MISMATCH | REPORT_TEXT_SCORE_MISMATCH | INTERNAL_LABEL_IN_REPORT
   //     TEST_CLAIM_CONTRADICTION | UNKNOWN_TEST_CLAIMED | FULL_CREDIT_DESPITE_FAILURES
   //     PROTECTED_PATHS_CHANGED | SCORE_OUT_OF_RANGE
@@ -232,13 +260,8 @@ type GradingDraftSection = {
 
 ## Do not
 
-- Do not render the instructor's report view as HTML by default. Raw first, preview
-  behind a toggle.
 - Do not show `instructorNotes` anywhere a student could see them, and do not merge them
   into the report body.
-- Do not present a section with `NO_TEST_EVIDENCE` with the same visual weight as a
-  verified one.
-- Do not display `passRate` as the grade.
 - Do not use a modal for the whole grading review; an instructor needs the code, the
   tests, and the report at once.
 - Do not add a "reject" or "regrade with different instructions" control. Regenerating

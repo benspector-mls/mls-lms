@@ -9,7 +9,12 @@
  * from code that passes every test is the judgment the model exists to make, so a
  * check comparing score against pass rate would flag exactly the behaviour we want.
  */
-import { belongsToSection, classifySections, hasTestEvidence } from "../lib/grade/classify";
+import {
+  belongsToSection,
+  classifySections,
+  hasTestEvidence,
+  resolveSectionTests,
+} from "../lib/grade/classify";
 import { crossCheck, type Facts } from "../lib/grade/cross-check";
 import { extractRubricSection } from "../lib/grade/assets";
 import { gradingReportJsonSchema, parseGradingReport, REPORT_FLAGS } from "../lib/grade/schema";
@@ -180,6 +185,32 @@ for (const path of ["SHORT_RESPONSE.MD", "short_response.md", "src/short-respons
 
 check("evidence:tests is required for test evidence", hasTestEvidence({ type: "x", evidence: "tests" }), true);
 check("a section without evidence has none", hasTestEvidence({ type: "x" }), false);
+
+// Four outcomes, not two. A frontend assignment with no suite and an algorithm section
+// whose tests never ran both used to be flagged NO_TEST_EVIDENCE, which made a fault
+// look exactly like the ordinary case.
+const someTests = [
+  { suite: "From Scratch Tests", name: "loop5to10 works", status: "passed" as const },
+  { suite: "Debug Tests", name: "brokenNested works", status: "failed" as const },
+];
+check("a section with no evidence declared expects no tests",
+  resolveSectionTests({ type: "coding_frontend" }, someTests).kind, "not-expected");
+check("tests expected with no run at all is a fault",
+  resolveSectionTests({ type: "coding_algorithm", evidence: "tests" }, []).kind, "run-missing");
+check("tests expected and present is evidence",
+  resolveSectionTests({ type: "coding_algorithm", evidence: "tests" }, someTests).kind, "results");
+check("a pattern that matches nothing is a fault, not an empty suite",
+  resolveSectionTests(
+    { type: "coding_algorithm", evidence: "tests", testNamePattern: "^Nothing Matches" },
+    someTests,
+  ).kind, "pattern-matched-nothing");
+check("a pattern that matches some tests narrows to them",
+  resolveSectionTests(
+    { type: "coding_algorithm", evidence: "tests", testNamePattern: "Debug" },
+    someTests,
+  ),
+  { kind: "results", results: { total: 1, passed: 0, failed: 1, skipped: 0,
+    tests: [someTests[1]] } });
 
 // --- cross-check: arithmetic ----------------------------------------------
 check("a consistent report with no facts passes", crossCheck(report(), noFacts).needsManualReview, false);
