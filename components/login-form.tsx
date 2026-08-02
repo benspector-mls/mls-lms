@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 export function LoginForm({
@@ -26,6 +26,22 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  /**
+   * Where to land after signing in. `next` is set when something sent the viewer here
+   * mid-visit — an expired session, usually — so they resume where they were rather
+   * than at their course list.
+   *
+   * Only relative paths are honoured. An absolute URL in a query parameter is how an
+   * open redirect works: a link to our own login page that bounces the viewer to
+   * somebody else's site once they have signed in.
+   */
+  const requested = searchParams.get("next");
+  const next =
+    requested && requested.startsWith("/") && !requested.startsWith("//")
+      ? requested
+      : "/courses";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,8 +55,10 @@ export function LoginForm({
         password,
       });
       if (error) throw error;
-      // Update this route to redirect to an authenticated route. The user already has an active session.
-      router.push("/protected");
+      router.push(next);
+      // The proxy reads the session from a cookie on the server. Without this the
+      // destination can render from a cache populated while signed out.
+      router.refresh();
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -59,7 +77,7 @@ export function LoginForm({
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-6">
-            <GitHubAuthButton label="Sign in with GitHub" />
+            <GitHubAuthButton next={next} label="Sign in with GitHub" />
             <div className="relative text-center text-sm">
               <span className="absolute inset-0 top-1/2 border-t" />
               <span className="relative bg-card px-2 text-muted-foreground">

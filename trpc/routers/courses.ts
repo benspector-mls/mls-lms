@@ -8,23 +8,50 @@ export const coursesRouter = createTRPCRouter({
    * instructor. Admins see every course.
    */
   listMine: profileProcedure.query(async ({ ctx }) => {
-    if (ctx.profile.role === 'ADMIN') {
-      return ctx.db.course.findMany({
-        where: { archivedAt: null },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
+    const isAdmin = ctx.profile.role === 'ADMIN';
 
-    return ctx.db.course.findMany({
-      where: {
-        archivedAt: null,
-        OR: [
-          { enrollments: { some: { studentId: ctx.profile.id, status: 'ACTIVE' } } },
-          { instructors: { some: { userId: ctx.profile.id } } },
-        ],
-      },
+    const courses = await ctx.db.course.findMany({
+      where: isAdmin
+        ? { archivedAt: null }
+        : {
+            archivedAt: null,
+            OR: [
+              { enrollments: { some: { studentId: ctx.profile.id, status: 'ACTIVE' } } },
+              { instructors: { some: { userId: ctx.profile.id } } },
+            ],
+          },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        cohortTerm: true,
+        archivedAt: true,
+        moduleStructure: true,
+        // Counted here rather than fetched and measured in the interface, so the card
+        // does not pull every assignment and enrollment across to say how many there
+        // are.
+        _count: {
+          select: {
+            assignments: true,
+            enrollments: { where: { status: 'ACTIVE' } },
+          },
+        },
+        // Whether the caller teaches this particular course, which is not the same as
+        // their role: an admin teaches none of them but sees all, and an instructor may
+        // be enrolled in a course they do not teach. The instructor link on each card
+        // reads this rather than the role.
+        instructors: {
+          where: { userId: ctx.profile.id },
+          select: { id: true },
+          take: 1,
+        },
+      },
     });
+
+    return courses.map(({ instructors, ...course }) => ({
+      ...course,
+      teaches: isAdmin || instructors.length > 0,
+    }));
   }),
 
   /** Roster for one course. Instructors only. */
