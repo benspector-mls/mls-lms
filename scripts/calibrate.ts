@@ -117,7 +117,7 @@ async function main() {
     // No answer key paths, deliberately. Nothing is then "expected but missing", so
     // the prompt adds no low-confidence nudge — and a short response is graded
     // against the rubric and the questions themselves, which is what a human does.
-    const assets = loadGradingAssets({ sectionType: "short_response", answerKeyPaths: [] });
+    const assets = await loadGradingAssets({ sectionType: "short_response", answerKeyPaths: [] });
 
     const response = await generator.generate({
       system: buildSystemPrompt({ sectionType: "short_response", assets }),

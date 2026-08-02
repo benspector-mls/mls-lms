@@ -780,9 +780,17 @@ Any of these produces `needs_manual_review` with the specific reason attached, n
 
 ### Grading assets
 
-`grading-toolkit/` and `answer-keys/` are read from a local clone through the `GRADING_ASSETS_PATH` environment variable. Every `grading_drafts.model_metadata` records that clone's current commit SHA alongside the model id, prompt version, and token usage.
+`grading-toolkit/` and `answer-keys/` come from one of two sources, chosen by whether `GRADING_ASSETS_PATH` is set.
 
-This is a local-development arrangement. Once this runs on Vercel rather than one laptop, it must become a fetch from the private repository at a specific commit SHA through the GitHub API.
+**A local clone**, when it is. Editing `rubric.md` and re-grading immediately is how the rubric actually gets tuned, and a loop requiring a commit and push first would stop that happening. Development only.
+
+**The private repository through the GitHub API**, otherwise, which is what a deployed host uses. Individual files rather than the repository archive: the archive is 23MB and over 20 seconds, almost all of it images grading never reads, while a run needs the rubric, the agent rules, one sample report, and a handful of answer keys — measured at roughly 200ms each and fetched in parallel.
+
+Files are read at a resolved commit SHA, never at a branch name, so a run taking ninety seconds cannot read half its rubric from before a push and half from after. Content is cached under `sha:path` with no expiry, which is safe because the content of a path at a given commit cannot change. The branch head itself is re-resolved every 60 seconds, so a pushed rubric change takes effect within a minute without a webhook.
+
+Either way the commit SHA is recorded in `grading_drafts.model_metadata` alongside the model id, prompt version, and token usage, so a report traces back to the exact rubric that produced it.
+
+**A GitHub App is installed per organization.** The guides are in `The-Marcy-Lab-School` while the student repositories are in `marcy-lms-test`, and the installation covering one cannot read the other. `GRADING_ASSETS_INSTALLATION_ID` names the second installation; `scripts/list-installations.ts` prints the ids. `npm run verify:assets` exercises the deployed path with the local clone forced off, and is the check that a deployment can read its rubric at all.
 
 ### Phase 3 verification
 
@@ -827,7 +835,33 @@ The effect is visible in the calibration output. Asked only for a number, the mo
 
 ---
 
-## Phase 4: automatic triggering and orchestration
+## Phase 4: triggering and orchestration
+
+Deferred until after Phase 6, and the question it answers has changed.
+
+### Whether grading should be automatic at all
+
+The original design had the webhook start a run on every `opened`, `reopened`, and `synchronize`. That is worth reconsidering before it is built, because each run costs real money and most of them would be wasted.
+
+A student who opens a pull request, closes it, opens another, and pushes six more commits generates a report per event. None of the intermediate ones is read by anybody. At roughly $0.15 a report and a cohort of twenty-five, a week of ordinary student behaviour is a meaningful bill for drafts nobody looks at — and every one of them lands in the instructor's queue as something to scroll past.
+
+The alternative is a **grading session**: the instructor sits down, presses "generate pending reports", and the application grades every submission whose current commit has no draft. One report per submission per state of the code, generated when somebody is actually about to read it. Cost tracks the work an instructor does rather than the commits a student makes, and there is nothing to prune.
+
+It also fits how grading actually happens, which is in batches at a sitting rather than continuously.
+
+This does not need the webhook to trigger anything, so the requirements below are about the batch, not about responding to GitHub inside ten seconds:
+
+1. The intent to grade is recorded durably before work begins, so a submission is never silently skipped.
+2. Work that fails partway through can be retried without repeating what already succeeded.
+3. The same submission is never graded twice concurrently.
+4. A batch of twenty-five submissions is not bound by one function invocation's time limit, though a single submission comfortably is.
+5. Progress is readable from PostgreSQL while the batch runs, because the instructor is watching it.
+
+Requirement 4 is the only one that still argues for anything beyond a plain function. **A single submission takes about two minutes at the worst measured case against a 300-second limit**, so fanning out one invocation per submission satisfies it without a worker process or step-by-step continuation. The measurements are in [what a report costs](#what-a-report-costs) and the durations table below.
+
+The designs that follow were written for the automatic version and are kept because the durability and concurrency questions are the same either way.
+
+### If it does become automatic
 
 The webhook starts a run on `opened`, `reopened`, and `synchronize`, and marks any existing draft `SUPERSEDED` on `synchronize`. Everything before this phase is callable as a plain function taking a submission id, so this phase adds a caller and changes nothing else.
 
@@ -1006,12 +1040,14 @@ Automatically re-running tests and re-generating a draft when a student declares
 
 ### Phase 5 verification
 
-1. Approve a draft: the status becomes `GRADED`, the scores are populated, `postedPrCommentId` is set, and the comment appears on GitHub.
-2. As the seeded instructor, browse assignments, then submissions, then the review screen; the Approve button calls through correctly.
-3. The student's view shows the feedback with no further action.
-4. Push a commit after grading; confirm the status stays `GRADED`, that `headSha` updates, and that the submission is marked as revised since grading.
-5. Press the resubmission button; confirm the status becomes `RESUBMITTED` and the instructor's list distinguishes it from a first submission.
-6. Approve a resubmission; confirm the existing pull request comment is edited rather than a second one added.
+All six are done, against `swe-1-4-loops-benspector3` in `marcy-lms-test`. Items 4 to 6 are re-runnable with `npm run verify:resubmission`, which drives the procedures through tRPC callers so authorization is exercised alongside the behaviour.
+
+1. **Done.** Approving recorded 30/30, set `isComplete` against the 75 percent threshold, wrote `gradedHeadSha`, marked the draft `APPROVED`, and posted comment `5154457674`. Approving the same draft twice is refused rather than posting the feedback again.
+2. **Done.** The instructor path from assignments to submissions to the review surface calls through, and a student calling the same procedures is refused with `FORBIDDEN`.
+3. **Done.** The student's page reads the graded columns directly, so the feedback appears on approval with no publish step — and appears even when the comment failed to post.
+4. **Done.** A real commit pushed to the `draft` branch after grading left the status at `GRADED`, moved `headSha` to `e950431`, and left `gradedHeadSha` at `7d1b6f4`, which is what marks the submission revised since grading.
+5. **Done.** The student's declaration set `RESUBMITTED`, and the instructor's queue distinguishes it from a first submission.
+6. **Done, and the expected behaviour changed.** A second approval posts a **new** comment rather than editing the first: the pull request now carries `5154457674` for `7d1b6f4` and `5154783511` for `e950431`. Feedback on a resubmission describes different work, and the two read in order are the record of what the student changed — see [one section, one call, one report](#one-section-one-call-one-report). Approving also cleared the revised-since-grading state by advancing `gradedHeadSha`.
 
 ---
 
@@ -1041,7 +1077,7 @@ Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 a
 
 ## Open items
 
-- **Grading assets on a deployed host.** `GRADING_ASSETS_PATH` points at a local clone. Once this runs anywhere but one laptop, it must become a fetch from the private repository at a specific commit SHA through the GitHub API.
+- **Installing the GitHub App on the organization holding the grading guides.** The code reads them over the API and is verified by `npm run verify:assets`, but the app is currently installed only on `marcy-lms-test`, so a deployed host cannot read the rubric until the app is installed on `The-Marcy-Lab-School` and `GRADING_ASSETS_INSTALLATION_ID` is set.
 - **Which GitHub organization.** Everything verified so far used `marcy-lms-test`. Changing to `The-Marcy-Lab-School-Assignments` is a separate, deliberate step.
 - **Project-wide Supabase default privileges.** Undecided, pending a conversation with your partner. Until it is decided, every new table needs its own `REVOKE` and row level security statements.
 - **`package.json` merge policy for a legitimate dependency collision.** The template wins on a version collision, which is correct when the assignment specifies a version deliberately. Revisit if an assignment ever wants students to choose one.

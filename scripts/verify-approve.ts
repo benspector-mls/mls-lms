@@ -95,10 +95,22 @@ async function main() {
 
   // THE case: text and score disagreeing must not reach a student. Exercised by
   // writing an edit, attempting approval, and rolling the edit back.
-  const candidate = await db.gradingDraftSection.findFirst({
+  // The draft must describe the commit the pull request is currently at, or approval
+  // refuses for staleness before it ever reaches the check being exercised here.
+  // Prisma cannot compare two columns across a relation in a `where`, so the filtering
+  // happens in code.
+  const candidates = await db.gradingDraftSection.findMany({
     where: { gradingDraft: { approvedAt: null }, reportMarkdown: { not: null } },
-    select: { id: true, gradingDraftId: true, scoreEarned: true, scorePossible: true },
+    select: {
+      id: true, gradingDraftId: true, scoreEarned: true, scorePossible: true,
+      gradingDraft: {
+        select: { headSha: true, submission: { select: { headSha: true } } },
+      },
+    },
   });
+  const candidate = candidates.find(
+    (section) => section.gradingDraft.headSha === section.gradingDraft.submission.headSha,
+  );
 
   if (!candidate) {
     console.log("skip the text-versus-score case — no unapproved draft to edit");

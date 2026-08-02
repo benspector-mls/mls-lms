@@ -196,7 +196,7 @@ export async function generateReportForSubmission(
         );
       }
 
-      const assets = loadGradingAssets({
+      const assets = await loadGradingAssets({
         sectionType,
         answerKeyPaths: section?.answerKeyPaths ?? [],
       });

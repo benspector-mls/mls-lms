@@ -10,14 +10,20 @@ import type { SectionType } from "./classify";
  * The grading toolkit and answer keys: the rules, the rubric, the sample reports,
  * and the reference solutions.
  *
- * Read from a local clone through GRADING_ASSETS_PATH. That is a development
- * arrangement and is on the open items list: once this runs on Vercel rather than
- * one laptop, it has to become a fetch from the private repository at a specific
- * commit SHA through the GitHub API. Everything here reads through
- * `loadGradingAssets`, so that change lands in one place.
+ * Two sources, chosen by whether `GRADING_ASSETS_PATH` is set.
  *
- * The clone's current commit is recorded on every draft, so a report can be traced
- * back to the exact rubric and sample report that produced it.
+ * **A local clone**, when it is. Editing `rubric.md` and immediately re-grading is how
+ * the rubric actually gets tuned, and a loop that requires committing and pushing
+ * first would make that painful enough to stop happening. Development only — the path
+ * is a directory on somebody's laptop.
+ *
+ * **The private repository over the GitHub API**, otherwise. This is what runs on a
+ * deployed host, where no clone exists.
+ *
+ * Either way a commit SHA is recorded on every draft, so a report can be traced back
+ * to the exact rubric and sample report that produced it. Content is fetched at that
+ * SHA rather than at a branch name: a run that takes ninety seconds must not read half
+ * its rubric from before a push and half from after.
  */
 
 export type GradingAssets = {
@@ -42,29 +48,148 @@ export class GradingAssetsError extends Error {
   }
 }
 
-function assetsRoot(): string {
-  const root = process.env.GRADING_ASSETS_PATH;
-  if (!root) {
-    throw new GradingAssetsError(
-      "GRADING_ASSETS_PATH is not set. It must point at a clone of the grading " +
-      "toolkit and answer keys repository — see .env.example.",
-    );
-  }
+/**
+ * Where a set of files is being read from, and at which commit.
+ *
+ * `read` returns null for an absent file. Callers decide whether that is fatal: a
+ * missing rubric is, a missing answer key is not.
+ */
+type AssetSource = {
+  describe: string;
+  commitSha: string | null;
+  read: (relativePath: string) => Promise<string | null>;
+};
+
+function localSource(root: string): AssetSource {
   if (!existsSync(root)) {
     throw new GradingAssetsError(`GRADING_ASSETS_PATH points at ${root}, which does not exist.`);
   }
-  return root;
+  return {
+    describe: `the clone at ${root}`,
+    commitSha: readCommitSha(root),
+    read: async (relativePath) => {
+      const full = path.join(root, relativePath);
+      return existsSync(full) ? readFileSync(full, "utf-8") : null;
+    },
+  };
 }
 
-function readAsset(root: string, relativePath: string): string {
-  const full = path.join(root, relativePath);
-  if (!existsSync(full)) {
+/**
+ * How long a resolved branch head is reused before being looked up again.
+ *
+ * A pushed rubric change takes effect within this long. Short, because the cost of
+ * being wrong is grading a cohort against a rubric its author believes they replaced,
+ * and one extra API call per minute is nothing. The plan's webhook-driven pointer would
+ * remove the delay entirely; this needs no webhook to be correct, only current.
+ */
+const HEAD_SHA_TTL_MS = 60_000;
+
+let cachedHead: { repo: string; sha: string; at: number } | null = null;
+
+/**
+ * File contents keyed by commit SHA and path.
+ *
+ * Cached without expiry, and safe to: the content of a path at a given commit cannot
+ * change. Each deployment starts empty and each instance fills its own, which is the
+ * right trade for a few dozen small files.
+ */
+const contentCache = new Map<string, string | null>();
+
+async function githubSource(): Promise<AssetSource> {
+  const repoFullName = process.env.GRADING_ASSETS_REPO;
+  if (!repoFullName) {
     throw new GradingAssetsError(
-      `Missing grading asset ${relativePath} under GRADING_ASSETS_PATH. ` +
-      `The clone at ${root} may be incomplete or out of date.`,
+      "Neither GRADING_ASSETS_PATH nor GRADING_ASSETS_REPO is set, so there is no " +
+      "rubric to grade against. Set GRADING_ASSETS_REPO to owner/repo on a deployed " +
+      "host, or GRADING_ASSETS_PATH to a local clone — see .env.example.",
     );
   }
-  return readFileSync(full, "utf-8");
+
+  const [owner, repo] = repoFullName.split("/");
+  if (!owner || !repo) {
+    throw new GradingAssetsError(
+      `GRADING_ASSETS_REPO is "${repoFullName}". It must be "owner/repo".`,
+    );
+  }
+
+  const { getConfiguredInstallationId } = await import("../github/app-client");
+  const { fetchRepoFile } = await import("../github/files");
+
+  // A GitHub App is installed per organization, each with its own id and its own
+  // token. The grading guides live in a different organization from the student
+  // repositories, so reading them needs that organization's installation — the one
+  // that can see `marcy-lms-test` cannot see anything in `The-Marcy-Lab-School`.
+  //
+  // Falls back to the main installation for the case where both end up in one
+  // organization, which is the simpler arrangement if it ever happens.
+  const configured = process.env.GRADING_ASSETS_INSTALLATION_ID;
+  const installationId = configured ? Number(configured) : getConfiguredInstallationId();
+  if (Number.isNaN(installationId)) {
+    throw new GradingAssetsError(
+      `GRADING_ASSETS_INSTALLATION_ID is "${configured}", which is not a number.`,
+    );
+  }
+
+  const now = Date.now();
+  if (!cachedHead || cachedHead.repo !== repoFullName || now - cachedHead.at > HEAD_SHA_TTL_MS) {
+    const { resolveRefToSha, getDefaultBranch } = await import("../github/archives");
+    try {
+      const branch = process.env.GRADING_ASSETS_REF
+        ?? (await getDefaultBranch(installationId, { owner, repo }));
+      cachedHead = {
+        repo: repoFullName,
+        sha: await resolveRefToSha(installationId, { owner, repo, ref: branch }),
+        at: now,
+      };
+    } catch (err) {
+      throw new GradingAssetsError(
+        `Could not reach ${repoFullName} to read the grading assets: ` +
+        `${err instanceof Error ? err.message : String(err)}.\n` +
+        `Installation ${installationId} may not cover that repository. A GitHub App ` +
+        `is installed per organization, so if the grading guides are in a different ` +
+        `organization from the student repositories, install the app there too and ` +
+        `set GRADING_ASSETS_INSTALLATION_ID to that installation's id. ` +
+        `\`npx tsx --conditions=react-server scripts/list-installations.ts\` prints them.`,
+      );
+    }
+  }
+
+  const sha = cachedHead.sha;
+
+  return {
+    describe: `${repoFullName} at ${sha.slice(0, 7)}`,
+    commitSha: sha,
+    read: async (relativePath) => {
+      const key = `${sha}:${relativePath}`;
+      const cached = contentCache.get(key);
+      if (cached !== undefined) return cached;
+
+      const content = await fetchRepoFile(installationId, {
+        owner,
+        repo,
+        ref: sha,
+        path: relativePath,
+      });
+      contentCache.set(key, content);
+      return content;
+    },
+  };
+}
+
+async function resolveSource(): Promise<AssetSource> {
+  const root = process.env.GRADING_ASSETS_PATH;
+  return root ? localSource(root) : githubSource();
+}
+
+/** For a file whose absence means there is nothing to grade against. */
+async function readRequired(source: AssetSource, relativePath: string): Promise<string> {
+  const content = await source.read(relativePath);
+  if (content === null) {
+    throw new GradingAssetsError(
+      `Missing grading asset ${relativePath} in ${source.describe}.`,
+    );
+  }
+  return content;
 }
 
 /**
@@ -144,47 +269,65 @@ function readCommitSha(root: string): string | null {
   }
 }
 
-export function loadGradingAssets(params: {
+/**
+ * Rejects an answer key path that would escape the answer-keys directory.
+ *
+ * These paths come from a database column rather than from code. Against a local clone
+ * a traversal reads arbitrary files off the host; against the API it reads arbitrary
+ * files out of a private repository. Checked with plain string logic so the rule is the
+ * same for both, rather than relying on a filesystem resolver the API source does not
+ * use.
+ */
+function answerKeyPathIn(relativePath: string): string {
+  const normalized = path.posix.normalize(relativePath.replace(/\\/g, "/"));
+  if (normalized.startsWith("..") || normalized.startsWith("/") || path.isAbsolute(relativePath)) {
+    throw new GradingAssetsError(
+      `Answer key path ${JSON.stringify(relativePath)} escapes the answer-keys ` +
+      `directory. Fix assignment.sections[].answerKeyPaths.`,
+    );
+  }
+  return `answer-keys/${normalized}`;
+}
+
+export async function loadGradingAssets(params: {
   sectionType: SectionType;
   /** Paths relative to the answer-keys directory, from `assignment.sections`. */
   answerKeyPaths: string[];
-}): GradingAssets {
-  const root = assetsRoot();
+}): Promise<GradingAssets> {
+  const source = await resolveSource();
   const config = SECTION_ASSETS[params.sectionType];
 
-  const rubric = readAsset(root, path.join("grading-toolkit", "rubric.md"));
+  // In parallel, because against the API these are separate round trips and they do
+  // not depend on each other. Eight sequential requests would add most of a second to
+  // every section graded.
+  const [agentRules, rubric, sampleReport, keyContents] = await Promise.all([
+    readRequired(source, "grading-toolkit/agent-rules.md"),
+    readRequired(source, "grading-toolkit/rubric.md"),
+    readRequired(source, `grading-toolkit/${config.sampleFile}`),
+    Promise.all(
+      params.answerKeyPaths.map(async (relativePath) => ({
+        path: relativePath,
+        content: await source.read(answerKeyPathIn(relativePath)),
+      })),
+    ),
+  ]);
 
   const answerKeys: { path: string; content: string }[] = [];
   const missingAnswerKeys: string[] = [];
-
-  for (const relativePath of params.answerKeyPaths) {
-    // Confined to the answer-keys directory. These paths come from a database
-    // column, so a traversal would otherwise read arbitrary files off the host.
-    const resolved = path.resolve(root, "answer-keys", relativePath);
-    const expectedPrefix = path.resolve(root, "answer-keys") + path.sep;
-    if (!resolved.startsWith(expectedPrefix)) {
-      throw new GradingAssetsError(
-        `Answer key path ${JSON.stringify(relativePath)} escapes the answer-keys ` +
-        `directory. Fix assignment.sections[].answerKeyPaths.`,
-      );
-    }
-
-    if (existsSync(resolved)) {
-      answerKeys.push({ path: relativePath, content: readFileSync(resolved, "utf-8") });
-    } else {
-      // Recorded rather than thrown. A missing key means the model grades without
-      // a reference solution, which is worse but not useless, and it should
-      // surface as a review reason rather than as a crash.
-      missingAnswerKeys.push(relativePath);
-    }
+  for (const key of keyContents) {
+    // Recorded rather than thrown. A missing key means the model grades without a
+    // reference solution, which is worse but not useless, and it should surface as a
+    // review reason rather than as a crash.
+    if (key.content === null) missingAnswerKeys.push(key.path);
+    else answerKeys.push({ path: key.path, content: key.content });
   }
 
   return {
-    agentRules: readAsset(root, path.join("grading-toolkit", "agent-rules.md")),
+    agentRules,
     rubricSection: extractRubricSection(rubric, config.rubricHeading),
-    sampleReport: readAsset(root, path.join("grading-toolkit", config.sampleFile)),
+    sampleReport,
     answerKeys,
     missingAnswerKeys,
-    commitSha: readCommitSha(root),
+    commitSha: source.commitSha,
   };
 }
