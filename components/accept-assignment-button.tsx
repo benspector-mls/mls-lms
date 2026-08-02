@@ -7,9 +7,13 @@ import { Button } from '@/components/ui/button';
 import { useTRPC } from '@/trpc/client';
 
 /**
- * Accepting an assignment creates a GitHub repository, so it is a mutation
- * triggered by the student rather than something that happens while a page
- * renders. That is why this is a client component: it needs an onClick handler.
+ * Accepting an assignment creates a GitHub repository, so it is a mutation the student
+ * triggers rather than something that happens while a page renders. That is what makes
+ * this a client component.
+ *
+ * Labelled "Accept" rather than "Accept on GitHub", because accepting is the step and
+ * GitHub is only how it is carried out today — a template document copied for the
+ * student would be the same action.
  */
 export function AcceptAssignmentButton({ assignmentId }: { assignmentId: string }) {
   const trpc = useTRPC();
@@ -17,28 +21,32 @@ export function AcceptAssignmentButton({ assignmentId }: { assignmentId: string 
 
   const accept = useMutation(
     trpc.assignments.accept.mutationOptions({
-      onSuccess: () => {
-        // Re-render the server component so the new repository link appears.
-        router.refresh();
-      },
+      // Re-renders the server component, so the row picks up its new status and
+      // repository link.
+      onSuccess: () => router.refresh(),
     }),
   );
 
   return (
-    <div className="flex flex-col gap-2">
+    <>
       <Button
+        size="sm"
         onClick={() => accept.mutate({ assignmentId })}
         disabled={accept.isPending}
-        size="sm"
       >
-        {accept.isPending ? 'Creating repository…' : 'Accept assignment'}
+        {accept.isPending ? 'Creating repository…' : 'Accept'}
       </Button>
 
+      {/*
+        Full width so the message wraps under the row rather than stretching it. Failures
+        here are things the student can act on — an unlinked GitHub account, most often —
+        so the text has to be readable, not truncated into a row.
+      */}
       {accept.error && (
-        <p className="text-sm text-red-500" role="alert">
+        <p className="w-full text-sm text-destructive" role="alert">
           {accept.error.message}
         </p>
       )}
-    </div>
+    </>
   );
 }

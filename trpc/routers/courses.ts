@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
@@ -53,6 +54,63 @@ export const coursesRouter = createTRPCRouter({
       teaches: isAdmin || instructors.length > 0,
     }));
   }),
+
+  /**
+   * One course the caller belongs to.
+   *
+   * Separate from `listMine` because the course screens need `moduleStructure` — the
+   * cohort's own module sequence, which is what puts the assignment groups in teaching
+   * order rather than alphabetical order — and fetching every course to find one would
+   * be the wrong shape.
+   */
+  get: profileProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const course = await ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: {
+          id: true,
+          name: true,
+          cohortTerm: true,
+          moduleStructure: true,
+          archivedAt: true,
+          instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
+        },
+      });
+
+      if (!course) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+      }
+
+      const isAdmin = ctx.profile.role === 'ADMIN';
+
+      if (!isAdmin && course.instructors.length === 0) {
+        const enrollment = await ctx.db.enrollment.findFirst({
+          where: { courseId: course.id, studentId: ctx.profile.id, status: 'ACTIVE' },
+          select: { id: true },
+        });
+
+        if (!enrollment) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You are not a member of this course.',
+          });
+        }
+      }
+
+      const { instructors, moduleStructure, ...rest } = course;
+
+      return {
+        ...rest,
+        // Stored as Json, so it arrives as an unknown shape. Narrowed here rather than
+        // at every call site: a malformed value should degrade to "no declared order",
+        // not throw on a page the instructor is trying to read.
+        moduleStructure: Array.isArray(moduleStructure)
+          ? moduleStructure.filter((tag): tag is string => typeof tag === 'string')
+          : [],
+        teaches: isAdmin || instructors.length > 0,
+      };
+    }),
 
   /** Roster for one course. Instructors only. */
   roster: instructorProcedure
