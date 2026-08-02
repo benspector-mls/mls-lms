@@ -31,7 +31,10 @@ server actions.
 Next.js App Router, TypeScript, Tailwind, and shadcn/ui — all already installed. Use
 shadcn components (`Card`, `Badge`, `Button`, `Table`, `Tabs`, `Accordion`, `Dialog`,
 `Textarea`, `Input`) rather than hand-rolled equivalents. Light and dark themes both.
-Responsive: instructors use a laptop, students often a phone.
+
+The student screens must work on a phone — that is where students check a grade. The
+instructor grading queue is desktop-first and does not need to collapse gracefully to a
+narrow screen; grading on a phone is not a workflow worth designing for.
 
 ## The thing that makes this interface hard
 
@@ -78,6 +81,12 @@ submission if one exists. Depending on state the card shows:
   one; students commit while they work.
 - **`RESUBMITTED`** → "You have asked for another look."
 
+`SubmissionStatus` also carries `DRAFT_READY`, `NEEDS_MANUAL_REVIEW`, and
+`GRADING_FAILED`. Those describe where the work sits in the instructor's queue, and a
+student has nothing to do about any of them. **Never show a student a raw status name.**
+All three read to them as "submitted, waiting on your instructor" — a student who sees
+"grading failed" or "needs manual review" reasonably concludes they did something wrong.
+
 **Feedback accumulates.** A student who resubmits gets a second report about different
 work; earlier rounds stay, collapsed behind "Earlier feedback (N rounds)", each labelled
 with its date and score. Reading them in order is how a student sees what changed, so
@@ -112,6 +121,20 @@ score. Include a "Run tests" button and a run history.
 > if it were the score, and never place them so close together that they read as the
 > same number.
 
+**Generating a report.** A "Generate report" button, becoming "Regenerate report" once a
+draft exists. Two things about it shape the design:
+
+- **It takes 30 to 90 seconds**, and the instructor waits. A spinner that sits still for
+  a minute and a half reads as a hang. Show that work is happening and roughly how long
+  it takes, keep the rest of the screen usable, and do not let the button be pressed
+  twice.
+- **Sometimes it cannot run**, because the student has not opened a pull request or the
+  assignment has no rubric mapping. In that case show the specific reason in place of the
+  button rather than a disabled control — a greyed-out button invites clicking and says
+  nothing about why it will not work.
+
+The same applies to "Run tests", which takes about 30 seconds.
+
 **Grading drafts.** For each section of the assignment (an assignment may have two — a short
 response and a coding section, graded against different rubrics with different point
 values, though most will just have one section), show:
@@ -121,8 +144,14 @@ values, though most will just have one section), show:
   — frontend design work, short responses — have none by design, so this is a statement of
   fact rather than a warning. The framework comes from the test run's `runnerPreset`: `node-jest`, 
   `node-vitest`, `python-pytest`, etc., or none
-- If it is determined that tests *should* have run add a badge to indicate it ("Test Run Missing")
-- If it is determined that tests should exist but `testNamePattern` matched nothing, add a badge indicating it ("Test File Missing")
+- When the flag `TEST_RUN_MISSING` is present, a badge ("Test Run Missing"): this section
+  expects test results and none exist for this commit, so it was graded without them.
+- When the flag `TEST_MATCH_MISSING` is present, a badge ("Test File Missing"): the tests
+  ran but none matched this section's `testNamePattern`, so the score was reached without
+  them. Either the pattern is wrong or the tests it names do not exist.
+
+  Both of these are faults, not neutral facts — unlike the badge above. Give them enough
+  weight that an instructor does not approve past them without deciding to.
 - Flag badges (short codes, see the types below).
 - A visibly separate block, **"Instructor Notes"** (not shown to the student),
   holding prose notes for the instructor.
