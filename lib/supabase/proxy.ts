@@ -51,7 +51,17 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname !== "/" &&
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
+    !request.nextUrl.pathname.startsWith("/auth") &&
+    // Data requests must NOT be redirected. Redirecting to a login page is the
+    // right answer for a human asking for a page, and the wrong answer for
+    // JavaScript asking for JSON — it would receive an HTML login page and fail
+    // with an opaque parse error instead of "you are not signed in".
+    // tRPC's protectedProcedure answers these itself with a proper 401.
+    //
+    // Note this exclusion is here and NOT in the matcher in proxy.ts: /api still
+    // passes through this function so session-refresh above keeps running for
+    // data requests. Only the redirect is skipped.
+    !request.nextUrl.pathname.startsWith("/api")
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone();

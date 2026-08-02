@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { GitHubAuthButton } from "@/components/github-auth-button";
 import {
   Card,
   CardContent,
@@ -61,10 +62,21 @@ export function SignUpForm({
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">Sign up</CardTitle>
-          <CardDescription>Create a new account</CardDescription>
+          <CardDescription>
+            Sign up with GitHub, or create an account with your email
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSignUp}>
+          <div className="flex flex-col gap-6">
+            <GitHubAuthButton label="Sign up with GitHub" />
+            <div className="relative text-center text-sm">
+              <span className="absolute inset-0 top-1/2 border-t" />
+              <span className="relative bg-card px-2 text-muted-foreground">
+                or sign up with email
+              </span>
+            </div>
+          </div>
+          <form onSubmit={handleSignUp} className="mt-6">
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>

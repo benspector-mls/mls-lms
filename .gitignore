@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/lib/generated/prisma
+
+swe-assignment-grading-guides/
+marcy-curriculum-docs/
+assignment-templates/

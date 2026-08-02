@@ -1,0 +1,542 @@
+// Prisma schema for mls-lms
+//
+// !! Use `prisma migrate deploy` — NEVER `prisma db push`. Push does not honor
+// !! the external-table list and will try to drop Supabase's auth tables.
+// !! See the comment block in prisma.config.ts.
+//
+// Identity lives in Supabase Auth (`auth.users`), which Supabase owns and
+// migrates. Prisma treats it as an *external table*: it is declared here so
+// relations and the client API work, but migrations never touch it. See
+// `tables.external` in prisma.config.ts.
+//
+// Application-level user data belongs in `public.profiles`, which is 1:1 with
+// `auth.users` and IS owned by Prisma.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["auth", "public"]
+}
+
+/// Supabase Auth's user table. EXTERNAL — managed by Supabase, not Prisma.
+/// Only the columns this app reads are mapped; the real table has many more.
+model AuthUser {
+  id            String    @id @db.Uuid
+  email         String?   @unique
+  emailConfirmedAt DateTime? @map("email_confirmed_at") @db.Timestamptz(6)
+  createdAt     DateTime? @map("created_at") @db.Timestamptz(6)
+
+  profile Profile?
+
+  @@map("users")
+  @@schema("auth")
+}
+
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+
+  @@schema("public")
+}
+
+/// Application profile, 1:1 with auth.users. Owned by Prisma.
+model Profile {
+  /// Same value as auth.users.id — this is the FK *and* the PK.
+  id          String   @id @db.Uuid
+  // Nullable because auth.users.email is nullable (anonymous, phone, and some
+  // OAuth signups have no email). A NOT NULL here would make the on-signup
+  // trigger throw and break signup entirely.
+  email       String?  @unique
+  displayName String?  @map("display_name")
+  avatarUrl   String?  @map("avatar_url")
+  /// GitHub login handle, populated on GitHub OAuth signup. Unique so one
+  /// GitHub account maps to at most one profile. Nullable: email signups have
+  /// none, and Postgres permits many NULLs under a unique constraint.
+  githubUsername String? @unique @map("github_username")
+  /// GitHub's numeric user ID — the DURABLE identity key. A user can rename
+  /// their GitHub account, which changes githubUsername but never this. Use
+  /// this for identity; use githubUsername only where GitHub's API needs a
+  /// login string (repository naming, collaborator invitations).
+  githubUserId BigInt? @unique @map("github_user_id")
+  role        Role     @default(STUDENT)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
+  // default on the column so the on-signup trigger (which writes via raw SQL,
+  // bypassing Prisma) can insert without specifying updated_at.
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  instructorOf     CourseInstructor[]
+  enrollments      Enrollment[]
+  submissions      Submission[]
+  gradedSubmissions Submission[]     @relation("GradedBy")
+  approvedDrafts    GradingDraft[]   @relation("ApprovedDrafts")
+  editedSections    GradingDraftSection[] @relation("EditedSections")
+
+  @@map("profiles")
+  @@schema("public")
+}
+
+// ===========================================================================
+// Courses, enrollment, and assignments
+//
+// Ported from marcy-lms/db/schema.ts. Field names and semantics are unchanged;
+// only the ORM and the user table it points at are different (Profile, not the
+// old standalone users table).
+// ===========================================================================
+
+model Course {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String
+  cohortTerm String    @map("cohort_term")
+  /// Ordered module/topic tags for this cohort, e.g.
+  /// ["mod-1-js-fundamentals", "mod-2-html-css-dom", ...]
+  moduleStructure Json @default("[]") @map("module_structure")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  instructors CourseInstructor[]
+  enrollments Enrollment[]
+  assignments Assignment[]
+
+  @@map("courses")
+  @@schema("public")
+}
+
+/// Join table supporting multiple instructors per course. Every instructor here
+/// is added as a collaborator on every generated student repository, so no
+/// repository ever needs manual permission changes.
+model CourseInstructor {
+  id        String   @id @default(uuid()) @db.Uuid
+  courseId  String   @map("course_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user   Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, userId])
+  @@map("course_instructors")
+  @@schema("public")
+}
+
+enum EnrollmentStatus {
+  INVITED
+  ACTIVE
+  REMOVED
+
+  @@schema("public")
+}
+
+/// Invite-link self-binding: an instructor adds a student by name and email, the
+/// system generates an invite token, and the student's first GitHub login binds
+/// their profile to this row. Chosen over pre-entering GitHub usernames because
+/// instructors do not reliably know them in advance.
+model Enrollment {
+  id           String           @id @default(uuid()) @db.Uuid
+  courseId     String           @map("course_id") @db.Uuid
+  /// Null until a student redeems the invite token.
+  studentId    String?          @map("student_id") @db.Uuid
+  inviteToken  String           @unique @map("invite_token")
+  invitedEmail String           @map("invited_email")
+  status       EnrollmentStatus @default(INVITED)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student Profile? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@unique([courseId, studentId])
+  @@map("enrollments")
+  @@schema("public")
+}
+
+enum RubricScaleType {
+  POINTS
+  CHECKLIST
+  SHORT_RESPONSE
+
+  @@schema("public")
+}
+
+/// Seeded with exactly the four sections that already exist in rubric.md:
+/// SHORT_RESPONSE, CODING_ALGORITHM_FLUENCY, CODING_SQL_FLUENCY,
+/// CODING_FRONTEND. This is a fixed taxonomy today, not an instructor-authored
+/// rubric builder.
+model Rubric {
+  id        String          @id @default(uuid()) @db.Uuid
+  name      String          @unique
+  scaleType RubricScaleType @map("scale_type")
+  /// Array of {key, label, max_points, description}.
+  criteria  Json            @default("[]")
+  maxScore  Int             @map("max_score")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("rubrics")
+  @@schema("public")
+}
+
+model Assignment {
+  id       String @id @default(uuid()) @db.Uuid
+  courseId String @map("course_id") @db.Uuid
+  title    String
+  moduleTag String @map("module_tag")
+  pointValue Int   @map("point_value")
+  /// Matches the real "Complete/Incomplete at 75%" policy in
+  /// working-with-assignments.md.
+  completionThreshold Float @default(0.75) @map("completion_threshold")
+  dueAt    DateTime? @map("due_at") @db.Timestamptz(6)
+  /// "owner/repo" of the template this assignment is generated from.
+  templateRepo String @map("template_repo")
+  /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
+  /// are named `{assignmentRepoName}-{student github login}`.
+  assignmentRepoName String @map("assignment_repo_name")
+  githubOrg String @map("github_org")
+  /// Which template commit the tests come from. Null means the template's
+  /// default branch, which is what you want during a cohort: a bug fixed in the
+  /// template reaches every subsequent run, including re-runs for students who
+  /// accepted before the fix. Set it to an exact commit SHA to archive a
+  /// finished cohort, so re-grading an old submission years later reproduces
+  /// the result it originally received.
+  templateRef String? @map("template_ref")
+  distributedAt DateTime? @map("distributed_at") @db.Timestamptz(6)
+  /// One entry per gradable section this assignment can contain, e.g.
+  /// [{ "type": "coding_algorithm", "rubricId": "...",
+  ///    "answerKeyPaths": ["mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
+  ///    "reportTemplate": "coding-fluency" }]
+  ///
+  /// Explicit rather than convention-based because real assignments do not use
+  /// consistent {from-scratch,debug,modify}.js filenames, and one pull request
+  /// can contain several gradable sections at once. Unused in Phase 1; the
+  /// grading pipeline reads it in Phase 2.
+  ///
+  /// Two optional fields per entry control test evidence:
+  ///   "evidence": "tests"        — absent means no deterministic evidence
+  ///   "testNamePattern": "^from-scratch"
+  ///                              — absent with evidence:"tests" means the
+  ///                                whole suite counts toward this section
+  sections Json @default("[]")
+
+  /// Names an entry in lib/sandbox/presets.ts. "none" is a real preset and the
+  /// default: short response assignments have nothing to execute, and frontend
+  /// assignments have tests this build cannot run yet. The default is "none"
+  /// rather than "node-jest" so that an unconfigured assignment produces no
+  /// evidence instead of quietly producing the wrong evidence.
+  runnerPreset String @default("none") @map("runner_preset")
+  /// Shallow override merged over the named preset. Most assignments leave this
+  /// null. An assignment needing a system dependency gets a purpose-built E2B
+  /// template and names it here as `{"e2bTemplate": "..."}`, with no code change.
+  runnerConfig Json? @map("runner_config")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@unique([courseId, assignmentRepoName])
+  @@map("assignments")
+  @@schema("public")
+}
+
+// ===========================================================================
+// Submissions and grading
+// ===========================================================================
+
+enum SubmissionStatus {
+  NOT_STARTED
+  ACCEPTED
+  SUBMITTED
+  DRAFT_READY
+  GRADED
+  /// Work revised after a grade was issued, and declared ready for another look.
+  /// Distinct from SUBMITTED because an instructor working through a queue needs to
+  /// tell a first submission from a revision.
+  RESUBMITTED
+  GRADING_FAILED
+  NEEDS_MANUAL_REVIEW
+
+  @@schema("public")
+}
+
+enum SalesforceSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+
+  @@schema("public")
+}
+
+/// One row per (assignment, student).
+model Submission {
+  id           String           @id @default(uuid()) @db.Uuid
+  assignmentId String           @map("assignment_id") @db.Uuid
+  studentId    String           @map("student_id") @db.Uuid
+  status       SubmissionStatus @default(NOT_STARTED)
+
+  repoFullName String? @unique @map("repo_full_name")
+  repoUrl      String? @map("repo_url")
+  /// The GitHub login used when the repository was created. Preserved because a
+  /// student can rename their GitHub account afterward, and the repository name
+  /// does not change with them.
+  repoGithubLoginAtCreation String? @map("repo_github_login_at_creation")
+
+  prNumber   Int?      @map("pr_number")
+  prUrl      String?   @map("pr_url")
+  headBranch String?   @map("head_branch")
+  headSha    String?   @map("head_sha")
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
+  isLate     Boolean?  @map("is_late")
+  lastActivityAt DateTime? @map("last_activity_at") @db.Timestamptz(6)
+
+  finalScore         Float?  @map("final_score")
+  finalScorePossible Float?  @map("final_score_possible")
+  isComplete         Boolean? @map("is_complete")
+  feedbackMarkdown   String? @map("feedback_markdown")
+  gradedById         String? @map("graded_by") @db.Uuid
+  gradedAt           DateTime? @map("graded_at") @db.Timestamptz(6)
+  /// The commit the approved grade describes. `headSha != gradedHeadSha` means the
+  /// student has pushed code newer than what was graded — a comparison of two
+  /// columns, needing no API call and true the instant the push lands.
+  gradedHeadSha      String? @map("graded_head_sha")
+
+  /// Unused in this build. Present so the future Salesforce job can query
+  /// `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at
+  /// that point. Nothing writes these columns yet.
+  salesforceSyncStatus SalesforceSyncStatus @default(PENDING) @map("salesforce_sync_status")
+  salesforceRecordId   String?              @map("salesforce_record_id")
+  salesforceSyncedAt   DateTime?            @map("salesforce_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    Profile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gradedBy   Profile?   @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
+  gradingDrafts GradingDraft[]
+  testRuns      TestRun[]
+
+  @@unique([assignmentId, studentId])
+  @@map("submissions")
+  @@schema("public")
+}
+
+// ===========================================================================
+// Deterministic test execution
+// ===========================================================================
+
+enum TestRunStatus {
+  RUNNING
+  /// The suite ran to completion. Whether the student passed is testsFailed,
+  /// not this — a completed run with failures is a successful run.
+  COMPLETED
+  TIMED_OUT
+  /// Infrastructure failed: archive fetch, sandbox creation, extraction, the
+  /// setup command, or result parsing. Never a zero score. Conflating this with
+  /// COMPLETED is how a student gets a zero for a problem that is not theirs.
+  ERRORED
+
+  @@schema("public")
+}
+
+enum TestRunTrigger {
+  MANUAL
+  WEBHOOK
+
+  @@schema("public")
+}
+
+/// One row per execution of an assignment's test suite against a student's code
+/// at one commit. Rows are never updated in place after completion and reruns
+/// append, so the history of a submission stays legible.
+///
+/// A submission with no rows at all is normal, not an error. Every assignment
+/// whose runnerPreset is "none" has zero test runs forever, so nothing
+/// downstream may read the absence of a row as a failure, a pending state, or a
+/// zero. Three states are distinct:
+///
+///   no rows + runnerPreset "none"     — this assignment has no tests
+///   no rows + any other preset        — tests exist and have not been run
+///   COMPLETED row with testsFailed>0  — tests ran and failed
+///
+/// Separate from grading_drafts because results outlive any one draft:
+/// re-generating a report against the same commit must not rerun the tests, and
+/// the cross-check reads this table as its source of truth.
+model TestRun {
+  id           String         @id @default(uuid()) @db.Uuid
+  submissionId String         @map("submission_id") @db.Uuid
+  /// The student commit that was tested. Recorded rather than followed, so a
+  /// push during the run cannot change what these results describe.
+  headSha      String         @map("head_sha")
+  trigger      TestRunTrigger @default(MANUAL)
+  status       TestRunStatus  @default(RUNNING)
+
+  runnerPreset String  @map("runner_preset")
+  e2bTemplate  String  @map("e2b_template")
+  sandboxId    String? @map("sandbox_id")
+  /// The template commit whose tests actually ran. Makes "these tests are newer
+  /// than what the student was given" answerable after the fact.
+  templateCommitSha String? @map("template_commit_sha")
+
+  setupExitCode Int? @map("setup_exit_code")
+  testExitCode  Int? @map("test_exit_code")
+  testsTotal    Int? @map("tests_total")
+  testsPassed   Int? @map("tests_passed")
+  testsFailed   Int? @map("tests_failed")
+  testsSkipped  Int? @map("tests_skipped")
+  /// passed / total. NOT the score, and NOT compared against
+  /// assignment.completionThreshold. Completion is judged on the final rubric
+  /// score, of which test outcomes are one input among several: a submission
+  /// that passes every test by returning hardcoded values has satisfied one
+  /// criterion and should still lose points elsewhere.
+  passRate Float? @map("pass_rate")
+
+  /// Per-test detail, one normalized shape for every runner:
+  /// [{ suite, name, status, durationMs?, failureMessage? }]
+  results Json @default("[]")
+  /// [{ path, kind: "added"|"modified"|"removed"|"renamed", previousPath? }] —
+  /// protected paths the pull request changes, taken from the pull request's own
+  /// diff and therefore measured against the template snapshot this student
+  /// received. Non-empty is a finding an instructor must see, not an automatic
+  /// penalty, and never affects passRate: the template's version of every
+  /// protected path is restored before the suite runs.
+  tamperedPaths Json @default("[]") @map("tampered_paths")
+
+  /// Truncated. Whole suites can emit megabytes and nothing downstream reads
+  /// past the first few thousand lines.
+  stdoutTail  String? @map("stdout_tail")
+  stderrTail  String? @map("stderr_tail")
+  errorDetail String? @map("error_detail")
+
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  /// Wall clock for the whole run. An input to the Phase 4 orchestration
+  /// decision, which turns on whether test execution alone already approaches a
+  /// single function invocation's time limit.
+  durationMs Int? @map("duration_ms")
+  /// The setup command's share of durationMs, recorded separately because
+  /// removing the install step is the largest speed improvement available and
+  /// that decision needs numbers.
+  setupDurationMs Int? @map("setup_duration_ms")
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, headSha])
+  @@map("test_runs")
+  @@schema("public")
+}
+
+enum GradingDraftStatus {
+  GENERATING
+  READY
+  NEEDS_MANUAL_REVIEW
+  FAILED
+  SUPERSEDED
+  /// An instructor approved this draft and it became the student's grade. Terminal:
+  /// the approved drafts of a submission, in order, are its feedback history.
+  APPROVED
+
+  @@schema("public")
+}
+
+enum Confidence {
+  HIGH
+  LOW
+
+  @@schema("public")
+}
+
+/// One row per grading *run*, keyed by submission plus head SHA. A new push
+/// creates a new row and marks the previous one SUPERSEDED rather than
+/// overwriting it, so an instructor's in-progress review of an older run is
+/// never silently replaced.
+///
+/// Written by the Phase 2 grading pipeline. Created here because Submission
+/// relates to it and because the status values are what the instructor
+/// interface will read.
+model GradingDraft {
+  id           String             @id @default(uuid()) @db.Uuid
+  submissionId String             @map("submission_id") @db.Uuid
+  headSha      String             @map("head_sha")
+  status       GradingDraftStatus @default(GENERATING)
+  errorDetail  String?            @map("error_detail")
+  /// Model id, prompt version, grading-asset commit SHA, token usage.
+  modelMetadata Json?             @map("model_metadata")
+  /// Set when an instructor approved this draft. Non-null here is what makes a draft
+  /// part of the student's feedback history rather than a discarded proposal.
+  approvedAt   DateTime?          @map("approved_at") @db.Timestamptz(6)
+  approvedById String?            @map("approved_by") @db.Uuid
+  /// The pull request comment this approval posted.
+  ///
+  /// Recorded per draft, not per submission, because each approval posts its own
+  /// comment and they accumulate: a student and an instructor can both read back
+  /// through earlier rounds of feedback, which is the point of grading a resubmission
+  /// rather than overwriting the first attempt.
+  postedPrCommentId BigInt?       @map("posted_pr_comment_id")
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  submission Submission            @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  approvedBy Profile?              @relation("ApprovedDrafts", fields: [approvedById], references: [id], onDelete: SetNull)
+  sections   GradingDraftSection[]
+
+  @@index([submissionId, headSha])
+  @@map("grading_drafts")
+  @@schema("public")
+}
+
+/// Child rows of a GradingDraft — one submission can have more than one graded
+/// section per run. The submission's final score on approval is the sum of a
+/// run's section scores; the review interface renders each section separately.
+model GradingDraftSection {
+  id             String  @id @default(uuid()) @db.Uuid
+  gradingDraftId String  @map("grading_draft_id") @db.Uuid
+  sectionType    String  @map("section_type")
+  reportMarkdown String? @map("report_markdown")
+  scoreEarned    Float?  @map("score_earned")
+  scorePossible  Float?  @map("score_possible")
+  /// Per-criterion breakdown.
+  rubricItems    Json    @default("[]") @map("rubric_items")
+  /// Short codes only, e.g. ["MECHANICAL", "CLARITY"]. The review interface renders each
+  /// one as a badge, so prose does not belong here — see instructorNotes.
+  flags          String[] @default([])
+  /// The model's caveats for the instructor, in prose. Never shown to the student:
+  /// "the file I needed was absent", "this point value does not divide evenly into
+  /// the checklist in the README".
+  instructorNotes String[] @default([]) @map("instructor_notes")
+  confidence     Confidence?
+  /// The "you pushed to a non-draft branch" note that agent-rules.md already
+  /// generates today.
+  submissionProcessNote String? @map("submission_process_note")
+
+  /// An instructor's revision of the report, kept alongside the model's original
+  /// rather than replacing it. Null until someone edits.
+  ///
+  /// Separate columns because overwriting `report_markdown` would destroy the only
+  /// record of what the model actually produced — which is what any later judgment
+  /// about whether the grading is good enough has to be made from. What gets posted
+  /// is the edit where one exists; what gets evaluated is the pair.
+  editedReportMarkdown String?   @map("edited_report_markdown")
+  editedScoreEarned    Float?    @map("edited_score_earned")
+  editedAt             DateTime? @map("edited_at") @db.Timestamptz(6)
+  editedById           String?   @map("edited_by") @db.Uuid
+
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  gradingDraft GradingDraft @relation(fields: [gradingDraftId], references: [id], onDelete: Cascade)
+  editedBy     Profile?     @relation("EditedSections", fields: [editedById], references: [id], onDelete: SetNull)
+
+  @@map("grading_draft_sections")
+  @@schema("public")
+}

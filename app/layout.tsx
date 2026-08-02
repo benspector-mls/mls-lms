@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { TRPCReactProvider } from "@/trpc/client";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
@@ -33,7 +34,13 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          {/*
+            TRPCReactProvider is a client component, but it is mounted here in a
+            server component. That is intentional and supported: only the
+            provider itself ships to the browser, not this layout. Without it,
+            any client component calling useTRPC() throws.
+          */}
+          <TRPCReactProvider>{children}</TRPCReactProvider>
         </ThemeProvider>
       </body>
     </html>

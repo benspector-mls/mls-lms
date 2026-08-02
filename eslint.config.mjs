@@ -10,6 +10,27 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    // `npm run lint` is `eslint .`, which walks everything, so generated and
+    // vendored trees have to be excluded explicitly. Without this the run
+    // reported over 22,000 problems — almost all of them from `.next` — which
+    // made it useless for finding the real ones.
+    //
+    // .next: Next.js build output, rewritten on every build.
+    // lib/generated: the Prisma client, rewritten on every `prisma generate`.
+    // swe-assignment-grading-guides: a clone of the grading toolkit and answer
+    //   keys, pointed at by GRADING_ASSETS_PATH and already gitignored.
+    // assignment-templates: copies of the student assignment repositories, kept for
+    //   reference. They carry their own Airbnb eslint config and are deliberately
+    //   full of unfinished stub code, so linting them with this project's rules
+    //   produced ~680 meaningless errors.
+    ignores: [
+      ".next/**",
+      "lib/generated/**",
+      "swe-assignment-grading-guides/**",
+      "assignment-templates/**",
+    ],
+  },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
 ];
 

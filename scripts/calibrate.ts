@@ -1,0 +1,228 @@
+/**
+ * Compares a generated report against one an instructor wrote by hand.
+ *
+ *   npm run calibrate            # every pair
+ *   npm run calibrate -- 2       # one pair
+ *
+ * This is Phase 3 verification item 7, and it measures the only thing the automatic
+ * checks cannot. `verify:grade` proves a report is internally consistent — that its
+ * arithmetic adds up and that it does not contradict a test run. It cannot prove the
+ * score is the one a Marcy instructor would have given, because nothing in the
+ * pipeline knows what that is. These pairs do.
+ *
+ * The samples live in the grading toolkit as `sample-short-response-submission-N.md`
+ * and `sample-short-response-report-N.md`. Pair 1 is the exemplar embedded in the
+ * prompt, so grading it measures little; it is included because a model that cannot
+ * reproduce the report it was shown is worth knowing about. **Pair 2 is the real
+ * test** — it is deliberately kept out of the prompt, and it stops being a test the
+ * moment anything puts it back in.
+ *
+ * Needs --conditions=react-server, as the modules it reaches import "server-only".
+ */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import { config as loadEnv } from "dotenv";
+
+loadEnv({ path: ".env.local", quiet: true });
+loadEnv({ quiet: true });
+
+/** What an instructor's hand-written report says, pulled out of its markdown. */
+type ExpectedScores = {
+  total: { earned: number; possible: number } | null;
+  technical: { earned: number; possible: number } | null;
+  writing: { earned: number; possible: number } | null;
+  questions: { label: string; earned: number; possible: number }[];
+  /**
+   * Null once reports stopped carrying flag text. Sample reports are student-facing
+   * templates and an internal label in one teaches the model to write internal labels
+   * into student-facing text, so the flag now lives only in the structured field —
+   * which means a report can no longer tell us what it should have been.
+   */
+  mechanicalErrorsFlag: boolean | null;
+};
+
+function parseExpected(markdown: string): ExpectedScores {
+  const pair = (pattern: RegExp) => {
+    const match = markdown.match(pattern);
+    return match ? { earned: Number(match[1]), possible: Number(match[2]) } : null;
+  };
+
+  const questions: ExpectedScores["questions"] = [];
+  // Matches "**Question 3: Flexbox vs. CSS Grid:** 2/3".
+  const questionPattern = /\*\*Question (\d+):([^*]*)\*\*\s*([\d.]+)\s*\/\s*(\d+)/g;
+  for (const match of markdown.matchAll(questionPattern)) {
+    questions.push({
+      label: `Q${match[1]}${match[2].trim().replace(/:$/, "") ? ` ${match[2].trim().replace(/:$/, "")}` : ""}`,
+      earned: Number(match[3]),
+      possible: Number(match[4]),
+    });
+  }
+
+  return {
+    total: pair(/Score:\s*([\d.]+)\s*\/\s*(\d+)/),
+    technical: pair(/Technical score:\s*([\d.]+)\s*\/\s*(\d+)/i),
+    writing: pair(/Writing score:\s*([\d.]+)\s*\/\s*(\d+)/i),
+    questions,
+    mechanicalErrorsFlag: /FLAG:\s*MECHANICAL\s+ERRORS/i.test(markdown) ? true : null,
+  };
+}
+
+function formatPair(value: { earned: number; possible: number } | null): string {
+  return value ? `${value.earned}/${value.possible}` : "—";
+}
+
+/** Sums the rubric items a generated report assigned to one criterion. */
+function sumCriterion(
+  items: { criterion: string; scoreEarned: number; scorePossible: number }[],
+  predicate: (criterion: string) => boolean,
+): { earned: number; possible: number } | null {
+  const matching = items.filter((item) => predicate(item.criterion.toLowerCase()));
+  if (matching.length === 0) return null;
+  return {
+    earned: matching.reduce((sum, item) => sum + item.scoreEarned, 0),
+    possible: matching.reduce((sum, item) => sum + item.scorePossible, 0),
+  };
+}
+
+async function main() {
+  const { loadGradingAssets } = await import("../lib/grade/assets");
+  const { buildSystemPrompt, buildUserPrompt } = await import("../lib/grade/prompts");
+  const { getReportGenerator } = await import("../lib/grade/provider");
+  const { crossCheck } = await import("../lib/grade/cross-check");
+
+  const root = process.env.GRADING_ASSETS_PATH;
+  if (!root) {
+    console.error("GRADING_ASSETS_PATH is not set. See .env.example.");
+    process.exit(1);
+  }
+
+  const only = process.argv[2];
+  const pairs = (only ? [only] : ["1", "2"]).map((n) => ({
+    n,
+    submissionPath: path.join(root, "grading-toolkit", `sample-short-response-submission-${n}.md`),
+    reportPath: path.join(root, "grading-toolkit", `sample-short-response-report-${n}.md`),
+  }));
+
+  const generator = await getReportGenerator();
+  console.log(`Provider  ${generator.name}\n`);
+
+  let mismatches = 0;
+
+  for (const pair of pairs) {
+    const submission = readFileSync(pair.submissionPath, "utf8");
+    const expectedMarkdown = readFileSync(pair.reportPath, "utf8");
+    const expected = parseExpected(expectedMarkdown);
+
+    // No answer key paths, deliberately. Nothing is then "expected but missing", so
+    // the prompt adds no low-confidence nudge — and a short response is graded
+    // against the rubric and the questions themselves, which is what a human does.
+    const assets = loadGradingAssets({ sectionType: "short_response", answerKeyPaths: [] });
+
+    const response = await generator.generate({
+      system: buildSystemPrompt({ sectionType: "short_response", assets }),
+      user: buildUserPrompt({
+        assets,
+        context: {
+          studentGithubUsername: "sample-student",
+          assignmentTitle: `short response calibration sample ${pair.n}`,
+          pointValue: expected.total?.possible ?? 15,
+          // The sample file carries the questions as well as the answers, so it is
+          // self-contained and there is no separate README to supply.
+          readme: null,
+          studentFiles: [{ path: "short-response.md", content: submission }],
+          testResults: null,
+          tamperedPaths: [],
+          headBranch: null,
+        },
+      }),
+    });
+
+    const actual = response.output;
+    const items = actual.rubricItems;
+
+    // The same cross-check the pipeline runs. Without it this harness would report a
+    // score the real system would have refused to show anyone, and compare it against
+    // an instructor's as though the two were alternatives. They are not: a report that
+    // fails the cross-check never reaches a student at all.
+    const check = crossCheck(actual, { tests: null, tamperedPaths: [] });
+    const actualTechnical = sumCriterion(items, (c) => c.includes("technical"));
+    const actualWriting = sumCriterion(items, (c) => c.includes("writing"));
+    const actualFlag = actual.flags.includes("MECHANICAL");
+
+    const totalDelta = expected.total ? actual.scoreEarned - expected.total.earned : null;
+
+    console.log(`${"═".repeat(74)}`);
+    console.log(`Pair ${pair.n}${pair.n === "1" ? "  (exemplar — shown to the model)" : "  (held out)"}`);
+    console.log(`${"═".repeat(74)}`);
+    console.log(`                  instructor      model`);
+    console.log(`  total           ${formatPair(expected.total).padEnd(15)} ${actual.scoreEarned}/${actual.scorePossible}` +
+      (totalDelta === null ? "" : `   (${totalDelta >= 0 ? "+" : ""}${totalDelta})`));
+    console.log(`  technical       ${formatPair(expected.technical).padEnd(15)} ${formatPair(actualTechnical)}`);
+    console.log(`  writing         ${formatPair(expected.writing).padEnd(15)} ${formatPair(actualWriting)}`);
+    // The instructor column is "—" whenever the sample report carries no flag text,
+    // which is now always: flags moved out of student-facing reports entirely, so a
+    // report can no longer say what its flags should have been.
+    console.log(`  MECHANICAL      ${(expected.mechanicalErrorsFlag === null ? "—" : String(expected.mechanicalErrorsFlag)).padEnd(15)} ${actualFlag}`);
+    console.log(`  flags raised    ${"".padEnd(15)} ${actual.flags.length > 0 ? actual.flags.join(", ") : "none"}`);
+    console.log(`  confidence      ${"".padEnd(15)} ${actual.confidence}`);
+    console.log(`  cross-check     ${"".padEnd(15)} ` +
+      (check.needsManualReview
+        ? `WOULD BE HELD: ${check.findings.map((f) => f.code).join(", ")}`
+        : "passes"));
+
+    // Reported separately from the score comparison, and first, because it changes
+    // what the comparison means. A held report is not a wrong grade — it is one the
+    // instructor was going to have to look at regardless.
+    if (check.needsManualReview) {
+      for (const finding of check.findings) console.log(`      ${finding.detail}`);
+      mismatches++;
+    }
+
+    if (expected.questions.length > 0) {
+      console.log(`\n  per question:`);
+      for (const question of expected.questions) {
+        // Matched on the leading question number, because the model writes its own
+        // labels and they will not be character-identical to the instructor's.
+        const number = question.label.match(/^Q(\d+)/)?.[1];
+        const match = items.find((item) => new RegExp(`\\b${number}\\b`).test(item.label));
+        const actualText = match ? `${match.scoreEarned}/${match.scorePossible}` : "not found";
+        const agrees = match && match.scoreEarned === question.earned;
+        console.log(`    ${agrees ? " " : "≠"} ${question.label.padEnd(38)} ` +
+          `${`${question.earned}/${question.possible}`.padEnd(8)} ${actualText}`);
+        if (!agrees) mismatches++;
+      }
+    }
+
+    if (totalDelta !== null && totalDelta !== 0) mismatches++;
+    if (expected.mechanicalErrorsFlag !== null && expected.mechanicalErrorsFlag !== actualFlag) {
+      mismatches++;
+    }
+
+    // Printed in full because the per-question rows above are matched by question
+    // number against labels the model wrote itself, and a mismatch there would be
+    // indistinguishable from agreement without seeing the underlying items.
+    console.log(`\n  rubric items the model returned:`);
+    for (const item of items) {
+      console.log(`    ${`${item.scoreEarned}/${item.scorePossible}`.padEnd(8)} ` +
+        `${item.label}  [${item.criterion}]`);
+    }
+
+    if (actual.instructorNotes.length > 0) {
+      console.log(`\n  notes to the instructor:`);
+      for (const note of actual.instructorNotes) console.log(`    - ${note}`);
+    }
+
+    console.log(`\n${"─".repeat(74)}\n${actual.reportMarkdown}\n`);
+  }
+
+  // Deliberately not an exit code. A one-point difference on a subjective writing
+  // score is not a failure, and treating it as one would invite tuning the prompt
+  // until the number matched rather than reading the reports. A person decides.
+  console.log(`${"═".repeat(74)}`);
+  console.log(mismatches === 0
+    ? "Every compared figure agreed."
+    : `${mismatches} figure(s) differ. Read both reports above before changing anything.`);
+}
+
+main().catch((err) => { console.error("\n", err); process.exit(1); });

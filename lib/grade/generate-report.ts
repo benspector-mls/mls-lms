@@ -1,0 +1,407 @@
+import "server-only";
+
+import { db } from "../prisma";
+import { getConfiguredInstallationId } from "../github/app-client";
+import { splitRepoFullName } from "../github/archives";
+import { getPullRequestFiles } from "../github/prs";
+import type { GradingDraft } from "../generated/prisma/client";
+import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
+import { GradingAssetsError, loadGradingAssets } from "./assets";
+import {
+  belongsToSection,
+  classifySections,
+  findSection,
+  hasTestEvidence,
+  type AssignmentSection,
+} from "./classify";
+import { crossCheck, type Facts } from "./cross-check";
+import { buildSystemPrompt, buildUserPrompt } from "./prompts";
+import { getReportGenerator, ProviderError } from "./provider";
+import { ReportValidationError } from "./schema";
+
+/**
+ * Generating a grading draft for one submission.
+ *
+ * The stages: load the submission and its most recent test run if one exists,
+ * classify which sections the pull request contains, fetch the answer keys and rubric
+ * for each, generate a report per section, cross-check it, and record the draft.
+ *
+ * No test execution happens here. Where it happened at all, it happened already and
+ * its results are read from the database — which is what allows a report to be
+ * regenerated without paying for another sandbox run.
+ *
+ * Nothing is posted to GitHub. The output is a draft with a status, and an instructor
+ * decides what becomes of it.
+ */
+
+export class ReportGenerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReportGenerationError";
+  }
+}
+
+/** How much of a file to fetch. A minified bundle is not worth reading. */
+const MAX_FETCHED_FILE_BYTES = 200_000;
+
+export async function generateReportForSubmission(
+  submissionId: string,
+): Promise<GradingDraft> {
+  const submission = await db.submission.findUnique({
+    where: { id: submissionId },
+    select: {
+      id: true,
+      repoFullName: true,
+      headSha: true,
+      prNumber: true,
+      headBranch: true,
+      student: { select: { githubUsername: true } },
+      assignment: {
+        select: { title: true, sections: true, templateRepo: true, pointValue: true },
+      },
+    },
+  });
+
+  if (!submission) throw new ReportGenerationError(`No submission ${submissionId}.`);
+  if (!submission.repoFullName || !submission.headSha || submission.prNumber === null) {
+    throw new ReportGenerationError(
+      `Submission ${submissionId} has no pull request yet, so there is nothing to grade.`,
+    );
+  }
+
+  const declaredSections = Array.isArray(submission.assignment.sections)
+    ? (submission.assignment.sections as unknown as AssignmentSection[])
+    : [];
+
+  if (declaredSections.length === 0) {
+    throw new ReportGenerationError(
+      `Assignment "${submission.assignment.title}" has no sections mapping, so there is ` +
+      `no way to know what to grade or which rubric applies. Fix assignments.sections.`,
+    );
+  }
+
+  const installationId = getConfiguredInstallationId();
+  const studentRepo = splitRepoFullName(submission.repoFullName);
+
+  // ---- The most recent run, if there is one --------------------------------
+  //
+  // Keyed on the commit being graded, not merely the submission: a run against an
+  // older commit describes different code and must not be presented as evidence
+  // about this one.
+  const testRun = await db.testRun.findFirst({
+    where: { submissionId: submission.id, headSha: submission.headSha, status: "COMPLETED" },
+    orderBy: { startedAt: "desc" },
+    select: { id: true, results: true, tamperedPaths: true, passRate: true },
+  });
+
+  const allTests: NormalizedTest[] = Array.isArray(testRun?.results)
+    ? (testRun.results as unknown as NormalizedTest[])
+    : [];
+  const tamperedPaths = Array.isArray(testRun?.tamperedPaths)
+    ? (testRun.tamperedPaths as unknown as { path: string; kind: string }[])
+    : [];
+
+  // ---- What the pull request contains -------------------------------------
+  const changedPaths = await getPullRequestFiles(installationId, {
+    ...studentRepo,
+    pullNumber: submission.prNumber,
+  });
+
+  const classification = classifySections({
+    changedPaths,
+    declaredSections,
+    // From the template, never the student's copy: a student must not be able to
+    // change which rubric they are graded against by editing their own package.json.
+    hasJest: await templateHasJest(installationId, submission.assignment.templateRepo),
+  });
+
+  if (classification.present.length === 0) {
+    throw new ReportGenerationError(
+      `The pull request contains none of the sections this assignment declares ` +
+      `(${declaredSections.map((s) => s.type).join(", ")}). Changed paths: ` +
+      `${changedPaths.slice(0, 20).join(", ")}`,
+    );
+  }
+
+  // ---- One draft, one row per section -------------------------------------
+  //
+  // GENERATING is written first, so a run that dies partway through leaves a row
+  // explaining that it was attempted rather than no trace at all.
+  const draft = await db.gradingDraft.create({
+    data: {
+      submissionId: submission.id,
+      headSha: submission.headSha,
+      status: "GENERATING",
+    },
+  });
+
+  const reviewReasons: string[] = [];
+
+  // An unexpected section means either the student submitted something the
+  // assignment does not describe, or the sections mapping is wrong. Both need a
+  // person, and neither is the model's to resolve.
+  if (classification.unexpected.length > 0) {
+    reviewReasons.push(
+      `The pull request contains ${classification.unexpected.join(", ")}, which this ` +
+      `assignment does not declare.`,
+    );
+  }
+  if (classification.notSubmitted.length > 0) {
+    // Named together, because a section can be missing for two very different reasons
+    // and only one of them is the student's doing. An assignment shipping
+    // SHORT_RESPONSE.MD instead of short-response.md reported the work as not
+    // submitted while it sat in the pull request; listing what went unrecognized is
+    // what makes a naming mistake look like a naming mistake.
+    const unrecognized =
+      classification.unclassified.length > 0
+        ? ` No section matched these changed files, which may be a filename the ` +
+          `matcher does not recognize rather than work the student skipped: ` +
+          `${classification.unclassified.join(", ")}.`
+        : "";
+
+    reviewReasons.push(
+      `Not submitted: ${classification.notSubmitted.join(", ")}.${unrecognized}`,
+    );
+  }
+
+  try {
+    const generator = await getReportGenerator();
+    // All four counts, because the first three alone cannot answer "is prompt caching
+    // working". Claude reports cached and newly-written tokens *separately* from
+    // `promptTokens` rather than as a subset of it, so a run that writes the cache
+    // shows zero reads and an unchanged prompt count — indistinguishable from caching
+    // being broken until the write count is visible.
+    const usageTotals = {
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    let assetsCommitSha: string | null = null;
+
+    for (const sectionType of classification.present) {
+      const section = findSection(declaredSections, sectionType);
+
+      // Refused rather than defaulted. Told nothing about the maximum, a model will
+      // invent one — an early run produced a report scored out of 40 for a 30-point
+      // assignment — and a plausible score against an invented denominator is worse
+      // than no score, because nothing downstream can tell it apart from a real one.
+      const sectionPointValue = section?.pointValue;
+      if (typeof sectionPointValue !== "number") {
+        throw new Error(
+          `The "${sectionType}" section of ${submission.assignment.title} has no ` +
+          `pointValue, so there is no maximum to score it against. Point values are ` +
+          `per section rather than per assignment; a row seeded before that change ` +
+          `carries the old shape. Re-run \`npm run db:seed\` for this assignment.`,
+        );
+      }
+
+      const assets = loadGradingAssets({
+        sectionType,
+        answerKeyPaths: section?.answerKeyPaths ?? [],
+      });
+      assetsCommitSha = assets.commitSha;
+
+      // Which tests count toward this section. Absent pattern with evidence
+      // "tests" means the whole suite counts; no evidence means none of it does,
+      // which is ordinary rather than a deficiency.
+      const sectionTests = resolveSectionTests(section, allTests);
+
+      const studentFiles = await fetchChangedFiles(installationId, {
+        ...studentRepo,
+        ref: submission.headSha,
+        paths: changedPaths.filter((path) => belongsToSection(path, sectionType)),
+      });
+
+      const readme = await fetchFile(installationId, {
+        ...studentRepo,
+        ref: submission.headSha,
+        path: "README.md",
+      });
+
+      const response = await generator.generate({
+        system: buildSystemPrompt({ sectionType, assets }),
+        user: buildUserPrompt({
+          assets,
+          context: {
+            studentGithubUsername: submission.student.githubUsername,
+            assignmentTitle: submission.assignment.title,
+            pointValue: sectionPointValue,
+            readme,
+            studentFiles,
+            testResults: sectionTests,
+            tamperedPaths,
+            headBranch: submission.headBranch,
+          },
+        }),
+      });
+
+      usageTotals.promptTokens += response.usage.promptTokens;
+      usageTotals.completionTokens += response.usage.completionTokens;
+      usageTotals.cachedPromptTokens += response.usage.cachedPromptTokens ?? 0;
+      usageTotals.cacheWriteTokens += response.usage.cacheWriteTokens ?? 0;
+
+      const facts: Facts = { tests: sectionTests?.tests ?? null, tamperedPaths };
+      const check = crossCheck(response.output, facts);
+
+      await db.gradingDraftSection.create({
+        data: {
+          gradingDraftId: draft.id,
+          sectionType,
+          reportMarkdown: response.output.reportMarkdown,
+          scoreEarned: response.output.scoreEarned,
+          scorePossible: response.output.scorePossible,
+          rubricItems: response.output.rubricItems,
+          flags: [
+            ...response.output.flags,
+            // Recorded on the row so the review interface can show, at a glance,
+            // which sections had their claims verified against a run and which rest
+            // entirely on the model's reading of the code.
+            sectionTests ? "TEST_EVIDENCE" : "NO_TEST_EVIDENCE",
+            ...check.findings.map((finding) => finding.code),
+          ],
+          instructorNotes: response.output.instructorNotes,
+          confidence: response.output.confidence === "low" ? "LOW" : "HIGH",
+          submissionProcessNote: response.output.submissionProcessNote,
+        },
+      });
+
+      for (const finding of check.findings) {
+        reviewReasons.push(`${sectionType}: ${finding.detail}`);
+      }
+    }
+
+    const needsReview = reviewReasons.length > 0;
+
+    return await db.gradingDraft.update({
+      where: { id: draft.id },
+      data: {
+        status: needsReview ? "NEEDS_MANUAL_REVIEW" : "READY",
+        errorDetail: needsReview ? reviewReasons.join("\n") : null,
+        modelMetadata: {
+          provider: generator.name,
+          promptVersion: PROMPT_VERSION,
+          gradingAssetsCommitSha: assetsCommitSha,
+          usage: usageTotals,
+          sectionsGraded: classification.present,
+          sectionsNotSubmitted: classification.notSubmitted,
+          testRunId: testRun?.id ?? null,
+        },
+      },
+    });
+  } catch (err) {
+    // A failure to produce a report is never a score. FAILED with the reason
+    // attached, so an instructor knows to grade it by hand rather than seeing a
+    // fabricated number.
+    const detail =
+      err instanceof ProviderError ||
+      err instanceof ReportValidationError ||
+      err instanceof GradingAssetsError
+        ? `${err.name}: ${err.message}`
+        : err instanceof Error
+          ? `${err.name}: ${err.message}`
+          : String(err);
+
+    return await db.gradingDraft.update({
+      where: { id: draft.id },
+      data: { status: "FAILED", errorDetail: detail },
+    });
+  }
+}
+
+/**
+ * Bumped whenever the prompt builders change in a way that could alter output.
+ * Recorded on every draft, so a report can be traced to the prompt that produced it.
+ */
+const PROMPT_VERSION = "2026-08-02.3";
+
+/**
+ * Narrows the suite to the tests that count toward one section.
+ *
+ * Returns null when the section declares no test evidence, which is what keeps an
+ * untested section from being handed results that describe someone else's work.
+ */
+function resolveSectionTests(
+  section: AssignmentSection | undefined,
+  allTests: NormalizedTest[],
+): NormalizedResults | null {
+  if (!hasTestEvidence(section) || allTests.length === 0) return null;
+
+  const tests = section?.testNamePattern
+    ? allTests.filter((test) =>
+        new RegExp(section.testNamePattern!).test(`${test.suite} ${test.name}`),
+      )
+    : allTests;
+
+  if (tests.length === 0) return null;
+
+  return {
+    total: tests.length,
+    passed: tests.filter((t) => t.status === "passed").length,
+    failed: tests.filter((t) => t.status === "failed").length,
+    skipped: tests.filter((t) => t.status === "skipped").length,
+    tests,
+  };
+}
+
+/**
+ * Whether a changed path is part of a section, so a short response report is not
+ * handed a stylesheet to read.
+ *
+ * Deliberately permissive: a file that matches nothing specific is included, because
+ * omitting a file the model needed is worse than including one it does not.
+ */
+async function templateHasJest(installationId: number, templateRepo: string): Promise<boolean> {
+  const { owner, repo } = splitRepoFullName(templateRepo);
+  const packageJson = await fetchFile(installationId, {
+    owner,
+    repo,
+    ref: "HEAD",
+    path: "package.json",
+  });
+  if (!packageJson) return false;
+  try {
+    const parsed = JSON.parse(packageJson) as {
+      devDependencies?: Record<string, string>;
+      dependencies?: Record<string, string>;
+    };
+    return Boolean(parsed.devDependencies?.jest ?? parsed.dependencies?.jest);
+  } catch {
+    return false;
+  }
+}
+
+/** Returns null when the file does not exist, which is an ordinary outcome. */
+async function fetchFile(
+  installationId: number,
+  params: { owner: string; repo: string; ref: string; path: string },
+): Promise<string | null> {
+  const { getInstallationOctokit } = await import("../github/app-client");
+  const octokit = await getInstallationOctokit(installationId);
+  try {
+    const { data } = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: params.owner,
+      repo: params.repo,
+      path: params.path,
+      ref: params.ref,
+    });
+    if (!("content" in data) || typeof data.content !== "string") return null;
+    if (typeof data.size === "number" && data.size > MAX_FETCHED_FILE_BYTES) return null;
+    return Buffer.from(data.content, "base64").toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
+async function fetchChangedFiles(
+  installationId: number,
+  params: { owner: string; repo: string; ref: string; paths: string[] },
+): Promise<{ path: string; content: string }[]> {
+  const files = await Promise.all(
+    params.paths.map(async (path) => {
+      const content = await fetchFile(installationId, { ...params, path });
+      return content === null ? null : { path, content };
+    }),
+  );
+  return files.filter((file): file is { path: string; content: string } => file !== null);
+}
