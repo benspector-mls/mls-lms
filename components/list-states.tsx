@@ -4,53 +4,7 @@ import * as React from "react"
 import { AlertTriangle, Inbox, RotateCw } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-
-export type PreviewState = "data" | "loading" | "empty" | "error"
-
-// A small control so reviewers of the prototype can preview every list state
-// (loading / empty / error) without needing a backend.
-export function PreviewStateSelect({
-  value,
-  onValueChange,
-  className,
-}: {
-  value: PreviewState
-  onValueChange: (v: PreviewState) => void
-  className?: string
-}) {
-  return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <span className="text-xs text-muted-foreground whitespace-nowrap">
-        Preview state
-      </span>
-      <Select
-        value={value}
-        onValueChange={(v) => onValueChange(v as PreviewState)}
-      >
-        <SelectTrigger size="sm" className="w-32" aria-label="Preview list state">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            <SelectItem value="data">Live data</SelectItem>
-            <SelectItem value="loading">Loading</SelectItem>
-            <SelectItem value="empty">Empty</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
-  )
-}
 
 export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
@@ -114,7 +68,7 @@ export function EmptyState({
 
 export function ErrorState({
   title = "Something went wrong",
-  description = "We couldn't load this list. This is a simulated error state for the prototype.",
+  description = "This did not load. Trying again is usually enough; if it is not, the message above is worth reporting.",
   onRetry,
   className,
 }: {
