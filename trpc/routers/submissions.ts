@@ -1,7 +1,49 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import type { GradingDraftStatus, SubmissionStatus } from '@/lib/generated/prisma/enums';
+
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+
+/**
+ * Which pile of work a submission belongs in, or null if it needs nobody.
+ *
+ * Decided here rather than in the interface so the count on a card and the rows inside
+ * it can never come from two different readings of the same data.
+ */
+function triageBucket(
+  submissionStatus: SubmissionStatus,
+  draft: { status: GradingDraftStatus } | null,
+  draftIsStale: boolean,
+  hasUndeliveredApproval: boolean,
+):
+  | 'draft_ready'
+  | 'needs_manual_review'
+  | 'grading_failed'
+  | 'comment_not_posted'
+  | 'generating'
+  | 'awaiting'
+  | null {
+  /*
+    Checked first, and against every draft rather than the most recent one. A grade that
+    was never delivered is still owed to the student whatever has happened since — and
+    what happens next is usually that they push again and a new draft is generated, which
+    would bury the undelivered one behind it forever.
+  */
+  if (hasUndeliveredApproval) return 'comment_not_posted';
+
+  if (draft && !draftIsStale) {
+    if (draft.status === 'READY') return 'draft_ready';
+    if (draft.status === 'NEEDS_MANUAL_REVIEW') return 'needs_manual_review';
+    if (draft.status === 'FAILED') return 'grading_failed';
+    if (draft.status === 'GENERATING') return 'generating';
+  }
+
+  // No usable draft. Open work still needs a run; anything else is finished.
+  if (submissionStatus === 'SUBMITTED' || submissionStatus === 'RESUBMITTED') return 'awaiting';
+
+  return null;
+}
 
 export const submissionsRouter = createTRPCRouter({
   /** Every submission belonging to the caller, newest activity first. */
@@ -87,6 +129,163 @@ export const submissionsRouter = createTRPCRouter({
         data: { status: 'RESUBMITTED', lastActivityAt: new Date() },
         select: { id: true, status: true },
       });
+    }),
+
+  /**
+   * Everything across the caller's courses that is waiting on them. Instructors only.
+   *
+   * The landing screen for an instructor, so it answers "what do I do next" rather than
+   * "what exists".
+   *
+   * Which bucket a submission belongs in is decided by its most recent grading draft,
+   * not by `submission.status`. Generating a report writes the draft's status and leaves
+   * the submission's alone — only approving moves a submission to GRADED — so
+   * `DRAFT_READY`, `NEEDS_MANUAL_REVIEW`, and `GRADING_FAILED` are values nothing ever
+   * writes. Reading them here would leave every bucket permanently empty.
+   *
+   * Two of the buckets exist because the work is otherwise invisible. `comment_not_posted`
+   * is a grade recorded whose comment never reached the pull request: the submission
+   * reads as finished from every other angle, but the student was never told. And a
+   * draft describing a commit the student has since pushed past is deliberately not
+   * "ready to review" — approving it is refused — so it goes back in the queue as
+   * needing a fresh run.
+   */
+  triage: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid().optional() }))
+    .query(async ({ ctx, input }) => {
+      // Which courses the caller may see across. An admin sees every course; an
+      // instructor sees only the ones they are listed on. This is what scopes the read,
+      // since it deliberately crosses both students and assignments.
+      const taught =
+        ctx.profile.role === 'ADMIN'
+          ? await ctx.db.course.findMany({
+              where: { archivedAt: null, ...(input.courseId ? { id: input.courseId } : {}) },
+              select: { id: true },
+            })
+          : await ctx.db.courseInstructor.findMany({
+              where: { userId: ctx.profile.id, ...(input.courseId ? { courseId: input.courseId } : {}) },
+              select: { courseId: true },
+            });
+
+      const courseIds = taught.map((row) => ('id' in row ? row.id : row.courseId));
+
+      if (courseIds.length === 0) {
+        return { submissions: [], gradedCount: 0 };
+      }
+
+      const submissions = await ctx.db.submission.findMany({
+        where: {
+          assignment: { courseId: { in: courseIds } },
+          OR: [
+            // Open work, whether or not a run has happened yet.
+            { status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
+            // A run that reached some state a person has to act on. Included
+            // independently of the submission's status, because a student can push after
+            // being graded and have a new draft waiting while the submission still reads
+            // GRADED.
+            {
+              gradingDrafts: {
+                some: { status: { in: ['READY', 'NEEDS_MANUAL_REVIEW', 'FAILED', 'GENERATING'] } },
+              },
+            },
+            // Approved, but the comment never reached the pull request. Recoverable —
+            // there is a retry — and worth finding without being looked for.
+            { gradingDrafts: { some: { status: 'APPROVED', postedPrCommentId: null } } },
+          ],
+        },
+        orderBy: [{ lastActivityAt: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          id: true,
+          status: true,
+          isLate: true,
+          headSha: true,
+          gradedHeadSha: true,
+          submittedAt: true,
+          lastActivityAt: true,
+          student: { select: { id: true, displayName: true, email: true } },
+          assignment: { select: { id: true, title: true, moduleTag: true, courseId: true } },
+          // The most recent run, superseded ones included: a draft that was replaced is
+          // still what the row's flags describe until a newer one finishes.
+          gradingDrafts: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              headSha: true,
+              approvedAt: true,
+              sections: {
+                select: {
+                  flags: true,
+                  confidence: true,
+                  scoreEarned: true,
+                  editedScoreEarned: true,
+                  scorePossible: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Counted rather than fetched. The screen shows how many are done, not which.
+      const gradedCount = await ctx.db.submission.count({
+        where: { assignment: { courseId: { in: courseIds } }, status: 'GRADED' },
+      });
+
+      /*
+        Which of these have a grade that was approved but never reached the pull request.
+        Asked as its own question rather than read off the most recent draft, because the
+        undelivered one is frequently not the most recent: the usual sequence is approve,
+        the comment fails, the student pushes, a new draft is generated on top.
+      */
+      const undelivered = await ctx.db.gradingDraft.findMany({
+        where: {
+          submissionId: { in: submissions.map((s) => s.id) },
+          status: 'APPROVED',
+          postedPrCommentId: null,
+        },
+        select: { submissionId: true },
+        distinct: ['submissionId'],
+      });
+      const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+
+      const rows = submissions.map(({ gradingDrafts, ...submission }) => {
+        const draft = gradingDrafts[0] ?? null;
+
+        // The draft describes a commit the student has pushed past. Approval refuses a
+        // stale draft, so the row must not be offered as ready to approve.
+        const draftIsStale =
+          draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
+
+        return {
+          ...submission,
+          bucket: triageBucket(
+            submission.status,
+            draft,
+            draftIsStale,
+            undeliveredIds.has(submission.id),
+          ),
+          draftIsStale,
+          // Flattened here rather than in the interface. Delivery is deliberately not on
+          // this object: whether a grade reached the student is answered by the bucket,
+          // and a second copy of the answer here would be one that could disagree.
+          activeDraft: draft
+            ? {
+                id: draft.id,
+                status: draft.status,
+                headSha: draft.headSha,
+                approvedAt: draft.approvedAt,
+                sections: draft.sections,
+              }
+            : null,
+        };
+      });
+
+      // A row matching the query but landing in no bucket has nothing for a person to
+      // do — a superseded draft on a graded submission, say. Dropped here so the
+      // interface never has to decide what to do with one.
+      return { submissions: rows.filter((row) => row.bucket != null), gradedCount };
     }),
 
   /**
