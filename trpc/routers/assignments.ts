@@ -27,7 +27,65 @@ const assignmentFields = {
   courseId: true,
 } as const;
 
+/**
+ * Whether the caller is connected to a course, either enrolled or teaching.
+ *
+ * Pulled out because every course-scoped read needs it and Prisma is not restricted by
+ * row level security: without this check any signed-in user could read any course by
+ * guessing an id.
+ */
+async function assertCourseMember(
+  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  courseId: string,
+) {
+  if (ctx.profile.role === 'ADMIN') return;
+
+  const [enrollment, instructorRow] = await Promise.all([
+    ctx.db.enrollment.findFirst({
+      where: { courseId, studentId: ctx.profile.id, status: 'ACTIVE' },
+      select: { id: true },
+    }),
+    ctx.db.courseInstructor.findFirst({
+      where: { courseId, userId: ctx.profile.id },
+      select: { id: true },
+    }),
+  ]);
+
+  if (!enrollment && !instructorRow) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'You are not a member of this course.',
+    });
+  }
+}
+
 export const assignmentsRouter = createTRPCRouter({
+  /**
+   * One assignment and the course it belongs to.
+   *
+   * Exists for the places that hold an assignment id and nothing else — the breadcrumb
+   * over the grading queue is the first — where fetching every assignment in the course
+   * to find one would be the wrong shape.
+   */
+  get: profileProcedure
+    .input(z.object({ assignmentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: {
+          ...assignmentFields,
+          course: { select: { id: true, name: true, cohortTerm: true } },
+        },
+      });
+
+      if (!assignment) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      }
+
+      await assertCourseMember(ctx, assignment.courseId);
+      return assignment;
+    }),
+
   /**
    * Assignments for one course, with the caller's own submission attached.
    *
@@ -39,23 +97,7 @@ export const assignmentsRouter = createTRPCRouter({
   listForCourse: profileProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [enrollment, instructorRow] = await Promise.all([
-        ctx.db.enrollment.findFirst({
-          where: { courseId: input.courseId, studentId: ctx.profile.id, status: 'ACTIVE' },
-          select: { id: true },
-        }),
-        ctx.db.courseInstructor.findFirst({
-          where: { courseId: input.courseId, userId: ctx.profile.id },
-          select: { id: true },
-        }),
-      ]);
-
-      if (!enrollment && !instructorRow && ctx.profile.role !== 'ADMIN') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You are not a member of this course.',
-        });
-      }
+      await assertCourseMember(ctx, input.courseId);
 
       return ctx.db.assignment.findMany({
         where: { courseId: input.courseId },
