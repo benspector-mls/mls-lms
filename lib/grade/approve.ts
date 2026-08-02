@@ -4,6 +4,7 @@ import { db } from "../prisma";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { postOrUpdatePrComment } from "../github/prs";
+import { statedScoreInText } from "./report-text";
 
 /**
  * Approving a grading draft: the moment a draft stops being a suggestion and becomes
@@ -89,19 +90,14 @@ export function buildFeedbackMarkdown(
 }
 
 /**
- * The score a report's own text claims, or null if it states none.
- *
- * Shared with the cross-check, and needed again at approval because an instructor can
- * change the prose and the number independently. Editing "28/30" into the text without
- * changing the recorded score would hand the student one figure and the gradebook
- * another, which is the failure the whole two-column design exists to avoid.
+ * Re-exported from `report-text`, which has no database or network imports so the review
+ * interface can run the same check in the browser. Shared with the cross-check, and
+ * needed again at approval because an instructor can change the prose and the number
+ * independently. Editing "28/30" into the text without changing the recorded score would
+ * hand the student one figure and the gradebook another, which is the failure the whole
+ * two-column design exists to avoid.
  */
-export function statedScoreInText(
-  markdown: string,
-): { earned: number; possible: number } | null {
-  const match = markdown.match(/^#{1,3}\s.*?Score:\s*([\d.]+)\s*\/\s*([\d.]+)/im);
-  return match ? { earned: Number(match[1]), possible: Number(match[2]) } : null;
-}
+export { statedScoreInText };
 
 export async function approveDraft(params: {
   draftId: string;

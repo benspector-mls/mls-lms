@@ -315,6 +315,10 @@ export const submissionsRouter = createTRPCRouter({
    * This is the one procedure that deliberately reads across students, which is
    * why it is gated on the caller teaching the course rather than on
    * `instructorProcedure` alone.
+   *
+   * Each row carries the same `bucket` the triage screen sorts on, computed the same
+   * way. The grading queue's "needs review" filter is then the same question triage
+   * answers — a submission cannot be work to do on one screen and finished on the other.
    */
   listForAssignment: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid() }))
@@ -365,9 +369,47 @@ export const submissionsRouter = createTRPCRouter({
           gradedAt: true,
           gradedHeadSha: true,
           student: { select: { id: true, displayName: true, email: true, githubUsername: true } },
+          // Enough of the most recent draft to label a queue row. The review pane loads
+          // the draft in full when a row is selected; a list of forty students does not
+          // need forty reports in it.
+          gradingDrafts: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, status: true, headSha: true, approvedAt: true },
+          },
         },
       });
 
-      return { assignment, submissions };
+      const undelivered = await ctx.db.gradingDraft.findMany({
+        where: {
+          submissionId: { in: submissions.map((s) => s.id) },
+          status: 'APPROVED',
+          postedPrCommentId: null,
+        },
+        select: { submissionId: true },
+        distinct: ['submissionId'],
+      });
+      const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+
+      return {
+        assignment,
+        submissions: submissions.map(({ gradingDrafts, ...submission }) => {
+          const draft = gradingDrafts[0] ?? null;
+          const draftIsStale =
+            draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
+
+          return {
+            ...submission,
+            bucket: triageBucket(
+              submission.status,
+              draft,
+              draftIsStale,
+              undeliveredIds.has(submission.id),
+            ),
+            draftIsStale,
+            activeDraft: draft,
+          };
+        }),
+      };
     }),
 });

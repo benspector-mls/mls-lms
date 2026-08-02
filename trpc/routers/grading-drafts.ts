@@ -193,7 +193,16 @@ export const gradingDraftsRouter = createTRPCRouter({
          * reached GitHub — which is a recoverable state rather than a failure, but
          * only if somebody can see it.
          */
-        grade: graded && { ...graded, commentPosted: latestApproval?.postedPrCommentId !== null },
+        grade: graded && {
+          ...graded,
+          /**
+           * Null when nothing has been approved: there is no comment to have gone out or
+           * not, and saying `true` there — which `latestApproval?.postedPrCommentId !==
+           * null` did, because `undefined !== null` — claims a delivery that never
+           * happened. Three states, so three values.
+           */
+          commentPosted: latestApproval ? latestApproval.postedPrCommentId !== null : null,
+        },
       };
     }),
 
