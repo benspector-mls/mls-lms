@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { effectiveSection } from '@/lib/grade/approve';
 import {
   getConfiguredInstallationId,
   isGithubAppConfigured,
@@ -99,7 +100,7 @@ export const assignmentsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await assertCourseMember(ctx, input.courseId);
 
-      return ctx.db.assignment.findMany({
+      const assignments = await ctx.db.assignment.findMany({
         where: { courseId: input.courseId },
         select: {
           ...assignmentFields,
@@ -141,6 +142,11 @@ export const assignmentsRouter = createTRPCRouter({
                       reportMarkdown: true,
                       scoreEarned: true,
                       scorePossible: true,
+                      // Both columns, because what the student is owed is the instructor's
+                      // revision where one exists. They are collapsed below and never
+                      // leave this procedure separately.
+                      editedReportMarkdown: true,
+                      editedScoreEarned: true,
                     },
                   },
                 },
@@ -150,6 +156,31 @@ export const assignmentsRouter = createTRPCRouter({
         },
         orderBy: [{ moduleTag: 'asc' }, { assignmentRepoName: 'asc' }],
       });
+
+      /*
+        Collapsed to the effective values before leaving the server.
+
+        An instructor's edit is what was posted to the pull request and what the gradebook
+        recorded, so it is the only version a student may be shown. Reading the model's
+        raw output straight out of the column — which this procedure did — showed them
+        text their instructor had already corrected.
+
+        Done here rather than in the interface, and by the same `effectiveSection` the
+        approval path uses to build the comment, so the two cannot disagree about which
+        version won. It also means the model's unedited output never travels to a
+        student's browser at all: it is instructor-facing evidence, and there is no
+        student-facing question it answers.
+      */
+      return assignments.map((assignment) => ({
+        ...assignment,
+        submissions: assignment.submissions.map((submission) => ({
+          ...submission,
+          gradingDrafts: submission.gradingDrafts.map((draft) => ({
+            ...draft,
+            sections: draft.sections.map(effectiveSection),
+          })),
+        })),
+      }));
     }),
 
   /**
