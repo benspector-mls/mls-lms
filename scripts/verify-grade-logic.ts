@@ -329,8 +329,24 @@ check("withholding points despite a 100% pass rate is LEGITIMATE",
 check("a changed protected path always routes to review",
   codes(crossCheck(report(), { tests: null, tamperedPaths: [{ path: "tests/a.spec.js", kind: "modified" }] })),
   ["PROTECTED_PATHS_CHANGED"]);
-check("low confidence always routes to review",
+/*
+  Low confidence is recorded and does NOT hold the draft back.
+
+  It is the honest answer for a section with no suite to check against — short response
+  and frontend work, most of the curriculum — so gating on it marked nearly everything as
+  exceptional and taught the instructor to ignore the marking. It is a badge on the
+  section instead.
+
+  Both halves are asserted together on purpose: the finding must still be produced, and it
+  must not gate. Sound only because nothing is ever sent without approval; if automatic
+  approval is ever built, this has to gate again.
+*/
+check("low confidence is still recorded",
   codes(crossCheck(report({ confidence: "low" }), noFacts)), ["LOW_CONFIDENCE"]);
+check("low confidence alone does not hold a draft back",
+  crossCheck(report({ confidence: "low" }), noFacts).needsManualReview, false);
+check("low confidence beside a real fault still holds it back",
+  crossCheck(report({ confidence: "low", scoreEarned: 99 }), noFacts).needsManualReview, true);
 
 // --- schema ---------------------------------------------------------------
 const schema = gradingReportJsonSchema();

@@ -23,6 +23,7 @@
     "calibrate": "tsx --conditions=react-server scripts/calibrate.ts",
     "approve": "tsx --conditions=react-server scripts/approve.ts",
     "verify:approve": "tsx --conditions=react-server scripts/verify-approve.ts",
+    "verify:app": "tsx --conditions=react-server scripts/verify-github-app.ts",
     "verify:assets": "tsx --conditions=react-server scripts/verify-assets.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts"
   },

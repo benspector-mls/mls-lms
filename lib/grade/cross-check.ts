@@ -51,6 +51,32 @@ export type CrossCheckFinding = {
   detail: string;
 };
 
+/**
+ * Findings that describe uncertainty rather than a fault.
+ *
+ * Every other finding is a contradiction: rubric points that do not sum to the score, a
+ * claim about a test that never ran, full marks beside failures. Those are reasons a
+ * draft must not be passed over, and they hold it back.
+ *
+ * Low confidence is not that. It is the model saying it found the work hard to judge,
+ * which is the honest answer for a section with no suite to check against — short
+ * response and frontend work, most of the curriculum. Holding those back marked every
+ * one of them as exceptional, which is the fastest way to teach an instructor that the
+ * marking means nothing. It stays a badge on the section, where it is a useful hint about
+ * where to read carefully, and stops being a gate.
+ *
+ * This is only sound because nothing is ever sent without approval. If automatic
+ * approval is ever built, low confidence must gate again.
+ */
+const NON_GATING_FINDINGS: ReadonlySet<CrossCheckFinding["code"]> = new Set([
+  "LOW_CONFIDENCE",
+]);
+
+/** True when this finding alone should keep a draft from being offered as ready. */
+export function findingGatesApproval(code: CrossCheckFinding["code"]): boolean {
+  return !NON_GATING_FINDINGS.has(code);
+}
+
 export type CrossCheckResult = {
   findings: CrossCheckFinding[];
   /** True when an instructor must look before this can reach a student. */
@@ -238,5 +264,8 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     });
   }
 
-  return { findings, needsManualReview: findings.length > 0 };
+  return {
+    findings,
+    needsManualReview: findings.some((finding) => findingGatesApproval(finding.code)),
+  };
 }
