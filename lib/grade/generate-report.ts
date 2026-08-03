@@ -6,6 +6,8 @@ import { splitRepoFullName } from "../github/archives";
 import { getPullRequestFiles } from "../github/prs";
 import type { GradingDraft } from "../generated/prisma/client";
 import type { NormalizedTest } from "../sandbox/parsers";
+import { resolveRunner } from "../sandbox/presets";
+import { runTestsForSubmission } from "../sandbox/run-tests";
 import { GradingAssetsError, loadGradingAssets } from "./assets";
 import {
   belongsToSection,
@@ -58,7 +60,15 @@ export async function generateReportForSubmission(
       headBranch: true,
       student: { select: { githubUsername: true } },
       assignment: {
-        select: { title: true, sections: true, templateRepo: true, pointValue: true },
+        select: {
+          title: true,
+          sections: true,
+          templateRepo: true,
+          pointValue: true,
+          // Read so the run below can be started when one is missing.
+          runnerPreset: true,
+          runnerConfig: true,
+        },
       },
     },
   });
@@ -83,6 +93,46 @@ export async function generateReportForSubmission(
 
   const installationId = getConfiguredInstallationId();
   const studentRepo = splitRepoFullName(submission.repoFullName);
+
+  // ---- Run the tests first, if this assignment has any and none have run ----
+  //
+  // Grading an assignment with a runnable suite against no results produced a report
+  // that rested on reading the code, plus a note telling the instructor to run the tests
+  // and generate again. That is two deliberate actions to reach the state the first one
+  // should have produced, and the intermediate report is worth nothing — nobody wants
+  // the version written without the evidence.
+  //
+  // Failures here are swallowed on purpose. Test results are evidence, not a gate: a
+  // sandbox that will not start is not a reason to refuse to grade, and the section
+  // below already records "graded without test results" as a reason for an instructor
+  // to look. That note is now truthful about having tried.
+  const runner = (() => {
+    try {
+      return resolveRunner(submission.assignment);
+    } catch {
+      // A misconfigured preset. Reported by testRuns.listForSubmission where it can be
+      // fixed; here it simply means there is nothing to run.
+      return null;
+    }
+  })();
+
+  if (runner) {
+    const existing = await db.testRun.findFirst({
+      where: { submissionId: submission.id, headSha: submission.headSha, status: "COMPLETED" },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      try {
+        await runTestsForSubmission(submission.id, { trigger: "MANUAL" });
+      } catch (err) {
+        console.warn(
+          `generate-report: could not run tests for ${submission.id} before grading — ` +
+          `continuing without them. ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
 
   // ---- The most recent run, if there is one --------------------------------
   //

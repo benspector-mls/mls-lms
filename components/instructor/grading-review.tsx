@@ -525,6 +525,21 @@ function ManualReviewNotice({ draft, hasSections }: { draft: Draft; hasSections:
  * Runs the pipeline. Awaited inside the request and slow — tens of seconds to a couple of
  * minutes — so the button says what is happening rather than going quiet.
  */
+function useGenerateReport() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  return useMutation(
+    trpc.gradingDrafts.generate.mutationOptions({
+      onSuccess: () => {
+        toast.success('Report generated. Nothing has been sent to the student.');
+        void queryClient.invalidateQueries();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+}
+
 function GeneratePanel({
   submission,
   data,
@@ -536,18 +551,7 @@ function GeneratePanel({
   label: string;
   retry?: boolean;
 }) {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-
-  const generate = useMutation(
-    trpc.gradingDrafts.generate.mutationOptions({
-      onSuccess: () => {
-        toast.success('Report generated. Nothing has been sent to the student.');
-        void queryClient.invalidateQueries();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
+  const generate = useGenerateReport();
 
   return (
     <Card>
@@ -557,8 +561,9 @@ function GeneratePanel({
           {retry ? 'Generate another report' : 'Generate a report'}
         </CardTitle>
         <CardDescription>
-          Reads the submission against the rubric and drafts per-section feedback. It
-          records no grade and posts nothing — you review the result first.
+          Runs the assignment&apos;s tests if they have not run at this commit, then reads
+          the submission against the rubric and drafts per-section feedback. It records no
+          grade and posts nothing — you review the result first.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -580,13 +585,14 @@ function GeneratePanel({
             ) : (
               <Bot data-icon="inline-start" />
             )}
-            {generate.isPending ? 'Reading the submission…' : label}
+            {generate.isPending ? 'Running tests and grading…' : label}
           </Button>
 
           {generate.isPending && (
             <span className="text-sm text-muted-foreground">
-              This takes up to a couple of minutes. Leaving the page cancels nothing — the
-              run finishes and the report appears here.
+              A couple of minutes: the test suite takes about half a minute, then the
+              report is written. Leaving the page cancels nothing — it finishes and the
+              report appears here.
             </span>
           )}
 
@@ -907,12 +913,55 @@ function DraftEditor({
         </DialogContent>
       </Dialog>
 
+      <RegenerateRow submissionId={submission.id} unsaved={unsaved} />
+
       {/*
         Last, because it is provenance rather than part of the review: which model wrote
         this, from which prompt, against which commit of the grading assets. Worth being
         able to find when a report reads oddly, and worth nothing while reading one.
       */}
       <ModelMetaBar draft={draft} />
+    </div>
+  );
+}
+
+/**
+ * Grading this submission again, from beside a report that already exists.
+ *
+ * The reason this is here rather than only on a failed run: a report can arrive sound but
+ * wanting — written before the tests ran, or against a rubric that has since been
+ * corrected. Without this, the only way to ask for another was to push a commit.
+ *
+ * Refused while an edit is unsaved. A new report supersedes this one, and an edit stored
+ * against a superseded draft is no longer what anybody reads — losing an instructor's
+ * writing to a button they pressed for a different reason is not a trade worth making.
+ */
+function RegenerateRow({ submissionId, unsaved }: { submissionId: string; unsaved: boolean }) {
+  const generate = useGenerateReport();
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-3">
+      <div className="flex min-w-0 flex-col">
+        <span className="text-sm font-medium">Not happy with this report?</span>
+        <span className="text-xs text-muted-foreground">
+          {unsaved
+            ? 'Save or undo your changes first — a new report replaces this one.'
+            : 'Grading again runs the tests if needed and writes a fresh report. This one is kept.'}
+        </span>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={unsaved || generate.isPending}
+        onClick={() => generate.mutate({ submissionId })}
+      >
+        {generate.isPending ? (
+          <Loader2 data-icon="inline-start" className="animate-spin" />
+        ) : (
+          <RotateCcw data-icon="inline-start" />
+        )}
+        {generate.isPending ? 'Grading again…' : 'Grade again'}
+      </Button>
     </div>
   );
 }
