@@ -50,7 +50,8 @@ async function main() {
   check("a module with no answer keys lists nothing rather than failing",
     (await listAssignmentDirs("mod-99-does-not-exist")).length === 0);
 
-  const nested = await listAnswerKeys("mod-1-js-fundamentals", "swe-1-3-node-modules");
+  const localCatalogue = { dirs, keys: await listAnswerKeys("mod-1-js-fundamentals", "swe-1-3-node-modules") };
+  const nested = localCatalogue.keys;
   const expectedNested = [
     "mod-1-js-fundamentals/swe-1-3-node-modules/modify.js",
     "mod-1-js-fundamentals/swe-1-3-node-modules/madlib-challenge/index.js",
@@ -156,7 +157,35 @@ async function main() {
   check("every section type resolves a rubric heading", missingSection === "no error",
     missingSection);
 
+  /*
+    The catalogue over the API, compared against what the clone reported.
+
+    This is the check the catalogue most needs. An instructor authoring an assignment picks
+    from this list, so a catalogue that offered one set of assignments in development and a
+    different set on the deployment would put an assignment in a course that grading cannot
+    find answer keys for — and it would do so silently, because both halves look right on
+    their own. The two implementations are separate code (`readdirSync` against the contents
+    API), which is exactly why they are compared rather than assumed to agree.
+  */
   if (localPath) {
+    const remoteDirs = await listAssignmentDirs("mod-1-js-fundamentals");
+    const remoteKeys = await listAnswerKeys("mod-1-js-fundamentals", "swe-1-3-node-modules");
+
+    check("both sources list the same assignments",
+      JSON.stringify(remoteDirs) === JSON.stringify(localCatalogue.dirs),
+      JSON.stringify(remoteDirs) === JSON.stringify(localCatalogue.dirs)
+        ? `${remoteDirs.length} from each`
+        : `clone: ${JSON.stringify(localCatalogue.dirs)}\n  repository: ${JSON.stringify(remoteDirs)}`);
+
+    // Same order as well as same set, since this is what fills a form: an instructor
+    // reading a differently ordered list in two environments would reasonably wonder which
+    // one is wrong.
+    check("both sources list the same answer keys, in the same order",
+      JSON.stringify(remoteKeys) === JSON.stringify(localCatalogue.keys),
+      JSON.stringify(remoteKeys) === JSON.stringify(localCatalogue.keys)
+        ? `${remoteKeys.length} from each, nested included`
+        : `clone: ${JSON.stringify(localCatalogue.keys)}\n  repository: ${JSON.stringify(remoteKeys)}`);
+
     process.env.GRADING_ASSETS_PATH = localPath;
     const local = await loadGradingAssets({ sectionType: "short_response", answerKeyPaths: [] });
     // The clone is usually ahead of or behind the remote while the rubric is being
