@@ -10,8 +10,8 @@
  * template's version of a script wins a collision, and whether unreadable runner
  * output is treated as an infrastructure failure rather than as a zero.
  *
- * The rest of Phase 2's verification needs a real sandbox and a real repository,
- * and is listed in plan.md.
+ * The rest of the sandbox's verification needs a real sandbox and a real repository.
+ * What it covers is in README.md; what is still missing is in ROADMAP.md.
  */
 import { matchesProtectedPath, resolveRunner, DEFAULT_PROTECTED_PATHS } from "../lib/sandbox/presets";
 import { findTamperedPaths, mergePackageJson, buildRestoreScript } from "../lib/sandbox/protected-paths";

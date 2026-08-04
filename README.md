@@ -1,109 +1,607 @@
-<a href="https://demo-nextjs-with-supabase.vercel.app/">
-  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
-  <h1 align="center">Next.js and Supabase Starter Kit</h1>
-</a>
+# mls-lms
 
-<p align="center">
- The fastest way to build apps with Next.js and Supabase
-</p>
+A replacement for GitHub Classroom, with AI grading reports built in, for The Marcy Lab School's nine-month fullstack program.
 
-<p align="center">
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#demo"><strong>Demo</strong></a> ·
-  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
-  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
-  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
-  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
-</p>
-<br/>
+GitHub Classroom is being discontinued. Grading one assignment today touches four systems by hand: clone the repository, run the tests and work through the manual grading toolkit, post feedback as a pull request comment, re-enter the grade in Google Classroom, and re-enter the grade and its metadata in Salesforce. The same grade and feedback is typed three times — a transcription-error risk and a drain on instructor time that should be going into actually reviewing student work, since methodical feedback is a stated core competency of the program rather than a nice-to-have.
 
-## Features
+This application provisions the repositories and automates the grading workflow that already exists in `grading/swe-assignment-grading-guides/grading-toolkit/`. One instructor action — approving a report — records the grade, posts the feedback to the pull request, and shows it to the student.
 
-- Works across the entire [Next.js](https://nextjs.org) stack
-  - App Router
-  - Pages Router
-  - Proxy
-  - Client
-  - Server
-  - It just works!
-- supabase-ssr. A package to configure Supabase Auth to use cookies
-- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
-- Styling with [Tailwind CSS](https://tailwindcss.com)
-- Components with [shadcn/ui](https://ui.shadcn.com/)
-- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
-  - Environment variables automatically assigned to Vercel project
+Work still ahead is in [ROADMAP.md](ROADMAP.md).
 
-## Demo
+- [The loop](#the-loop)
+- [Running it](#running-it)
+  - [Two GitHub Apps, one per environment](#two-github-apps-one-per-environment)
+- [Scripts](#scripts)
+- [Standing decisions](#standing-decisions)
+- [Request path](#request-path)
+- [Data model](#data-model)
+  - [Migrations are authored with `migrate diff`, never `migrate dev`](#migrations-are-authored-with-migrate-diff-never-migrate-dev)
+- [GitHub integration](#github-integration)
+- [Test execution](#test-execution)
+  - [Runner presets](#runner-presets)
+  - [Which sections a run is evidence for](#which-sections-a-run-is-evidence-for)
+  - [Getting the code in, with no credentials in the sandbox](#getting-the-code-in-with-no-credentials-in-the-sandbox)
+  - [Protected paths: detect changes and overwrite them](#protected-paths-detect-changes-and-overwrite-them)
+  - [`package.json` is merged, not restored](#packagejson-is-merged-not-restored)
+  - [The sandbox run](#the-sandbox-run)
+  - [Parsers and storage](#parsers-and-storage)
+- [Report generation](#report-generation)
+  - [One section, one call, one report](#one-section-one-call-one-report)
+  - [Flags, and why a section has no tests](#flags-and-why-a-section-has-no-tests)
+  - [What the cross-check may and may not assert](#what-the-cross-check-may-and-may-not-assert)
+  - [Provider isolation](#provider-isolation)
+  - [What a report costs](#what-a-report-costs)
+  - [Grading assets](#grading-assets)
+- [Review, approval, and delivery](#review-approval-and-delivery)
+  - [Resubmission](#resubmission)
+  - [Triage](#triage)
+- [Interface](#interface)
+- [What is verified, and how](#what-is-verified-and-how)
+- [Deploying](#deploying)
 
-You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
+---
 
-## Deploy to Vercel
+## The loop
 
-Vercel deployment will guide you through creating a Supabase account and project.
+```
+Student clicks "Accept assignment"
+        │
+        ▼
+GitHub App generates a repository from the assignment template and adds the
+student and every course instructor as collaborators
+        │
+Student works on `draft`, opens a pull request into `main`, tags the instructor
+        │
+        ▼
+GitHub webhook (pull_request: opened / reopened / synchronize)
+        │  matched to a submission by repository name; status becomes SUBMITTED
+        ▼
+Test execution in an E2B sandbox
+        │  instructor's tests from the template repository, run against the
+        │  student's code, with no network access and no credentials present
+        ▼
+Report generation
+        │  one schema-constrained language model call per gradable section,
+        │  given the rubric, the answer key, the student's code, and the
+        │  verified test results
+        ▼
+Draft report awaiting instructor review
+        │
+        ▼
+Instructor approves
+        │  grade recorded, pull request comment posted, student sees feedback
+        ▼
+Done — one action, everything downstream updates
+```
 
-After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
+Two deliberate departures from GitHub Classroom's design:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
+- **No separate feedback branch.** The existing student ritual is preserved exactly as documented in `marcy-curriculum-docs/how-tos/working-with-assignments.md` and confirmed against real student repository history: students work on a `draft` branch, open a pull request from `draft` into `main`, and add the instructor as a reviewer. That pull request is the submission signal.
+- **AI grading reports are part of the first working version, not a later addition.** The manual grading toolkit already does real evaluation work, so automating it is the point of the build. Reports always land as a draft for instructor review and are never posted automatically, so a person remains the last word on feedback quality.
 
-The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
+Test execution and report generation are triggered by an instructor today, not by the webhook. Whether they should become automatic — and what runs them if they do — is [the one architectural decision still open](ROADMAP.md#phase-4-triggering-and-orchestration).
 
-If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
+---
 
-## Clone and run locally
+## Running it
 
-1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
+**Stack:** Next.js 16 App Router on Vercel, Supabase PostgreSQL, Prisma 7 with `@prisma/adapter-pg`, tRPC v11, Tailwind v4 with Base UI, Supabase Auth with GitHub OAuth, GitHub App with Octokit, E2B for sandboxed test execution, and Claude `claude-opus-5` behind a provider interface.
 
-2. Create a Next.js app using the Supabase Starter template npx command
+You need a Supabase project, a GitHub App, an E2B key, an Anthropic key, and read access to the grading guides repository.
 
-   ```bash
-   npx create-next-app --example with-supabase with-supabase-app
-   ```
+```sh
+npm i                  # also runs prisma generate
+npm run db:deploy      # apply migrations
+npm run db:seed        # courses, rubrics, three assignments, enrollments
+npm run dev            # localhost:3000
+npm run dev:webhook    # in a second terminal — forwards smee.io to /api/webhooks/github
+```
 
-   ```bash
-   yarn create next-app --example with-supabase with-supabase-app
-   ```
+Copy `.env.example` to `.env.local`; it documents every variable and the traps behind several of them. In brief:
 
-   ```bash
-   pnpm create next-app --example with-supabase with-supabase-app
-   ```
+| Variable                                                                                         | Purpose                                                        |
+| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`                               | browser client                                                 |
+| `SUPABASE_SERVICE_ROLE_KEY`                                                                      | server-side admin operations                                   |
+| `DATABASE_URL`, `DIRECT_URL`                                                                     | pooled connection for the app, direct for migrations           |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALLATION_ID` | the App that provisions repositories and receives webhooks     |
+| `GITHUB_WEBHOOK_PROXY_URL`                                                                       | development only: the smee.io channel `dev:webhook` listens on |
+| `E2B_API_KEY`                                                                                    | sandbox                                                        |
+| `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GRADING_LLM_EFFORT`                | report generation                                              |
+| `GRADING_ASSETS_PATH`                                                                            | development only: a local clone of the grading guides          |
+| `GRADING_ASSETS_REPO`, `GRADING_ASSETS_INSTALLATION_ID`                                          | deployed: read the guides over the API instead                 |
 
-3. Use `cd` to change into the app's directory
+**`GRADING_ASSETS_PATH` must be absent in production.** Its presence is what selects the local-clone source, so a value set on a deployed host makes every grading run fail with `GradingAssetsError` on a path that exists only on a laptop.
 
-   ```bash
-   cd with-supabase-app
-   ```
+### Two GitHub Apps, one per environment
 
-4. Rename `.env.example` to `.env.local` and update the following:
+A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So there are two Apps — `marcy-lms-dev` pointing at a smee.io channel, and the production App pointing at the deployed domain — and switching environments means switching four environment variables, not editing App settings. Mirror the permissions and the `pull_request` subscription across both, and give them different webhook secrets. `npm run verify:app` checks all of it, including that the private key actually parses.
 
-  ```env
-  NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=[INSERT SUPABASE PROJECT API PUBLISHABLE OR ANON KEY]
-  ```
-  > [!NOTE]
-  > This example uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which refers to Supabase's new **publishable** key format.
-  > Both legacy **anon** keys and new **publishable** keys can be used with this variable name during the transition period. Supabase's dashboard may show `NEXT_PUBLIC_SUPABASE_ANON_KEY`; its value can be used in this example.
-  > See the [full announcement](https://github.com/orgs/supabase/discussions/29260) for more information.
+**smee.io answers GitHub with 200 whether or not anything is listening.** A push that arrives while `dev:webhook` is not running is recorded as a successful delivery and dropped. Redeliver it from the App's Advanced page rather than pushing again.
 
-  Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
+---
 
-5. You can now run the Next.js local development server:
+## Scripts
 
-   ```bash
-   npm run dev
-   ```
+Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Those that need no model or network are the first four.
 
-   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
+| Script                        | What it does                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run verify:sandbox`      | Sandbox logic with no sandbox: path matching, tamper reporting, the `package.json` merge, the restore script, all three parsers |
+| `npm run verify:grade`        | Grading logic with no model call: classification, rubric extraction, every cross-check rule, arithmetic                         |
+| `npm run verify:approve`      | The approval guards and the state transitions, driven through tRPC callers so authorization is exercised too                    |
+| `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                    |
+| `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points        |
+| `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                    |
+| `npm run verify:resubmission` | The resubmission and re-approval loop end to end; `--post` also posts a real comment                                            |
+| `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                      |
+| `npm run grade`               | Generates one real report from the terminal                                                                                     |
+| `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                              |
+| `npm run approve`             | Approves a draft from the terminal                                                                                              |
+| `npm run accept`              | Runs the accept flow from the terminal                                                                                          |
+| `npm run db:diff`             | Generates a migration — see [Data model](#data-model), and never `migrate dev`                                                  |
 
-6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
+---
 
-> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
+## Standing decisions
 
-## Feedback and issues
+These are settled and do not need revisiting.
 
-Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
+- **The existing student workflow is the submission signal.** A pull request from `draft` into `main`, with the instructor added as a reviewer.
+- **AI reports are always drafts.** Nothing posts to GitHub and nothing counts as graded until an instructor approves it in the application.
+- **Files the student can modify are never trusted as grading input.** This excludes `scores/scores.json` and the `hooks/pre-commit` hook that writes it, which a student can disable locally; the `tests/` directory inside the student's own repository; and `classroom.yml`. Every grading fact is produced again on the server on every graded run.
+- **The instructor's tests come from the assignment template repository**, fetched fresh on every run, because students never have write access there. The Jest tests in `tests/*.spec.js` live in the template; the grading toolkit and answer keys repository holds reference solutions only, which are used as language model context and never executed.
+- **Grading is not run inside the student's repository via GitHub Actions.** That would mean trusting a workflow file living in territory the student can push to, which is the same problem as trusting their `tests/` directory. It is also why the accept flow removes the old `classroom.yml` from every generated repository.
+- **Deterministic facts are computed by code and the model may only report them.** Test results, lint findings, and SQL comparisons are inputs the model must honor. A cross-check compares the model's claims against those facts.
+- **Test results are one input to the rubric, not the score.**
+- **Each assignment stores an explicit `sections` mapping** rather than guessing file paths by convention. Real assignments do not use consistent `{from-scratch,debug,modify}.js` filenames, and one pull request can contain more than one gradable section.
+- **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
+- **Completion is judged at 75 percent**, matching the Complete/Incomplete policy in `working-with-assignments.md`. Stored per assignment as `completionThreshold`.
+- **Students join a course by invite link.** An instructor adds a student by name and email, the system generates an invite token, and the student's first GitHub login binds their identity to the enrollment. This avoids requiring the instructor to know each student's GitHub username in advance. (The token column exists; the flow that consumes it does not — see [ROADMAP.md](ROADMAP.md).)
+- **GitHub's numeric user ID is the durable identity key**, because usernames are mutable.
+- **The sandbox never holds a GitHub token.**
+- **Verification happens against the `marcy-lms-test` organization**, never the production organization, until a flow is proven.
 
-## More Supabase examples
+---
 
-- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
-- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
-- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)
+## Request path
+
+Every read and write goes through tRPC into Prisma. Nothing queries PostgreSQL from the browser.
+
+**Authorization lives in exactly one place: procedure code.** `trpc/init.ts` layers `protectedProcedure` (a session), `profileProcedure` (a profile row), `studentProcedure`, and `instructorProcedure` (`INSTRUCTOR` or `ADMIN`). Instructor procedures additionally check that the caller teaches *this* course rather than merely holding the role, because a role alone would let one cohort's instructor read another's.
+
+Underneath, the database denies the browser outright:
+
+```sql
+REVOKE ALL ON TABLE public.<table> FROM anon, authenticated;
+ALTER TABLE public.<table> ENABLE ROW LEVEL SECURITY;  -- no policies means no access
+```
+
+Supabase grants all permissions on new `public` tables to `anon` and `authenticated` by default. That is the vulnerability migration `20260730024911_tighten_profiles_grants` fixed for `profiles`, where a signed-in student could have set their own `role` to `ADMIN` from browser JavaScript. Row level security with zero policies denies everything, and Prisma connects as the table owner so it is unaffected. **Every new table needs its own statements** until a project-wide default privileges setting is decided. The tradeoff is that these tables cannot be read directly with supabase-js; adding policies later to a table students depend on is harder than including them from the start.
+
+**`trpc/server.tsx` invokes procedures directly in-process** — no HTTP hop for server components, so `Date` values stay `Date` values. The browser link uses a relative URL, which is why no `APP_URL` variable exists.
+
+**Cache Components is on** (`cacheComponents: true` in `next.config.ts`). A route may not read uncached data outside `<Suspense>`, and **that includes `params`**. Every dynamic page is therefore a static shell whose async child does the awaiting:
+
+```tsx
+export default function Page({ params }: { params: Promise<{ courseId: string }> }) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <CourseView params={params} />
+    </Suspense>
+  );
+}
+```
+
+`lib/supabase/proxy.ts` excludes `/api` from the authentication redirect, so GitHub's unauthenticated webhook request reaches the route instead of a 307 to `/auth/login`.
+
+---
+
+## Data model
+
+`prisma/schema.prisma`, twelve migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
+
+```
+Profile ──1:1── auth.users
+Course ──< CourseInstructor, Enrollment, Assignment
+Assignment ──< Submission ──< GradingDraft ──< GradingDraftSection
+                          └──< TestRun
+Rubric ──< (referenced by assignment.sections[].rubricId)
+```
+
+Enums: `Role`, `EnrollmentStatus`, `RubricScaleType`, `SubmissionStatus`, `SalesforceSyncStatus`, `GradingDraftStatus`, `Confidence`, `TestRunStatus`, `TestRunTrigger`.
+
+**`profiles`** carries the `Role` enum, `githubUsername`, a display name fallback, and `githubUserId BigInt? @unique`. The numeric ID is recorded by the `sync_github_identity` trigger from `auth.identities.provider_id`, guarded by a regular expression because that column is text and other providers put non-numeric values in it. Repository naming still uses the username, because that is the existing convention, which is why `submissions.repo_github_login_at_creation` exists.
+
+**`assignments`** carries `kind`, `templateRepo`, `assignmentRepoName`, `githubOrg`, `completionThreshold`, `dueAt`, `distributedAt`, `runnerPreset`, `runnerConfig`, `templateRef`, and the `sections` JSON array. `@@unique([courseId, assignmentRepoName])` prevents two assignments in one course from generating colliding repository names.
+
+**`kind` is what a student turns in**, and it decides how an assignment is distributed, what a submission consists of, and how feedback is delivered. `AssignmentKind` names three — `REPO`, `GOOGLE_DOC`, `FILE_UPLOAD` — and **only `REPO` is implemented**. The other two are named now rather than later because a system where "assignment" silently means "GitHub repository" costs more to open up afterwards than it costs to keep the distinction honest from the start. `IMPLEMENTED_KINDS` in [lib/assignments/spec.ts](lib/assignments/spec.ts) is the one line that changes when a kind becomes real.
+
+The three GitHub columns are therefore **nullable, and required only when the kind is `REPO`** — enforced by the Zod schema rather than by the columns, because a column cannot express "required for one kind" and a `NOT NULL` would force a Google Doc assignment to invent a repository name. Two consequences worth knowing:
+
+- **`@@unique([courseId, assignmentRepoName])` needed no change.** Postgres treats NULLs as distinct in a unique constraint, so it goes on constraining repository-backed assignments and ignores the rest.
+- **Nothing reads those columns without asserting the kind first.** `repositorySource(assignment)` narrows all four in one place and throws otherwise, and it distinguishes the two failures that must not be reported as one another: a Google Doc assignment is a feature that does not exist, while a `REPO` row missing `githubOrg` is a row that should never have been written. An instructor can act on the second and not on the first.
+
+**`lib/assignments/spec.ts` is what a valid assignment is** — one Zod definition, discriminated on `kind`, used by both the seed and (in future) the authoring procedures, so the seeded shape and the authored shape cannot drift. The assignment's `pointValue` is *returned* by `parseAssignmentSpec` rather than accepted, so no input can make the gradebook column disagree with the reports beneath it. `npm run verify:authoring` checks these rules as pure functions.
+
+**`submissions`** is one row per assignment and student, carrying repository and pull request identity, `headSha`, `gradedHeadSha`, `submittedAt`, `isLate`, `lastActivityAt`, the final score fields, and three dormant Salesforce columns. `repoFullName` is unique, which is what lets the webhook match an event to a submission with one indexed lookup. The Salesforce columns exist so a future synchronization job can query `WHERE salesforce_sync_status = 'PENDING'` without a migration then; nothing writes them today.
+
+**`grading_drafts`** is one row per grading run, keyed by submission and head SHA. A new push creates a new row and marks the previous one `SUPERSEDED` rather than overwriting it, so an instructor's in-progress review of an older run is never silently replaced. `modelMetadata` records the model id, prompt version, grading asset commit SHA, and all four token counts. Approval details — `approvedAt`, `approvedBy`, `postedPrCommentId` — live here rather than on the submission, because each approval posts its own comment and the approved drafts of a submission in order are its feedback history.
+
+**`grading_draft_sections`** are child rows, because one submission can have more than one graded section per run. The submission's final score on approval is the sum of a run's section scores.
+
+**`test_runs`** is described under [test execution](#test-execution).
+
+### Migrations are authored with `migrate diff`, never `migrate dev`
+
+`prisma migrate dev` reports drift on this database and offers to reset both the `auth` and `public` schemas. The drift is not real: `tables.external` in `prisma.config.ts` excludes Supabase's auth *tables* from diffing, but there is no equivalent for enum *types*, so Supabase's own `aal_level`, `factor_type`, `one_time_token_type` and the rest always look like enums the migration history did not create. The full authoring recipe is at the bottom of `prisma.config.ts`; `npm run db:migrate` is a guard that points at it.
+
+---
+
+## GitHub integration
+
+**The App.** Permissions: Administration (read and write, for repository generation and collaborator management), Contents (read and write, for template generation and reading files), Pull requests (read and write, for reading state and posting the approval comment), Members (write), Metadata (read). Webhook events: `pull_request` only — no `push` subscription, because the pull request is the submission signal.
+
+**`lib/github/`** — `app-client.ts` mints installation tokens and provides a lazily-constructed Octokit instance. `repos.ts` holds `generateRepoFromTemplate`, `getRepo`, `addCollaborator`, and `removeClassroomWorkflow`. `prs.ts` holds `getPullRequestFiles` and `postOrUpdatePrComment`. `archives.ts` fetches repository tarballs. `files.ts` reads individual files. `webhook-verify.ts` verifies `X-Hub-Signature-256`.
+
+**A GitHub App is installed per organization.** The grading guides are in `The-Marcy-Lab-School` while student repositories are in `marcy-lms-test`, and the installation covering one cannot read the other. `GRADING_ASSETS_INSTALLATION_ID` names the second installation; `scripts/list-installations.ts` prints the ids.
+
+**`assignments.accept`** creates the repository from the template as `{assignmentRepoName}-{github login}`, adds the student as a collaborator with push permission, adds every `course_instructors` row for that course as a collaborator, removes `classroom.yml`, records the repository identity on the submission, and sets the status to `ACCEPTED`. It is idempotent: if a previous attempt created the repository but its database write never landed, it reuses the existing repository rather than failing on the name collision. An instructor with no linked GitHub account is skipped with a warning rather than failing the whole operation.
+
+**The webhook** (`app/api/webhooks/github/route.ts`) verifies the signature against the raw request body, answers `ping` so the App's settings page shows a green check, and returns 200 for events it does not handle so GitHub does not mark the webhook as failing. For `opened`, `reopened`, and `synchronize` targeting `main` it matches `repository.full_name` to a submission and applies this rule:
+
+| Event                 | Current status          | Result        |
+| --------------------- | ----------------------- | ------------- |
+| `opened` / `reopened` | anything but graded     | `SUBMITTED`   |
+| `opened` / `reopened` | `GRADED`, `RESUBMITTED` | `RESUBMITTED` |
+| `synchronize`         | any                     | untouched     |
+
+Keyed on the current status as well as the action, because the action alone is not enough: a student who closes a pull request and opens a new one fires `opened` a second time, and treating that as a first submission would reset a graded row. `synchronize` records the new commit and never changes the status, because a commit is not a claim of completion and a graded submission must not drop back into the queue because someone fixed a typo.
+
+This rule costs something, and it is the right cost. A student who opens a pull request before starting appears in the queue with almost nothing in it — visible immediately, and the model remarks on it — whereas work that is never declared ready is silently never reviewed. Students need to be told that opening the pull request is the submission.
+
+**The webhook awaits its work before responding**, rather than responding first and continuing in the background. The predecessor did the latter, with a comment noting it would need `waitUntil` on a runtime that stops executing after the response is sent. Vercel is exactly that kind of runtime. Awaiting is safe here because the work is one database update taking milliseconds, far inside GitHub's timeout of roughly 10 seconds.
+
+---
+
+## Test execution
+
+The output is a stored, trustworthy answer to one question: **what do the instructor's tests say about this student's code at this commit?** No language model is involved and nothing is posted to GitHub. It is separate from report generation because the two fail in unrelated ways — a wrong score from a combined pipeline has two candidate causes, and a wrong score here has one.
+
+`lib/sandbox/run-tests.ts` exports one function that takes a submission id and reads everything else itself:
+
+```ts
+export async function runTestsForSubmission(
+  submissionId: string,
+  opts: { trigger: TestRunTrigger },
+): Promise<TestRun>
+```
+
+It does not know what invoked it, which is the whole accommodation made for the deferred orchestration decision. Today the callers are the instructor-only `testRuns.start` mutation, `npm run tests:run`, and report generation.
+
+### Runner presets
+
+Nothing about the runner may assume the technology this application is built with. Configuration lives in code as named presets (`lib/sandbox/presets.ts`), with `assignment.runnerConfig` as a shallow per-assignment override merged over the preset.
+
+| Preset          | Template | Setup                             | Test command                                    | Parser        |
+| --------------- | -------- | --------------------------------- | ----------------------------------------------- | ------------- |
+| `node-jest`     | `base`   | `npm ci`, falling back to `npm i` | `npx jest --ci --json --outputFile=…`           | `jest-json`   |
+| `node-vitest`   | `base`   | `npm ci`                          | `npx vitest run --reporter=json --outputFile=…` | `vitest-json` |
+| `python-pytest` | `base`   | `pip install -r requirements.txt` | `pytest --json-report --json-report-file=…`     | `pytest-json` |
+| `none`          | —        | —                                 | —                                               | —             |
+
+**`none` is a real preset and the default.** Short response assignments have nothing to execute and frontend assignments have tests this build cannot run yet; together they are a large fraction of the program, so "no tests exist" is an ordinary state rather than an edge case. The default is `none` rather than `node-jest` so an unconfigured assignment produces no evidence instead of quietly producing the wrong evidence — a Python assignment silently running `npx jest` would look like a sandbox defect. `runTestsForSubmission` throws on `none` rather than writing an `ERRORED` row, and the interface shows "No automated tests for this assignment" instead of a disabled button.
+
+React assignments with runnable tests use `node-jest` or `node-vitest` unchanged, because a component test is still a Node process. SQL is absent: it needs a template with PostgreSQL installed.
+
+### Which sections a run is evidence for
+
+A test run is per repository, because a suite executes once. Gradable sections are per pull request, and one pull request today can contain a section the suite covers alongside one it does not. So the mapping is explicit — each entry in `assignment.sections` may carry `evidence: "tests"` and a `testNamePattern`, and absence means no deterministic evidence for that section.
+
+| Assignment           | `runnerPreset` | Section `evidence` | What report generation has to work with                     |
+| -------------------- | -------------- | ------------------ | ----------------------------------------------------------- |
+| Algorithm exercise   | `node-jest`    | `tests`            | Rubric and answer keys, plus verified pass and fail results |
+| Short response       | `none`         | absent             | Rubric and answer keys only                                 |
+| Blended pull request | `node-jest`    | per section        | Verified results for one section, not the other             |
+
+This is transitional. The intended future state is **one section per assignment**, with coding and short response split into separate assignments over separate template repositories — `swe-1-4-loops` and `swe-1-4-loops-sr` — and therefore separate submissions. That state needs no new machinery, and this mechanism costs nothing in it: a one-entry `sections` array reads `evidence` from that entry through the identical code path. Meanwhile the blended assignments exist, and separating them is a curriculum change made assignment by assignment.
+
+### Getting the code in, with no credentials in the sandbox
+
+**The sandbox does not clone, and never holds a GitHub token.** The obvious implementation — `git clone https://x-access-token:$TOKEN@github.com/...` inside the sandbox — hands an *installation* token, which carries write access to every repository in the organization including every other student's, to the one process that is running code a student wrote. A `postinstall` script in a modified `package.json` reads the environment and sends it elsewhere, and the sandbox has network access during installation by definition.
+
+Instead both trees are fetched on the server and uploaded as bytes: the student's code at the exact commit the webhook recorded (`tarball/{head_sha}`, not whatever the branch points at by the time the run starts) and the template's tests at a resolved commit SHA. Each archive goes in as a single `.tar.gz` write followed by `tar xzf --strip-components=1`, which is one upload rather than one call per file. Two archives are all that is needed; deciding what the student changed takes no third copy, because the pull request's own diff answers it.
+
+Never pass `process.env` through to the sandbox. Its environment gets exactly what the tests need, which for these assignments is nothing.
+
+### Protected paths: detect changes and overwrite them
+
+Two obligations that are easy to conflate. The instructor needs to know a student edited the tests, and the score must be computed as if they had not.
+
+A protected path is any path whose contents are grading infrastructure rather than student work: `tests/**`, `jest.config.*`, `vitest.config.*`, `package.json`, `package-lock.json`, `.eslintrc*`, `eslint.config.*`, `pytest.ini`, `conftest.py`, `requirements.txt`, `.github/workflows/**`. The template's version of every one is copied over the student tree before the suite runs, and files the student added inside a protected directory are removed.
+
+**`scores/**` and `hooks/**` are deliberately absent**, though both are grading infrastructure by any plain reading. The mod-1 templates carry a `hooks/pre-commit` that runs the suite and then does `git add scores/scores.json`, so every student commit stages a rewritten scores file. Protecting that path would report a change on every mod-1 submission and route all of them to manual review — a finding against every student, produced by the assignment's own tooling doing what it was built to do. Leaving them unprotected costs nothing, because protecting them was never what made them untrustworthy: nothing reads `scores.json` as a grading signal, and nothing runs the hook. The runner invokes `npx jest` directly rather than `npm test`, the hook is installed by a `preinstall` script that `--ignore-scripts` skips, and git hooks do not execute in the sandbox at all.
+
+**Detection comes from the pull request diff.** `GET /repos/{owner}/{repo}/pulls/{n}/files` returns every changed file with a `status` of `added`, `modified`, `removed`, or `renamed`, plus `previous_filename`. This is exactly the right comparison because of how student repositories are created: `POST /repos/{owner}/{repo}/generate` produces a repository whose default branch holds one commit containing the template's files as they were at that moment, and the student branches from there. The diff is measured against the template snapshot *that student received*.
+
+It also cannot report an instructor's work as a student's. The diff never examines the current template, so a bug fixed mid-cohort does not appear in any student's pull request. Nothing about detection depends on which template commit is current, which is what allows the template to be corrected freely.
+
+Two limits, both worth knowing. *Changes committed straight to the default branch are invisible to it* — a reporting gap and never a scoring gap, since the template's tests are restored regardless. It is cheaply detectable if wanted: a generated repository begins with exactly one commit, so two or more on the default branch means it was written to. Committing to `main` is not misconduct and many students do it, so that reads as "the diff is not the whole story here" rather than as a finding. And *it reports that `package.json` changed, not which keys changed* — key-level reporting comes from the merge below.
+
+### `package.json` is merged, not restored
+
+Wholesale restoration would protect the `test` script, which is otherwise trivially redirected to `echo ok`. But an assignment may deliberately ask students to add a dependency, and restoring the template's file would delete the addition and fail the run on a missing module.
+
+| Keys                                                                                       | Rule                                                                                                                         |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `scripts`, `type`, inline runner configuration (`jest`, `vitest`, `mocha`, `eslintConfig`) | Merged key by key, **template wins every collision**. A student may add a `start` script; a student may not redefine `test`. |
+| `dependencies`, `devDependencies`                                                          | Student additions are **kept**. The template wins on collision, so a version the assignment specifies cannot be replaced.    |
+
+Any key the template asserts and the student overrode is recorded as `package.json#scripts.test` or similar, so the instructor sees the specific attempt rather than a whole-file difference.
+
+Worth being precise about which assignments need `allowStudentDependencies: true`, because the obvious candidate is not one. `swe-1-3-node-modules` is entirely about `npm install`, yet it needs `false`: the student runs `npm init -y` and installs `prompt-sync` inside `src/madlib-challenge/`, a **nested** package. Only the root `package.json` is protected, so a nested one is ordinary student work. The flag governs the root file alone.
+
+Two consequences when it is true:
+
+- **The lockfile cannot be restored.** A restored `package-lock.json` no longer matches the merged `package.json`, and `npm ci` exists to fail in exactly that situation. So the student's lockfile is kept and setup uses `npm install`. When false, both files are restored wholesale and setup uses `npm ci`, which is faster and fully deterministic.
+- **Arbitrary packages are downloaded, but their install scripts do not run.** Every preset installs with `--ignore-scripts`, so a `postinstall` never executes and package contents are inert until something imports them — by which point the network is revoked. This began as a necessity rather than a precaution: the templates install a git hook during setup with `cp hooks/pre-commit .git/hooks/`, and the sandbox receives a tarball rather than a clone, so with scripts enabled the install fails outright. It is also the stronger security position. The cost is that a dependency needing its install script to fetch a platform binary — esbuild, which Vitest depends on, or sharp — needs a custom E2B template with it already present.
+
+### The sandbox run
+
+The sequence matters, specifically where the network is revoked:
+
+1. `Sandbox.create({ template, timeoutMs, allowInternetAccess: true })`
+2. Upload and extract the student archive to `/work`, then overlay the template's protected paths
+3. Run the setup commands **with** network access — installing requires it
+4. **Revoke network access** with `sandbox.updateNetwork({ allowInternetAccess: false })`
+5. Run the test command with a hard timeout, capturing stdout, stderr, and the exit code
+6. Read `/results/*.json` back out
+7. `sandbox.kill()` in a `finally` block — a leaked sandbox bills until its own timeout expires
+
+Revoking the network before the tests run buys two things. Results become reproducible, because a test that reaches an outside service returns a different answer when that service is slow, and a grade that changes without the code changing is not a grade. And student code loses its channel to the outside world for the part of the run where student code is what executes.
+
+The SDK has no per-command wall clock limit, so the test command's hard limit is applied with `timeout --kill-after=10s` inside the sandbox. That puts the limit where the process runs and produces exit code 124, which is what distinguishes a student's infinite loop from a suite that merely failed. The sandbox's own lifetime is set well above the command limit, because a sandbox that expired first would make an infinite loop indistinguishable from an infrastructure failure.
+
+Measured cost: 30 to 40 seconds a run, of which setup is 6 to 17 depending on the dependency set. Removing the install step — by building custom E2B templates with dependencies already present, which works because the template is built in the same Linux environment the sandbox runs — is the largest speed improvement available and would let `allowInternetAccess: false` be set at creation and never changed. Installing on the server and uploading `node_modules` instead does *not* work: npm resolves optional dependencies by platform and architecture, native modules compile against one Node ABI, and Python wheels are platform-specific by design.
+
+**A test must assert something the archive can carry.** The runner receives a git archive, so a test can only check what git tracks. `swe-1-3-node-modules` asserted that `src/madlib-challenge/node_modules/prompt-sync` existed on disk; since `node_modules/` is gitignored, that check could only pass on the machine where the student ran `npm install`, so a correct submission lost the point everywhere else — in this sandbox, in any clone, and in any CI job. The assertion was removed from the template rather than teaching the runner to install nested packages, and the reason generalizes: **a per-assignment runner override fixes one assignment, while fixing the test fixes it everywhere the tests run.**
+
+### Parsers and storage
+
+One parser per result format, all returning the same normalized shape, so everything downstream is runner-independent. **Parse failure is not test failure**: a suite that crashes before writing its JSON is an `ERRORED` run rather than a zero score. Conflating the two is how a student receives a zero for an infrastructure problem.
+
+Deterministic results live in `test_runs` rather than on `grading_drafts`, because they outlive any one draft: re-generating a report against the same commit does not rerun the tests, and the cross-check reads this table as its source of truth. Rows are never updated in place after completion and reruns append, so the history of a submission stays legible. `tamperedPaths` holds the protected paths the pull request changes — a finding an instructor must see, not an automatic penalty. `passRate` is `passed / total` and is **not** the score and never compared against `completionThreshold`.
+
+**A submission with no rows at all is normal, not an error.** Nothing downstream may treat the absence of a row as a failure, a pending state, or a zero — which is why there is no `latestTestRunId` pointer that would read as "missing" when empty. Three states are distinct and every consumer has to tell them apart:
+
+| State                             | How it is represented                        |
+| --------------------------------- | -------------------------------------------- |
+| This assignment has no tests      | No `test_runs` rows; `runnerPreset = "none"` |
+| Tests exist and have not been run | No rows; `runnerPreset` is something else    |
+| Tests ran and failed              | A `COMPLETED` row with `testsFailed > 0`     |
+
+---
+
+## Report generation
+
+One schema-constrained language model call per gradable section, given fixed inputs. `lib/grade/generate-report.ts` loads the submission and assignment, **runs the tests first if the assignment has a suite and no completed run exists at this commit**, fetches the answer keys named in `assignment.sections`, classifies which sections the pull request contains, generates, cross-checks, and records the draft.
+
+**Section classification is deterministic code, not a model judgment.** `agent-rules.md`'s file-path rules are an ordered classifier over the pull request's changed paths: `short-response.md` means short response; `src/*.js` with Jest in `package.json` means algorithm; `.sql` without Jest means SQL; HTML, CSS, JSX, and server files mean frontend. The result is intersected against the assignment's `sections` mapping. A section expected but absent is reported as not submitted; a section present but unexpected routes to manual review.
+
+**Not an agentic tool-use loop.** Every discovery and side-effecting step from `agent-rules.md` has already happened deterministically, so what remains is judgment over fixed inputs — more reliable and cheaper as a single well-stocked call.
+
+- **System prompt:** `agent-rules.md`'s tone and formatting rules — second person, two-beat summary, impact before root cause, verbatim checklist copying, half-credit nesting — plus the matching `rubric.md` section and `sample-*-report.md` template.
+- **User content:** the assignment README, which carries the verbatim frontend and SQL checklists; the relevant answer key files, labeled as reference and never shown to the student; the student's changed files; and the verified results from the `test_run`.
+- **Output:** schema-constrained JSON carrying the rendered markdown plus `{scoreEarned, scorePossible, rubricItems[], flags[], instructorNotes[], confidence, submissionProcessNote, testClaims[]}`.
+
+### One section, one call, one report
+
+An assignment with two gradable sections produces two model calls and two reports, each against its own rubric, answer keys, and point value. A checkpoint's short response and its coding work are not commensurable, and nothing tries to combine them into a single narrative.
+
+**Point values live on the section, not the assignment.** `assignments.pointValue` is the sum of its sections and exists for the gradebook; the number sent to the model is always the section's own. A section reaching the model without one is refused rather than defaulted — told nothing about the maximum, a model invents one (an early run scored a 13-test assignment out of 40), and a plausible score against an invented denominator cannot be distinguished downstream from a real one.
+
+### Flags, and why a section has no tests
+
+`flags` is a closed vocabulary of short codes, because the same column carries codes the pipeline writes itself and the interface renders every entry as a badge. Prose belongs in `instructorNotes`. Each flag records **why a student lost points** and corresponds to a bullet in a `rubric.md` score band, so it traces back to the written criterion behind it. A section that earned full marks carries none.
+
+| Writing quality                                             | Technical score                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------ |
+| `MECHANICAL` — spelling and grammar                         | `INCOMPLETE` — parts of the question unanswered        |
+| `CLARITY` — vague, contradictory, or needlessly complex     | `UNDERSTANDING` — gaps, inaccuracies, misunderstanding |
+| `MARKDOWN` — does not render, or unused where it would help | `TERMINOLOGY` — missing or misused                     |
+| `STRUCTURE` — unclear structure, poor flow                  |                                                        |
+
+**No flag text ever appears in the report a student reads.** Approving a draft posts its markdown to the pull request, so a `FLAG:` line left in the text is an internal label delivered to a student with no way to take it back. The prompt forbids it and the cross-check holds any draft whose text contains one — guidance alone is not a guarantee for the one leak that cannot be undone. The student is still told, in the report's own voice, that their writing needs proofreading; what they never see is the code.
+
+Test evidence gets four outcomes rather than two, because "this assignment has no suite" and "this assignment has a suite and none of it ran" are opposite situations:
+
+| Flag                 | Meaning                                                 |          |
+| -------------------- | ------------------------------------------------------- | -------- |
+| `TEST_EVIDENCE`      | Claims were checked against a real run                  | ordinary |
+| `NO_TESTS_EXPECTED`  | The section declares no `evidence: "tests"`             | ordinary |
+| `TEST_RUN_MISSING`   | Tests expected, no completed run at this commit         | a fault  |
+| `TEST_MATCH_MISSING` | Tests ran, the section's `testNamePattern` matched none | a fault  |
+
+**`instructorNotes`** is free text for the instructor that a student never sees, because the two audiences need different things. "The point value I was given does not divide evenly into this README's checklist" is exactly what an instructor needs before approving a score and exactly what a student should not read. It earns its place on real submissions: grading the checkpoint produced "the README checklist contains 25 items, but this section was specified as 15 points, so I weighted every item at 0.6", a genuine configuration problem no deterministic check would have found; grading `swe-1-4-loops` produced "the student's three files are byte-for-byte identical to the reference solution", a plagiarism signal the pipeline has no other way to express.
+
+**Whole numbers, and where the hesitation goes.** Rubric scales are fixed bands with written descriptions. A 1.5 corresponds to no description and cannot be explained to a student, so the prompt requires whole numbers and directs a genuine boundary case into `instructorNotes` naming both bands and the reason for choosing one. The effect is visible in calibration: asked only for a number the model returned 1.5 with a note that the work sat between bands; asked for a band it returned 1 with a note quoting the rubric clause that decided it. The second can be reviewed; the first hides the judgment inside an average.
+
+### What the cross-check may and may not assert
+
+Test results are a fact the model must not contradict, and one rubric input among several. They are not the score, so the check is asymmetric:
+
+| Situation                                                       | Verdict                                          |
+| --------------------------------------------------------------- | ------------------------------------------------ |
+| Model states a test passed that the run records as failed       | Contradiction → manual review                    |
+| Model awards the "passes all tests" criterion when tests failed | Contradiction → manual review                    |
+| Model withholds points despite all tests passing                | **Legitimate** — hardcoding, inefficiency, style |
+| Model's `rubricItems` do not sum to its reported score          | Arithmetic error → manual review                 |
+
+The third row is the one that matters most and the one a naive implementation gets wrong. A check written as "claimed score must match pass rate" would flag exactly the judgment the model is there to make: a student who returns hardcoded values to satisfy the assertions passes every test and has demonstrated nothing. So the check compares the model's *claims about test outcomes* against the run, and never its score against the pass rate. The arithmetic verification therefore applies to every section, tested or not — it is the only automatic check available when a section has no run.
+
+The cross-check operates per section, because within one submission some sections are bound by test evidence and some are not. A non-empty `tamperedPaths` routes to manual review regardless of score. `grading_draft_sections` records whether a run informed it, so the interface can show which sections had their claims verified and which rest entirely on the model's reading of the code — presenting both with the same authority would be misleading.
+
+**Low confidence does not hold a draft back.** It is reported as a badge. This is only sound because nothing is ever sent without approval: a finding that holds a draft has to mean the instructor cannot trust what the text says, and low confidence on untested work is the ordinary condition of a large fraction of this program's assignments. `findingGatesApproval` in `lib/grade/cross-check.ts` is where that list lives, and reversing the decision means moving `LOW_CONFIDENCE` out of the non-gating set.
+
+Everything else produces manual review with the specific reason attached, never a fabricated score: fetch or authentication failure, a runner crash as opposed to failing tests, no section type matched, an assignment with no `sections` mapping, or a model call or schema validation failure.
+
+### Provider isolation
+
+One interface, two implementations. Pipeline code calls `getReportGenerator()` and never references a vendor; `GRADING_LLM_PROVIDER=claude|groq` selects. The contract carries a Zod schema rather than a JSON Schema document, because each provider has a better path than a hand-rolled validator: Claude's SDK derives the response format and parses through it with `messages.parse()` and `zodOutputFormat()`, and Groq needs a plain JSON Schema in its request body, which the same schema derives.
+
+**Claude on `claude-opus-5` is the provider in use.** Groq's `openai/gpt-oss-120b` with strict `json_schema` remains implemented and is the only Groq model and mode combination confirmed to guarantee schema-conformant output, but its free tier caps requests at 8,000 tokens per minute and a frontend prompt does not fit — those carry several answer keys and a verbatim README checklist, about 12,400 tokens by Groq's count, rejected with a 413.
+
+Two differences the interface must not hide:
+
+- **Claude's JSON schema support rejects numeric constraints** such as `minimum` and `maximum`, rejects string length limits, and requires `additionalProperties: false`. So the schema cannot express them, and the arithmetic verification in the cross-check remains necessary — schema validation on either provider does not make it redundant.
+- **Claude reports cached tokens separately from `promptTokens`, not as a subset.** A run that writes the cache shows zero reads and an unchanged prompt count, indistinguishable from caching being broken unless the write count is also recorded. All four counts go into `modelMetadata`.
+
+### What a report costs
+
+Measured on Claude, one section per run, normalized to a cache hit so the only variable is `effort`:
+
+| Section            | Effort | Uncached input | Cached | Output | Cost   | Wall clock |
+| ------------------ | ------ | -------------- | ------ | ------ | ------ | ---------- |
+| `coding_algorithm` | high   | 5,207          | 5,624  | 2,646  | $0.095 | 31s        |
+| `coding_algorithm` | medium | 5,207          | 5,624  | 2,365  | $0.088 | 27s        |
+| `coding_frontend`  | high   | 12,392         | 7,590  | 3,396  | $0.151 | 40s        |
+| `coding_frontend`  | medium | 12,392         | 7,590  | 2,631  | $0.132 | 29s        |
+
+Output is roughly 60 percent of the cost, because thinking is billed as output. `GRADING_LLM_EFFORT` therefore moves total cost more than prompt caching or model tier do, and it is left at `high`: the gap is 7 to 14 percent, which does not buy enough to trade grading quality for. At `medium`, a cohort of 25 costs roughly $2.20 for an algorithm assignment and $3.60 for a frontend one.
+
+**Caching works, and its window is short.** A repeated request read 7,590 tokens and wrote none; a later request for the same prompt wrote all 7,590 again, because the default cache lifetime is five minutes. Caching pays when a cohort is graded in one burst and pays nothing when grading is spread across an evening — an input to the orchestration decision, not a detail. Only the system prompt is cacheable today, which is 38 percent of the frontend input.
+
+### Grading assets
+
+`grading-toolkit/` and `answer-keys/` come from one of two sources, chosen by whether `GRADING_ASSETS_PATH` is set.
+
+**A local clone**, when it is. Editing `rubric.md` and re-grading immediately is how the rubric actually gets tuned, and a loop requiring a commit and push first would stop that happening. Development only.
+
+**The private repository through the GitHub API**, otherwise. Individual files rather than the repository archive: the archive is 23MB and over 20 seconds, almost all of it images grading never reads, while a run needs the rubric, the agent rules, one sample report, and a handful of answer keys — roughly 200ms each, fetched in parallel.
+
+Files are read at a resolved commit SHA, never at a branch name, so a run taking ninety seconds cannot read half its rubric from before a push and half from after. Content is cached under `sha:path` with no expiry, which is safe because the content of a path at a given commit cannot change. The branch head is re-resolved every 60 seconds, so a pushed rubric change takes effect within a minute without a webhook. Either way the commit SHA is recorded in `modelMetadata`, so a report traces back to the exact rubric that produced it.
+
+---
+
+## Review, approval, and delivery
+
+```
+NOT_STARTED → ACCEPTED → SUBMITTED → GRADED → RESUBMITTED
+                                                   │
+                                      ┌────────────┘
+                                      ▼
+                               back to SUBMITTED
+```
+
+`submission.status` is the state of the *submission*, not of a grading run. The run's state lives on the draft (`GENERATING`, `READY`, `NEEDS_MANUAL_REVIEW`, `FAILED`, `SUPERSEDED`, `APPROVED`), and only approval moves a submission to `GRADED`. Keeping one authority for each beats two that can drift.
+
+**The review screen** renders each `grading_draft_section` — markdown plus its score — with a manual-review banner carrying the specific reason when the pipeline could not produce a confident draft. Never a silently wrong score.
+
+**Every section's text and score is editable in place**, and an edit is stored in `editedReportMarkdown` and `editedScoreEarned` **alongside** the model's original rather than over it, so what the model proposed stays recoverable. An edit is written as null when it matches the model's value, which is how discarding one works. Note the two different comparisons this needs: which sections are dirty is measured against the *effective* values, while the null-or-value decision is measured against the *model's*. Everything a student reads resolves to the edited value where one exists — the pull request comment and the feedback screen both.
+
+**Approve** is one transaction that fans everything out:
+
+1. Copy the effective markdown and scores to the submission's `feedbackMarkdown`, `finalScore`, and `finalScorePossible`; compute `isComplete` against `completionThreshold`; record `gradedBy`, `gradedAt`, and `gradedHeadSha`; set the status to `GRADED`.
+2. Post a pull request comment. Best-effort and retryable, so a brief GitHub outage does not block the grade — `grading-drafts.retryComment` sends it later, and an approval whose comment never posted is a distinct triage bucket rather than an invisible failure.
+3. Set `salesforceSyncStatus` to `PENDING`, inert until that phase exists.
+
+The student's page reads the graded columns directly, so feedback appears on approval with no publish step — and appears even when the comment failed to post.
+
+Three guards refuse rather than warn, and they live in the procedure because a guard that lives only in a dialog is decoration: approving the same draft twice, approving a superseded draft, and a score stated in the report text that disagrees with the recorded score. That last check is `statedScoreInText` in `lib/grade/report-text.ts`, which is free of database and network imports specifically so the browser's warning and the server's refusal are literally the same function.
+
+**A second approval posts a new comment rather than editing the first.** Feedback on a resubmission describes different work, and the two read in order are the record of what the student changed.
+
+### Resubmission
+
+An instructor needs to know when a student has revised work that was already graded; a student needs to commit freely without each commit reading as a request for re-review. Two mechanisms, because those are two requirements.
+
+**Newer code exists** is a comparison of two columns: `headSha !== gradedHeadSha`. It needs no API call and is true the instant a push lands. Displayed as a plain fact — "revised since grading".
+
+**The student is ready** is a deliberate act: a button that sets `RESUBMITTED`. `SUBMITTED` cannot serve, because it does not distinguish a first submission from a revision and an instructor working through a list needs to see which is which. A GitHub-native alternative exists — draft pull requests marked ready, which fires `pull_request.ready_for_review` — and costs no interface at all, but it depends on the draft pull request habit holding, and a student who opens an ordinary pull request never produces the event.
+
+Together they produce information neither gives alone: a submission with newer code and no readiness declaration is a student still working, or one who finished and forgot to say so.
+
+### Triage
+
+`lib/grade/triage.ts` holds one function that derives a bucket from the submission status, its draft, whether that draft is stale, and whether an approval failed to deliver. Triage, the queue filter, and the gradebook cells all call it, so the three cannot disagree about what is outstanding.
+
+| Bucket                | Meaning                                                               |
+| --------------------- | --------------------------------------------------------------------- |
+| `needs_report`        | Submitted, and no report has been generated                           |
+| `draft_ready`         | A report is waiting to be reviewed                                    |
+| `needs_manual_review` | The cross-check found something that gates approval                   |
+| `grading_failed`      | The run failed before producing a report — infrastructure, not a zero |
+| `comment_not_posted`  | Approved, but the comment never reached GitHub                        |
+| `generating`          | A run is in flight; not counted as outstanding                        |
+
+**Triage counts work the instructor has not done, which includes work not yet started.** Reports are generated *by* an instructor, so a submission with no draft at all is the first bucket rather than a footnote — an empty queue has to mean caught up, not merely nothing generated.
+
+---
+
+## Interface
+
+`app/(shell)/` holds the signed-in application; `app/auth/` holds the Supabase auth screens.
+
+| Route                                      | Screen                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| `/courses`                                 | A student's courses                                                  |
+| `/courses/[courseId]`                      | Assignments, status, and feedback for one course                     |
+| `/instructor`                              | Triage across every course the instructor teaches                    |
+| `/instructor/courses/[courseId]`           | One course: assignments and roster                                   |
+| `/instructor/courses/[courseId]/gradebook` | Assignments × roster, each cell carrying its triage bucket           |
+| `/instructor/assignments/[assignmentId]`   | The grading queue and the review surface, `?submission=` to open one |
+
+`lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens.
+
+**`lib/status.ts` is the single source of presentation truth** — status vocabulary, tone classes, flag copy, relative dates, module ordering. `formatRelative(date, now)` takes the reference instant as an argument rather than reading the clock, and dates render in a fixed school timezone.
+
+**The student vocabulary is narrower than the instructor's on purpose.** `SUBMITTED`, `DRAFT_READY`, `NEEDS_MANUAL_REVIEW`, and `GRADING_FAILED` all read as "Submitted" to a student. A student has no use for the state of a grading run, and "grading failed" invites a question no student can answer.
+
+The screens came from a Vercel V0 pass once the data shapes were settled; everything before that was deliberately minimal pages that exercised the procedures.
+
+---
+
+## What is verified, and how
+
+Every claim below was checked against real repositories in the `marcy-lms-test` organization, not asserted from reading the code. The re-runnable parts are the `verify:` scripts in [Scripts](#scripts); what remains outstanding is in [ROADMAP.md](ROADMAP.md).
+
+**Provisioning and the webhook.** `accept` creates a repository from the template with the student and instructors as collaborators and no `classroom.yml`; run a second time it reuses the repository rather than failing. A real pull request from `draft` into `main` fires the webhook, the signature verifies, and the submission becomes `SUBMITTED` with `isLate` computed. An invalid signature is rejected with a 401.
+
+**The sandbox, on `swe-1-4-loops-benspector3` and `swe-1-3-node-modules-benspector3`.**
+
+- A passing submission scores 13 of 13; the template's stub code scores 1 of 13 with every failure name and message stored.
+- **Editing a test to hide broken code does not work.** `loop5to10` was broken and its assertion edited from 6 calls to 5 to match. The run reports `Expected number of calls: 6` — the template's assertion — so the result is 12 of 13 and `tests/from-scratch.spec.js` appears in `tamperedPaths`. The attempt cost a point rather than winning one.
+- A test file the student adds never executes: `tests/cheat.spec.js` with two free-passing tests was reported as `added` and the total stayed at 13.
+- **An instructor's template fix is never reported as a student's edit.** The assertion was corrected after the student had accepted: the corrected test ran, `templateCommitSha` moved, the result changed from 12 of 13 to 13 of 13, and `tamperedPaths` stayed empty.
+- Renaming a suite out of `tests/` neither hides it nor escapes notice — reported against the protected source path, and all 13 tests still ran.
+- A routine mod-1 commit, which stages a rewritten `scores/scores.json`, reports nothing.
+- A broken `testCommand` is `ERRORED` with null counts, not a zero. An assignment with no tests throws rather than recording a failure.
+- **Nothing from `process.env` reaches the sandbox**, checked by name for both GitHub key sets, the E2B key, the Supabase service role key, both database URLs, the Groq key, and a canary variable set immediately before creation.
+- The network works before revocation and not after. An endless command is killed with exit code 124 and reported `TIMED_OUT`. No sandbox is left running, confirmed through `Sandbox.list`.
+- A second assignment grades correctly with no per-assignment configuration, nested npm package and all.
+
+**Grading.** `verify:grade` is 37 checks with no model call. On real submissions: `swe-1-4-loops` with every test passing scores 30/30 at high confidence; a submission that broke its code and edited the assertion scored 12/13 against the template's own assertion; full credit claimed alongside a failing test is caught; claiming a failed test passed is caught in both the bare and `Suite › name` forms; a submission that passes every test with hardcoded return values is **not** flagged merely for scoring below full credit.
+
+**Calibration.** `npm run calibrate` grades a sample and compares it against the report an instructor wrote about the same work. The toolkit holds two short response pairs; pair 1 is the exemplar embedded in the prompt and **pair 2 is held out**, which is the only reason grading it measures anything.
+
+|                        | pair 1 (exemplar) | pair 2 (held out)   |
+| ---------------------- | ----------------- | ------------------- |
+| Total                  | 12/15 = 12/15     | 11/15 against 12/15 |
+| Per-question technical | all four agree    | **all four agree**  |
+| Writing quality        | 1 = 1             | 1 against 2         |
+
+Every technical score across both pairs agrees with the instructor's. The one difference is pair 2's writing score, on an acknowledged boundary case: the model places it at 1 and quotes the rubric back, since the 2 band requires that errors "do not take away from the understanding". An instructor may reasonably prefer 2 — which is the kind of judgment a rubric cannot fully specify, and the reason a draft is reviewed rather than published. Calibration also found two errors in the reference reports rather than in the pipeline, both since corrected. Coding sections are not calibrated: scoring them is closer to objective, and no graded samples exist.
+
+**Approval and resubmission.** Approving recorded 30/30, set `isComplete`, wrote `gradedHeadSha`, and posted a comment; approving the same draft twice is refused rather than posting again. A student calling instructor procedures is refused with `FORBIDDEN`, and cross-course access is refused for an instructor who does not teach the course. A real commit pushed after grading left the status at `GRADED` and moved `headSha` while `gradedHeadSha` stayed put, which is what marks a submission revised since grading. The student's declaration set `RESUBMITTED`, and a second approval posted a distinct second comment.
+
+Destructive and authorization paths are checked inside **rolled-back transactions** against live data — `throw new Error('ROLLBACK')` and catch — so a guard can be proven against real rows without harming any.
+
+---
+
+## Deploying
+
+Vercel, with the environment variables above. Three things to know:
+
+- **`GRADING_ASSETS_PATH` must not be set.** Set `GRADING_ASSETS_REPO` and `GRADING_ASSETS_INSTALLATION_ID` instead. Variables are bound when a deployment is created, so removing it requires a redeploy to take effect.
+- **The webhook URL belongs to the App, not to the deployment.** Changing it on the App takes effect immediately with no redeploy, because the deployed handler reads nothing about where the delivery came from.
+- **The GitHub App must be installed on the organization holding the grading guides**, not only on the one holding student repositories. `npm run verify:assets` is the check that a deployed host can read its rubric at all.
