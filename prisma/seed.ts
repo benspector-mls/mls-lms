@@ -93,6 +93,12 @@ type SeedAssignment = {
   sections: (keyDir: string, rubricId: (name: string) => string | undefined) => SeedSection[];
 };
 
+/**
+ * Every seeded section is AI-graded, so `grading` is filled in below rather than being a
+ * field each entry has to remember. A manually graded section is a different shape — a
+ * label and a point value, no rubric — and nothing seeded needs one: manual grading exists
+ * for the assignment kinds a seed script cannot usefully create.
+ */
 type SeedSection = {
   type: string;
   pointValue: number;
@@ -514,7 +520,10 @@ async function main() {
     githubOrg: GITHUB_ORG,
     runnerPreset: SPEC.runnerPreset,
     runnerConfig: SPEC.runnerConfig ?? null,
-    sections: SPEC.sections(keyDir, (name) => rubricsByName.get(name)),
+    sections: SPEC.sections(keyDir, (name) => rubricsByName.get(name)).map((section) => ({
+      grading: "ai" as const,
+      ...section,
+    })),
   });
 
   const assignment = await prisma.assignment.upsert({

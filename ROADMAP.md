@@ -2,6 +2,7 @@
 
 How the built system works is in [README.md](README.md). This file is only what is left to do.
 
+- [The order of work](#the-order-of-work)
 - [Outstanding verification](#outstanding-verification)
 - [Phase 4: triggering and orchestration](#phase-4-triggering-and-orchestration)
   - [Whether grading should be automatic at all](#whether-grading-should-be-automatic-at-all)
@@ -23,8 +24,35 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Files](#files)
   - [Phase 7 verification](#phase-7-verification)
   - [Not in this phase](#not-in-this-phase)
+- [Token management](#token-management)
+- [A code review pass](#a-code-review-pass)
+- [Salesforce synchronization](#salesforce-synchronization)
+  - [Questions I need answered](#questions-i-need-answered)
+  - [What may need to be built on the Salesforce end](#what-may-need-to-be-built-on-the-salesforce-end)
+  - [The shape of the work here, once those are answered](#the-shape-of-the-work-here-once-those-are-answered)
+- [Course creation](#course-creation)
+- [Student enrollment](#student-enrollment)
+- [An admin view for approving instructors](#an-admin-view-for-approving-instructors)
+- [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
 - [Deferred, with the schema left open](#deferred-with-the-schema-left-open)
 - [Open items](#open-items)
+
+---
+
+## The order of work
+
+The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
+
+1. **[Assignment authoring](#phase-7-assignment-authoring)** — in progress. The kind axis and the validation schema are built; the catalogue, the procedures, and the screens are not.
+2. **[Token management](#token-management)** — what a report costs and where the cost actually is, and a filter so that nothing gitignored is ever sent to the model. That last one is a disclosure fix as much as a cost one, which is an argument for pulling it forward if a student ever commits a `.env`.
+3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+5. **[Course creation](#course-creation)**
+6. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
+7. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
+8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+
+[Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
 ---
 
@@ -199,6 +227,22 @@ The application can grade, review, approve, and deliver. It cannot create the th
 
 **Not repository-only, on reflection.** The plan originally scoped this to repository-backed assignments alone, on the reasoning that the catalogue — the answer-keys repository as the single source of truth for what assignments exist — only needs the one shape it already has. That reasoning does not survive contact with the goal: authoring is only worth building if it can eventually create *every* assignment the program gives, and a Google Doc reflection or an uploaded resume PDF has no repository, no template, and no pull request to diff. Building the form against a repository-shaped catalogue first would mean writing the authoring path twice — once now, once when a non-repo kind arrives and cannot fill three required columns.
 
+**All three kinds are creatable in this phase. Non-repo kinds are graded by hand.** That is the decision that makes the scope tractable: a Google Doc or an uploaded file can be created, published, seen by a student, and graded — with an instructor typing the score and the feedback — with no rubric, no answer keys, and no model call. Everything that would require AI grading for those kinds waits for [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and everything that would require reading a Google Doc's contents waits with it.
+
+The reason this is worth doing now rather than after is that it removes the last reason to keep assignments outside the application. An instructor can put every assignment they give into one place, and the ones the pipeline cannot grade yet are graded the way they are graded today, in the same interface as the rest.
+
+#### What manual grading means for the machinery
+
+The useful realisation: **a manual grade is the existing review screen with an empty draft, not a new screen.** Approving already copies section markdown and scores onto the submission, computes `isComplete` against the threshold, and shows the student — none of which cares where the text came from. So a manual grade is a `GradingDraft` whose sections start blank and whose `modelMetadata` is null, edited through the same editor and released through the same `approve`. The gradebook, the student's feedback screen, and the score history all work unchanged.
+
+Five things that do have to change, each small and each currently written as though a repository always exists:
+
+- **`IMPLEMENTED_KINDS` grows to all three.** It currently gates `accept`, so it has to stop meaning "can be graded by the pipeline" and start meaning "can be created and graded at all".
+- **A section says how it is graded — done.** A second discriminated union, on the section: `{ grading: "ai", type, rubricId, answerKeyPaths, ... }` against `{ grading: "manual", label, pointValue }`. Strict on both sides, so a manual section cannot carry a rubric it would never have applied and an AI section cannot omit one it needs. `pointValue` is still required on both and the assignment total is still their sum, so a mixed assignment — coding graded by the pipeline, a reflection graded by hand — adds up correctly. `isAiGraded` and `isManualOnly` are the two readers. `generateReportForSubmission` filters manual sections out before classification and refuses an assignment where nothing is left, naming the review screen instead. Migration `20260804143312_section_grading` backfills `grading: "ai"` into existing rows, so there is one representation in the database rather than a rule that absence means AI.
+- **`accept` has nothing to generate**, so what "accepting" means for these kinds is an open question. The likely answer is that it does not exist: there is no repository to create, so the submission row can be created lazily the first time an instructor grades that student. The gradebook already treats a missing row as not started, which is exactly right here.
+- **Delivery is in-app only.** `approve` posts a pull request comment, and there is no pull request. It already tolerates that comment failing, but it should not attempt one — the student's feedback screen reads the submission's own columns and needs nothing else.
+- **Triage needs a bucket that is not about generating a report.** `triageBucket` returns `needs_report` for a submitted assignment with no draft, which for a manual assignment would tell an instructor to press a button that should not be there. It needs to distinguish "no report has been generated" from "this is graded by hand and has not been graded yet".
+
 ### Step 0. The kind axis — done
 
 Before any form, the schema had to stop assuming "assignment" means "GitHub repository."
@@ -320,21 +364,191 @@ Finally, on localhost: create an assignment, confirm the student sees nothing un
 
 ### Not in this phase
 
-- **Course creation**, and the **invite-link flow**. `duplicate` is built to make the course case cheap when it comes.
-- **Assignments with no template repository** — a Google Doc or an uploaded PDF. These need `accept` to do something other than generate a repository, and a submission with no pull request means something different to the grading pipeline.
+- **[Course creation](#course-creation)** and **[student enrollment](#student-enrollment)**, including the invite-link flow. `duplicate` is built to make the course case cheap when it comes.
+- **AI grading for assignments with no template repository.** Creating and hand-grading them *is* in this phase, per the scope above. What is not: reading a Google Doc's contents or an uploaded file, and generating a report from it. That needs Drive or storage access and [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and it is [item 8](#the-order-of-work).
 - **Any soft delete or archive.** Removal is permanent by decision, so there is no recovery path in the application. The database's own backups are the only way back from a mistaken removal.
 - **Deleting student repositories** when an assignment is removed. They are reported and left alone.
 
 ---
 
+## Token management
+
+Three concerns that all come down to what ends up in a prompt: what it costs, how much of the context window it consumes, and what it discloses.
+
+**Nothing gitignored may reach the model.** Today the student's files come from the pull request's own diff, so an ignored file can only appear if the student committed it — which happens. All three concerns land on this one filter, and the third is the one that makes it more than an optimization:
+
+- **Cost.** Every file sent is billed as input, and a committed dependency tree is many files.
+- **Context.** A committed `node_modules` can exceed the context window on its own, which fails the run outright rather than making it expensive. Keeping the prompt to the student's actual work is also what keeps the model's attention on it.
+- **Disclosure.** A committed `.env` would put the student's own secrets into a third party's logs. Nothing about that is recoverable after the fact, and it is a reason not to leave this behind four features.
+
+The filter belongs beside `belongsToSection` in `lib/grade/classify.ts`, and should read the repository's own `.gitignore` rather than only matching a fixed list, since the templates carry one. Worth noting the same rule already exists on the sandbox side for a different reason — the runner receives a git archive, so gitignored files were never there to begin with. This closes the equivalent gap on the grading side.
+
+**Where the cost actually is, measured rather than assumed.** Some of this is already answered and recorded in [what a report costs](README.md#what-a-report-costs): output is roughly 60 percent of the bill, because thinking is billed as output, and the frontend prompt's uncached input is the next largest share. What is not measured is the breakdown *within* input — the answer keys against the student's files against the rubric and agent rules — which is what would say whether [moving the answer keys into the cacheable prefix](#deferred-with-the-schema-left-open) is worth more than the 6 percent currently estimated.
+
+**Trying a cheaper model is a calibration question, not a cost question.** The provider interface already exists, so adding one is a file in `lib/grade/providers/` and an environment variable — the work is not the integration. The work is proving the cheaper model still agrees with an instructor, and `npm run calibrate` against the held-out pair is the only tool that answers it. Two constraints learned from Groq that apply to any candidate: the model must guarantee schema-conformant structured output, and its context and rate limits have to fit a frontend prompt, which is the largest at roughly 12,000 tokens of uncached input. A model that cannot do both is not a cheaper option, it is a different failure.
+
+---
+
+## A code review pass
+
+Before more surface area goes on top. This is deliberately scheduled rather than continuous, because the shape of the application only became clear once the whole loop worked, and several things were built before their eventual use was known.
+
+Known candidates, to be confirmed rather than assumed during the pass:
+
+- **Prisma usage.** Selects that fetch more than a screen needs, and any place a list view issues a query per row.
+- **`sections` as a JSON column.** It buys schema-free iteration, and it costs referential integrity: a `rubricId` inside it is a string that nothing enforces points at a real `Rubric` row. Worth deciding deliberately now that the authoring schema validates the shape, rather than leaving it as an accident of early convenience.
+- **`prisma/seed.ts`'s `SEED_ASSIGNMENTS` map**, which assignment authoring makes redundant. It should shrink to the minimum needed to get a working local database, not keep pretending to be a curriculum registry.
+- **The largest modules** — `components/instructor/grading-review.tsx` and `lib/status.ts` — which are large because they are the densest screen and the single source of presentation truth respectively, not necessarily because they should be split. Check rather than assume.
+### An automated test suite
+
+Decided: this pass adds one. Today there are only the `verify:` scripts, and while they have found real defects, they are a different tool. Each is a script that prints lines and exits non-zero if any failed, which means a failure is read rather than reported, there is no way to run one case, and nothing runs them but a person remembering to.
+
+What they are genuinely good at should not be thrown away: each one is a narrative about a subsystem, readable top to bottom, and several are written against live data or a real sandbox. So the split to aim for:
+
+- **Unit tests** for the pure logic that currently sits inside those scripts — the `package.json` merge, protected-path matching, the parsers, classification, the cross-check rules, the assignment spec. These are all pure functions already, which is why this is mostly mechanical rather than a rewrite.
+- **The `verify:` scripts keep everything that needs a real sandbox, a real repository, a real model call, or live rows** — `verify:e2b`, `verify:assets`, `verify:app`, `verify:resubmission`, `calibrate`. Those cost money or minutes and are deliberately run on purpose, not on every save.
+
+**Jest, decided** — the program teaches it, and matching what students use has value beyond this repository. One thing left to settle: whether it runs in CI on push, which is worth it for the unit half and pointless for the half that needs credentials.
+
+**Not started before assignment authoring is finished.** Tests written against the authoring procedures while they are still being designed would only be rewritten, and the pure logic they would cover is checked by the `verify:` scripts in the meantime.
+
+---
+
+## Salesforce synchronization
+
+**Blocked on a conversation with the consultants who built our Salesforce implementation.** Everything below the questions is guesswork until that happens, which is why the field mapping was never guessed at.
+
+**What already exists here.** `submissions` carries three dormant columns — `salesforceSyncStatus` (`PENDING`, `SYNCED`, `FAILED`), `salesforceRecordId`, and `salesforceSyncedAt` — and approving a grade sets the status to `PENDING`. Nothing reads them. They exist so that a synchronization job can query `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at that point.
+
+**What is already settled.** Salesforce tracks grades **per assignment**, on assignment submission objects. That confirms the grain the dormant columns assume: one Salesforce record per submission, keyed from a column on `submissions`, rather than a rollup computed per module or per course. Nothing needs to move.
+
+It also widens the feature past what those columns cover. Managing assignment *and* assignment submission objects means an authored assignment has a counterpart record in Salesforce, which is a second thing to create, key, and keep in step — and `assignments` has no Salesforce columns at all today. Two consequences worth carrying into the conversation:
+
+- **The ordering is forced.** A submission record presumably cannot exist without its assignment record, so authoring an assignment has to create the Salesforce side before any grade for it can sync. That makes this feature depend on [assignment authoring](#phase-7-assignment-authoring) rather than merely following it.
+- **`assignments` and `courses` both need the same three columns** `submissions` already has. Correct assumption: only `submissions` has them, because it was the only table whose sync was being thought about when they were added. A course is presumably a cohort or program record on their end and an assignment hangs off it, so all three levels need to hold their Salesforce id and sync state. One small migration once the objects' shapes are known — deliberately not written until then, on the same reasoning that left the field mapping unguessed.
+
+### Questions I need answered
+
+**What a record represents.** This decides everything else, so it is first:
+
+- What object does a grade live on? What is its exact API name?
+- I would like to be able to have my application manage assignment and assignment submission objects (CRUD). What objects do assignments and assignment submissions live on? What are their API names?
+- What is the most relevant object relationship between a student and their assignments/submissions? Program Enrollment?
+- What is the manual process today, and which field does someone fill in by hand? I want to replace exactly that, not something adjacent to it.
+
+**How a student is identified.** What I hold is an email address and a GitHub numeric user ID, and the GitHub ID is meaningless on your end:
+
+- What is the reliable key for a student — the Contact Id, an email, or a student ID number we assign?
+- If it is email: is it guaranteed to match the email they sign in to our application with? What should happen when it does not?
+- Can I be given the Salesforce Id for each student once, to store against their profile, rather than matching on email every time?
+
+**The fields, and the shape they expect.** I have a raw score, a maximum, a complete/incomplete determination at 75 percent, a graded-at timestamp, a late flag, and the feedback text itself:
+
+- Which of those do you actually want, and what are the exact API names and types?
+- Is the grade a number, a percentage, or a picklist? If a picklist, what are the valid values, exactly as spelled?
+- Do you want the feedback text at all? It is markdown and can run to several hundred words, so I need to know whether to send it, and whether to strip the formatting.
+- Are there required fields on that object that I have no way to supply?
+
+**API access.** I need server-to-server access with no human in the loop:
+
+- Which API should I use — REST, sObject Collections, or Bulk? Volume is small: one write per approved grade, so roughly 25 per assignment per cohort.
+- Can we set up a Connected App with the OAuth JWT bearer flow, and who creates it and issues the certificate?
+- Is there an integration user I should authenticate as, or should one be created? What profile or permission set should it have — I want the narrowest that works.
+- Is there a sandbox org I can develop and test against, and how do I get access?
+- What API request limits are we working within?
+
+**Re-syncing without creating duplicates.** A grade can be corrected after it has been sent, and a student can resubmit and be graded again:
+
+- Can you add an External Id field to that object — unique, holding our submission's UUID — so I can upsert against it? Without one I have to store the record Id and hope it does not change, and any retry risks a duplicate row.
+- On a resubmission, do you want the existing record updated, or a second record so the history is visible? Our side keeps every round of feedback, so either is possible.
+- If a grade is corrected here after it has synced, may I overwrite what is in Salesforce, or is Salesforce the system of record once written?
+
+**What else fires when I write.** This is the part I cannot see and am most likely to break:
+
+- Are there validation rules, triggers, flows, or required-field rules on that object that a write would set off?
+- Does anything downstream read those fields — reports, dashboards, a program-completion calculation, anything that emails a student or a funder?
+- Could someone edit a grade directly in Salesforce? If so, we need to agree which side wins.
+
+### What may need to be built on the Salesforce end
+
+Worth flagging in the same conversation, since some of it is their work rather than mine: a unique External Id field for idempotent upserts; the object or the fields themselves if per-assignment grades are not currently modelled; a Connected App and a least-privilege integration user; agreed picklist values; sandbox access; and confirmation that no existing automation reacts badly to an integration writing these fields.
+
+### The shape of the work here, once those are answered
+
+A job that reads `PENDING` submissions, writes them, and records `SYNCED` with the record Id or `FAILED` with the reason. Deliberately not part of the approval transaction: approving already posts a pull request comment best-effort for the same reason, because a grade must not fail to be recorded because a third party is unavailable. That makes the sync retryable and makes a failed sync visible as a state rather than a lost write, which is the same shape as the undelivered-comment triage bucket.
+
+---
+
+## Course creation
+
+An instructor creates a cohort rather than a seed script doing it. `duplicate` in [assignment authoring](#step-3-procedures--trpcroutersassignmentsts) is built at the assignment level specifically so this becomes a loop over proven assignment mappings rather than new logic.
+
+Two things already in the schema that this has to settle: `Course.moduleStructure` is a JSON array of module tags, which is what orders a course's assignments and what the authoring form offers as module choices — a new course needs those entered or copied. And a course with no students is useless, so this is bound to student enrollment below.
+
+---
+
+## Student enrollment
+
+**The invite-link flow.** The decision is already recorded as standing: an instructor adds a student by name and email, the system generates an invite token, and the student's first GitHub login binds their identity to the enrollment. This avoids the instructor needing to know each student's GitHub username in advance. `Enrollment.inviteToken` exists and is unique; nothing reads it, so this is the piece that makes a created course usable.
+
+**Targeted assignments, and excusing a student.** A new capability rather than a screen, and it needs a data-model decision. Today an assignment implicitly applies to every active enrollment in its course — a submission row appears when a student accepts, and the gradebook treats a missing row as not started. Neither "this assignment is only for these students" nor "this student is excused from this one" can be expressed. The options are a per-student exclusion row against an assignment, or an explicit targeting list, and the choice matters for the gradebook: an excused student must read as excused rather than as missing work, or the distinction is worthless.
+
+---
+
+## An admin view for approving instructors
+
+Today `Profile.role` is set by hand in the database. The feature is a request-and-approve flow: someone signs up, an admin sees them pending, and grants instructor access.
+
+One constraint this must not violate, and the reason it deserves care rather than a quick form: migration `20260730024911_tighten_profiles_grants` exists because a signed-in student could once have set their own `role` to `ADMIN` from browser JavaScript. Any approval flow goes through a procedure that checks the caller is an admin. The role column must never become writable by the account it describes.
+
+---
+
+## AI grading for non-coding assignments
+
+Short response is already graded and calibrated against an instructor's own marking, so this means the work that has no repository: a Google Doc, an uploaded PDF, a presentation. It depends on [assignment authoring](#phase-7-assignment-authoring) supporting those kinds first, because the pipeline's inputs change shape — there is no pull request diff, no changed-file list, and no test evidence, so "the student's work" has to be fetched from Drive or from storage instead.
+
+### Instructor-authored rubrics are a prerequisite, not a companion
+
+Confirmed rather than assumed: this feature requires them. The taxonomy is fixed at the four sections that exist in `rubric.md`, and a resume, a reflection, or a presentation matches none of them — so there is no version of this feature that ships against the current four. It stops being a deferred nice-to-have and becomes the first thing built when this item comes up.
+
+What that touches, so the size is not a surprise:
+
+- **`Rubric` rows are real database rows already**, with a `RubricScaleType`, so storing an authored one is not the hard part.
+- **`SECTION_ASSETS` in `lib/grade/assets.ts` is the hard part.** Each of the four section types maps to a heading in `rubric.md` and a sample report file, both read from the grading-guides repository. An instructor-authored rubric has neither, so the rubric text and the sample have to come from the database instead — which means the asset loader stops being "read the file at this path" and becomes "read the file, or read the row."
+- **The prompt is built from those assets**, so an authored rubric has to produce the same three things the file-backed ones do: a scale with a written description per band, a heading's worth of criteria, and an example of a good report. The third is the one instructors will not think to provide and the model most needs — worth deciding whether an authored rubric can borrow the closest existing sample rather than requiring a new one.
+- **Whole numbers and the flags vocabulary** are properties of the rubric, not of the pipeline. An authored scale still has to be bands with descriptions, or the "no 1.5, put the hesitation in `instructorNotes`" rule has nothing to anchor to.
+
+This is also what makes the section types no longer a closed set, which the classifier currently assumes — `SectionType` is a union of four string literals and `classifySections` matches file paths against them. An authored rubric attached to a Google Doc assignment has no file paths to classify, so the two land together: classification only runs for kinds where "which files did the student change" is a meaningful question.
+
+---
+
+## Open thinking: where rubrics, answer keys, and sample reports live
+
+**Not decided, and deliberately not being implemented.** Written down because it changes the shape of `lib/grade/assets.ts`, and knowing it is coming affects how much is invested there in the meantime.
+
+The idea: move **rubrics** out of the grading-guides repository into a shared Google Drive folder, so that a non-technical instructor can write and upload one without touching git. Answer keys for technical assignments stay in GitHub, where they belong next to the code; answer keys for non-technical assignments live in Drive. Sample feedback reports possibly move too. The grading-guides repository simplifies to a collection of answer keys, and `agent-rules.md` moves into this application's own file structure.
+
+**The strongest part of this is `agent-rules.md` moving into the repository.** It is not reference material, it is prompt code: it sets tone, formatting, the two-beat summary, the half-credit nesting rule, and the prohibition on flag text reaching a student. A change to it changes every grade the application produces. That belongs in a pull request with a diff and a deploy, not in a documents folder — and `modelMetadata` already records a prompt version, which would then be a version of something in this repository.
+
+**The strongest argument for Drive is the one that motivated it**: a rubric written by an instructor who does not use git is a rubric that never gets written otherwise. That is the whole reason instructor-authored rubrics matter, so this is not a minor convenience.
+
+Three things to work out before it is worth doing, each of which is a real cost rather than a detail:
+
+- **Reproducibility is currently a commit SHA.** Assets are read at a resolved commit, cached under `sha:path` with no expiry — safe because content at a commit cannot change — and that SHA is stamped into `modelMetadata` so any report traces back to the exact rubric that produced it. Drive has no equivalent single identifier for a set of files. It does have a revision id per file, so the property is recoverable, but the shape changes: one SHA becomes a set of per-file revision ids, and every place that treats the asset commit as one value has to stop doing that.
+- **Sample reports argue against moving.** They steer the model's output format as directly as `agent-rules.md` does, so the same reasoning that says agent rules belong in the repository says samples do too. This is the one part of the idea that cuts against itself, and worth resolving deliberately rather than by whichever is more convenient to move.
+- **It is a second Drive integration, and that is an argument for timing rather than against.** Reading a student's Google Doc submission needs Drive access anyway. Doing both at once — assets from Drive, submissions from Drive — costs one authentication story instead of two, which suggests this belongs with [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments) rather than as its own project.
+
+Also unresolved, and cheap to note now: an instructor uploading a rubric to a folder is not the same as an instructor *authoring* one in the application. The first is a file whose structure nothing validates; the second is rows with bands and descriptions the prompt can be built from. A rubric the model has to be handed as an opaque document is a weaker input than one with a scale it can be told to score against, so "instructors upload rubrics to Drive" and "instructors author rubrics in the application" are different features that happen to serve the same person.
+
+---
+
 ## Deferred, with the schema left open
 
-- **Salesforce synchronization.** The three dormant columns exist. The field mapping is prerequisite work owed before this is built, not something to guess.
 - **SQL sandbox execution.** The design is settled: boot an ephemeral PostgreSQL, run `setup.sql`, and compare each numbered query's result set — rows, columns, and order — against `queries-solution.sql` programmatically, which makes SQL correctness fully deterministic with no model judgment involved. It needs an E2B template with PostgreSQL installed, and is the largest gap in what can be graded deterministically.
 - **Frontend execution scoring.** Matches today's manual process, which is a README checklist and a code-reading judgment. Lint and build only, to catch hard errors.
 - **The GitBook resource link index.** Pre-build a heading-to-URL index for `marcy-curriculum-docs` per module — the URL scheme is fixed at `.../{module}/{lesson}#{subheading}` — and pass candidate links in context for the model to select from rather than construct. Until this exists, prompts omit a recommended resources section entirely rather than risk invented URLs.
 - **Answer keys in the cacheable prefix.** They are identical for every student of a given assignment but sit in the user content, so they are billed at full input price on every run. Moving them into the system block would give each assignment its own cache entry. Worth roughly 6 percent of the cost of a report, which is why it waits behind the `effort` question.
-- **Instructor-authored rubrics** beyond the four fixed types.
+- ~~Instructor-authored rubrics~~ — no longer deferred. They are a prerequisite for [AI grading for non-coding assignments](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), which is where the work is described.
 - **Bulk grading** beyond the basic gradebook table, and a single action that generates reports for every submission still waiting on one.
 - **An early-intervention dashboard.** `lastActivityAt`, `isLate`, and `status` already support it.
 - **A per-student record that accumulates over time and informs grading.** Requires deciding what is tracked and deserves its own design discussion.

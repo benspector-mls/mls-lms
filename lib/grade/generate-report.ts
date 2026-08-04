@@ -84,14 +84,30 @@ export async function generateReportForSubmission(
     );
   }
 
-  const declaredSections = Array.isArray(submission.assignment.sections)
+  const allSections = Array.isArray(submission.assignment.sections)
     ? (submission.assignment.sections as unknown as AssignmentSection[])
     : [];
 
-  if (declaredSections.length === 0) {
+  if (allSections.length === 0) {
     throw new ReportGenerationError(
       `Assignment "${submission.assignment.title}" has no sections mapping, so there is ` +
       `no way to know what to grade or which rubric applies. Fix assignments.sections.`,
+    );
+  }
+
+  /*
+    Manually graded sections are removed before anything else looks at them. They carry no
+    rubric, no answer keys, and no section type, so classification has nothing to match and
+    the model has nothing to be told — an instructor scores them by hand in the review
+    screen. Filtering here rather than at each use keeps the rest of this function unable to
+    reach one by accident.
+  */
+  const declaredSections = allSections.filter((section) => section.grading !== "manual");
+
+  if (declaredSections.length === 0) {
+    throw new ReportGenerationError(
+      `Every section of "${submission.assignment.title}" is graded by hand, so there is ` +
+      `no report to generate. Score it in the review screen instead.`,
     );
   }
 

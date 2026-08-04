@@ -16,6 +16,8 @@ import {
   AssignmentConfigurationError,
   AssignmentKind,
   IMPLEMENTED_KINDS,
+  isAiGraded,
+  isManualOnly,
   parseAssignmentSpec,
   repositorySource,
   requiresRepository,
@@ -30,15 +32,27 @@ function check(label: string, actual: unknown, expected: unknown) {
   else console.log(`ok   ${label}`);
 }
 
-/** What a parse rejected, by field, so a check names the field and not just "threw". */
+/**
+ * What a parse rejected, by field, so a check names the field and not just "threw".
+ *
+ * An unrecognised key is reported by Zod against the *object* rather than the key, which
+ * would make "a manual section may not carry a rubric" and "...may not carry answer keys"
+ * indistinguishable — both would read `sections.0`. The offending keys are appended so each
+ * check proves the specific field was the one refused.
+ */
 function rejects(input: unknown): string[] | "accepted" {
   try {
     parseAssignmentSpec(input);
     return "accepted";
   } catch (err) {
-    const issues = (err as { issues?: { path: (string | number)[] }[] }).issues;
+    const issues = (err as {
+      issues?: { path: (string | number)[]; code?: string; keys?: string[] }[];
+    }).issues;
     if (!issues) return [(err as Error).name];
-    return issues.map((issue) => issue.path.join(".") || "(root)");
+    return issues.map((issue) => {
+      const path = issue.path.join(".") || "(root)";
+      return issue.keys?.length ? `${path}:${issue.keys.join(",")}` : path;
+    });
   }
 }
 
@@ -49,6 +63,7 @@ function errName(err: unknown): string {
 const RUBRIC = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 
 const codingSection = {
+  grading: "ai",
   type: "coding_algorithm",
   pointValue: 30,
   rubricId: RUBRIC,
@@ -56,6 +71,8 @@ const codingSection = {
   reportTemplate: "coding-fluency",
   evidence: "tests",
 } as const;
+
+const manualSection = { grading: "manual", label: "Reflection", pointValue: 10 } as const;
 
 const repoSpec = {
   kind: AssignmentKind.REPO,
@@ -72,9 +89,9 @@ const repoSpec = {
 check("pointValue is the sum of the sections", parseAssignmentSpec(repoSpec).pointValue, 30);
 check("two sections sum", sectionsPointTotal([{ pointValue: 15 }, { pointValue: 25 }]), 40);
 check("a pointValue on the assignment is refused outright",
-  rejects({ ...repoSpec, pointValue: 999 }), ["(root)"]);
+  rejects({ ...repoSpec, pointValue: 999 }), ["(root):pointValue"]);
 check("a section with no point value is refused",
-  rejects({ ...repoSpec, sections: [{ type: "coding_algorithm", rubricId: RUBRIC }] }),
+  rejects({ ...repoSpec, sections: [{ grading: "ai", type: "coding_algorithm", rubricId: RUBRIC }] }),
   ["sections.0.pointValue"]);
 check("a zero-point section is refused",
   rejects({ ...repoSpec, sections: [{ ...codingSection, pointValue: 0 }] }),
@@ -104,6 +121,50 @@ check("a testNamePattern with evidence:tests is accepted",
   rejects({ ...repoSpec, sections: [{ ...codingSection, testNamePattern: "^from-scratch" }] }),
   "accepted");
 
+// --- how a section is graded --------------------------------------------------
+/*
+  The two section shapes are deliberately not one shape with optional fields. A manual
+  section that could carry a rubricId would eventually carry one that nothing applies, and
+  an AI section that could omit its rubric would reach the model with nothing to score
+  against. Each check below is one of those two mistakes being refused.
+*/
+check("a section must say how it is graded",
+  rejects({ ...repoSpec, sections: [{ ...codingSection, grading: undefined }] }),
+  ["sections.0.grading"]);
+check("a manual section is accepted with just a label and points",
+  rejects({ ...repoSpec, sections: [manualSection] }), "accepted");
+check("a manual section may not carry a rubric",
+  rejects({ ...repoSpec, sections: [{ ...manualSection, rubricId: RUBRIC }] }),
+  ["sections.0:rubricId"]);
+check("a manual section may not carry answer keys",
+  rejects({ ...repoSpec, sections: [{ ...manualSection, answerKeyPaths: ["a/b.js"] }] }),
+  ["sections.0:answerKeyPaths"]);
+check("a manual section may not claim test evidence",
+  rejects({ ...repoSpec, sections: [{ ...manualSection, evidence: "tests" }] }),
+  ["sections.0:evidence"]);
+check("a manual section needs a label",
+  rejects({ ...repoSpec, sections: [{ grading: "manual", pointValue: 10 }] }),
+  ["sections.0.label"]);
+check("a manual section still needs a point value",
+  rejects({ ...repoSpec, sections: [{ grading: "manual", label: "Reflection" }] }),
+  ["sections.0.pointValue"]);
+check("an AI section may not use a label instead of a type",
+  rejects({ ...repoSpec, sections: [{ ...codingSection, label: "Whatever" }] }),
+  ["sections.0:label"]);
+
+// Mixed is legitimate: a repository assignment can have work the pipeline grades and work
+// an instructor scores by hand, and the total is still the sum of both.
+check("ai and manual sections can coexist, and both count toward the total",
+  parseAssignmentSpec({ ...repoSpec, sections: [codingSection, manualSection] }).pointValue,
+  40);
+check("isAiGraded splits them",
+  parseAssignmentSpec({ ...repoSpec, sections: [codingSection, manualSection] })
+    .sections.map(isAiGraded),
+  [true, false]);
+check("manual-only is detected", isManualOnly([manualSection]), true);
+check("a mix is not manual-only", isManualOnly([codingSection, manualSection]), false);
+check("no sections is not manual-only", isManualOnly([]), false);
+
 // --- the kind axis ------------------------------------------------------------
 check("REPO requires a template repository",
   rejects({ ...repoSpec, templateRepo: undefined }), ["templateRepo"]);
@@ -120,7 +181,7 @@ const docSpec = {
   kind: AssignmentKind.GOOGLE_DOC,
   title: "Reflection: what I learned in mod 1",
   moduleTag: "mod-1-js-fundamentals",
-  sections: [{ type: "short_response", pointValue: 15, rubricId: RUBRIC }],
+  sections: [manualSection],
 };
 
 check("a Google Doc assignment needs no repository fields", rejects(docSpec), "accepted");

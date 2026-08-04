@@ -21,6 +21,17 @@ export type SectionType =
 
 /** One entry from `assignment.sections`. */
 export type AssignmentSection = {
+  /**
+   * How this section is graded. `"manual"` means an instructor types the score and the
+   * feedback: there is no rubric, no answer key, and nothing here for a model to do, so
+   * the pipeline filters these out before classifying anything.
+   *
+   * Optional, and absence means `"ai"`. Sections written before the field existed have no
+   * `grading` key, and every one of them is AI-graded — see the backfill in migration
+   * `20260804_section_grading`. Reading it defensively costs nothing and means a row that
+   * escaped the backfill grades as it always did rather than silently becoming manual.
+   */
+  grading?: "ai" | "manual";
   type: string;
   /**
    * What this section alone is worth. Per section rather than per assignment,

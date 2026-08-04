@@ -123,16 +123,24 @@ export function repositorySource(assignment: {
   };
 }
 
-const sectionSchema = z
+/**
+ * What this section alone is worth.
+ *
+ * Required on both kinds of section, and never defaulted. For an AI-graded section it is
+ * the denominator the model is told: given none, a model invents one, and a plausible
+ * score against an invented denominator cannot be told apart downstream from a real one.
+ * For a manually graded section it is what the instructor scores out of.
+ */
+const pointValue = z.number().int().positive();
+
+/**
+ * A section the pipeline grades: a rubric, answer keys, and optionally test evidence.
+ */
+const aiSectionSchema = z
   .object({
+    grading: z.literal("ai"),
     type: z.enum(SECTION_TYPES),
-    /**
-     * What this section alone is worth. Required, because a section reaching the model
-     * without one is refused rather than defaulted: told nothing about the maximum, a
-     * model invents a denominator and a plausible score against an invented denominator
-     * cannot be told apart downstream from a real one.
-     */
-    pointValue: z.number().int().positive(),
+    pointValue,
     rubricId: z.string().uuid(),
     /** Paths inside the answer-keys repository, relative to `answer-keys/`. */
     answerKeyPaths: z.array(z.string().min(1)).default([]),
@@ -151,7 +159,52 @@ const sectionSchema = z
     path: ["testNamePattern"],
   });
 
+/**
+ * A section an instructor grades by hand.
+ *
+ * No rubric, no answer keys, no section type, and deliberately no way to name any: a
+ * reflection submitted as a Google Doc or a resume uploaded as a PDF has nothing the
+ * pipeline can read and no `rubric.md` heading that describes it. Rather than let one be
+ * created with a rubric that would never be applied, the shape refuses to hold one.
+ *
+ * `label` exists because `type` does not. An AI-graded section is named by its type in
+ * the interface; a manual section needs something to call itself, and "Section 1" is
+ * worse than what the instructor would have written.
+ */
+const manualSectionSchema = z
+  .object({
+    grading: z.literal("manual"),
+    label: z.string().min(1).max(120),
+    pointValue,
+  })
+  .strict();
+
+const sectionSchema = z.discriminatedUnion("grading", [aiSectionSchema, manualSectionSchema]);
+
 export type AssignmentSectionSpec = z.infer<typeof sectionSchema>;
+export type AiSectionSpec = z.infer<typeof aiSectionSchema>;
+export type ManualSectionSpec = z.infer<typeof manualSectionSchema>;
+
+/** True when the pipeline can produce a report for this section. */
+export function isAiGraded(section: AssignmentSectionSpec): section is AiSectionSpec {
+  return section.grading === "ai";
+}
+
+/**
+ * True when no section of this assignment can be graded by the pipeline.
+ *
+ * What the interface asks before offering to generate a report, and what
+ * `generateReportForSubmission` should refuse on: an assignment with only manual sections
+ * has nothing for a model to do, and offering the button would promise something that
+ * cannot happen.
+ */
+export function isManualOnly(sections: readonly { grading: "ai" | "manual" }[]): boolean {
+  // The length check is load-bearing: `every` is true for an empty array, and an
+  // assignment with no sections at all is a configuration error rather than a manually
+  // graded one. Asking only for `grading` lets a stored row be passed in as readily as a
+  // parsed spec.
+  return sections.length > 0 && sections.every((section) => section.grading === "manual");
+}
 
 /**
  * The assignment total is the sum of its sections, never entered separately. A
