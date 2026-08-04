@@ -303,9 +303,16 @@ A consequence worth surfacing rather than hiding: an existing assignment whose d
 
 Built in [Step 0](#step-0-the-kind-axis--done) as `assignmentSpecSchema`, a discriminated union on `kind` rather than a flat schema for the `sections` array alone — the union is what let the GitHub fields become "required for `REPO`, absent for the others" instead of always-required. `sectionsPointTotal` and `prisma/seed.ts` calling through `parseAssignmentSpec` are both done, described there.
 
-### Step 3. Procedures — `trpc/routers/assignments.ts`
+### Step 3. Procedures — done, in `trpc/routers/assignments.ts`
 
-All `instructorProcedure`, all gated on the caller teaching the course via the existing `assertCourseMember` pattern plus an explicit teaches check, as `courses.gradebook` does.
+**Built**, all nine of them, all `instructorProcedure` and all gated on `assertTeaches` — a new guard, because `assertCourseMember` admits an enrolled student and the INSTRUCTOR role says nothing about *which* courses. Without the course-level check, one cohort's instructor could author or delete in another's.
+
+Two decisions that shaped the rest:
+
+- **One validation function, called by the form and by every write.** `validateAssignmentDraft` in `lib/assignments/validate.ts` is what `validateDraft` returns findings from and what `create`, `update`, and `duplicate` refuse on. A check the form performs and the write does not is decoration; a check the write performs and the form does not is a refusal an instructor meets only after filling everything in.
+- **Findings carry a severity.** `error` blocks saving — a module tag outside the course, an unreachable template, a rubric that does not match its section type, a colliding repository name. `warning` does not, and is for what is legitimately true of a saved assignment: a missing answer key means grading proceeds without a reference solution, which is worse but not useless, and an assignment the curriculum no longer holds a directory for has been renamed upstream rather than broken.
+
+The rubric pairing is worth naming, because nothing else would catch it: `RUBRIC_NAME_BY_SECTION_TYPE` in `spec.ts` fixes which rubric each section type is graded against, and the procedures check the pairing an instructor submits rather than trusting it. A coding section graded against the short response rubric produces a confident report against criteria that do not apply to the work.
 
 - **`validateDraft`** — what the form calls as fields change. Runs the whole table above for `REPO`, skips the GitHub-specific rows for the other kinds (already expressed in `assignmentSpecSchema`, so this procedure mostly wraps a `.safeParse` and turns Zod issues into per-field findings), and returns them. No writes.
 - **`answerKeyOptions({ moduleTag, repoName })`** — wraps `listAnswerKeys`.
@@ -320,12 +327,13 @@ All `instructorProcedure`, all gated on the caller teaching the course via the e
 
   It returns what it destroyed, so the confirmation afterwards is also specific. Student repositories are deliberately **not** deleted from GitHub — losing a student's work because an instructor tidied a course would be a worse failure than an orphaned repository, and the names are reported so they can be cleaned up deliberately.
 
-### Step 4. `distributedAt` becomes the publish flag
+### Step 4. `distributedAt` becomes the publish flag — done
 
-It is selected in `assignmentFields` and read by nothing. It already means what is needed, so there is no migration.
+No migration: it already meant this and was read by nothing.
 
-- `assignments.listForCourse` filters to `distributedAt != null` when the caller is not an instructor on the course.
-- The instructor course page shows drafts with a badge.
+- **Done.** `assignments.listForCourse` filters to `distributedAt != null` unless the caller teaches the course.
+- **Done.** `publish` and `unpublish`. Unpublishing is allowed even after students have accepted, deliberately — the reason to unpublish is usually that something is wrong, which is exactly when it should stop being handed out. Existing submissions and grades are untouched; this controls the listing, not the work.
+- Still to build: the badge on the instructor course page, which is Step 5.
 
 This is what makes authoring safe: an assignment can be built over several sittings without a student seeing a half-finished one, and a mapping can be corrected before anyone is graded against it.
 
@@ -360,16 +368,18 @@ The strongest available check, and the reason to do it first: **author `swe-1-3-
 - **Done.** A `REPO` spec missing `templateRepo`, `assignmentRepoName`, or `githubOrg` is refused; a `GOOGLE_DOC` spec supplying any of them, or a runner preset, is refused
 - **Done.** `repositorySource` throws `UnsupportedAssignmentKindError` for an unimplemented kind and `AssignmentConfigurationError`, naming the missing column, for a misconfigured `REPO` row
 
-Still pending, once the procedures exist:
+**All done.** `verify:authoring` now has a second half that drives the tRPC callers against the real database, inside a transaction that is rolled back — authorization is half of what these procedures are, and a check that only holds when called through the interface is not a check.
 
-- an unreachable `templateRepo` is refused (needs `getRepo` — a real GitHub call)
-- renaming `assignmentRepoName` is refused once a submission exists
-- a duplicate into the same course with a colliding repo name is refused
-- an unpublished assignment is invisible to a student and visible to an instructor
-- an instructor who does not teach the course is refused every procedure
-- an assignment the answer-keys repository no longer contains is reported as a finding
-- `remove` refuses when `confirmTitle` does not match, **called directly rather than through the interface** — that is the whole point of the check living in the procedure
-- `removalImpact` counts match what `remove` actually destroys, verified inside a rolled-back transaction so no real grades are harmed proving it
+- **Done.** The strongest one: authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — kind, title, module tag, point value, threshold, template, org, ref, preset, config, and sections. That assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output.
+- **Done.** An unreachable `templateRepo` is refused, against a real `getRepo` call.
+- **Done.** Renaming `assignmentRepoName` is refused once a submission exists.
+- **Done.** A duplicate colliding with an existing repository name is refused; a duplicate carries the same sections and starts unpublished.
+- **Done.** An unpublished assignment is invisible to a student and visible to an instructor; publishing and unpublishing flip that.
+- **Done.** A student is refused `validateDraft`, `create`, and `remove`; an instructor who does not teach the course is refused `create`.
+- **Done.** A module tag outside the course is refused, and a section paired with the wrong rubric is refused.
+- **Done.** `remove` refuses when `confirmTitle` does not match, called directly rather than through a dialog — the whole point of the check living in the procedure.
+- **Done.** `removalImpact` counts match what `remove` actually destroys, and the repositories it would orphan are reported rather than deleted.
+- **Done.** The rollback leaves the seeded assignment untouched and no authored rows behind, confirmed by re-reading after the transaction.
 
 Existing suites must stay green — `verify:grade`, `verify:approve`, `verify:sandbox`, and `verify:assets` in particular, since this changes `lib/grade/assets.ts`.
 

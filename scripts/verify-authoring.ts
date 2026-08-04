@@ -9,8 +9,10 @@
  * repository-backed assignment with no repository. Those are the expensive failures,
  * and they are all cheap to check as functions.
  *
- * This grows as the authoring procedures land. What it covers today is
- * `lib/assignments/spec.ts` and the kind axis.
+ * The second half is not pure: it drives the tRPC callers against the real database,
+ * because authorization is half of what the authoring procedures are and a check that only
+ * holds when called through the interface is not a check. Every write it makes happens
+ * inside a transaction that is rolled back, so it is safe against live data.
  */
 import {
   AssignmentConfigurationError,
@@ -254,5 +256,346 @@ check("a REPO row missing a column throws AssignmentConfigurationError",
 check("...and the message names the missing column",
   misconfiguredMessage.includes("githubOrg"), true);
 
-console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+// =====================================================================================
+// The procedures, against the real database.
+//
+// Everything above is pure. What follows drives the tRPC callers, because authorization is
+// half of what these procedures are: a check that only holds when called through the
+// interface is not a check. Every write happens inside a transaction that is rolled back,
+// so this can run against live data without harming any of it.
+//
+// The strongest check here is the first: authoring `swe-1-3-node-modules` through `create`
+// and diffing the row against what `prisma/seed.ts` produces. That assignment already
+// grades correctly end to end, so an identical row proves the authoring path produces
+// grading-correct output rather than merely well-formed output.
+// =====================================================================================
+
+async function procedures() {
+  const { config: loadEnv } = await import("dotenv");
+  loadEnv({ path: ".env.local", quiet: true });
+  loadEnv({ quiet: true });
+
+  const { db } = await import("../lib/prisma");
+  const { appRouter } = await import("../trpc/routers/_app");
+  const { createCallerFactory } = await import("../trpc/init");
+
+  const seeded = await db.assignment.findFirst({
+    where: { assignmentRepoName: "swe-1-3-node-modules" },
+    select: {
+      id: true, courseId: true, kind: true, title: true, moduleTag: true, pointValue: true,
+      completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
+      templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
+      distributedAt: true,
+    },
+  });
+
+  if (!seeded) {
+    console.log("\nskip the procedure checks — swe-1-3-node-modules is not seeded");
+    return;
+  }
+
+  const instructor = await db.courseInstructor.findFirst({
+    where: { courseId: seeded.courseId },
+    select: { userId: true },
+  });
+  const student = await db.enrollment.findFirst({
+    where: { courseId: seeded.courseId, status: "ACTIVE" },
+    select: { studentId: true },
+  });
+  if (!instructor || !student) {
+    console.log("\nskip the procedure checks — the seeded course has no instructor or student");
+    return;
+  }
+
+  const createCaller = createCallerFactory(appRouter);
+  const asInstructor = createCaller({ db, user: { id: instructor.userId } } as never);
+  const asStudent = createCaller({ db, user: { id: student.studentId } } as never);
+
+  /** The draft an instructor would submit for the seeded assignment. */
+  const draftFromSeed = {
+    kind: seeded.kind,
+    title: seeded.title,
+    moduleTag: seeded.moduleTag,
+    completionThreshold: seeded.completionThreshold,
+    dueAt: null,
+    templateRepo: seeded.templateRepo,
+    assignmentRepoName: seeded.assignmentRepoName,
+    githubOrg: seeded.githubOrg,
+    templateRef: seeded.templateRef,
+    runnerPreset: seeded.runnerPreset,
+    runnerConfig: seeded.runnerConfig,
+    sections: seeded.sections,
+  };
+
+  // --- validateDraft ---------------------------------------------------------
+  const valid = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: draftFromSeed,
+  });
+  check("the seeded assignment validates as a draft",
+    { canSave: valid.canSave, points: valid.pointValue, errors: valid.findings.filter((f) => f.severity === "error") },
+    { canSave: true, points: seeded.pointValue, errors: [] });
+
+  // Without excluding itself, its own repository name is a collision.
+  const collides = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    draft: draftFromSeed,
+  });
+  check("a colliding repository name is refused",
+    collides.findings.some((f) => f.path === "assignmentRepoName" && f.severity === "error"),
+    true);
+
+  const badModule = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: { ...draftFromSeed, moduleTag: "mod-99-not-in-this-course" },
+  });
+  check("a module tag outside the course is refused",
+    badModule.findings.some((f) => f.path === "moduleTag" && f.severity === "error"), true);
+
+  const badRepo = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: { ...draftFromSeed, templateRepo: "marcy-lms-test/does-not-exist-anywhere" },
+  });
+  check("an unreachable template repository is refused",
+    badRepo.findings.some((f) => f.path === "templateRepo" && f.severity === "error"), true);
+
+  const badKey = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: {
+      ...draftFromSeed,
+      sections: (seeded.sections as { answerKeyPaths?: string[] }[]).map((s) => ({
+        ...s, answerKeyPaths: ["mod-1-js-fundamentals/swe-1-3-node-modules/typo.js"],
+      })),
+    },
+  });
+  check("a mistyped answer key is a warning, not a refusal",
+    {
+      warns: badKey.findings.some((f) => f.severity === "warning" && f.message.includes("typo.js")),
+      canSave: badKey.canSave,
+    },
+    { warns: true, canSave: true });
+
+  // The rubric pairing, which nothing else would catch: a plausible report against
+  // criteria that do not apply to the work.
+  const wrongRubric = await db.rubric.findFirst({
+    where: { name: "SHORT_RESPONSE" }, select: { id: true },
+  });
+  if (wrongRubric) {
+    const mismatched = await asInstructor.assignments.validateDraft({
+      courseId: seeded.courseId,
+      assignmentId: seeded.id,
+      draft: {
+        ...draftFromSeed,
+        sections: (seeded.sections as object[]).map((s) => ({ ...s, rubricId: wrongRubric.id })),
+      },
+    });
+    check("a coding section graded against the short response rubric is refused",
+      mismatched.findings.some((f) => f.path.endsWith("rubricId") && f.severity === "error"), true);
+  }
+
+  // --- authorization ---------------------------------------------------------
+  async function refused(label: string, run: () => Promise<unknown>) {
+    try {
+      await run();
+      check(label, "allowed", "FORBIDDEN");
+    } catch (err) {
+      check(label, (err as { code?: string }).code ?? String(err), "FORBIDDEN");
+    }
+  }
+
+  await refused("a student cannot validate a draft", () =>
+    asStudent.assignments.validateDraft({ courseId: seeded.courseId, draft: draftFromSeed }));
+  await refused("a student cannot create an assignment", () =>
+    asStudent.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }));
+  await refused("a student cannot remove an assignment", () =>
+    asStudent.assignments.remove({ assignmentId: seeded.id, confirmTitle: seeded.title }));
+
+  const otherCourse = await db.course.findFirst({
+    where: { id: { not: seeded.courseId } }, select: { id: true },
+  });
+  if (otherCourse) {
+    const outsider = await db.courseInstructor.findFirst({
+      where: { courseId: otherCourse.id, userId: { not: instructor.userId } },
+      select: { userId: true },
+    });
+    if (outsider) {
+      const asOutsider = createCaller({ db, user: { id: outsider.userId } } as never);
+      await refused("an instructor who does not teach the course cannot author in it", () =>
+        asOutsider.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }));
+    }
+  }
+
+  // --- create, diffed against the seed --------------------------------------
+  try {
+    await db.$transaction(async (tx) => {
+      const inTx = createCaller({ db: tx, user: { id: instructor.userId } } as never);
+
+      const { assignment } = await inTx.assignments.create({
+        courseId: seeded.courseId,
+        draft: { ...draftFromSeed, assignmentRepoName: "swe-1-3-node-modules-authored" },
+      });
+
+      const authored = await tx.assignment.findUnique({
+        where: { id: assignment.id },
+        select: {
+          kind: true, title: true, moduleTag: true, pointValue: true, completionThreshold: true,
+          templateRepo: true, githubOrg: true, templateRef: true, runnerPreset: true,
+          runnerConfig: true, sections: true, distributedAt: true,
+        },
+      });
+
+      // Everything the seed writes, except the two that are deliberately different: the
+      // repository name was changed to avoid the collision, and an authored assignment
+      // starts unpublished where the seed publishes immediately.
+      check("an authored row matches the seeded one field for field",
+        {
+          kind: authored?.kind, title: authored?.title, moduleTag: authored?.moduleTag,
+          pointValue: authored?.pointValue, completionThreshold: authored?.completionThreshold,
+          templateRepo: authored?.templateRepo, githubOrg: authored?.githubOrg,
+          templateRef: authored?.templateRef, runnerPreset: authored?.runnerPreset,
+          runnerConfig: authored?.runnerConfig, sections: authored?.sections,
+        },
+        {
+          kind: seeded.kind, title: seeded.title, moduleTag: seeded.moduleTag,
+          pointValue: seeded.pointValue, completionThreshold: seeded.completionThreshold,
+          templateRepo: seeded.templateRepo, githubOrg: seeded.githubOrg,
+          templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
+          runnerConfig: seeded.runnerConfig, sections: seeded.sections,
+        });
+      check("an authored assignment starts unpublished", authored?.distributedAt, null);
+
+      // --- publish, and what a student can see -------------------------------
+      const asStudentInTx = createCaller({ db: tx, user: { id: student.studentId } } as never);
+
+      const hiddenFromStudent = await asStudentInTx.assignments.listForCourse({
+        courseId: seeded.courseId,
+      });
+      check("an unpublished assignment is invisible to a student",
+        hiddenFromStudent.some((a) => a.id === assignment.id), false);
+
+      const visibleToInstructor = await inTx.assignments.listForCourse({
+        courseId: seeded.courseId,
+      });
+      check("...and visible to an instructor",
+        visibleToInstructor.some((a) => a.id === assignment.id), true);
+
+      await inTx.assignments.publish({ assignmentId: assignment.id });
+      const afterPublish = await asStudentInTx.assignments.listForCourse({
+        courseId: seeded.courseId,
+      });
+      check("publishing makes it visible to a student",
+        afterPublish.some((a) => a.id === assignment.id), true);
+
+      await inTx.assignments.unpublish({ assignmentId: assignment.id });
+      const afterUnpublish = await asStudentInTx.assignments.listForCourse({
+        courseId: seeded.courseId,
+      });
+      check("unpublishing hides it again",
+        afterUnpublish.some((a) => a.id === assignment.id), false);
+
+      // --- update ------------------------------------------------------------
+      const updated = await inTx.assignments.update({
+        assignmentId: assignment.id,
+        draft: { ...draftFromSeed, assignmentRepoName: "swe-1-3-node-modules-authored", title: "Renamed" },
+      });
+      check("update writes the new title", updated.assignment.title, "Renamed");
+
+      // The rename guard applies to the seeded assignment, which has real submissions.
+      let renameRefused = "";
+      try {
+        await inTx.assignments.update({
+          assignmentId: seeded.id,
+          draft: { ...draftFromSeed, assignmentRepoName: "renamed-out-from-under-students" },
+        });
+      } catch (err) {
+        renameRefused = (err as { code?: string }).code ?? String(err);
+      }
+      check("renaming an assignment students have accepted is refused",
+        renameRefused, "PRECONDITION_FAILED");
+
+      // --- duplicate ---------------------------------------------------------
+      const copy = await inTx.assignments.duplicate({
+        assignmentId: seeded.id,
+        targetCourseId: seeded.courseId,
+        assignmentRepoName: "swe-1-3-node-modules-copy",
+      });
+      check("a duplicate carries the same sections",
+        JSON.stringify(
+          (await tx.assignment.findUnique({
+            where: { id: copy.assignment.id }, select: { sections: true },
+          }))?.sections,
+        ),
+        JSON.stringify(seeded.sections));
+      check("a duplicate starts unpublished", copy.assignment.distributedAt, null);
+
+      let dupCollision = "";
+      try {
+        await inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: seeded.courseId,
+          assignmentRepoName: seeded.assignmentRepoName!,
+        });
+      } catch (err) {
+        dupCollision = (err as { code?: string }).code ?? String(err);
+      }
+      check("a duplicate colliding with an existing repository name is refused",
+        dupCollision, "BAD_REQUEST");
+
+      // --- removalImpact and remove -----------------------------------------
+      const impact = await inTx.assignments.removalImpact({ assignmentId: seeded.id });
+      check("removalImpact counts the submissions that exist",
+        impact.submissions > 0 && impact.title === seeded.title, true);
+
+      let wrongTitle = "";
+      try {
+        await inTx.assignments.remove({ assignmentId: seeded.id, confirmTitle: "not the title" });
+      } catch (err) {
+        wrongTitle = (err as { code?: string }).code ?? String(err);
+      }
+      // Called directly rather than through a dialog, which is the whole point of the
+      // check living in the procedure.
+      check("remove refuses when the typed title does not match", wrongTitle, "BAD_REQUEST");
+
+      const removed = await inTx.assignments.remove({
+        assignmentId: seeded.id,
+        confirmTitle: seeded.title,
+      });
+      check("what remove reports matches what removalImpact predicted",
+        { submissions: removed.submissions, drafts: removed.drafts, testRuns: removed.testRuns },
+        { submissions: impact.submissions, drafts: impact.drafts, testRuns: impact.testRuns });
+      check("student repositories are reported rather than deleted",
+        removed.orphanedRepositories.length, impact.orphanedRepositories.length);
+      check("the assignment is gone",
+        await tx.assignment.findUnique({ where: { id: seeded.id }, select: { id: true } }), null);
+
+      throw new Error("ROLLBACK");
+    }, { timeout: 30_000 });
+  } catch (err) {
+    if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
+  }
+
+  // Nothing above survived.
+  const stillThere = await db.assignment.findUnique({
+    where: { id: seeded.id }, select: { title: true, distributedAt: true },
+  });
+  check("the rollback left the seeded assignment untouched",
+    { title: stillThere?.title, published: stillThere?.distributedAt !== null },
+    { title: seeded.title, published: seeded.distributedAt !== null });
+  check("no authored rows survived the rollback",
+    await db.assignment.count({ where: { assignmentRepoName: { contains: "-authored" } } }), 0);
+}
+
+// Not top-level await: tsx compiles this to CommonJS, which rejects it.
+procedures()
+  .then(() => {
+    console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
+    process.exit(failures === 0 ? 0 : 1);
+  })
+  .catch((err) => {
+    console.error("\n", err);
+    process.exit(1);
+  });

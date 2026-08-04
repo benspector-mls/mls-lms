@@ -32,6 +32,25 @@ export const SECTION_TYPES = [
   "coding_frontend",
 ] as const;
 
+export type SectionTypeName = (typeof SECTION_TYPES)[number];
+
+/**
+ * Which `Rubric` row a section type is graded against, by name.
+ *
+ * The pairing is fixed rather than chosen: a `coding_algorithm` section graded against the
+ * short response rubric would produce a confident report against criteria that do not apply
+ * to it. `prisma/seed.ts` already encoded this mapping by hand when it looked rubrics up by
+ * name; stating it here means the authoring procedures can *check* the pairing an instructor
+ * submits rather than trusting it, which is the same reasoning as every other field being
+ * validated against a real source.
+ */
+export const RUBRIC_NAME_BY_SECTION_TYPE: Record<SectionTypeName, string> = {
+  short_response: "SHORT_RESPONSE",
+  coding_algorithm: "CODING_ALGORITHM_FLUENCY",
+  coding_sql: "CODING_SQL_FLUENCY",
+  coding_frontend: "CODING_FRONTEND",
+};
+
 /**
  * Kinds the application can actually distribute, collect, and grade today.
  *

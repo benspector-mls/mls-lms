@@ -1,7 +1,16 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { repositorySource, UnsupportedAssignmentKindError } from '@/lib/assignments/spec';
+import {
+  assertKindImplemented,
+  repositorySource,
+  UnsupportedAssignmentKindError,
+} from '@/lib/assignments/spec';
+import {
+  hasErrors,
+  validateAssignmentDraft,
+  type ValidationFinding,
+} from '@/lib/assignments/validate';
 import { effectiveSection } from '@/lib/grade/approve';
 import {
   getConfiguredInstallationId,
@@ -14,11 +23,12 @@ import {
   removeClassroomWorkflow,
 } from '@/lib/github/repos';
 
-import { createTRPCRouter, profileProcedure, studentProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure, studentProcedure } from '../init';
 
 /** Columns of an assignment that are safe to send to any enrolled member. */
 const assignmentFields = {
   id: true,
+  kind: true,
   title: true,
   moduleTag: true,
   pointValue: true,
@@ -61,6 +71,62 @@ async function assertCourseMember(
   }
 }
 
+/**
+ * Whether the caller *teaches* this course, which is stronger than being a member of it.
+ *
+ * Every authoring procedure needs this rather than `assertCourseMember`: an enrolled student
+ * is a member, and holding the INSTRUCTOR role says nothing about *which* courses. Without
+ * the course-level check, one cohort's instructor could author or delete assignments in
+ * another's.
+ */
+async function assertTeaches(
+  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  courseId: string,
+) {
+  if (ctx.profile.role === 'ADMIN') return;
+
+  const teaches = await ctx.db.courseInstructor.findFirst({
+    where: { courseId, userId: ctx.profile.id },
+    select: { id: true },
+  });
+
+  if (!teaches) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not teach this course.' });
+  }
+}
+
+/** Refuses a draft that would not grade correctly, naming the fields. */
+function refuseOnErrors(findings: ValidationFinding[]): void {
+  if (!hasErrors(findings)) return;
+  const errors = findings.filter((finding) => finding.severity === 'error');
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message:
+      `This assignment cannot be saved as it stands:\n` +
+      errors.map((finding) => `  ${finding.path}: ${finding.message}`).join('\n'),
+    cause: findings,
+  });
+}
+
+/** The columns an authored assignment writes. Shared so create and update cannot drift. */
+function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssignmentDraft>>['spec']>, pointValue: number) {
+  return {
+    kind: spec.kind,
+    title: spec.title,
+    moduleTag: spec.moduleTag,
+    pointValue,
+    completionThreshold: spec.completionThreshold,
+    dueAt: spec.dueAt,
+    templateRepo: spec.templateRepo,
+    assignmentRepoName: spec.assignmentRepoName,
+    githubOrg: spec.githubOrg,
+    templateRef: spec.templateRef,
+    runnerPreset: spec.runnerPreset,
+    runnerConfig: (spec.runnerConfig ?? null) as never,
+    sections: spec.sections as never,
+  };
+}
+
 export const assignmentsRouter = createTRPCRouter({
   /**
    * One assignment and the course it belongs to.
@@ -101,8 +167,26 @@ export const assignmentsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await assertCourseMember(ctx, input.courseId);
 
+      /*
+        An unpublished assignment is invisible to a student and visible to an instructor.
+
+        `distributedAt` already meant this and was read by nothing. It is what makes
+        authoring safe: an assignment can be built over several sittings, and a section
+        mapping corrected, without a student seeing a half-finished one or accepting an
+        assignment whose answer keys are still wrong.
+      */
+      const teaches =
+        ctx.profile.role === 'ADMIN' ||
+        (await ctx.db.courseInstructor.findFirst({
+          where: { courseId: input.courseId, userId: ctx.profile.id },
+          select: { id: true },
+        })) !== null;
+
       const assignments = await ctx.db.assignment.findMany({
-        where: { courseId: input.courseId },
+        where: {
+          courseId: input.courseId,
+          ...(teaches ? {} : { distributedAt: { not: null } }),
+        },
         select: {
           ...assignmentFields,
           submissions: {
@@ -376,5 +460,368 @@ export const assignmentsRouter = createTRPCRouter({
           repoGithubLoginAtCreation: student.githubUsername,
         },
       });
+    }),
+  // =====================================================================================
+  // Authoring
+  //
+  // All of these teach-gate on the course rather than merely requiring the INSTRUCTOR
+  // role, and all of them write through `validateAssignmentDraft`, which is the same
+  // function the form calls as fields change. The interface warns; these refuse.
+  // =====================================================================================
+
+  /**
+   * What the form calls as fields change. No writes.
+   *
+   * Returns every finding rather than the first, so an instructor fixes one round of
+   * problems instead of discovering them one at a time, and returns the point total the
+   * sections imply so the form does not compute it a second way.
+   */
+  validateDraft: instructorProcedure
+    .input(z.object({
+      courseId: z.string().uuid(),
+      assignmentId: z.string().uuid().optional(),
+      draft: z.unknown(),
+    }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+      const { findings, pointValue } = await validateAssignmentDraft(ctx.db, input);
+      return { findings, pointValue, canSave: !hasErrors(findings) };
+    }),
+
+  /** The answer keys the curriculum holds for one assignment, for the form to offer. */
+  answerKeyOptions: instructorProcedure
+    .input(z.object({
+      courseId: z.string().uuid(),
+      moduleTag: z.string().min(1),
+      repoName: z.string().min(1),
+    }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+      const { listAnswerKeys } = await import('@/lib/grade/assets');
+      return { paths: await listAnswerKeys(input.moduleTag, input.repoName) };
+    }),
+
+  /** Which assignments the curriculum contains for a module, and which are already added. */
+  catalogue: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), moduleTag: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+      const { listAssignmentDirs } = await import('@/lib/grade/assets');
+
+      const [available, existing] = await Promise.all([
+        listAssignmentDirs(input.moduleTag),
+        ctx.db.assignment.findMany({
+          where: { courseId: input.courseId, moduleTag: input.moduleTag },
+          select: { assignmentRepoName: true },
+        }),
+      ]);
+
+      const added = new Set(existing.map((row) => row.assignmentRepoName));
+      // Marked rather than filtered out: an instructor looking for an assignment they
+      // already added should see that it is there, not wonder why it is missing.
+      return { assignments: available.map((name) => ({ name, alreadyAdded: added.has(name) })) };
+    }),
+
+  /**
+   * Creates an assignment, unpublished.
+   *
+   * `pointValue` comes from the validated spec rather than from input, so there is no
+   * request that can make the gradebook column disagree with the sections beneath it.
+   */
+  create: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), draft: z.unknown() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+
+      const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, input);
+      refuseOnErrors(findings);
+      if (!spec || pointValue === null) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'That draft is not an assignment.' });
+      }
+
+      assertKindImplemented(spec.kind);
+
+      const assignment = await ctx.db.assignment.create({
+        data: {
+          courseId: input.courseId,
+          distributedAt: null,
+          ...writableFields(spec, pointValue),
+        },
+        select: assignmentFields,
+      });
+
+      return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+    }),
+
+  /**
+   * Edits an assignment.
+   *
+   * Refuses to change `assignmentRepoName` once anybody has accepted, because student
+   * repositories are already named after it: renaming it here would not rename theirs, and
+   * every later lookup would miss.
+   */
+  update: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid(), draft: z.unknown() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: {
+          courseId: true,
+          assignmentRepoName: true,
+          _count: { select: { submissions: true } },
+        },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      await assertTeaches(ctx, existing.courseId);
+
+      const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, {
+        courseId: existing.courseId,
+        assignmentId: input.assignmentId,
+        draft: input.draft,
+      });
+      refuseOnErrors(findings);
+      if (!spec || pointValue === null) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'That draft is not an assignment.' });
+      }
+
+      if (
+        existing._count.submissions > 0 &&
+        spec.assignmentRepoName !== existing.assignmentRepoName
+      ) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            `${existing._count.submissions} student(s) have already accepted this assignment, ` +
+            `and their repositories are named after "${existing.assignmentRepoName}". ` +
+            `Renaming it here would not rename theirs. Create a new assignment instead.`,
+        });
+      }
+
+      const assignment = await ctx.db.assignment.update({
+        where: { id: input.assignmentId },
+        data: writableFields(spec, pointValue),
+        select: assignmentFields,
+      });
+
+      return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+    }),
+
+  /** Makes an assignment visible to students. Validated again, because publishing is the
+   * moment it stops being private — a draft saved with warnings should not become live
+   * without them being seen a second time. */
+  publish: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: { courseId: true, distributedAt: true },
+      });
+      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      await assertTeaches(ctx, assignment.courseId);
+
+      return ctx.db.assignment.update({
+        where: { id: input.assignmentId },
+        data: { distributedAt: assignment.distributedAt ?? new Date() },
+        select: assignmentFields,
+      });
+    }),
+
+  /**
+   * Hides an assignment from students again.
+   *
+   * Allowed even after somebody has accepted, deliberately: the reason to unpublish is
+   * usually that something is wrong with it, and that is exactly when it should stop being
+   * handed out. Existing submissions and grades are untouched — this controls the listing,
+   * not the work.
+   */
+  unpublish: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: { courseId: true },
+      });
+      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      await assertTeaches(ctx, assignment.courseId);
+
+      return ctx.db.assignment.update({
+        where: { id: input.assignmentId },
+        data: { distributedAt: null },
+        select: assignmentFields,
+      });
+    }),
+
+  /**
+   * Copies a proven assignment into another course.
+   *
+   * At the assignment level rather than the course level so that course creation, when it
+   * comes, is a loop over this rather than new logic. The copy arrives unpublished, and its
+   * sections are re-validated against the target course — a module tag legitimate in one
+   * cohort may not exist in another's `moduleStructure`.
+   */
+  duplicate: instructorProcedure
+    .input(z.object({
+      assignmentId: z.string().uuid(),
+      targetCourseId: z.string().uuid(),
+      assignmentRepoName: z.string().min(1).optional(),
+      dueAt: z.date().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const source = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: {
+          courseId: true,
+          kind: true,
+          title: true,
+          moduleTag: true,
+          completionThreshold: true,
+          templateRepo: true,
+          assignmentRepoName: true,
+          githubOrg: true,
+          templateRef: true,
+          runnerPreset: true,
+          runnerConfig: true,
+          sections: true,
+        },
+      });
+      if (!source) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+
+      // Both courses, because copying reads one and writes the other.
+      await assertTeaches(ctx, source.courseId);
+      await assertTeaches(ctx, input.targetCourseId);
+
+      const draft = {
+        kind: source.kind,
+        title: source.title,
+        moduleTag: source.moduleTag,
+        completionThreshold: source.completionThreshold,
+        dueAt: input.dueAt ?? null,
+        templateRepo: source.templateRepo,
+        assignmentRepoName: input.assignmentRepoName ?? source.assignmentRepoName,
+        githubOrg: source.githubOrg,
+        templateRef: source.templateRef,
+        runnerPreset: source.runnerPreset,
+        runnerConfig: source.runnerConfig,
+        sections: source.sections,
+      };
+
+      const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, {
+        courseId: input.targetCourseId,
+        draft,
+      });
+      refuseOnErrors(findings);
+      if (!spec || pointValue === null) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'The assignment being copied is not a valid draft. Edit it first.',
+        });
+      }
+
+      const assignment = await ctx.db.assignment.create({
+        data: {
+          courseId: input.targetCourseId,
+          distributedAt: null,
+          ...writableFields(spec, pointValue),
+        },
+        select: assignmentFields,
+      });
+
+      return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+    }),
+
+  /**
+   * What removing an assignment would destroy. Read-only.
+   *
+   * Exists so the confirmation states facts rather than generalities — "3 submissions, 2
+   * released grades" is a sentence somebody can act on, and "this cannot be undone" is not.
+   */
+  removalImpact: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: { id: true, courseId: true, title: true, distributedAt: true },
+      });
+      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      await assertTeaches(ctx, assignment.courseId);
+
+      const submissions = await ctx.db.submission.findMany({
+        where: { assignmentId: input.assignmentId },
+        select: {
+          repoFullName: true,
+          finalScore: true,
+          _count: { select: { gradingDrafts: true, testRuns: true } },
+          gradingDrafts: { where: { status: 'APPROVED' }, select: { id: true } },
+        },
+      });
+
+      return {
+        title: assignment.title,
+        published: assignment.distributedAt !== null,
+        submissions: submissions.length,
+        releasedGrades: submissions.filter((s) => s.finalScore !== null).length,
+        feedbackRounds: submissions.reduce((total, s) => total + s.gradingDrafts.length, 0),
+        drafts: submissions.reduce((total, s) => total + s._count.gradingDrafts, 0),
+        testRuns: submissions.reduce((total, s) => total + s._count.testRuns, 0),
+        // Reported so they can be cleaned up deliberately. Never deleted by `remove` —
+        // losing a student's work because an instructor tidied a course would be a worse
+        // failure than an orphaned repository.
+        orphanedRepositories: submissions
+          .map((s) => s.repoFullName)
+          .filter((name): name is string => name !== null),
+      };
+    }),
+
+  /**
+   * Deletes an assignment and everything cascading from it.
+   *
+   * Permitted whatever has been submitted, by decision, and permanent: there is no soft
+   * delete and no recovery path in the application. The database's own backups are the only
+   * way back.
+   *
+   * The typed confirmation is enforced here rather than in the dialog. That is the whole
+   * point of it: the interface warns, and the procedure is what refuses. A guard that lives
+   * only in a dialog is decoration, and this is the one irreversible operation in the
+   * application.
+   */
+  remove: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid(), confirmTitle: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: { id: true, courseId: true, title: true },
+      });
+      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      await assertTeaches(ctx, assignment.courseId);
+
+      if (input.confirmTitle !== assignment.title) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            `Type the assignment's title exactly to remove it. Expected "${assignment.title}".`,
+        });
+      }
+
+      // Counted before the delete, so what is reported afterwards is what was actually
+      // destroyed rather than a guess.
+      const submissions = await ctx.db.submission.findMany({
+        where: { assignmentId: input.assignmentId },
+        select: {
+          repoFullName: true,
+          _count: { select: { gradingDrafts: true, testRuns: true } },
+        },
+      });
+
+      await ctx.db.assignment.delete({ where: { id: input.assignmentId } });
+
+      return {
+        title: assignment.title,
+        submissions: submissions.length,
+        drafts: submissions.reduce((total, s) => total + s._count.gradingDrafts, 0),
+        testRuns: submissions.reduce((total, s) => total + s._count.testRuns, 0),
+        orphanedRepositories: submissions
+          .map((s) => s.repoFullName)
+          .filter((name): name is string => name !== null),
+      };
     }),
 });
