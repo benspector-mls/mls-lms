@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { repositorySource, UnsupportedAssignmentKindError } from '@/lib/assignments/spec';
 import { effectiveSection } from '@/lib/grade/approve';
 import {
   getConfiguredInstallationId,
@@ -220,6 +221,7 @@ export const assignmentsRouter = createTRPCRouter({
         select: {
           id: true,
           courseId: true,
+          kind: true,
           templateRepo: true,
           assignmentRepoName: true,
           githubOrg: true,
@@ -228,6 +230,37 @@ export const assignmentsRouter = createTRPCRouter({
 
       if (!assignment) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      }
+
+      /*
+        Accepting *is* generating a repository, so this is where the kind stops being
+        incidental. A Google Doc or an uploaded file needs a different act entirely —
+        there is nothing to generate and nothing to add a collaborator to — so the
+        refusal happens before any GitHub call rather than surfacing as a null
+        repository name three requests later.
+      */
+      let source;
+      try {
+        source = repositorySource(assignment);
+      } catch (err) {
+        // Two different situations, worded for the person who hits them rather than
+        // for a stack trace. An unsupported kind means this button should never have
+        // been shown — accepting a Google Doc assignment does not generate a
+        // repository at all, and will call a different procedure once that kind
+        // exists. A misconfigured REPO row is the ordinary case today: an instructor
+        // set up the assignment without a template, org, or repo name.
+        if (err instanceof UnsupportedAssignmentKindError) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'This assignment is not accepted this way. Contact your instructor.',
+            cause: err,
+          });
+        }
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Source repository not found for this assignment. Contact your instructor.',
+          cause: err,
+        });
       }
 
       // Enrollment is checked here as well as in listForCourse, because a
@@ -255,13 +288,13 @@ export const assignmentsRouter = createTRPCRouter({
       }
 
       const installationId = getConfiguredInstallationId();
-      const repoName = `${assignment.assignmentRepoName}-${student.githubUsername}`;
-      const [templateOwner, templateRepoName] = assignment.templateRepo.split('/');
+      const repoName = `${source.assignmentRepoName}-${student.githubUsername}`;
+      const [templateOwner, templateRepoName] = source.templateRepo.split('/');
 
       if (!templateOwner || !templateRepoName) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: `Assignment templateRepo must be in "owner/repo" form, got "${assignment.templateRepo}".`,
+          message: `Assignment templateRepo must be in "owner/repo" form, got "${source.templateRepo}".`,
         });
       }
 
@@ -275,12 +308,12 @@ export const assignmentsRouter = createTRPCRouter({
         repo = await generateRepoFromTemplate(installationId, {
           templateOwner,
           templateRepo: templateRepoName,
-          owner: assignment.githubOrg,
+          owner: source.githubOrg,
           name: repoName,
         });
       } catch (err) {
         const existingRepo = await getRepo(installationId, {
-          owner: assignment.githubOrg,
+          owner: source.githubOrg,
           repo: repoName,
         });
         if (!existingRepo) throw err;
@@ -288,7 +321,7 @@ export const assignmentsRouter = createTRPCRouter({
       }
 
       await addCollaborator(installationId, {
-        owner: assignment.githubOrg,
+        owner: source.githubOrg,
         repo: repoName,
         username: student.githubUsername,
         permission: 'push',
@@ -312,7 +345,7 @@ export const assignmentsRouter = createTRPCRouter({
           continue;
         }
         await addCollaborator(installationId, {
-          owner: assignment.githubOrg,
+          owner: source.githubOrg,
           repo: repoName,
           username: user.githubUsername,
           permission: 'push',
@@ -320,11 +353,11 @@ export const assignmentsRouter = createTRPCRouter({
       }
 
       await removeClassroomWorkflow(installationId, {
-        owner: assignment.githubOrg,
+        owner: source.githubOrg,
         repo: repoName,
       });
 
-      const repoFullName = `${assignment.githubOrg}/${repoName}`;
+      const repoFullName = `${source.githubOrg}/${repoName}`;
 
       return ctx.db.submission.upsert({
         where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },

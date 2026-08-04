@@ -1,0 +1,197 @@
+/**
+ * Checks the rules that decide what a valid assignment is.
+ *
+ *   npm run verify:authoring
+ *
+ * Pure: no database, no network, no model. Every check here is a rule that, if it
+ * silently stopped holding, would produce a confidently wrong grade rather than an
+ * error — a section with no point value, a test pattern that matches nothing, a
+ * repository-backed assignment with no repository. Those are the expensive failures,
+ * and they are all cheap to check as functions.
+ *
+ * This grows as the authoring procedures land. What it covers today is
+ * `lib/assignments/spec.ts` and the kind axis.
+ */
+import {
+  AssignmentConfigurationError,
+  AssignmentKind,
+  IMPLEMENTED_KINDS,
+  parseAssignmentSpec,
+  repositorySource,
+  requiresRepository,
+  sectionsPointTotal,
+  UnsupportedAssignmentKindError,
+} from "../lib/assignments/spec";
+
+let failures = 0;
+function check(label: string, actual: unknown, expected: unknown) {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  if (a !== e) { failures++; console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`); }
+  else console.log(`ok   ${label}`);
+}
+
+/** What a parse rejected, by field, so a check names the field and not just "threw". */
+function rejects(input: unknown): string[] | "accepted" {
+  try {
+    parseAssignmentSpec(input);
+    return "accepted";
+  } catch (err) {
+    const issues = (err as { issues?: { path: (string | number)[] }[] }).issues;
+    if (!issues) return [(err as Error).name];
+    return issues.map((issue) => issue.path.join(".") || "(root)");
+  }
+}
+
+function errName(err: unknown): string {
+  return err instanceof Error ? err.name : String(err);
+}
+
+const RUBRIC = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+
+const codingSection = {
+  type: "coding_algorithm",
+  pointValue: 30,
+  rubricId: RUBRIC,
+  answerKeyPaths: ["mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
+  reportTemplate: "coding-fluency",
+  evidence: "tests",
+} as const;
+
+const repoSpec = {
+  kind: AssignmentKind.REPO,
+  title: "swe-1-4-loops",
+  moduleTag: "mod-1-js-fundamentals",
+  templateRepo: "marcy-lms-test/swe-1-4-loops",
+  assignmentRepoName: "swe-1-4-loops",
+  githubOrg: "marcy-lms-test",
+  runnerPreset: "node-jest",
+  sections: [codingSection],
+};
+
+// --- the total is derived, never entered --------------------------------------
+check("pointValue is the sum of the sections", parseAssignmentSpec(repoSpec).pointValue, 30);
+check("two sections sum", sectionsPointTotal([{ pointValue: 15 }, { pointValue: 25 }]), 40);
+check("a pointValue on the assignment is refused outright",
+  rejects({ ...repoSpec, pointValue: 999 }), ["(root)"]);
+check("a section with no point value is refused",
+  rejects({ ...repoSpec, sections: [{ type: "coding_algorithm", rubricId: RUBRIC }] }),
+  ["sections.0.pointValue"]);
+check("a zero-point section is refused",
+  rejects({ ...repoSpec, sections: [{ ...codingSection, pointValue: 0 }] }),
+  ["sections.0.pointValue"]);
+check("an assignment with no sections is refused", rejects({ ...repoSpec, sections: [] }), ["sections"]);
+
+// --- sections describe something a rubric covers ------------------------------
+check("an unknown section type is refused",
+  rejects({ ...repoSpec, sections: [{ ...codingSection, type: "coding_python" }] }),
+  ["sections.0.type"]);
+check("a section with no rubric is refused",
+  rejects({ ...repoSpec, sections: [{ ...codingSection, rubricId: undefined }] }),
+  ["sections.0.rubricId"]);
+/*
+  A pattern with no `evidence: "tests"` is silently ignored, so the section is graded
+  with no test evidence at all — the opposite of what naming a pattern means. This is
+  the class of mistake the whole module exists for: nothing throws, and the report
+  reads as though the tests were consulted.
+*/
+check("a testNamePattern without evidence:tests is refused",
+  rejects({
+    ...repoSpec,
+    sections: [{ ...codingSection, evidence: undefined, testNamePattern: "^from-scratch" }],
+  }),
+  ["sections.0.testNamePattern"]);
+check("a testNamePattern with evidence:tests is accepted",
+  rejects({ ...repoSpec, sections: [{ ...codingSection, testNamePattern: "^from-scratch" }] }),
+  "accepted");
+
+// --- the kind axis ------------------------------------------------------------
+check("REPO requires a template repository",
+  rejects({ ...repoSpec, templateRepo: undefined }), ["templateRepo"]);
+check("REPO requires an org", rejects({ ...repoSpec, githubOrg: undefined }), ["githubOrg"]);
+check("a templateRepo that is not owner/repo is refused",
+  rejects({ ...repoSpec, templateRepo: "swe-1-4-loops" }), ["templateRepo"]);
+check("a repo name with a slash in it is refused",
+  rejects({ ...repoSpec, assignmentRepoName: "a/b" }), ["assignmentRepoName"]);
+check("an unknown runner preset is refused, and the message names it",
+  rejects({ ...repoSpec, runnerPreset: "npx-jest-typo" }), ["runnerPreset"]);
+check("the none preset is accepted", rejects({ ...repoSpec, runnerPreset: "none" }), "accepted");
+
+const docSpec = {
+  kind: AssignmentKind.GOOGLE_DOC,
+  title: "Reflection: what I learned in mod 1",
+  moduleTag: "mod-1-js-fundamentals",
+  sections: [{ type: "short_response", pointValue: 15, rubricId: RUBRIC }],
+};
+
+check("a Google Doc assignment needs no repository fields", rejects(docSpec), "accepted");
+check("...and its repository fields come out null", (() => {
+  const parsed = parseAssignmentSpec(docSpec);
+  return [parsed.templateRepo, parsed.assignmentRepoName, parsed.githubOrg];
+})(), [null, null, null]);
+/*
+  No repository means no template to take a suite from, so there is nothing to run.
+  Accepting a runner here would produce an assignment that looks like it has test
+  evidence and can never have any.
+*/
+check("a Google Doc assignment may not name a runner",
+  rejects({ ...docSpec, runnerPreset: "node-jest" }), ["runnerPreset"]);
+check("a Google Doc assignment may not name a repository",
+  rejects({ ...docSpec, templateRepo: "marcy-lms-test/whatever" }), ["templateRepo"]);
+check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE" }), ["kind"]);
+
+// --- narrowing at the point of use -------------------------------------------
+check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
+check("GOOGLE_DOC does not", requiresRepository(AssignmentKind.GOOGLE_DOC), false);
+check("only REPO is implemented today", [...IMPLEMENTED_KINDS], [AssignmentKind.REPO]);
+
+check("repositorySource narrows a REPO row",
+  repositorySource({
+    kind: AssignmentKind.REPO,
+    templateRepo: "marcy-lms-test/swe-1-4-loops",
+    assignmentRepoName: "swe-1-4-loops",
+    githubOrg: "marcy-lms-test",
+    templateRef: null,
+  }),
+  {
+    templateRepo: "marcy-lms-test/swe-1-4-loops",
+    assignmentRepoName: "swe-1-4-loops",
+    githubOrg: "marcy-lms-test",
+    templateRef: null,
+  });
+
+/*
+  Two failures that must not be reported as one another. A Google Doc assignment is a
+  feature that does not exist; a REPO assignment with no org is a row that should never
+  have been written. An instructor can act on the second and not on the first.
+*/
+let unsupported = "";
+try {
+  repositorySource({
+    kind: AssignmentKind.GOOGLE_DOC,
+    templateRepo: null,
+    assignmentRepoName: null,
+    githubOrg: null,
+  });
+} catch (err) { unsupported = errName(err); }
+check("an unimplemented kind throws UnsupportedAssignmentKindError",
+  unsupported, new UnsupportedAssignmentKindError(AssignmentKind.GOOGLE_DOC).name);
+
+let misconfigured = "", misconfiguredMessage = "";
+try {
+  repositorySource({
+    kind: AssignmentKind.REPO,
+    templateRepo: "marcy-lms-test/swe-1-4-loops",
+    assignmentRepoName: "swe-1-4-loops",
+    githubOrg: null,
+  });
+} catch (err) {
+  misconfigured = errName(err);
+  misconfiguredMessage = err instanceof Error ? err.message : "";
+}
+check("a REPO row missing a column throws AssignmentConfigurationError",
+  misconfigured, new AssignmentConfigurationError("").name);
+check("...and the message names the missing column",
+  misconfiguredMessage.includes("githubOrg"), true);
+
+console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
+process.exit(failures === 0 ? 0 : 1);

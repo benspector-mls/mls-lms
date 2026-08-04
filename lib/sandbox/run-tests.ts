@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../prisma";
+import { repositorySource } from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import {
   downloadRepoArchive,
@@ -78,7 +79,10 @@ export async function runTestsForSubmission(
       assignment: {
         select: {
           title: true,
+          kind: true,
           templateRepo: true,
+          assignmentRepoName: true,
+          githubOrg: true,
           templateRef: true,
           runnerPreset: true,
           runnerConfig: true,
@@ -112,7 +116,11 @@ export async function runTestsForSubmission(
 
   const installationId = getConfiguredInstallationId();
   const studentRepo = splitRepoFullName(submission.repoFullName);
-  const templateRepo = splitRepoFullName(assignment.templateRepo);
+  // Asserted rather than assumed. A kind with no repository cannot reach here today
+  // — resolveRunner returns null for it and the check above already threw — but that
+  // is a property of the order of two earlier checks, which is not something a reader
+  // of this line should have to verify.
+  const templateRepo = splitRepoFullName(repositorySource(assignment).templateRepo);
 
   // RUNNING is written before any slow work begins, so a run that dies partway
   // through leaves a row explaining that it was attempted.

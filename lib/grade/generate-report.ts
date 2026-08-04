@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "../prisma";
+import { repositorySource } from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { getPullRequestFiles } from "../github/prs";
@@ -63,7 +64,10 @@ export async function generateReportForSubmission(
         select: {
           title: true,
           sections: true,
+          kind: true,
           templateRepo: true,
+          assignmentRepoName: true,
+          githubOrg: true,
           pointValue: true,
           // Read so the run below can be started when one is missing.
           runnerPreset: true,
@@ -163,7 +167,10 @@ export async function generateReportForSubmission(
     declaredSections,
     // From the template, never the student's copy: a student must not be able to
     // change which rubric they are graded against by editing their own package.json.
-    hasJest: await templateHasJest(installationId, submission.assignment.templateRepo),
+    hasJest: await templateHasJest(
+      installationId,
+      repositorySource(submission.assignment).templateRepo,
+    ),
   });
 
   if (classification.present.length === 0) {

@@ -14,6 +14,7 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "verify:authoring": "tsx scripts/verify-authoring.ts",
     "verify:sandbox": "tsx scripts/verify-sandbox-logic.ts",
     "tests:run": "tsx --conditions=react-server scripts/run-tests.ts",
     "verify:e2b": "tsx --conditions=react-server scripts/verify-sandbox-e2b.ts",

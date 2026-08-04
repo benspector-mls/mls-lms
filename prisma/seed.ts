@@ -20,6 +20,7 @@ import path from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { config as loadEnv } from "dotenv";
 
+import { AssignmentKind, parseAssignmentSpec } from "../lib/assignments/spec";
 import { PrismaClient, Prisma, Role, EnrollmentStatus, RubricScaleType } from "../lib/generated/prisma/client";
 
 loadEnv({ path: ".env.local", quiet: true });
@@ -488,12 +489,33 @@ async function main() {
     }
   }
 
-  const sections = SPEC.sections(keyDir, (name) => rubricsByName.get(name));
+  /*
+    Validated through the same schema the authoring procedures use, so the seeded
+    shape and the authored shape cannot drift — the rules live in one module and this
+    script is a caller of them rather than a second implementation.
 
-  // The assignment total is the sum of its sections, never entered separately. A
-  // gradebook column that disagreed with the reports beneath it would be worse than
-  // no column at all.
-  const totalPointValue = sections.reduce((total, section) => total + section.pointValue, 0);
+    It also turns two silent failures into loud ones. A rubric name that does not
+    match a seeded row used to write a section with `rubricId: undefined`, which only
+    surfaced when grading loaded no rubric; and the assignment total is now computed
+    by `parseAssignmentSpec`, so there is no input to this script that could make the
+    gradebook column disagree with the reports beneath it.
+  */
+  const spec = parseAssignmentSpec({
+    kind: AssignmentKind.REPO,
+    // For repository-based assignments the title is the repository name, so that
+    // what a student sees in the LMS matches the repository they are working in.
+    // `title` stays a separate column because a Google Doc or upload assignment
+    // still needs a human-readable name and has no repository to borrow one from.
+    title: ASSIGNMENT_REPO_NAME,
+    moduleTag: MODULE_TAG,
+    completionThreshold: 0.75,
+    templateRepo: TEMPLATE_REPO,
+    assignmentRepoName: ASSIGNMENT_REPO_NAME,
+    githubOrg: GITHUB_ORG,
+    runnerPreset: SPEC.runnerPreset,
+    runnerConfig: SPEC.runnerConfig ?? null,
+    sections: SPEC.sections(keyDir, (name) => rubricsByName.get(name)),
+  });
 
   const assignment = await prisma.assignment.upsert({
     where: {
@@ -504,39 +526,38 @@ async function main() {
     },
     create: {
       courseId: course.id,
-      // For repository-based assignments the title is the repository name, so
-      // that what a student sees in the LMS matches the repository they are
-      // working in. `title` stays a separate column because assignments that are
-      // not repository-based still need a human-readable name.
-      title: ASSIGNMENT_REPO_NAME,
-      moduleTag: MODULE_TAG,
-      pointValue: totalPointValue,
-      completionThreshold: 0.75,
-      templateRepo: TEMPLATE_REPO,
-      assignmentRepoName: ASSIGNMENT_REPO_NAME,
-      githubOrg: GITHUB_ORG,
+      kind: spec.kind,
+      title: spec.title,
+      moduleTag: spec.moduleTag,
+      pointValue: spec.pointValue,
+      completionThreshold: spec.completionThreshold,
+      templateRepo: spec.templateRepo,
+      assignmentRepoName: spec.assignmentRepoName,
+      githubOrg: spec.githubOrg,
+      templateRef: spec.templateRef,
       distributedAt: new Date(),
-      runnerPreset: SPEC.runnerPreset,
+      runnerPreset: spec.runnerPreset,
       // Prisma.DbNull writes SQL NULL. Passing plain `null` to a Json? column
       // writes the JSON value `null` instead, which an `IS NULL` filter misses.
-      runnerConfig: (SPEC.runnerConfig ?? Prisma.DbNull) as Prisma.InputJsonValue,
-      sections: sections as unknown as Prisma.InputJsonValue,
+      runnerConfig: (spec.runnerConfig ?? Prisma.DbNull) as Prisma.InputJsonValue,
+      sections: spec.sections as unknown as Prisma.InputJsonValue,
     },
     // Everything the spec describes is refreshed here as well as on create,
     // because a row seeded before its spec was corrected would otherwise keep
     // the wrong shape forever. Due dates, scores, and anything an instructor
     // sets by hand are not in the spec and are left alone.
     update: {
-      title: ASSIGNMENT_REPO_NAME,
-      moduleTag: MODULE_TAG,
-      templateRepo: TEMPLATE_REPO,
-      githubOrg: GITHUB_ORG,
-      pointValue: totalPointValue,
-      runnerPreset: SPEC.runnerPreset,
+      kind: spec.kind,
+      title: spec.title,
+      moduleTag: spec.moduleTag,
+      templateRepo: spec.templateRepo,
+      githubOrg: spec.githubOrg,
+      pointValue: spec.pointValue,
+      runnerPreset: spec.runnerPreset,
       // Prisma.DbNull writes SQL NULL. Passing plain `null` to a Json? column
       // writes the JSON value `null` instead, which an `IS NULL` filter misses.
-      runnerConfig: (SPEC.runnerConfig ?? Prisma.DbNull) as Prisma.InputJsonValue,
-      sections: sections as unknown as Prisma.InputJsonValue,
+      runnerConfig: (spec.runnerConfig ?? Prisma.DbNull) as Prisma.InputJsonValue,
+      sections: spec.sections as unknown as Prisma.InputJsonValue,
     },
   });
   console.log(

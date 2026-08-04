@@ -186,22 +186,52 @@ model Rubric {
   @@schema("public")
 }
 
+/// What a student turns in, which decides how an assignment is distributed,
+/// what a submission consists of, and how feedback is delivered.
+///
+/// Only REPO is implemented. The other two are named now because every column
+/// and every code path that assumes a repository has to say so explicitly — a
+/// system where "assignment" silently means "GitHub repository" costs more to
+/// open up later than it costs to keep this enum honest from the start.
+enum AssignmentKind {
+  /// Generated from a template repository; submitted as a pull request.
+  REPO
+  /// A Google Doc the student writes in. Not implemented.
+  GOOGLE_DOC
+  /// A file the student uploads. Not implemented.
+  FILE_UPLOAD
+
+  @@schema("public")
+}
+
 model Assignment {
   id       String @id @default(uuid()) @db.Uuid
   courseId String @map("course_id") @db.Uuid
   title    String
   moduleTag String @map("module_tag")
+  kind     AssignmentKind @default(REPO)
   pointValue Int   @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
   /// working-with-assignments.md.
   completionThreshold Float @default(0.75) @map("completion_threshold")
   dueAt    DateTime? @map("due_at") @db.Timestamptz(6)
+  /// The next three are required when `kind` is REPO and null otherwise. The
+  /// requirement is enforced by the Zod schema in lib/assignments/spec.ts rather
+  /// than by the columns, because a column cannot express "required for one kind"
+  /// — and a NOT NULL here would force a Google Doc assignment to invent a
+  /// repository name.
+  ///
+  /// `@@unique([courseId, assignmentRepoName])` below needs no change to
+  /// accommodate that: Postgres treats NULLs as distinct in a unique constraint,
+  /// so it goes on constraining repository-backed assignments and ignores the
+  /// rest.
+
   /// "owner/repo" of the template this assignment is generated from.
-  templateRepo String @map("template_repo")
+  templateRepo String? @map("template_repo")
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
   /// are named `{assignmentRepoName}-{student github login}`.
-  assignmentRepoName String @map("assignment_repo_name")
-  githubOrg String @map("github_org")
+  assignmentRepoName String? @map("assignment_repo_name")
+  githubOrg String? @map("github_org")
   /// Which template commit the tests come from. Null means the template's
   /// default branch, which is what you want during a cohort: a bug fixed in the
   /// template reaches every subsequent run, including re-runs for students who
