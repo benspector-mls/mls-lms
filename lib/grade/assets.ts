@@ -1,7 +1,5 @@
 import "server-only";
 
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { SectionType } from "./classify";
@@ -10,20 +8,26 @@ import type { SectionType } from "./classify";
  * The grading toolkit and answer keys: the rules, the rubric, the sample reports,
  * and the reference solutions.
  *
- * Two sources, chosen by whether `GRADING_ASSETS_PATH` is set.
+ * **One source: the private repository, over the GitHub API.** Development and deployment
+ * read the same thing the same way, so there is no second implementation to keep in step
+ * and no class of bug where an assignment authored against one listing is graded against
+ * another.
  *
- * **A local clone**, when it is. Editing `rubric.md` and immediately re-grading is how
- * the rubric actually gets tuned, and a loop that requires committing and pushing
- * first would make that painful enough to stop happening. Development only — the path
- * is a directory on somebody's laptop.
+ * There used to be a local-clone mode as well, selected by `GRADING_ASSETS_PATH`, for
+ * editing `rubric.md` and re-grading without pushing first. It was removed deliberately.
+ * Every source of assets after this one is external — rubrics for non-repository
+ * assignments will come from Google Drive — so "read it from disk" was never going to
+ * generalise, and maintaining two implementations of every read and list to keep one
+ * development convenience was the wrong trade.
  *
- * **The private repository over the GitHub API**, otherwise. This is what runs on a
- * deployed host, where no clone exists.
+ * What that costs, so it is not a surprise: tuning the rubric now means committing and
+ * pushing, and waiting up to `HEAD_SHA_TTL_MS` for the new commit to be picked up. Set
+ * `GRADING_ASSETS_REF` to a branch to iterate on one without touching the default.
  *
- * Either way a commit SHA is recorded on every draft, so a report can be traced back
- * to the exact rubric and sample report that produced it. Content is fetched at that
- * SHA rather than at a branch name: a run that takes ninety seconds must not read half
- * its rubric from before a push and half from after.
+ * A commit SHA is recorded on every draft, so a report traces back to the exact rubric and
+ * sample report that produced it. Content is fetched at that SHA rather than at a branch
+ * name: a run taking ninety seconds must not read half its rubric from before a push and
+ * half from after.
  */
 
 export type GradingAssets = {
@@ -37,8 +41,8 @@ export type GradingAssets = {
   answerKeys: { path: string; content: string }[];
   /** Answer key paths the assignment names that do not exist. */
   missingAnswerKeys: string[];
-  /** The clone's HEAD, recorded on the draft for reproducibility. */
-  commitSha: string | null;
+  /** The commit the assets were read at, recorded on the draft for reproducibility. */
+  commitSha: string;
 };
 
 export class GradingAssetsError extends Error {
@@ -49,52 +53,21 @@ export class GradingAssetsError extends Error {
 }
 
 /**
- * Where a set of files is being read from, and at which commit.
+ * The repository as a set of files, read at one commit.
  *
- * `read` returns null for an absent file. Callers decide whether that is fatal: a
- * missing rubric is, a missing answer key is not.
+ * `read` and `list` both return null for something absent. Callers decide whether that is
+ * fatal: a missing rubric is, a missing answer key is not, and a module with no answer-keys
+ * directory yet is an empty catalogue rather than an error.
  */
 type AssetSource = {
   describe: string;
-  commitSha: string | null;
+  commitSha: string;
   read: (relativePath: string) => Promise<string | null>;
-  /**
-   * What a directory contains, or null when it does not exist.
-   *
-   * Symmetric with `read`, and implemented for both sources for the same reason: the
-   * authoring catalogue is built from this, and a catalogue that listed one set of
-   * assignments against a local clone and another against the API would be worse than no
-   * catalogue at all.
-   */
   list: (relativeDir: string) => Promise<AssetEntry[] | null>;
 };
 
-/** One entry in an asset directory. Identical shape from either source. */
+/** One entry in an asset directory. */
 export type AssetEntry = { name: string; type: "file" | "dir" };
-
-function localSource(root: string): AssetSource {
-  if (!existsSync(root)) {
-    throw new GradingAssetsError(`GRADING_ASSETS_PATH points at ${root}, which does not exist.`);
-  }
-  return {
-    describe: `the clone at ${root}`,
-    commitSha: readCommitSha(root),
-    read: async (relativePath) => {
-      const full = path.join(root, relativePath);
-      return existsSync(full) ? readFileSync(full, "utf-8") : null;
-    },
-    list: async (relativeDir) => {
-      const full = path.join(root, relativeDir);
-      if (!existsSync(full) || !statSync(full).isDirectory()) return null;
-      return readdirSync(full, { withFileTypes: true })
-        // Dotfiles are skipped so that .DS_Store and .gitkeep never appear as answer keys
-        // in an instructor's list. The API source does not report them either.
-        .filter((entry) => !entry.name.startsWith("."))
-        .filter((entry) => entry.isFile() || entry.isDirectory())
-        .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? "dir" as const : "file" as const }));
-    },
-  };
-}
 
 /**
  * How long a resolved branch head is reused before being looked up again.
@@ -120,13 +93,32 @@ const contentCache = new Map<string, string | null>();
 /** Directory listings, keyed and cached on the same reasoning as `contentCache`. */
 const directoryCache = new Map<string, AssetEntry[] | null>();
 
-async function githubSource(): Promise<AssetSource> {
+/**
+ * The one way assets are read.
+ *
+ * Every caller in this module goes through here, so there is a single place where the
+ * repository, the installation, and the commit are decided.
+ */
+async function assetSource(): Promise<AssetSource> {
+  /*
+    A leftover GRADING_ASSETS_PATH is refused rather than ignored. Ignoring it would mean
+    someone editing `rubric.md` locally, re-grading, and seeing no change — the variable's
+    whole former purpose failing silently. Failing once with instructions is kinder.
+  */
+  if (process.env.GRADING_ASSETS_PATH) {
+    throw new GradingAssetsError(
+      "GRADING_ASSETS_PATH is set, but the local-clone source has been removed — assets " +
+      "are read from the repository over the API in every environment. Delete the line " +
+      "from .env.local. To iterate on the rubric, push to a branch and set " +
+      "GRADING_ASSETS_REF to it.",
+    );
+  }
+
   const repoFullName = process.env.GRADING_ASSETS_REPO;
   if (!repoFullName) {
     throw new GradingAssetsError(
-      "Neither GRADING_ASSETS_PATH nor GRADING_ASSETS_REPO is set, so there is no " +
-      "rubric to grade against. Set GRADING_ASSETS_REPO to owner/repo on a deployed " +
-      "host, or GRADING_ASSETS_PATH to a local clone — see .env.example.",
+      "GRADING_ASSETS_REPO is not set, so there is no rubric to grade against. Set it to " +
+      "owner/repo — see .env.example.",
     );
   }
 
@@ -218,11 +210,6 @@ async function githubSource(): Promise<AssetSource> {
   };
 }
 
-async function resolveSource(): Promise<AssetSource> {
-  const root = process.env.GRADING_ASSETS_PATH;
-  return root ? localSource(root) : githubSource();
-}
-
 /** For a file whose absence means there is nothing to grade against. */
 async function readRequired(source: AssetSource, relativePath: string): Promise<string> {
   const content = await source.read(relativePath);
@@ -300,17 +287,6 @@ export function extractRubricSection(rubric: string, heading: string): string {
 }
 
 /** Best-effort. A clone that is not a git repository is usable, just untraceable. */
-function readCommitSha(root: string): string | null {
-  try {
-    return execFileSync("git", ["-C", root, "rev-parse", "HEAD"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Rejects an answer key path that would escape the answer-keys directory.
  *
@@ -341,14 +317,33 @@ function answerKeyPathIn(relativePath: string): string {
  * exists: putting a directory there is what makes an assignment available to add to a
  * course, and there is no second list to keep in step.
  *
- * All three functions below go through `resolveSource()`, so they list the same set the
+ * All three functions below go through `assetSource()`, so they list the same set the
  * grading pipeline would read from, and through `answerKeyPathIn()`, so authoring cannot
  * admit a path grading would refuse.
  */
 
+/**
+ * One file out of `grading-toolkit/`, for the scripts that need a toolkit file the grading
+ * pipeline itself does not read — `calibrate` needs the sample submissions and the reports
+ * an instructor wrote about them.
+ *
+ * Restricted to that directory rather than taking any path, on the same reasoning as
+ * `answerKeyPathIn`: this is a private repository, and a function that reads an arbitrary
+ * path out of it is a wider door than any caller needs.
+ */
+export async function readToolkitFile(name: string): Promise<string | null> {
+  if (name.includes("/") || name.includes("\\") || name.startsWith(".")) {
+    throw new GradingAssetsError(
+      `Toolkit file ${JSON.stringify(name)} must be a plain filename inside grading-toolkit/.`,
+    );
+  }
+  const source = await assetSource();
+  return source.read(`grading-toolkit/${name}`);
+}
+
 /** Which assignments the curriculum has answer keys for, in one module. */
 export async function listAssignmentDirs(moduleTag: string): Promise<string[]> {
-  const source = await resolveSource();
+  const source = await assetSource();
   const entries = await source.list(answerKeyPathIn(moduleTag));
   if (entries === null) return [];
   return entries
@@ -366,7 +361,7 @@ export async function listAssignmentDirs(moduleTag: string): Promise<string[]> {
  * `madlib-challenge/`, and a form offering only the top level would silently omit them.
  */
 export async function listAnswerKeys(moduleTag: string, repoName: string): Promise<string[]> {
-  const source = await resolveSource();
+  const source = await assetSource();
   const root = `${moduleTag}/${repoName}`;
 
   // Depth is bounded to stop a symlink loop in a local clone from recursing forever. Three
@@ -405,7 +400,7 @@ export async function listAnswerKeys(moduleTag: string, repoName: string): Promi
 export async function checkAnswerKeyPaths(
   paths: readonly string[],
 ): Promise<{ path: string; found: boolean; reason?: string }[]> {
-  const source = await resolveSource();
+  const source = await assetSource();
 
   return Promise.all(
     paths.map(async (relativePath) => {
@@ -433,7 +428,7 @@ export async function loadGradingAssets(params: {
   /** Paths relative to the answer-keys directory, from `assignment.sections`. */
   answerKeyPaths: string[];
 }): Promise<GradingAssets> {
-  const source = await resolveSource();
+  const source = await assetSource();
   const config = SECTION_ASSETS[params.sectionType];
 
   // In parallel, because against the API these are separate round trips and they do

@@ -14,9 +14,6 @@
  *
  * Run with: npm run db:seed
  */
-import { existsSync } from "node:fs";
-import path from "node:path";
-
 import { PrismaPg } from "@prisma/adapter-pg";
 import { config as loadEnv } from "dotenv";
 
@@ -479,21 +476,11 @@ async function main() {
   // read in Phase 1; the grading pipeline uses them in Phase 3.
   const keyDir = `${MODULE_TAG}/${ASSIGNMENT_REPO_NAME}`;
 
-  // A wrong answer key path is invisible until the grading pipeline runs and
-  // silently has no reference solution to compare against, so check it here
-  // while the local clone is available. GRADING_ASSETS_PATH is not set in every
-  // environment, and its absence is not an error.
-  const assetsPath = process.env.GRADING_ASSETS_PATH;
-  if (assetsPath) {
-    const dir = path.join(assetsPath, "answer-keys", keyDir);
-    if (!existsSync(dir)) {
-      console.warn(
-        `  WARNING: answer keys not found at ${dir}\n` +
-        `    Check moduleTag for "${ASSIGNMENT_REPO_NAME}" in SEED_ASSIGNMENTS.\n` +
-        `    Seeding continues — Phase 1 does not read answer keys.`,
-      );
-    }
-  }
+  // Whether those paths exist is deliberately not checked here. It used to be, against a
+  // local clone; with assets read over the API that would make seeding require GitHub
+  // credentials and a network round trip to produce a warning it can do nothing about.
+  // `npm run verify:assets` checks the catalogue, and `checkAnswerKeyPaths` is what the
+  // authoring form will call — both are better placed for it than a seed script.
 
   /*
     Validated through the same schema the authoring procedures use, so the seeded

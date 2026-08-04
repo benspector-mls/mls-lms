@@ -281,17 +281,17 @@ So validate at authoring time against the real sources, using the machinery grad
 
 **`REPO`: the answer-keys repository as the catalogue.** `answer-keys/{moduleTag}/{assignmentRepoName}/` is already the shape the seed encodes. Reading it rather than asking an instructor to retype it does two things: it removes the most error-prone field, and it makes the repository the **single source of truth for what repository-backed assignments the curriculum contains**. Adding one to a course becomes picking one that exists; putting a new directory in the repository is what makes a new assignment available to add. There is no second list to keep in step.
 
-**Built.** `AssetSource` gained `list`, implemented for both sources — `readdirSync` for the local clone, `listRepoDirectory` in `lib/github/files.ts` for the API — and the three catalogue functions are exported from `lib/grade/assets.ts`: `listAssignmentDirs(moduleTag)`, `listAnswerKeys(moduleTag, repoName)`, and `checkAnswerKeyPaths(paths)` for live validation. All three go through `resolveSource()` and the existing `answerKeyPathIn()` guard, so the catalogue lists what grading would read and cannot admit a path grading would refuse.
+**Built.** `AssetSource` gained `list`, implemented as `listRepoDirectory` in `lib/github/files.ts`, and the three catalogue functions are exported from `lib/grade/assets.ts`: `listAssignmentDirs(moduleTag)`, `listAnswerKeys(moduleTag, repoName)`, and `checkAnswerKeyPaths(paths)` for live validation. All three go through `assetSource()` and the existing `answerKeyPathIn()` guard, so the catalogue lists what grading would read and cannot admit a path grading would refuse.
 
 Three decisions worth knowing, each made because the obvious alternative was worse:
 
-- **`listAnswerKeys` recurses.** `swe-1-3-node-modules` keeps its keys under `madlib-challenge/`, so a top-level listing would silently omit them and an instructor would tick an incomplete set. Depth is bounded at three to stop a symlinked loop in a local clone.
+- **`listAnswerKeys` recurses.** `swe-1-3-node-modules` keeps its keys under `madlib-challenge/`, so a top-level listing would silently omit them and an instructor would tick an incomplete set. Depth is bounded at three, which is well past anything the curriculum uses.
 - **`listRepoDirectory` is non-recursive, one request per directory.** The alternative — the git trees API with `recursive=1` — returns every path in a 23MB repository to find three answer keys.
 - **`checkAnswerKeyPaths` reports a traversal path as a finding rather than throwing**, so one bad entry does not hide whether the others are right. The same guard still refuses it; only the reporting differs.
 
 Verified in `verify:assets`, whose strongest check needs no network: the paths the catalogue reports for `swe-1-3-node-modules` are exactly the three `prisma/seed.ts` hardcodes, nested ones included. Those were written by hand against the repository, so agreement means the catalogue reads the same structure the working pipeline was configured from. It also lists 12 assignments in mod-1 where the seed knows 3, which is the point of having it.
 
-**Both sources are compared rather than assumed to agree**, and do: 12 assignments and 3 answer keys from each, in the same order. `readdirSync` and the contents API are separate implementations, and a catalogue that offered different assignments in development and on the deployment would put an assignment into a course whose answer keys grading cannot find — silently, because each half looks right on its own.
+**The local-clone source was removed while this was being built**, which is why there is no longer a check comparing two sources: there is one. Two implementations of every read and listing meant a standing risk that an assignment authored against one and graded against the other would diverge silently, and every source after this one is external anyway — Drive for non-repository rubrics — so reading from disk was not going to generalize. See [where rubrics live](#open-thinking-where-rubrics-answer-keys-and-sample-reports-live).
 
 A consequence worth surfacing rather than hiding: an existing assignment whose directory is no longer in the repository has been renamed or retired upstream. `validateDraft` reports that as a finding, so a curriculum change shows up as a warning on the course page instead of as a grading failure weeks later.
 
@@ -573,7 +573,7 @@ Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 a
 
 ## Open items
 
-- **`GRADING_ASSETS_REPO` is commented out in `.env.local`**, so `verify:assets` skips its whole remote half — the rubric over the API, and the check that both sources list the same catalogue. Uncommenting it makes those run by default; without it they are only exercised by passing the variable inline, which nobody will remember to do. The installation id it needs is correct now: the development App is installed on `The-Marcy-Lab-School`, and both halves pass when the repo variable is supplied.
+- **`GRADING_ASSETS_REPO` must be set in `.env.local`.** It is now required rather than optional, since the local-clone source is gone, so grading and `verify:assets` both fail without it. The installation id beside it is already correct: the development App is installed on `The-Marcy-Lab-School`.
 - **Which GitHub organization.** Everything verified so far used `marcy-lms-test`. Changing to `The-Marcy-Lab-School-Assignments` is a separate, deliberate step.
 - **Project-wide Supabase default privileges.** Undecided, pending a conversation with your partner. Until it is decided, every new table needs its own `REVOKE` and row level security statements.
 - **`package.json` merge policy for a legitimate dependency collision.** The template wins on a version collision, which is correct when the assignment specifies a version deliberately. Revisit if an assignment ever wants students to choose one.

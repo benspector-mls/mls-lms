@@ -19,9 +19,6 @@
  *
  * Needs --conditions=react-server, as the modules it reaches import "server-only".
  */
-import { readFileSync } from "node:fs";
-import path from "node:path";
-
 import { config as loadEnv } from "dotenv";
 
 loadEnv({ path: ".env.local", quiet: true });
@@ -86,22 +83,18 @@ function sumCriterion(
 }
 
 async function main() {
-  const { loadGradingAssets } = await import("../lib/grade/assets");
+  const { loadGradingAssets, readToolkitFile } = await import("../lib/grade/assets");
   const { buildSystemPrompt, buildUserPrompt } = await import("../lib/grade/prompts");
   const { getReportGenerator } = await import("../lib/grade/provider");
   const { crossCheck } = await import("../lib/grade/cross-check");
 
-  const root = process.env.GRADING_ASSETS_PATH;
-  if (!root) {
-    console.error("GRADING_ASSETS_PATH is not set. See .env.example.");
-    process.exit(1);
-  }
-
+  // Read from the repository over the API, the same way grading reads its rubric — there
+  // is no local-clone mode any more.
   const only = process.argv[2];
   const pairs = (only ? [only] : ["1", "2"]).map((n) => ({
     n,
-    submissionPath: path.join(root, "grading-toolkit", `sample-short-response-submission-${n}.md`),
-    reportPath: path.join(root, "grading-toolkit", `sample-short-response-report-${n}.md`),
+    submissionFile: `sample-short-response-submission-${n}.md`,
+    reportFile: `sample-short-response-report-${n}.md`,
   }));
 
   const generator = await getReportGenerator();
@@ -110,8 +103,17 @@ async function main() {
   let mismatches = 0;
 
   for (const pair of pairs) {
-    const submission = readFileSync(pair.submissionPath, "utf8");
-    const expectedMarkdown = readFileSync(pair.reportPath, "utf8");
+    const [submission, expectedMarkdown] = await Promise.all([
+      readToolkitFile(pair.submissionFile),
+      readToolkitFile(pair.reportFile),
+    ]);
+    if (submission === null || expectedMarkdown === null) {
+      console.error(
+        `Calibration pair ${pair.n} is missing from grading-toolkit/ — expected ` +
+        `${pair.submissionFile} and ${pair.reportFile}.`,
+      );
+      process.exit(1);
+    }
     const expected = parseExpected(expectedMarkdown);
 
     // No answer key paths, deliberately. Nothing is then "expected but missing", so

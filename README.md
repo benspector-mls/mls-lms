@@ -108,10 +108,10 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 | `GITHUB_WEBHOOK_PROXY_URL`                                                                       | development only: the smee.io channel `dev:webhook` listens on |
 | `E2B_API_KEY`                                                                                    | sandbox                                                        |
 | `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GRADING_LLM_EFFORT`                | report generation                                              |
-| `GRADING_ASSETS_PATH`                                                                            | development only: a local clone of the grading guides          |
-| `GRADING_ASSETS_REPO`, `GRADING_ASSETS_INSTALLATION_ID`                                          | deployed: read the guides over the API instead                 |
+| `GRADING_ASSETS_REPO`, `GRADING_ASSETS_INSTALLATION_ID`                                          | the grading guides repository, read over the API in every environment |
+| `GRADING_ASSETS_REF`                                                                             | optional: a branch to read the guides from instead of the default |
 
-**`GRADING_ASSETS_PATH` must be absent in production.** Its presence is what selects the local-clone source, so a value set on a deployed host makes every grading run fail with `GradingAssetsError` on a path that exists only on a laptop.
+**`GRADING_ASSETS_REPO` and `GRADING_ASSETS_INSTALLATION_ID` are required everywhere**, development included — there is no local-clone mode. The installation has to be one belonging to *this* environment's App: the development and production Apps have separate installations, so an id that works for one returns 404 for the other.
 
 ### Two GitHub Apps, one per environment
 
@@ -473,13 +473,13 @@ Output is roughly 60 percent of the cost, because thinking is billed as output. 
 
 ### Grading assets
 
-`grading-toolkit/` and `answer-keys/` come from one of two sources, chosen by whether `GRADING_ASSETS_PATH` is set.
+`grading-toolkit/` and `answer-keys/` come from **one source in every environment: the private repository, read through the GitHub API.** Individual files rather than the repository archive — the archive is 23MB and over 20 seconds, almost all of it images grading never reads, while a run needs the rubric, the agent rules, one sample report, and a handful of answer keys, roughly 200ms each and fetched in parallel.
 
-**A local clone**, when it is. Editing `rubric.md` and re-grading immediately is how the rubric actually gets tuned, and a loop requiring a commit and push first would stop that happening. Development only.
+There was a second source: a local clone, selected by `GRADING_ASSETS_PATH`, so that `rubric.md` could be edited and re-graded without pushing. It was removed deliberately. Every source of assets after this one is external — rubrics for non-repository assignments will come from Google Drive — so reading from disk was never going to generalize, and maintaining two implementations of every read and directory listing carried a standing risk worse than the inconvenience it saved: an assignment authored against one listing and graded against another, with each half looking correct on its own. A leftover `GRADING_ASSETS_PATH` now fails loudly rather than being ignored, because silently ignoring it would mean editing the rubric and seeing no change.
 
-**The private repository through the GitHub API**, otherwise. Individual files rather than the repository archive: the archive is 23MB and over 20 seconds, almost all of it images grading never reads, while a run needs the rubric, the agent rules, one sample report, and a handful of answer keys — roughly 200ms each, fetched in parallel.
+The cost is real and worth stating: tuning the rubric means committing and pushing, then waiting up to a minute. Push to a branch and set `GRADING_ASSETS_REF` to iterate without touching the default branch.
 
-Files are read at a resolved commit SHA, never at a branch name, so a run taking ninety seconds cannot read half its rubric from before a push and half from after. Content is cached under `sha:path` with no expiry, which is safe because the content of a path at a given commit cannot change. The branch head is re-resolved every 60 seconds, so a pushed rubric change takes effect within a minute without a webhook. Either way the commit SHA is recorded in `modelMetadata`, so a report traces back to the exact rubric that produced it.
+Files are read at a resolved commit SHA, never at a branch name, so a run taking ninety seconds cannot read half its rubric from before a push and half from after. Content is cached under `sha:path` with no expiry, which is safe because the content of a path at a given commit cannot change. The branch head is re-resolved every 60 seconds, so a pushed rubric change takes effect within a minute without a webhook. The commit SHA is recorded in `modelMetadata`, so a report traces back to the exact rubric that produced it.
 
 ---
 
@@ -602,6 +602,6 @@ Destructive and authorization paths are checked inside **rolled-back transaction
 
 Vercel, with the environment variables above. Three things to know:
 
-- **`GRADING_ASSETS_PATH` must not be set.** Set `GRADING_ASSETS_REPO` and `GRADING_ASSETS_INSTALLATION_ID` instead. Variables are bound when a deployment is created, so removing it requires a redeploy to take effect.
+- **`GRADING_ASSETS_REPO` and `GRADING_ASSETS_INSTALLATION_ID` must be set**, and the App must be installed on the organization holding the guides. `GRADING_ASSETS_PATH` must not be set anywhere — it now raises `GradingAssetsError` rather than being ignored. Variables are bound when a deployment is created, so changing one requires a redeploy to take effect.
 - **The webhook URL belongs to the App, not to the deployment.** Changing it on the App takes effect immediately with no redeploy, because the deployed handler reads nothing about where the delivery came from.
 - **The GitHub App must be installed on the organization holding the grading guides**, not only on the one holding student repositories. `npm run verify:assets` is the check that a deployed host can read its rubric at all.

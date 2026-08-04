@@ -107,8 +107,8 @@ export const gradingDraftsRouter = createTRPCRouter({
         if (err instanceof ReportGenerationError) {
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
         }
-        // A missing GRADING_ASSETS_PATH or a renamed rubric heading. An operator
-        // problem, and the message says which.
+        // An unset GRADING_ASSETS_REPO, an installation that cannot see it, or a renamed
+        // rubric heading. An operator problem, and the message says which.
         if (err instanceof GradingAssetsError) {
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
         }
