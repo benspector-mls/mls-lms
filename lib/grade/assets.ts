@@ -1,7 +1,7 @@
 import "server-only";
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { SectionType } from "./classify";
@@ -58,7 +58,19 @@ type AssetSource = {
   describe: string;
   commitSha: string | null;
   read: (relativePath: string) => Promise<string | null>;
+  /**
+   * What a directory contains, or null when it does not exist.
+   *
+   * Symmetric with `read`, and implemented for both sources for the same reason: the
+   * authoring catalogue is built from this, and a catalogue that listed one set of
+   * assignments against a local clone and another against the API would be worse than no
+   * catalogue at all.
+   */
+  list: (relativeDir: string) => Promise<AssetEntry[] | null>;
 };
+
+/** One entry in an asset directory. Identical shape from either source. */
+export type AssetEntry = { name: string; type: "file" | "dir" };
 
 function localSource(root: string): AssetSource {
   if (!existsSync(root)) {
@@ -70,6 +82,16 @@ function localSource(root: string): AssetSource {
     read: async (relativePath) => {
       const full = path.join(root, relativePath);
       return existsSync(full) ? readFileSync(full, "utf-8") : null;
+    },
+    list: async (relativeDir) => {
+      const full = path.join(root, relativeDir);
+      if (!existsSync(full) || !statSync(full).isDirectory()) return null;
+      return readdirSync(full, { withFileTypes: true })
+        // Dotfiles are skipped so that .DS_Store and .gitkeep never appear as answer keys
+        // in an instructor's list. The API source does not report them either.
+        .filter((entry) => !entry.name.startsWith("."))
+        .filter((entry) => entry.isFile() || entry.isDirectory())
+        .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? "dir" as const : "file" as const }));
     },
   };
 }
@@ -95,6 +117,9 @@ let cachedHead: { repo: string; sha: string; at: number } | null = null;
  */
 const contentCache = new Map<string, string | null>();
 
+/** Directory listings, keyed and cached on the same reasoning as `contentCache`. */
+const directoryCache = new Map<string, AssetEntry[] | null>();
+
 async function githubSource(): Promise<AssetSource> {
   const repoFullName = process.env.GRADING_ASSETS_REPO;
   if (!repoFullName) {
@@ -113,7 +138,7 @@ async function githubSource(): Promise<AssetSource> {
   }
 
   const { getConfiguredInstallationId } = await import("../github/app-client");
-  const { fetchRepoFile } = await import("../github/files");
+  const { fetchRepoFile, listRepoDirectory } = await import("../github/files");
 
   // A GitHub App is installed per organization, each with its own id and its own
   // token. The grading guides live in a different organization from the student
@@ -172,6 +197,23 @@ async function githubSource(): Promise<AssetSource> {
       });
       contentCache.set(key, content);
       return content;
+    },
+    list: async (relativeDir) => {
+      // Cached on the same principle as file contents, and safe for the same reason: what
+      // a directory holds at a given commit cannot change. Keyed separately from `read` so
+      // a file and a directory of the same path cannot collide.
+      const key = `${sha}:dir:${relativeDir}`;
+      const cached = directoryCache.get(key);
+      if (cached !== undefined) return cached;
+
+      const entries = await listRepoDirectory(installationId, {
+        owner,
+        repo,
+        ref: sha,
+        path: relativeDir,
+      });
+      directoryCache.set(key, entries);
+      return entries;
     },
   };
 }
@@ -287,6 +329,103 @@ function answerKeyPathIn(relativePath: string): string {
     );
   }
   return `answer-keys/${normalized}`;
+}
+
+/**
+ * The answer-keys repository as the catalogue of what repository-backed assignments the
+ * curriculum contains.
+ *
+ * `answer-keys/{moduleTag}/{assignmentRepoName}/` is the shape the seed already encodes.
+ * Reading it rather than asking an instructor to retype it removes the most error-prone
+ * field in an assignment, and makes the repository the single source of truth for what
+ * exists: putting a directory there is what makes an assignment available to add to a
+ * course, and there is no second list to keep in step.
+ *
+ * All three functions below go through `resolveSource()`, so they list the same set the
+ * grading pipeline would read from, and through `answerKeyPathIn()`, so authoring cannot
+ * admit a path grading would refuse.
+ */
+
+/** Which assignments the curriculum has answer keys for, in one module. */
+export async function listAssignmentDirs(moduleTag: string): Promise<string[]> {
+  const source = await resolveSource();
+  const entries = await source.list(answerKeyPathIn(moduleTag));
+  if (entries === null) return [];
+  return entries
+    .filter((entry) => entry.type === "dir")
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Every answer key file inside one assignment's directory, as paths relative to
+ * `answer-keys/` — the exact form `sections[].answerKeyPaths` stores, so what this returns
+ * can be written to the column without rewriting.
+ *
+ * Recursive, because answer keys nest: `swe-1-3-node-modules` keeps its under
+ * `madlib-challenge/`, and a form offering only the top level would silently omit them.
+ */
+export async function listAnswerKeys(moduleTag: string, repoName: string): Promise<string[]> {
+  const source = await resolveSource();
+  const root = `${moduleTag}/${repoName}`;
+
+  // Depth is bounded to stop a symlink loop in a local clone from recursing forever. Three
+  // is well past anything the curriculum uses and cheap to raise if that changes.
+  const MAX_DEPTH = 3;
+  const found: string[] = [];
+
+  async function walk(relative: string, depth: number): Promise<void> {
+    const entries = await source.list(answerKeyPathIn(relative));
+    if (entries === null) return;
+
+    // Files before directories, alphabetical within each, so an instructor reads a stable
+    // list rather than whatever order the filesystem or the API happened to return.
+    const sorted = [...entries].sort((a, b) =>
+      a.type === b.type ? a.name.localeCompare(b.name) : a.type === "file" ? -1 : 1);
+
+    for (const entry of sorted) {
+      const child = `${relative}/${entry.name}`;
+      if (entry.type === "file") found.push(child);
+      else if (depth < MAX_DEPTH) await walk(child, depth + 1);
+    }
+  }
+
+  await walk(root, 1);
+  return found;
+}
+
+/**
+ * Whether each of these answer key paths exists, for validation as a form is filled in.
+ *
+ * A path that escapes the answer-keys directory is reported as a finding on that path
+ * rather than thrown, so one bad entry does not hide whether the others are right — but it
+ * is the same `answerKeyPathIn` guard refusing it, so nothing can be saved here that
+ * grading would later reject.
+ */
+export async function checkAnswerKeyPaths(
+  paths: readonly string[],
+): Promise<{ path: string; found: boolean; reason?: string }[]> {
+  const source = await resolveSource();
+
+  return Promise.all(
+    paths.map(async (relativePath) => {
+      let guarded: string;
+      try {
+        guarded = answerKeyPathIn(relativePath);
+      } catch (err) {
+        return {
+          path: relativePath,
+          found: false,
+          reason: err instanceof Error ? err.message : String(err),
+        };
+      }
+
+      const content = await source.read(guarded);
+      return content === null
+        ? { path: relativePath, found: false, reason: "No such file in the answer keys." }
+        : { path: relativePath, found: true };
+    }),
+  );
 }
 
 export async function loadGradingAssets(params: {

@@ -14,6 +14,7 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Comparison](#comparison)
   - [What to know about Workflow before choosing Design B](#what-to-know-about-workflow-before-choosing-design-b)
 - [Phase 7: assignment authoring](#phase-7-assignment-authoring)
+    - [What manual grading means for the machinery](#what-manual-grading-means-for-the-machinery)
   - [Step 0. The kind axis — done](#step-0-the-kind-axis--done)
   - [The principle this hangs on](#the-principle-this-hangs-on)
   - [Step 1. A catalogue per kind](#step-1-a-catalogue-per-kind)
@@ -26,6 +27,7 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Not in this phase](#not-in-this-phase)
 - [Token management](#token-management)
 - [A code review pass](#a-code-review-pass)
+  - [An automated test suite](#an-automated-test-suite)
 - [Salesforce synchronization](#salesforce-synchronization)
   - [Questions I need answered](#questions-i-need-answered)
   - [What may need to be built on the Salesforce end](#what-may-need-to-be-built-on-the-salesforce-end)
@@ -34,6 +36,8 @@ How the built system works is in [README.md](README.md). This file is only what 
 - [Student enrollment](#student-enrollment)
 - [An admin view for approving instructors](#an-admin-view-for-approving-instructors)
 - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
+  - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
+- [Open thinking: where rubrics, answer keys, and sample reports live](#open-thinking-where-rubrics-answer-keys-and-sample-reports-live)
 - [Deferred, with the schema left open](#deferred-with-the-schema-left-open)
 - [Open items](#open-items)
 
@@ -233,7 +237,7 @@ The reason this is worth doing now rather than after is that it removes the last
 
 #### What manual grading means for the machinery
 
-The useful realisation: **a manual grade is the existing review screen with an empty draft, not a new screen.** Approving already copies section markdown and scores onto the submission, computes `isComplete` against the threshold, and shows the student — none of which cares where the text came from. So a manual grade is a `GradingDraft` whose sections start blank and whose `modelMetadata` is null, edited through the same editor and released through the same `approve`. The gradebook, the student's feedback screen, and the score history all work unchanged.
+The useful realization: **a manual grade is the existing review screen with an empty draft, not a new screen.** Approving already copies section markdown and scores onto the submission, computes `isComplete` against the threshold, and shows the student — none of which cares where the text came from. So a manual grade is a `GradingDraft` whose sections start blank and whose `modelMetadata` is null, edited through the same editor and released through the same `approve`. The gradebook, the student's feedback screen, and the score history all work unchanged.
 
 Five things that do have to change, each small and each currently written as though a repository always exists:
 
@@ -277,8 +281,15 @@ So validate at authoring time against the real sources, using the machinery grad
 
 **`REPO`: the answer-keys repository as the catalogue.** `answer-keys/{moduleTag}/{assignmentRepoName}/` is already the shape the seed encodes. Reading it rather than asking an instructor to retype it does two things: it removes the most error-prone field, and it makes the repository the **single source of truth for what repository-backed assignments the curriculum contains**. Adding one to a course becomes picking one that exists; putting a new directory in the repository is what makes a new assignment available to add. There is no second list to keep in step.
 
-- Add `list: (dir: string) => Promise<string[] | null>` to the private `AssetSource` type in `lib/grade/assets.ts`, implemented for both sources — `readdirSync` for the local clone, and a new `listRepoDirectory` in `lib/github/files.ts` for the API. Symmetric with `read`, so development and deployment behave the same.
-- Export three functions that reuse `resolveSource()` and, critically, the existing `answerKeyPathIn()` traversal guard, so authoring cannot admit a path grading would refuse: `listAssignmentDirs(moduleTag)`, `listAnswerKeys(moduleTag, repoName)`, and `checkAnswerKeyPaths(paths)` returning `{ path, found }[]` for live validation.
+**Built.** `AssetSource` gained `list`, implemented for both sources — `readdirSync` for the local clone, `listRepoDirectory` in `lib/github/files.ts` for the API — and the three catalogue functions are exported from `lib/grade/assets.ts`: `listAssignmentDirs(moduleTag)`, `listAnswerKeys(moduleTag, repoName)`, and `checkAnswerKeyPaths(paths)` for live validation. All three go through `resolveSource()` and the existing `answerKeyPathIn()` guard, so the catalogue lists what grading would read and cannot admit a path grading would refuse.
+
+Three decisions worth knowing, each made because the obvious alternative was worse:
+
+- **`listAnswerKeys` recurses.** `swe-1-3-node-modules` keeps its keys under `madlib-challenge/`, so a top-level listing would silently omit them and an instructor would tick an incomplete set. Depth is bounded at three to stop a symlinked loop in a local clone.
+- **`listRepoDirectory` is non-recursive, one request per directory.** The alternative — the git trees API with `recursive=1` — returns every path in a 23MB repository to find three answer keys.
+- **`checkAnswerKeyPaths` reports a traversal path as a finding rather than throwing**, so one bad entry does not hide whether the others are right. The same guard still refuses it; only the reporting differs.
+
+Verified in `verify:assets`, whose strongest check needs no network: the paths the catalogue reports for `swe-1-3-node-modules` are exactly the three `prisma/seed.ts` hardcodes, nested ones included. Those were written by hand against the repository, so agreement means the catalogue reads the same structure the working pipeline was configured from. It also lists 12 assignments in mod-1 where the seed knows 3, which is the point of having it.
 
 A consequence worth surfacing rather than hiding: an existing assignment whose directory is no longer in the repository has been renamed or retired upstream. `validateDraft` reports that as a finding, so a curriculum change shows up as a warning on the course page instead of as a grading failure weeks later.
 
@@ -425,7 +436,7 @@ What they are genuinely good at should not be thrown away: each one is a narrati
 It also widens the feature past what those columns cover. Managing assignment *and* assignment submission objects means an authored assignment has a counterpart record in Salesforce, which is a second thing to create, key, and keep in step — and `assignments` has no Salesforce columns at all today. Two consequences worth carrying into the conversation:
 
 - **The ordering is forced.** A submission record presumably cannot exist without its assignment record, so authoring an assignment has to create the Salesforce side before any grade for it can sync. That makes this feature depend on [assignment authoring](#phase-7-assignment-authoring) rather than merely following it.
-- **`assignments` and `courses` both need the same three columns** `submissions` already has. Correct assumption: only `submissions` has them, because it was the only table whose sync was being thought about when they were added. A course is presumably a cohort or program record on their end and an assignment hangs off it, so all three levels need to hold their Salesforce id and sync state. One small migration once the objects' shapes are known — deliberately not written until then, on the same reasoning that left the field mapping unguessed.
+- **`assignments` and `courses` both need the same three columns** `submissions` already has. Correct assumption: only `submissions` has them, because it was the only table whose sync was being thought about when they were added. A course is presumably a cohort or program record on their end and an assignment hangs off it, so all three levels need to hold their Salesforce id and sync state. One small migration once the objects' shapes are known — deliberately not written until then, on the same reasoning that left the field mapping un-guessed.
 
 ### Questions I need answered
 
@@ -560,6 +571,7 @@ Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 a
 
 ## Open items
 
+- **`GRADING_ASSETS_INSTALLATION_ID` locally is an installation of the wrong App.** Found while verifying the catalogue: the id in `.env.local` is `150644003`, an installation of the *production* App, but local development now authenticates as `marcy-lms-dev`, whose only installation is `150831260` on `marcy-lms-test`. So the API path to the grading guides returns 404 locally and `verify:assets` cannot check its remote half — an unnoticed consequence of the two-App split, not of anything in the catalogue. The fix is to install the development App on the organization holding the guides and set the id to that installation. Until then the local clone is the only working source in development, which is what development uses anyway.
 - **Installing the GitHub App on the organization holding the grading guides.** The code reads them over the API and is verified by `npm run verify:assets`, but the app is currently installed only on `marcy-lms-test`, so a deployed host cannot read the rubric until the app is installed on `The-Marcy-Lab-School` and `GRADING_ASSETS_INSTALLATION_ID` is set.
 - **Which GitHub organization.** Everything verified so far used `marcy-lms-test`. Changing to `The-Marcy-Lab-School-Assignments` is a separate, deliberate step.
 - **Project-wide Supabase default privileges.** Undecided, pending a conversation with your partner. Until it is decided, every new table needs its own `REVOKE` and row level security statements.

@@ -22,15 +22,73 @@ function check(label: string, ok: boolean, detail = "") {
 }
 
 async function main() {
-  const { loadGradingAssets, GradingAssetsError } = await import("../lib/grade/assets");
+  const { loadGradingAssets, GradingAssetsError, listAssignmentDirs, listAnswerKeys, checkAnswerKeyPaths } =
+    await import("../lib/grade/assets");
 
   const localPath = process.env.GRADING_ASSETS_PATH;
+
+  /*
+    The catalogue, against whichever source this environment has.
+
+    Checked before the remote section because it is the half that runs during ordinary
+    development, and because the strongest available check needs no network: the paths the
+    catalogue reports for `swe-1-3-node-modules` must be exactly the ones `prisma/seed.ts`
+    hardcodes for it. Those were written by hand against the repository, so agreement means
+    the catalogue is reading the same structure the working pipeline was configured from —
+    including the nested `madlib-challenge/` keys a non-recursive listing would miss.
+  */
+  const dirs = await listAssignmentDirs("mod-1-js-fundamentals");
+  check("the catalogue lists mod-1 assignments", dirs.length > 0, `${dirs.length} found`);
+  for (const seeded of ["swe-1-4-loops", "swe-1-3-node-modules"]) {
+    check(`the catalogue contains ${seeded}`, dirs.includes(seeded));
+  }
+  check(
+    "the catalogue lists more than the seed knows about",
+    dirs.length > 3,
+    `${dirs.length} in the repository against 3 in SEED_ASSIGNMENTS`,
+  );
+  check("a module with no answer keys lists nothing rather than failing",
+    (await listAssignmentDirs("mod-99-does-not-exist")).length === 0);
+
+  const nested = await listAnswerKeys("mod-1-js-fundamentals", "swe-1-3-node-modules");
+  const expectedNested = [
+    "mod-1-js-fundamentals/swe-1-3-node-modules/modify.js",
+    "mod-1-js-fundamentals/swe-1-3-node-modules/madlib-challenge/index.js",
+    "mod-1-js-fundamentals/swe-1-3-node-modules/madlib-challenge/madlib.js",
+  ];
+  check(
+    "answer keys match what the seed hardcodes, nested ones included",
+    JSON.stringify([...nested].sort()) === JSON.stringify([...expectedNested].sort()),
+    `got ${JSON.stringify(nested)}`,
+  );
+  check(
+    "the paths are in the form sections[].answerKeyPaths stores",
+    nested.every((p) => p.startsWith("mod-1-js-fundamentals/") && !p.startsWith("answer-keys/")),
+  );
+
+  const checked = await checkAnswerKeyPaths([
+    "mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js",
+    "mod-1-js-fundamentals/swe-1-4-loops/does-not-exist.js",
+    "../../../etc/passwd",
+  ]);
+  check("a real answer key is found", checked[0]?.found === true);
+  check("a mistyped answer key is reported, not thrown",
+    checked[1]?.found === false, checked[1]?.reason);
+  // The same guard grading uses, reported per path so one bad entry does not hide the rest.
+  check("a traversal path is refused and the message says so",
+    checked[2]?.found === false && (checked[2]?.reason ?? "").includes("escapes"),
+    checked[2]?.reason);
+
   if (!process.env.GRADING_ASSETS_REPO) {
-    console.error(
-      "GRADING_ASSETS_REPO is not set, so the deployed path cannot be checked.\n" +
-      "Add it to .env.local — see .env.example.",
+    console.log(
+      `\n${failures === 0 ? "The catalogue checks passed." : `${failures} catalogue check(s) failed.`}\n` +
+      "\nGRADING_ASSETS_REPO is not set, so the deployed path was not checked. Add it to\n" +
+      ".env.local — see .env.example — and note that GRADING_ASSETS_INSTALLATION_ID has to\n" +
+      "be an installation of the App this environment is configured with. The development\n" +
+      "App and the production App have separate installations, so an id that works for one\n" +
+      "returns 404 for the other.",
     );
-    process.exit(1);
+    process.exit(failures === 0 ? 0 : 1);
   }
 
   // The deployed host has no clone, so neither does this check.

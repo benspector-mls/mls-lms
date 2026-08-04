@@ -43,3 +43,43 @@ export async function fetchRepoFile(
     return null;
   }
 }
+
+/** One entry in a repository directory. Same shape the local clone reports. */
+export type RepoDirectoryEntry = { name: string; type: "file" | "dir" };
+
+/**
+ * What a directory contains, or null when it does not exist.
+ *
+ * Non-recursive on purpose. The alternative is the git trees API with `recursive=1`,
+ * which fetches every path in the repository in one request — for this repository that
+ * is thousands of image paths to find a handful of answer keys. Walking the two or three
+ * levels an assignment actually has costs two or three small requests instead.
+ *
+ * Null rather than throwing, matching `fetchRepoFile`: a caller listing a module that
+ * has no answer-keys directory yet wants an empty catalogue, not an exception.
+ */
+export async function listRepoDirectory(
+  installationId: number,
+  params: { owner: string; repo: string; ref: string; path: string },
+): Promise<RepoDirectoryEntry[] | null> {
+  const octokit = await getInstallationOctokit(installationId);
+  try {
+    const { data } = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: params.owner,
+      repo: params.repo,
+      path: params.path,
+      ref: params.ref,
+    });
+
+    // A file rather than a directory comes back as an object. That is a caller error
+    // rather than an empty directory, and null says so without inventing an entry.
+    if (!Array.isArray(data)) return null;
+
+    return data
+      .filter((entry): entry is typeof entry & { type: "file" | "dir" } =>
+        entry.type === "file" || entry.type === "dir")
+      .map((entry) => ({ name: entry.name, type: entry.type }));
+  } catch {
+    return null;
+  }
+}
