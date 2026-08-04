@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   Bot,
@@ -74,6 +75,19 @@ import type { RouterOutputs } from '@/trpc/types';
  * `statedScoreInText` is imported from the module the approval path uses.
  */
 
+/**
+ * Where the approve action renders.
+ *
+ * The score, the threshold badge, and the approve button belong beside the student's name
+ * in the header, which does not scroll — an instructor at the bottom of a long report can
+ * still see what they are about to release. But the state those three read is the unsaved
+ * edits, which live in `DraftEditor` three levels down, and only one branch of
+ * `DraftBody`'s state machine renders it at all: a generating, failed, approved, or
+ * empty draft has nothing to approve. Deciding that a second time in the header is how
+ * the two readings drift apart. So the header offers a slot and `DraftEditor` fills it.
+ */
+const HeaderActionsSlot = React.createContext<HTMLElement | null>(null);
+
 type QueueSubmission =
   RouterOutputs['submissions']['listForAssignment']['submissions'][number];
 type DraftList = RouterOutputs['gradingDrafts']['listForSubmission'];
@@ -100,6 +114,7 @@ export function GradingReview({
   now: Date;
 }) {
   const trpc = useTRPC();
+  const [actionsSlot, setActionsSlot] = React.useState<HTMLDivElement | null>(null);
 
   const drafts = useQuery(
     trpc.gradingDrafts.listForSubmission.queryOptions({ submissionId: submission.id }),
@@ -139,34 +154,36 @@ export function GradingReview({
 
   return (
     <div className="flex h-full flex-col">
-      <ReviewHeader submission={submission} draft={draft} />
+      <ReviewHeader submission={submission} draft={draft} actionsRef={setActionsSlot} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <div className="mx-auto flex max-w-3xl flex-col gap-5">
-          <CommentRecoveryNotice submission={submission} grade={data.grade} />
+      <HeaderActionsSlot.Provider value={actionsSlot}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div className="mx-auto flex max-w-3xl flex-col gap-5">
+            <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
-          <TestEvidence
-            submissionId={submission.id}
-            runs={testRuns.data}
-            currentRun={currentRun}
-            loading={testRuns.isPending}
-            now={now}
-          />
+            <TestEvidence
+              submissionId={submission.id}
+              runs={testRuns.data}
+              currentRun={currentRun}
+              loading={testRuns.isPending}
+              now={now}
+            />
 
-          <DraftBody
-            key={draft?.id ?? 'none'}
-            submission={submission}
-            assignmentTitle={assignmentTitle}
-            completionThreshold={completionThreshold}
-            draft={draft}
-            data={data}
-          />
+            <DraftBody
+              key={draft?.id ?? 'none'}
+              submission={submission}
+              assignmentTitle={assignmentTitle}
+              completionThreshold={completionThreshold}
+              draft={draft}
+              data={data}
+            />
 
-          {data.drafts.length > 1 && (
-            <DraftHistory drafts={data.drafts} activeId={draft?.id} now={now} />
-          )}
+            {data.drafts.length > 1 && (
+              <DraftHistory drafts={data.drafts} activeId={draft?.id} now={now} />
+            )}
+          </div>
         </div>
-      </div>
+      </HeaderActionsSlot.Provider>
     </div>
   );
 }
@@ -174,65 +191,72 @@ export function GradingReview({
 function ReviewHeader({
   submission,
   draft,
+  actionsRef,
 }: {
   submission: QueueSubmission;
   draft: Draft | null;
+  /** Filled by whatever is being reviewed — see `HeaderActionsSlot`. */
+  actionsRef: (node: HTMLDivElement | null) => void;
 }) {
   return (
-    <header className="flex flex-col gap-3 border-b border-border bg-card px-5 py-4">
-      <div className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-semibold">
-            {submission.student.displayName ?? submission.student.email ?? 'Unknown student'}
-          </h2>
-          {submission.student.githubUsername && (
-            <span className="text-sm text-muted-foreground">
-              @{submission.student.githubUsername}
-            </span>
-          )}
+    <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border bg-card px-5 py-4">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">
+              {submission.student.displayName ?? submission.student.email ?? 'Unknown student'}
+            </h2>
+            {submission.student.githubUsername && (
+              <span className="text-sm text-muted-foreground">
+                @{submission.student.githubUsername}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <SubmissionStatusBadge status={submission.status} />
+            {draft && <DraftStatusBadge status={draft.status} />}
+            {submission.isLate && (
+              <Badge variant="outline" className="font-normal">
+                Late
+              </Badge>
+            )}
+          </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
-          <SubmissionStatusBadge status={submission.status} />
-          {draft && <DraftStatusBadge status={draft.status} />}
-          {submission.isLate && (
-            <Badge variant="outline" className="font-normal">
-              Late
-            </Badge>
+          {submission.repoUrl && (
+            <a
+              href={submission.repoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+            >
+              Repository
+              <ExternalLink data-icon="inline-end" />
+            </a>
+          )}
+          {submission.prUrl && (
+            <a
+              href={submission.prUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+            >
+              <GitPullRequest data-icon="inline-start" />
+              PR #{submission.prNumber}
+              <ExternalLink data-icon="inline-end" />
+            </a>
+          )}
+          {submission.headSha && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1 font-mono text-xs text-muted-foreground">
+              <GitCommitHorizontal className="size-3.5" />
+              {shortSha(submission.headSha)}
+            </span>
           )}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {submission.repoUrl && (
-          <a
-            href={submission.repoUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-          >
-            Repository
-            <ExternalLink data-icon="inline-end" />
-          </a>
-        )}
-        {submission.prUrl && (
-          <a
-            href={submission.prUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-          >
-            <GitPullRequest data-icon="inline-start" />
-            PR #{submission.prNumber}
-            <ExternalLink data-icon="inline-end" />
-          </a>
-        )}
-        {submission.headSha && (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1 font-mono text-xs text-muted-foreground">
-            <GitCommitHorizontal className="size-3.5" />
-            {shortSha(submission.headSha)}
-          </span>
-        )}
-      </div>
+      <div ref={actionsRef} className="flex flex-wrap items-center justify-end gap-3" />
     </header>
   );
 }
@@ -638,6 +662,7 @@ function DraftEditor({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const actionsSlot = React.useContext(HeaderActionsSlot);
 
   const [scores, setScores] = React.useState<Record<string, number>>(() =>
     Object.fromEntries(draft.sections.map((s) => [s.id, effectiveScore(s) ?? 0])),
@@ -801,56 +826,60 @@ function DraftEditor({
         ))}
       </div>
 
-      <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col">
-            <span className="text-xs text-muted-foreground">Total</span>
-            <span className="text-lg font-semibold tabular-nums">
-              {totalEarned}
-              <span className="text-muted-foreground"> / {totalPossible}</span>
-            </span>
-          </div>
-          <Separator orientation="vertical" className="h-8" />
-          <Badge
-            variant="outline"
-            className={cn(
-              'font-normal',
-              isComplete
-                ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                : 'border-destructive/40 text-destructive',
-            )}
-          >
-            {isComplete ? 'Meets the threshold' : 'Below the threshold'}
-          </Badge>
-          {/*
-            Said plainly, next to the number it affects. Approving saves first anyway, but
-            an instructor should never have to wonder whether what is on screen is what
-            would go out.
-          */}
-          {unsaved && (
-            <span className="text-xs text-amber-700 dark:text-amber-300">
-              {changedSections.length === 1
-                ? '1 unsaved change'
-                : `${changedSections.length} unsaved changes`}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {unsaved && (
-            <Button variant="outline" disabled={busy} onClick={() => void save()}>
-              {updateSection.isPending && (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
+      {actionsSlot &&
+        createPortal(
+          <>
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col">
+                <span className="text-xs text-muted-foreground">Total</span>
+                <span className="text-lg font-semibold tabular-nums">
+                  {totalEarned}
+                  <span className="text-muted-foreground"> / {totalPossible}</span>
+                </span>
+              </div>
+              <Separator orientation="vertical" className="h-8" />
+              <Badge
+                variant="outline"
+                className={cn(
+                  'font-normal',
+                  isComplete
+                    ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                    : 'border-destructive/40 text-destructive',
+                )}
+              >
+                {isComplete ? 'Meets the threshold' : 'Below the threshold'}
+              </Badge>
+              {/*
+                Said plainly, next to the number it affects. Approving saves first anyway,
+                but an instructor should never have to wonder whether what is on screen is
+                what would go out.
+              */}
+              {unsaved && (
+                <span className="text-xs text-amber-700 dark:text-amber-300">
+                  {changedSections.length === 1
+                    ? '1 unsaved change'
+                    : `${changedSections.length} unsaved changes`}
+                </span>
               )}
-              {updateSection.isPending ? 'Saving…' : 'Save'}
-            </Button>
-          )}
-          <Button size="lg" disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
-            <CheckCircle2 data-icon="inline-start" />
-            Approve and release
-          </Button>
-        </div>
-      </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {unsaved && (
+                <Button variant="outline" disabled={busy} onClick={() => void save()}>
+                  {updateSection.isPending && (
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                  )}
+                  {updateSection.isPending ? 'Saving…' : 'Save'}
+                </Button>
+              )}
+              <Button disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
+                <CheckCircle2 data-icon="inline-start" />
+                Approve and release
+              </Button>
+            </div>
+          </>,
+          actionsSlot,
+        )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
