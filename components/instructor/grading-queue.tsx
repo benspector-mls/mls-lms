@@ -219,7 +219,7 @@ function QueueRow({
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
             {initials(row.student.displayName ?? row.student.email)}
           </span>
-          <div className="flex min-w-0 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-sm font-medium">
               {row.student.displayName ?? row.student.githubUsername ?? row.student.email ?? 'Unknown student'}
             </span>
@@ -227,6 +227,25 @@ function QueueRow({
               {shortSha(row.headSha)} · {formatRelative(row.lastActivityAt ?? row.submittedAt, now)}
             </span>
           </div>
+          {/*
+            The released grade, right-aligned so the column of scores can be read straight
+            down the list without opening each submission. Only a grade that has actually
+            gone out is shown here — a superseded score belongs to a report nobody reads
+            anymore.
+          */}
+          {row.status === 'GRADED' && row.finalScore != null && (
+            <span
+              className={cn(
+                'shrink-0 text-sm font-semibold tabular-nums',
+                row.isComplete
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-destructive',
+              )}
+            >
+              {row.finalScore}
+              <span className="font-normal text-muted-foreground">/{row.finalScorePossible}</span>
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">

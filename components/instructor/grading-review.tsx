@@ -159,6 +159,16 @@ export function GradingReview({
       <HeaderActionsSlot.Provider value={actionsSlot}>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           <div className="mx-auto flex max-w-3xl flex-col gap-5">
+            {/*
+              Read first, because it is the answer to the only question that matters once
+              a submission is already graded: what did this student get. Everything below
+              — the evidence, the editable report — is how that answer was reached, not
+              the answer itself.
+            */}
+            {draft && (draft.status === 'APPROVED' || draft.status === 'SUPERSEDED') && (
+              <ReleasedSummaryCard draft={draft} data={data} />
+            )}
+
             <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
             <TestEvidence
@@ -1222,6 +1232,65 @@ function SectionEditor({
   );
 }
 
+/**
+ * The score and release date for an approved or superseded draft.
+ *
+ * Pulled out of `ReleasedBody` so it can be read at the top of the screen, before the
+ * evidence a re-grading instructor would otherwise have to scroll past to find it.
+ */
+function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList }) {
+  const superseded = draft.status === 'SUPERSEDED';
+  const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <CardTitle className="flex items-center gap-2 text-base">
+              {superseded ? (
+                <History className="size-4 text-muted-foreground" />
+              ) : (
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+              )}
+              {superseded ? 'Superseded report' : 'Released'}
+            </CardTitle>
+            <CardDescription>
+              {superseded
+                ? 'Replaced by a later run. Kept as part of the record.'
+                : `Approved ${formatDateTime(draft.approvedAt)}. The student can read this.`}
+            </CardDescription>
+          </div>
+
+          {!superseded && data.grade?.finalScore != null && (
+            <div className="flex flex-col items-end">
+              <span className="text-2xl font-semibold tabular-nums">
+                {data.grade.finalScore}
+                <span className="text-base text-muted-foreground">
+                  {' '}
+                  / {data.grade.finalScorePossible}
+                </span>
+              </span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  'font-normal',
+                  data.grade.isComplete
+                    ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                    : 'border-destructive/40 text-destructive',
+                )}
+              >
+                {data.grade.isComplete ? 'Complete' : 'Incomplete'}
+                {percent != null ? ` · ${formatPercent(percent)}` : ''}
+              </Badge>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+    </Card>
+  );
+}
+
 /** An approved or superseded draft, read-only. What was sent is a matter of record. */
 function ReleasedBody({
   submission,
@@ -1233,56 +1302,9 @@ function ReleasedBody({
   data: DraftList;
 }) {
   const superseded = draft.status === 'SUPERSEDED';
-  const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
 
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <CardTitle className="flex items-center gap-2 text-base">
-                {superseded ? (
-                  <History className="size-4 text-muted-foreground" />
-                ) : (
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-                )}
-                {superseded ? 'Superseded report' : 'Released'}
-              </CardTitle>
-              <CardDescription>
-                {superseded
-                  ? 'Replaced by a later run. Kept as part of the record.'
-                  : `Approved ${formatDateTime(draft.approvedAt)}. The student can read this.`}
-              </CardDescription>
-            </div>
-
-            {!superseded && data.grade?.finalScore != null && (
-              <div className="flex flex-col items-end">
-                <span className="text-2xl font-semibold tabular-nums">
-                  {data.grade.finalScore}
-                  <span className="text-base text-muted-foreground">
-                    {' '}
-                    / {data.grade.finalScorePossible}
-                  </span>
-                </span>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    'font-normal',
-                    data.grade.isComplete
-                      ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                      : 'border-destructive/40 text-destructive',
-                  )}
-                >
-                  {data.grade.isComplete ? 'Complete' : 'Incomplete'}
-                  {percent != null ? ` · ${formatPercent(percent)}` : ''}
-                </Badge>
-              </div>
-            )}
-          </div>
-        </CardHeader>
-      </Card>
-
       {/*
         Revising a released grade means a new report, not an edit of this one. The student
         keeps both, which is the point of having a history at all.
