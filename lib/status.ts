@@ -1,4 +1,5 @@
 import type {
+  AssignmentKind,
   GradingDraftStatus,
   SubmissionStatus,
   TestRunStatus,
@@ -319,6 +320,29 @@ export const TONE_DOT: Record<StatusTone, string> = {
   review: 'bg-violet-500',
   danger: 'bg-destructive',
   success: 'bg-emerald-500',
+};
+
+/**
+ * What a student hands in, in one word.
+ *
+ * No tone, because a kind is not a state: it does not change, nothing is waiting on it, and
+ * colouring it would make a permanent property of an assignment look like something that
+ * needed attention. Both audiences read the same words — unlike a submission status, there is
+ * nothing here a student should not be told.
+ *
+ * The descriptions are what the badge carries as a tooltip, so they say how the work is handed
+ * in rather than restating the label.
+ */
+export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; description: string }> = {
+  REPO: {
+    label: 'Code',
+    description: 'Handed in as a pull request from your own copy of a repository.',
+  },
+  GOOGLE_DOC: {
+    label: 'Google Doc',
+    description: 'Handed in as a link to your own copy of a document.',
+  },
+  FILE_UPLOAD: { label: 'File', description: 'Handed in as an uploaded file.' },
 };
 
 export const CONFIDENCE_META: Record<'HIGH' | 'LOW', { label: string; tone: StatusTone }> = {

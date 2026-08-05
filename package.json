@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
+    "predev": "prisma generate",
     "dev": "next dev",
     "dev:webhook": "tsx scripts/dev-webhook.ts",
     "build": "next build",

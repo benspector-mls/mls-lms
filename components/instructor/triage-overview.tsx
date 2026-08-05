@@ -10,6 +10,7 @@ import {
   Inbox,
   Loader2,
   MessageSquareOff,
+  PencilLine,
   RotateCcw,
   Sparkles,
   XCircle,
@@ -44,6 +45,7 @@ type Row = Triage['submissions'][number];
  */
 type BucketKey =
   | 'needs_report'
+  | 'needs_manual_grade'
   | 'draft_ready'
   | 'needs_manual_review'
   | 'grading_failed'
@@ -52,6 +54,7 @@ type BucketKey =
 /** Every bucket that counts toward "how much is left", in the order they are worked. */
 const WORK_BUCKETS: BucketKey[] = [
   'needs_report',
+  'needs_manual_grade',
   'draft_ready',
   'needs_manual_review',
   'grading_failed',
@@ -76,6 +79,14 @@ const BUCKET_META: Record<
     tone: 'text-sky-600 dark:text-sky-400',
     accent: 'bg-sky-500/10',
   },
+  needs_manual_grade: {
+    label: 'To grade by hand',
+    description:
+      'Submitted work on an assignment the pipeline cannot grade — a document or an upload. Read the work, write the feedback, and release it the same way.',
+    icon: PencilLine,
+    tone: 'text-violet-600 dark:text-violet-400',
+    accent: 'bg-violet-500/10',
+  },
   draft_ready: {
     label: 'Drafts ready to review',
     description: 'A report was produced. Read it, edit what you disagree with, then approve.',
@@ -83,9 +94,16 @@ const BUCKET_META: Record<
     tone: 'text-primary',
     accent: 'bg-primary/10',
   },
+  /*
+    Distinct from `needs_manual_grade` above, and the labels have to keep them apart: this
+    is a report that exists and cannot be trusted, where that one is an assignment that was
+    never going to have a report at all. Conflating them would tell an instructor to check a
+    cross-check finding that does not exist.
+  */
   needs_manual_review: {
-    label: 'Needs manual grading',
-    description: 'No confident draft could be produced. These are graded by hand.',
+    label: 'Held for review',
+    description:
+      'A report was produced but something in it could not be verified, so it is held rather than offered for approval. Check it before releasing.',
     icon: AlertTriangle,
     tone: 'text-amber-600 dark:text-amber-400',
     accent: 'bg-amber-500/10',
@@ -143,15 +161,21 @@ export function TriageOverview({
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/*
+          The first card covers both ways of having no usable report — one waiting on the
+          pipeline, one waiting on a person — because the summary answers "how much is
+          untouched" and the piles below say which kind. Four cards for six buckets is
+          deliberate: this row was never exhaustive, and the count in the header is.
+        */}
         <StatCard
-          label="No report yet"
-          value={buckets.needs_report.length}
+          label="Not graded yet"
+          value={buckets.needs_report.length + buckets.needs_manual_grade.length}
           icon={FileText}
           tone="text-sky-600 dark:text-sky-400"
         />
         <StatCard label="Ready to review" value={buckets.draft_ready.length} icon={Sparkles} tone="text-primary" />
         <StatCard
-          label="Manual grading"
+          label="Held for review"
           value={buckets.needs_manual_review.length}
           icon={AlertTriangle}
           tone="text-amber-600 dark:text-amber-400"
@@ -174,6 +198,13 @@ export function TriageOverview({
             two.
           */}
           <TriageBucket bucketKey="needs_report" rows={buckets.needs_report} now={now} />
+          {/*
+            Only when it has something in it. A course with no hand-graded assignments would
+            otherwise show a permanently empty pile for a kind of work it never has.
+          */}
+          {buckets.needs_manual_grade.length > 0 && (
+            <TriageBucket bucketKey="needs_manual_grade" rows={buckets.needs_manual_grade} now={now} />
+          )}
           <TriageBucket bucketKey="draft_ready" rows={buckets.draft_ready} now={now} />
           <div className="grid gap-4 lg:grid-cols-2">
             <TriageBucket bucketKey="needs_manual_review" rows={buckets.needs_manual_review} now={now} />
@@ -225,6 +256,7 @@ export function TriageOverview({
 function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
   const buckets: Record<BucketKey, Row[]> = {
     needs_report: [],
+    needs_manual_grade: [],
     draft_ready: [],
     needs_manual_review: [],
     grading_failed: [],

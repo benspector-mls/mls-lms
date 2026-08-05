@@ -1,11 +1,15 @@
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Code, FileText, Upload } from 'lucide-react';
+import type * as React from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import type {
+  AssignmentKind,
   GradingDraftStatus,
   SubmissionStatus,
   TestRunStatus,
 } from '@/lib/generated/prisma/enums';
 import {
+  ASSIGNMENT_KIND_META,
   DRAFT_STATUS_META,
   flagMeta,
   STUDENT_STATUS_META,
@@ -73,6 +77,47 @@ export function TestRunStatusBadge({
   className?: string;
 }) {
   return <BadgeShell meta={TEST_RUN_STATUS_META[status]} className={className} />;
+}
+
+const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
+  REPO: Code,
+  GOOGLE_DOC: FileText,
+  FILE_UPLOAD: Upload,
+};
+
+/**
+ * What a student hands in for this assignment.
+ *
+ * Deliberately outside the tone system every badge above uses. Those describe where a
+ * submission stands and are coloured accordingly; a kind never changes and nothing is waiting
+ * on it, so colour here would read as a state needing attention. It gets an icon instead,
+ * which is what makes it scannable down a list of fifty rows.
+ *
+ * Shown to both audiences, and the same words to each: a student needs to know whether to
+ * expect a repository or a document, and there is nothing about the answer they should not be
+ * told. That is the exception rather than the rule on this screen — see
+ * `SubmissionStatusBadge`, where the two vocabularies genuinely differ.
+ */
+export function AssignmentKindBadge({
+  kind,
+  className,
+}: {
+  kind: AssignmentKind;
+  className?: string;
+}) {
+  const meta = ASSIGNMENT_KIND_META[kind];
+  const Icon = KIND_ICON[kind];
+
+  return (
+    <Badge
+      variant="secondary"
+      title={meta.description}
+      className={cn('font-normal', className)}
+    >
+      <Icon data-icon="inline-start" />
+      {meta.label}
+    </Badge>
+  );
 }
 
 /**

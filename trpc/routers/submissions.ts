@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { isManualOnly } from '@/lib/assignments/spec';
+import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
@@ -20,6 +22,7 @@ export const submissionsRouter = createTRPCRouter({
         repoUrl: true,
         prUrl: true,
         prNumber: true,
+        submittedUrl: true,
         submittedAt: true,
         isLate: true,
         finalScore: true,
@@ -36,6 +39,117 @@ export const submissionsRouter = createTRPCRouter({
       },
     }),
   ),
+
+  /**
+   * A student declaring that work with no pull request is finished.
+   *
+   * For a repository assignment, opening the pull request is that declaration and the
+   * webhook records it — status, `submittedAt`, and `isLate` all follow from the event. The
+   * other two kinds have no webhook and nothing to observe, so this procedure does the same
+   * job: without it, hand-graded work would never enter triage and would read as never
+   * started rather than as waiting, which is the difference between an instructor seeing it
+   * and not.
+   *
+   * The URL is where the student's own copy of the document is. `FILE_UPLOAD` submits with no
+   * URL, because what it needs is a stored file — its own piece of work, and deliberately not
+   * a text field pretending to be one.
+   */
+  submitWork: profileProcedure
+    .input(
+      z.object({
+        // The assignment rather than the submission, because FILE_UPLOAD has no row until
+        // this runs: submitting is the first thing that happens to it.
+        assignmentId: z.string().uuid(),
+        /** The student's copy of the document, for GOOGLE_DOC. */
+        submittedUrl: z.string().url().max(2000).nullable().default(null),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: { id: true, kind: true, courseId: true, dueAt: true, distributedAt: true },
+      });
+
+      if (!assignment) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      }
+
+      // A repository assignment's submission signal is the pull request. Accepting one here
+      // would let a student mark work submitted with no code to look at, and the webhook
+      // would then be a second authority on the same column.
+      if (assignment.kind === 'REPO') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'This assignment is submitted by opening a pull request from your draft branch ' +
+            'into main. That is what puts it in your instructor\'s queue.',
+        });
+      }
+
+      if (assignment.distributedAt === null) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'That assignment is not available.',
+        });
+      }
+
+      // Checked here rather than relying on having listed the course first, for the same
+      // reason `accept` does: a mutation must not assume which query preceded it.
+      const enrollment = await ctx.db.enrollment.findFirst({
+        where: { courseId: assignment.courseId, studentId: ctx.profile.id, status: 'ACTIVE' },
+        select: { id: true },
+      });
+
+      if (!enrollment) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You are not enrolled in the course this assignment belongs to.',
+        });
+      }
+
+      if (assignment.kind === 'GOOGLE_DOC' && !input.submittedUrl) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'Paste the link to your copy of the document before submitting, so your ' +
+            'instructor can open the right one.',
+        });
+      }
+
+      const submittedAt = new Date();
+
+      /*
+        `isLate` is computed here rather than read from anywhere, exactly as the webhook
+        computes it for a pull request: the comparison is against the assignment's own
+        `dueAt`, and a submission with no due date is never late.
+
+        The row may not exist yet. FILE_UPLOAD has no Accept, so submitting is the first
+        thing that happens to it, and an upsert is what lets one procedure serve both that
+        and a Google Doc that was accepted earlier.
+      */
+      return ctx.db.submission.upsert({
+        where: {
+          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
+        },
+        create: {
+          assignmentId: assignment.id,
+          studentId: ctx.profile.id,
+          status: 'SUBMITTED',
+          submittedUrl: input.submittedUrl,
+          submittedAt,
+          isLate: assignment.dueAt ? submittedAt > assignment.dueAt : false,
+          lastActivityAt: submittedAt,
+        },
+        update: {
+          status: 'SUBMITTED',
+          submittedUrl: input.submittedUrl,
+          submittedAt,
+          isLate: assignment.dueAt ? submittedAt > assignment.dueAt : false,
+          lastActivityAt: submittedAt,
+        },
+        select: { id: true, status: true, submittedUrl: true, submittedAt: true, isLate: true },
+      });
+    }),
 
   /**
    * A student declaring that revised work is ready for another look.
@@ -150,8 +264,10 @@ export const submissionsRouter = createTRPCRouter({
               },
             },
             // Approved, but the comment never reached the pull request. Recoverable —
-            // there is a retry — and worth finding without being looked for.
-            { gradingDrafts: { some: { status: 'APPROVED', postedPrCommentId: null } } },
+            // there is a retry — and worth finding without being looked for. Not the same
+            // as a submission that never had a pull request to post to, which is every
+            // hand-graded one: `undeliveredApprovalWhere` is what keeps those out.
+            { gradingDrafts: { some: undeliveredApprovalWhere() } },
           ],
         },
         orderBy: [{ lastActivityAt: 'desc' }, { createdAt: 'desc' }],
@@ -164,7 +280,12 @@ export const submissionsRouter = createTRPCRouter({
           submittedAt: true,
           lastActivityAt: true,
           student: { select: { id: true, displayName: true, email: true } },
-          assignment: { select: { id: true, title: true, moduleTag: true, courseId: true } },
+          // `sections` for the grading mode: an assignment the pipeline cannot grade lands
+          // in a different bucket, because the action waiting on the instructor is
+          // different and generating a report is not one of the things they can do.
+          assignment: {
+            select: { id: true, title: true, moduleTag: true, courseId: true, sections: true },
+          },
           // The most recent run, superseded ones included: a draft that was replaced is
           // still what the row's flags describe until a newer one finishes.
           gradingDrafts: {
@@ -201,18 +322,17 @@ export const submissionsRouter = createTRPCRouter({
         the comment fails, the student pushes, a new draft is generated on top.
       */
       const undelivered = await ctx.db.gradingDraft.findMany({
-        where: {
-          submissionId: { in: submissions.map((s) => s.id) },
-          status: 'APPROVED',
-          postedPrCommentId: null,
-        },
+        where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
         select: { submissionId: true },
         distinct: ['submissionId'],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
-      const rows = submissions.map(({ gradingDrafts, ...submission }) => {
+      const rows = submissions.map(({ gradingDrafts, assignment, ...submission }) => {
         const draft = gradingDrafts[0] ?? null;
+        // Read for the bucket and then dropped: the section mapping is what decides how
+        // this row is graded, and nothing on the screen renders it.
+        const { sections, ...assignmentFields } = assignment;
 
         // The draft describes a commit the student has pushed past. Approval refuses a
         // stale draft, so the row must not be offered as ready to approve.
@@ -221,11 +341,13 @@ export const submissionsRouter = createTRPCRouter({
 
         return {
           ...submission,
+          assignment: assignmentFields,
           bucket: triageBucket(
             submission.status,
             draft,
             draftIsStale,
             undeliveredIds.has(submission.id),
+            isManualOnly(sections),
           ),
           draftIsStale,
           // Flattened here rather than in the interface. Delivery is deliberately not on
@@ -265,12 +387,20 @@ export const submissionsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const assignment = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
-        select: { id: true, title: true, courseId: true, dueAt: true },
+        select: { id: true, title: true, courseId: true, dueAt: true, kind: true, sections: true },
       });
 
       if (!assignment) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
       }
+
+      /*
+        Read once for the whole queue rather than per row: every submission here belongs to
+        this one assignment, so how it is graded is a property of the page. The review
+        surface reads it too — it decides whether the screen offers to generate a report or
+        an empty draft to type into.
+      */
+      const manualOnly = isManualOnly(assignment.sections);
 
       const teaches =
         ctx.profile.role === 'ADMIN' ||
@@ -297,6 +427,9 @@ export const submissionsRouter = createTRPCRouter({
           prUrl: true,
           prNumber: true,
           headSha: true,
+          // What the instructor opens when there is no pull request: the document the student
+          // submitted. Hand grading needs somewhere to read the work from.
+          submittedUrl: true,
           submittedAt: true,
           isLate: true,
           lastActivityAt: true,
@@ -321,18 +454,23 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       const undelivered = await ctx.db.gradingDraft.findMany({
-        where: {
-          submissionId: { in: submissions.map((s) => s.id) },
-          status: 'APPROVED',
-          postedPrCommentId: null,
-        },
+        where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
         select: { submissionId: true },
         distinct: ['submissionId'],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
       return {
-        assignment,
+        // Spelled out rather than spread, so `sections` does not travel to the browser as a
+        // second copy of a question `manualOnly` has already answered.
+        assignment: {
+          id: assignment.id,
+          title: assignment.title,
+          courseId: assignment.courseId,
+          dueAt: assignment.dueAt,
+          kind: assignment.kind,
+          manualOnly,
+        },
         submissions: submissions.map(({ gradingDrafts, ...submission }) => {
           const draft = gradingDrafts[0] ?? null;
           const draftIsStale =
@@ -345,6 +483,7 @@ export const submissionsRouter = createTRPCRouter({
               draft,
               draftIsStale,
               undeliveredIds.has(submission.id),
+              manualOnly,
             ),
             draftIsStale,
             activeDraft: draft,

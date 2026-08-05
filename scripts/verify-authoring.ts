@@ -18,9 +18,13 @@ import {
   AssignmentConfigurationError,
   AssignmentKind,
   IMPLEMENTED_KINDS,
+  assertKindImplemented,
+  copyUrlFromTemplate,
   derivesTestEvidence,
   isAiGraded,
   isManualOnly,
+  manualSections,
+  NotRepositoryBackedError,
   parseAssignmentSpec,
   repositorySource,
   requiresRepository,
@@ -44,6 +48,19 @@ function check(label: string, actual: unknown, expected: unknown) {
  * indistinguishable — both would read `sections.0`. The offending keys are appended so each
  * check proves the specific field was the one refused.
  */
+/**
+ * Whether a parse refused, and named this field among its reasons.
+ *
+ * For the checks where the exact list is beside the point. An AI section handed to a kind that
+ * only takes manual ones is refused several times over — the wrong `grading`, the missing
+ * `label`, and five keys the shape does not recognise — and pinning all of that down would
+ * make the check about the shape of the error rather than about the rule.
+ */
+function refusedOn(input: unknown, path: string): boolean {
+  const result = rejects(input);
+  return result !== "accepted" && result.some((entry) => entry.startsWith(path));
+}
+
 function rejects(input: unknown): string[] | "accepted" {
   try {
     parseAssignmentSpec(input);
@@ -156,18 +173,42 @@ check("an AI section may not use a label instead of a type",
   rejects({ ...repoSpec, sections: [{ ...codingSection, label: "Whatever" }] }),
   ["sections.0:label"]);
 
-// Mixed is legitimate: a repository assignment can have work the pipeline grades and work
-// an instructor scores by hand, and the total is still the sum of both.
-check("ai and manual sections can coexist, and both count toward the total",
-  parseAssignmentSpec({ ...repoSpec, sections: [codingSection, manualSection] }).pointValue,
-  40);
-check("isAiGraded splits them",
-  parseAssignmentSpec({ ...repoSpec, sections: [codingSection, manualSection] })
-    .sections.map(isAiGraded),
-  [true, false]);
+/*
+  One grading mode per assignment. A mix would mean a generated report covering some sections
+  and not others: the draft carries only what the model wrote, so the assignment's point total
+  would exceed what approving could record, and a 30-point assignment would release as 20 out
+  of 20. Two assignments is the answer, and one section per assignment is the direction the
+  curriculum is going anyway.
+
+  Several sections graded the same way stay legitimate — the checkpoint has two, both graded
+  by the pipeline — so the check below is about modes, not about counting.
+*/
+check("an assignment may not mix graded-by-model and graded-by-hand sections",
+  rejects({ ...repoSpec, sections: [codingSection, manualSection] }), ["sections"]);
+check("several sections graded the same way are accepted, and both count toward the total",
+  parseAssignmentSpec({
+    ...repoSpec,
+    sections: [codingSection, { ...codingSection, type: "short_response", pointValue: 15 }],
+  }).pointValue,
+  45);
+check("isAiGraded reads the mode off each section",
+  parseAssignmentSpec({ ...repoSpec, sections: [codingSection] }).sections.map(isAiGraded),
+  [true]);
 check("manual-only is detected", isManualOnly([manualSection]), true);
-check("a mix is not manual-only", isManualOnly([codingSection, manualSection]), false);
+check("all-AI is not manual-only", isManualOnly([codingSection]), false);
 check("no sections is not manual-only", isManualOnly([]), false);
+check("a stored column that is not an array is not manual-only", isManualOnly(null), false);
+
+/*
+  A section graded by hand, read back off a stored column in the shape the blank draft needs.
+  Skipped rather than defaulted when a point value is missing: scoring out of an invented total
+  is exactly what `pointValue` being required exists to prevent.
+*/
+check("manual sections are read for the blank draft",
+  manualSections([codingSection, manualSection]),
+  [{ label: "Reflection", pointValue: 10 }]);
+check("a manual section with no point value is skipped rather than defaulted",
+  manualSections([{ grading: "manual", label: "Reflection" }]), []);
 
 // --- test evidence is derived, never asked -------------------------------------
 /*
@@ -231,10 +272,13 @@ check("an unknown runner preset is refused, and the message names it",
   rejects({ ...repoSpec, runnerPreset: "npx-jest-typo" }), ["runnerPreset"]);
 check("the none preset is accepted", rejects({ ...repoSpec, runnerPreset: "none" }), "accepted");
 
+const DOC_URL = "https://docs.google.com/document/d/1AbC_dEF-123/view";
+
 const docSpec = {
   kind: AssignmentKind.GOOGLE_DOC,
   title: "Reflection: what I learned in mod 1",
   moduleTag: "mod-1-js-fundamentals",
+  templateDocUrl: DOC_URL,
   sections: [manualSection],
 };
 
@@ -254,10 +298,70 @@ check("a Google Doc assignment may not name a repository",
   rejects({ ...docSpec, templateRepo: "marcy-lms-test/whatever" }), ["templateRepo"]);
 check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE" }), ["kind"]);
 
+/*
+  A document assignment is distributed by its template link and nothing else, so the link is
+  required and its shape is checked rather than trusted. The shape matters because
+  `copyUrlFromTemplate` works by replacing the last path segment: a URL that does not match is
+  one the substitution would leave untouched, sending every student to the instructor's own
+  document to edit in place. That is the failure this pattern exists to prevent.
+*/
+check("a Google Doc assignment needs a template document",
+  rejects({ ...docSpec, templateDocUrl: undefined }), ["templateDocUrl"]);
+check("a link that is not a Google Doc is refused",
+  rejects({ ...docSpec, templateDocUrl: "https://example.com/some/doc/view" }), ["templateDocUrl"]);
+check("a Google Doc link with no final segment is refused",
+  rejects({ ...docSpec, templateDocUrl: "https://docs.google.com/document/d/1AbC_dEF-123" }),
+  ["templateDocUrl"]);
+check("a REPO assignment may not name a template document",
+  rejects({ ...repoSpec, templateDocUrl: DOC_URL }), ["templateDocUrl"]);
+
+check("/view becomes /copy", copyUrlFromTemplate(DOC_URL),
+  "https://docs.google.com/document/d/1AbC_dEF-123/copy");
+// What Google's Share dialog actually hands over, query string and all.
+check("/edit?usp=sharing becomes /copy",
+  copyUrlFromTemplate("https://docs.google.com/document/d/1AbC_dEF-123/edit?usp=sharing"),
+  "https://docs.google.com/document/d/1AbC_dEF-123/copy");
+
+/*
+  A document has no pull request, no changed files, and no test suite, so there is nothing for
+  the pipeline to read. An AI section here would validate, save, sit in the queue as a report
+  waiting to be generated, and fail on the missing pull request at the moment an instructor
+  asked for it — refusing it at authoring time is the difference between an assignment that
+  cannot be built wrong and one that breaks the first time it is used.
+*/
+check("a Google Doc assignment may not have a section the model grades",
+  refusedOn({ ...docSpec, sections: [codingSection] }, "sections.0.grading"), true);
+check("a file upload assignment may not either",
+  refusedOn({
+    kind: AssignmentKind.FILE_UPLOAD,
+    title: "Resume, first draft",
+    moduleTag: "mod-1-js-fundamentals",
+    sections: [codingSection],
+  }, "sections.0.grading"),
+  true);
+check("a file upload assignment needs no template of any kind",
+  rejects({
+    kind: AssignmentKind.FILE_UPLOAD,
+    title: "Resume, first draft",
+    moduleTag: "mod-1-js-fundamentals",
+    sections: [manualSection],
+  }),
+  "accepted");
+
+// Optional on every kind, because each kind's own screen states the mechanical steps already.
+check("submission instructions are optional and default to null",
+  parseAssignmentSpec(docSpec).submissionInstructions, null);
+check("submission instructions are kept when given",
+  parseAssignmentSpec({ ...docSpec, submissionInstructions: "Paste your link." })
+    .submissionInstructions,
+  "Paste your link.");
+
 // --- narrowing at the point of use -------------------------------------------
 check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
 check("GOOGLE_DOC does not", requiresRepository(AssignmentKind.GOOGLE_DOC), false);
-check("only REPO is implemented today", [...IMPLEMENTED_KINDS], [AssignmentKind.REPO]);
+check("all three kinds are implemented",
+  [...IMPLEMENTED_KINDS].sort(),
+  [AssignmentKind.FILE_UPLOAD, AssignmentKind.GOOGLE_DOC, AssignmentKind.REPO].sort());
 
 check("repositorySource narrows a REPO row",
   repositorySource({
@@ -275,11 +379,12 @@ check("repositorySource narrows a REPO row",
   });
 
 /*
-  Two failures that must not be reported as one another. A Google Doc assignment is a
-  feature that does not exist; a REPO assignment with no org is a row that should never
-  have been written. An instructor can act on the second and not on the first.
+  Three failures that must not be reported as one another, and the first two are opposites: a
+  Google Doc assignment *works* and simply has no repository, while a kind nobody has built is
+  a feature that does not exist. A REPO row with no org is the third and the only one an
+  instructor can act on — a row that should never have been written.
 */
-let unsupported = "";
+let notRepoBacked = "";
 try {
   repositorySource({
     kind: AssignmentKind.GOOGLE_DOC,
@@ -287,8 +392,20 @@ try {
     assignmentRepoName: null,
     githubOrg: null,
   });
+} catch (err) { notRepoBacked = errName(err); }
+check("asking a Google Doc assignment for a repository throws NotRepositoryBackedError",
+  notRepoBacked, new NotRepositoryBackedError(AssignmentKind.GOOGLE_DOC).name);
+
+/*
+  Every kind in the enum is implemented, so this is checked against a value that is not one at
+  all. The guard still has to hold: it is what a future kind meets before anything downstream
+  tries to grade it, and the only way to prove it still refuses is to hand it something unknown.
+*/
+let unsupported = "";
+try {
+  assertKindImplemented("PRESENTATION" as AssignmentKind);
 } catch (err) { unsupported = errName(err); }
-check("an unimplemented kind throws UnsupportedAssignmentKindError",
+check("a kind that is not implemented throws UnsupportedAssignmentKindError",
   unsupported, new UnsupportedAssignmentKindError(AssignmentKind.GOOGLE_DOC).name);
 
 let misconfigured = "", misconfiguredMessage = "";
@@ -337,7 +454,7 @@ async function procedures() {
       id: true, courseId: true, kind: true, title: true, moduleTag: true, pointValue: true,
       completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
       templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
-      distributedAt: true,
+      distributedAt: true, templateDocUrl: true, submissionInstructions: true,
     },
   });
 
@@ -471,6 +588,8 @@ async function procedures() {
     templateRef: loaded.templateRef,
     runnerPreset: loaded.runnerPreset,
     runnerConfig: loaded.runnerConfig,
+    templateDocUrl: loaded.templateDocUrl,
+    submissionInstructions: loaded.submissionInstructions,
     sections: loaded.sections,
   };
 
@@ -497,6 +616,7 @@ async function procedures() {
           title: true, moduleTag: true, pointValue: true, completionThreshold: true,
           templateRepo: true, assignmentRepoName: true, githubOrg: true, templateRef: true,
           runnerPreset: true, runnerConfig: true, sections: true,
+          templateDocUrl: true, submissionInstructions: true,
         },
       });
       check("saving a loaded draft unchanged leaves every column as it was",
@@ -507,6 +627,8 @@ async function procedures() {
           assignmentRepoName: seeded.assignmentRepoName, githubOrg: seeded.githubOrg,
           templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
           runnerConfig: seeded.runnerConfig, sections: seeded.sections,
+          templateDocUrl: seeded.templateDocUrl,
+          submissionInstructions: seeded.submissionInstructions,
         }));
       throw new Error("ROLLBACK");
     }, { timeout: 20_000 });

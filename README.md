@@ -33,6 +33,7 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
   - [What a report costs](#what-a-report-costs)
   - [Grading assets](#grading-assets)
 - [Review, approval, and delivery](#review-approval-and-delivery)
+  - [Grading by hand](#grading-by-hand)
   - [Resubmission](#resubmission)
   - [Triage](#triage)
 - [Interface](#interface)
@@ -73,6 +74,8 @@ Instructor approves
         ▼
 Done — one action, everything downstream updates
 ```
+
+That is the loop for a repository assignment. A Google Doc or an uploaded file has no repository and no pull request, so the first three steps are replaced: accepting sends the student to Google's own prompt to take a copy, submitting is a button they press rather than an event to observe, and grading is an instructor writing the feedback into an empty draft. From approval onwards it is the same path — see [grading by hand](#grading-by-hand).
 
 Two deliberate departures from GitHub Classroom's design:
 
@@ -129,7 +132,7 @@ Verification scripts are re-runnable and are the fastest way to find out whether
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `npm run verify:sandbox`      | Sandbox logic with no sandbox: path matching, tamper reporting, the `package.json` merge, the restore script, all three parsers |
 | `npm run verify:grade`        | Grading logic with no model call: classification, rubric extraction, every cross-check rule, arithmetic                         |
-| `npm run verify:approve`      | The approval guards and the state transitions, driven through tRPC callers so authorization is exercised too                    |
+| `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers |
 | `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                    |
 | `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points        |
 | `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                    |
@@ -154,6 +157,7 @@ These are settled and do not need revisiting.
 - **Grading is not run inside the student's repository via GitHub Actions.** That would mean trusting a workflow file living in territory the student can push to, which is the same problem as trusting their `tests/` directory. It is also why the accept flow removes the old `classroom.yml` from every generated repository.
 - **Deterministic facts are computed by code and the model may only report them.** Test results, lint findings, and SQL comparisons are inputs the model must honor. A cross-check compares the model's claims against those facts.
 - **Test results are one input to the rubric, not the score.**
+- **One grading mode per assignment.** Every section is graded by the pipeline, or every section is graded by hand. A coding exercise with a hand-marked reflection is two assignments.
 - **Each assignment stores an explicit `sections` mapping** rather than guessing file paths by convention. Real assignments do not use consistent `{from-scratch,debug,modify}.js` filenames, and one pull request can contain more than one gradable section.
 - **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
 - **Completion is judged at 75 percent**, matching the Complete/Incomplete policy in `working-with-assignments.md`. Stored per assignment as `completionThreshold`.
@@ -199,7 +203,7 @@ export default function Page({ params }: { params: Promise<{ courseId: string }>
 
 ## Data model
 
-`prisma/schema.prisma`, twelve migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
+`prisma/schema.prisma`, fifteen migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
 
 ```
 Profile ──1:1── auth.users
@@ -213,26 +217,30 @@ Enums: `Role`, `EnrollmentStatus`, `RubricScaleType`, `SubmissionStatus`, `Sales
 
 **`profiles`** carries the `Role` enum, `githubUsername`, a display name fallback, and `githubUserId BigInt? @unique`. The numeric ID is recorded by the `sync_github_identity` trigger from `auth.identities.provider_id`, guarded by a regular expression because that column is text and other providers put non-numeric values in it. Repository naming still uses the username, because that is the existing convention, which is why `submissions.repo_github_login_at_creation` exists.
 
-**`assignments`** carries `kind`, `templateRepo`, `assignmentRepoName`, `githubOrg`, `completionThreshold`, `dueAt`, `distributedAt`, `runnerPreset`, `runnerConfig`, `templateRef`, and the `sections` JSON array. `@@unique([courseId, assignmentRepoName])` prevents two assignments in one course from generating colliding repository names.
+**`assignments`** carries `kind`, `templateRepo`, `assignmentRepoName`, `githubOrg`, `completionThreshold`, `dueAt`, `distributedAt`, `runnerPreset`, `runnerConfig`, `templateRef`, `templateDocUrl`, `submissionInstructions`, and the `sections` JSON array. `@@unique([courseId, assignmentRepoName])` prevents two assignments in one course from generating colliding repository names.
 
-**`kind` is what a student turns in**, and it decides how an assignment is distributed, what a submission consists of, and how feedback is delivered. `AssignmentKind` names three — `REPO`, `GOOGLE_DOC`, `FILE_UPLOAD` — and **only `REPO` is implemented**. The other two are named now rather than later because a system where "assignment" silently means "GitHub repository" costs more to open up afterwards than it costs to keep the distinction honest from the start. `IMPLEMENTED_KINDS` in [lib/assignments/spec.ts](lib/assignments/spec.ts) is the one line that changes when a kind becomes real.
+**`kind` is what a student turns in**, and it decides how an assignment is distributed, what a submission consists of, and how feedback is delivered. `AssignmentKind` names three — `REPO`, `GOOGLE_DOC`, `FILE_UPLOAD` — and **all three can be created, published, submitted, and graded**. What differs is how far the pipeline reaches: a `REPO` assignment is distributed from a template, collected as a pull request, and graded by the model, while the other two are distributed as a link or as instructions, collected by the student declaring they are done, and [graded by an instructor typing the score and the feedback](#grading-by-hand). Reading a Google Doc's contents or an uploaded file and generating a report from it is a separate feature and needs instructor-authored rubrics.
 
-The three GitHub columns are therefore **nullable, and required only when the kind is `REPO`** — enforced by the Zod schema rather than by the columns, because a column cannot express "required for one kind" and a `NOT NULL` would force a Google Doc assignment to invent a repository name. Two consequences worth knowing:
+The three GitHub columns are therefore **nullable, and required only when the kind is `REPO`** — enforced by the Zod schema rather than by the columns, because a column cannot express "required for one kind" and a `NOT NULL` would force a Google Doc assignment to invent a repository name. `templateDocUrl` is the mirror of that: required for `GOOGLE_DOC` and null otherwise. Two consequences worth knowing:
 
 - **`@@unique([courseId, assignmentRepoName])` needed no change.** Postgres treats NULLs as distinct in a unique constraint, so it goes on constraining repository-backed assignments and ignores the rest.
-- **Nothing reads those columns without asserting the kind first.** `repositorySource(assignment)` narrows all four in one place and throws otherwise, and it distinguishes the two failures that must not be reported as one another: a Google Doc assignment is a feature that does not exist, while a `REPO` row missing `githubOrg` is a row that should never have been written. An instructor can act on the second and not on the first.
+- **Nothing reads those columns without asserting the kind first.** `repositorySource(assignment)` narrows all four in one place and throws otherwise, and it distinguishes three failures that must not be reported as one another. The first two are opposites: `NotRepositoryBackedError` means the kind works and simply has no repository, so the caller should not have asked, while `UnsupportedAssignmentKindError` means a kind nobody has built. `AssignmentConfigurationError` is the third and the only one an instructor can act on — a `REPO` row missing `githubOrg`, naming the column.
+
+**Every section of an assignment is graded the same way**: all by the pipeline, or all by hand. A mix is refused by `assignmentSpecSchema`. It was expressible and nothing in the curriculum was ever one, and supporting it means a report covering some sections and not others — the generated draft carries only what the model wrote, so the assignment's own point total exceeds what approving can record, and a 30-point assignment releases as 20 out of 20. Two assignments is the answer, which is where one section per assignment is heading anyway. Several sections graded the same way stay ordinary: the checkpoint has two, both graded by the pipeline. The two non-repository kinds go further and accept only manual sections, because the pipeline's inputs are a pull request's changed files, the template's tests, and the paths `classifySections` matches, and a document has none of them.
 
 **`lib/assignments/spec.ts` is what a valid assignment is** — one Zod definition, discriminated on `kind`, used by both the seed and (in future) the authoring procedures, so the seeded shape and the authored shape cannot drift. The assignment's `pointValue` is *returned* by `parseAssignmentSpec` rather than accepted, so no input can make the gradebook column disagree with the reports beneath it. `npm run verify:authoring` checks these rules as pure functions.
 
-**`submissions`** is one row per assignment and student, carrying repository and pull request identity, `headSha`, `gradedHeadSha`, `submittedAt`, `isLate`, `lastActivityAt`, the final score fields, and three dormant Salesforce columns. `repoFullName` is unique, which is what lets the webhook match an event to a submission with one indexed lookup. The Salesforce columns exist so a future synchronization job can query `WHERE salesforce_sync_status = 'PENDING'` without a migration then; nothing writes them today.
+**`submissions`** is one row per assignment and student, carrying repository and pull request identity, `headSha`, `gradedHeadSha`, `submittedUrl` (where the work is when there is no repository), `submittedAt`, `isLate`, `lastActivityAt`, the final score fields, and three dormant Salesforce columns. `repoFullName` is unique, which is what lets the webhook match an event to a submission with one indexed lookup. The Salesforce columns exist so a future synchronization job can query `WHERE salesforce_sync_status = 'PENDING'` without a migration then; nothing writes them today.
 
-**`grading_drafts`** is one row per grading run, keyed by submission and head SHA. A new push creates a new row and marks the previous one `SUPERSEDED` rather than overwriting it, so an instructor's in-progress review of an older run is never silently replaced. `modelMetadata` records the model id, prompt version, grading asset commit SHA, and all four token counts. Approval details — `approvedAt`, `approvedBy`, `postedPrCommentId` — live here rather than on the submission, because each approval posts its own comment and the approved drafts of a submission in order are its feedback history.
+**`grading_drafts`** is one row per grading run, keyed by submission and head SHA. A new push creates a new row and marks the previous one `SUPERSEDED` rather than overwriting it, so an instructor's in-progress review of an older run is never silently replaced. `modelMetadata` records the model id, prompt version, grading asset commit SHA, and all four token counts, and is **null on a draft an instructor wrote by hand** — which is what tells the two apart. `headSha` is nullable for the same reason: work with no commit has none, and every reader compares that column against the submission's own to decide whether a draft has been overtaken, so null compares as "no commit to be out of date against" rather than as a placeholder each of those comparisons would have to recognise. Approval details — `approvedAt`, `approvedBy`, `postedPrCommentId` — live here rather than on the submission, because each approval posts its own comment and the approved drafts of a submission in order are its feedback history.
 
 **`grading_draft_sections`** are child rows, because one submission can have more than one graded section per run. The submission's final score on approval is the sum of a run's section scores.
 
 **`test_runs`** is described under [test execution](#test-execution).
 
 ### Migrations are authored with `migrate diff`, never `migrate dev`
+
+**A running dev server does not notice a regenerated client.** The Prisma client is generated to `lib/generated/prisma`, which is gitignored, so Next's watcher does not invalidate the compiled chunk holding it — a dev server started before a migration goes on serving the old client and reports the new column as `Unknown argument` or `Unknown field ... for select statement`, listing exactly the fields the schema had when it started. The fix is `rm -rf .next && npm run dev`, and `predev` runs `prisma generate` so a fresh start always has a current client. Worth recognising the shape of that error, because it points at the query rather than at the cause and reads like a broken select.
 
 `prisma migrate dev` reports drift on this database and offers to reset both the `auth` and `public` schemas. The drift is not real: `tables.external` in `prisma.config.ts` excludes Supabase's auth *tables* from diffing, but there is no equivalent for enum *types*, so Supabase's own `aal_level`, `factor_type`, `one_time_token_type` and the rest always look like enums the migration history did not create. The full authoring recipe is at the bottom of `prisma.config.ts`; `npm run db:migrate` is a guard that points at it.
 
@@ -246,7 +254,9 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 
 **A GitHub App is installed per organization.** The grading guides are in `The-Marcy-Lab-School` while student repositories are in `marcy-lms-test`, and the installation covering one cannot read the other. `GRADING_ASSETS_INSTALLATION_ID` names the second installation; `scripts/list-installations.ts` prints the ids.
 
-**`assignments.accept`** creates the repository from the template as `{assignmentRepoName}-{github login}`, adds the student as a collaborator with push permission, adds every `course_instructors` row for that course as a collaborator, removes `classroom.yml`, records the repository identity on the submission, and sets the status to `ACCEPTED`. It is idempotent: if a previous attempt created the repository but its database write never landed, it reuses the existing repository rather than failing on the name collision. An instructor with no linked GitHub account is skipped with a warning rather than failing the whole operation.
+**`assignments.accept`** branches on the kind first, because what accepting *is* depends on it. For `GOOGLE_DOC` it records the submission as `ACCEPTED` and returns the copy prompt — `templateDocUrl` with its last path segment replaced by `/copy` — so the application creates nothing, holds no Google credentials, touches no student's Drive, and the copy belongs to the student from the moment Google makes it. The substitution is worth being honest about: it works because that is how Google Docs URLs are shaped, which is why `assignmentSpecSchema` checks the link's shape rather than accepting any URL — one it did not match is one the substitution would leave untouched, sending every student to the instructor's own document to edit in place. The alternative was Drive API integration with OAuth against every student's Google account, which is a great deal of machinery for something a link already does. `FILE_UPLOAD` has no accept at all: there is nothing to hand out, so the assignment stays `NOT_STARTED` until the student submits.
+
+For `REPO` it creates the repository from the template as `{assignmentRepoName}-{github login}`, adds the student as a collaborator with push permission, adds every `course_instructors` row for that course as a collaborator, removes `classroom.yml`, records the repository identity on the submission, and sets the status to `ACCEPTED`. It is idempotent: if a previous attempt created the repository but its database write never landed, it reuses the existing repository rather than failing on the name collision. An instructor with no linked GitHub account is skipped with a warning rather than failing the whole operation.
 
 **The webhook** (`app/api/webhooks/github/route.ts`) verifies the signature against the raw request body, answers `ping` so the App's settings page shows a green check, and returns 200 for events it does not handle so GitHub does not mark the webhook as failing. For `opened`, `reopened`, and `synchronize` targeting `main` it matches `repository.full_name` to a submission and applies this rule:
 
@@ -257,6 +267,8 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 | `synchronize`         | any                     | untouched     |
 
 Keyed on the current status as well as the action, because the action alone is not enough: a student who closes a pull request and opens a new one fires `opened` a second time, and treating that as a first submission would reset a graded row. `synchronize` records the new commit and never changes the status, because a commit is not a claim of completion and a graded submission must not drop back into the queue because someone fixed a typo.
+
+**`submissions.submitWork` is the same signal for a kind with no webhook.** A pull request opening is an event to observe; a document has nothing to observe, so a student pressing Submit is the declaration: it sets `SUBMITTED`, stamps `submittedAt`, stores `submittedUrl`, and computes `isLate` against `dueAt` exactly as the webhook does. Without it, finished hand-graded work would never enter triage and would read as never started. It refuses a `REPO` assignment outright, because accepting one there would let a student mark work submitted with no code to look at and would make the webhook a second authority on the same columns.
 
 This rule costs something, and it is the right cost. A student who opens a pull request before starting appears in the queue with almost nothing in it — visible immediately, and the model remarks on it — whereas work that is never declared ready is silently never reviewed. Students need to be told that opening the pull request is the submission.
 
@@ -505,6 +517,20 @@ NOT_STARTED → ACCEPTED → SUBMITTED → GRADED → RESUBMITTED
 2. Post a pull request comment. Best-effort and retryable, so a brief GitHub outage does not block the grade — `grading-drafts.retryComment` sends it later, and an approval whose comment never posted is a distinct triage bucket rather than an invisible failure.
 3. Set `salesforceSyncStatus` to `PENDING`, inert until that phase exists.
 
+**Delivery has three outcomes, not two**: `posted`, `failed`, and `not_applicable`. `postedPrCommentId` being null means two opposite things — a comment that failed to send, and one there was never anywhere to send — so `deliveryOutcome` in `lib/grade/approve.ts` names which, and every reader branches on the name. Collapsing them reported an impossibility as a fault in three places at once: a toast saying the comment did not post, a retry button that could never succeed, and a triage entry nothing could clear. The Prisma predicate that finds undelivered approvals lives beside that function as `undeliveredApprovalWhere`, and takes each caller's scope as an argument so the deliverability condition cannot be dropped at one of its four call sites — one decides what a loaded row means and the other decides which rows come back, and a difference between them would be invisible from either side.
+
+A derived outcome rather than a column has one edge worth knowing: a repository assignment hand-graded before the student opens a pull request reads as `not_applicable` until they open one, and as `failed` afterwards. There is somewhere to post by then, so that is arguably right — but it is a behaviour a stored column would not have, and recording the outcome at approval time is the alternative if it ever reads as wrong.
+
+**A section with no score or no feedback is refused** rather than released as a zero. That is what a hand-written draft starts as, and the two are indistinguishable once written.
+
+### Grading by hand
+
+A `GOOGLE_DOC` or `FILE_UPLOAD` assignment, or any assignment whose sections are all manual, is graded by an instructor writing the feedback and the score. The realization that made this small: **a manual grade is the existing review screen with an empty draft, not a new screen.** `gradingDrafts.startManual` writes a `GradingDraft` with null `modelMetadata` and one blank section per declared section, carrying the section's own point value so the total is not typed twice. Everything after that is unchanged — the same editor, the same approval, the same gradebook, the same student feedback screen, and the same feedback history across resubmissions.
+
+Pressing it twice returns the existing draft rather than opening a second one, because two blank drafts for one submission would leave an instructor choosing between identical empty forms, one of which their writing is not in.
+
+The screen offers one action or the other and never both: `manualOnly` comes from the server, from the same reading of the assignment that put the submission in its triage bucket. So there is no "generate a report" button on work nothing can generate one for, and no "grade again" beside a draft an instructor wrote themselves.
+
 The student's page reads the graded columns directly, so feedback appears on approval with no publish step — and appears even when the comment failed to post.
 
 Three guards refuse rather than warn, and they live in the procedure because a guard that lives only in a dialog is decoration: approving the same draft twice, approving a superseded draft, and a score stated in the report text that disagrees with the recorded score. That last check is `statedScoreInText` in `lib/grade/report-text.ts`, which is free of database and network imports specifically so the browser's warning and the server's refusal are literally the same function.
@@ -525,14 +551,17 @@ Together they produce information neither gives alone: a submission with newer c
 
 `lib/grade/triage.ts` holds one function that derives a bucket from the submission status, its draft, whether that draft is stale, and whether an approval failed to deliver. Triage, the queue filter, and the gradebook cells all call it, so the three cannot disagree about what is outstanding.
 
-| Bucket                | Meaning                                                               |
-| --------------------- | --------------------------------------------------------------------- |
-| `needs_report`        | Submitted, and no report has been generated                           |
-| `draft_ready`         | A report is waiting to be reviewed                                    |
-| `needs_manual_review` | The cross-check found something that gates approval                   |
-| `grading_failed`      | The run failed before producing a report — infrastructure, not a zero |
-| `comment_not_posted`  | Approved, but the comment never reached GitHub                        |
-| `generating`          | A run is in flight; not counted as outstanding                        |
+| Bucket                | Meaning                                                                     |
+| --------------------- | --------------------------------------------------------------------------- |
+| `needs_report`        | Submitted, and no report has been generated                                 |
+| `needs_manual_grade`  | Submitted on an assignment the pipeline cannot grade; waiting on a person    |
+| `draft_ready`         | A report is waiting to be reviewed                                          |
+| `needs_manual_review` | The cross-check found something that gates approval                         |
+| `grading_failed`      | The run failed before producing a report — infrastructure, not a zero       |
+| `comment_not_posted`  | Approved, there is a pull request, and the comment never reached it          |
+| `generating`          | A run is in flight; not counted as outstanding                              |
+
+The last two are the pair that has to be kept apart from their neighbours. `needs_manual_grade` is not `needs_report` because the action differs and only one of them exists — `needs_report` offers a button that must not appear on an assignment nothing can generate a report for — and it is not `needs_manual_review`, which is a report that exists and cannot be trusted. And `comment_not_posted` requires a pull request to have existed: without that condition every finished hand-graded submission sits there permanently, in triage, the queue, and the gradebook alike, with nothing an instructor can do to clear it.
 
 **Triage counts work the instructor has not done, which includes work not yet started.** Reports are generated *by* an instructor, so a submission with no draft at all is the first bucket rather than a footnote — an empty queue has to mean caught up, not merely nothing generated.
 
@@ -593,6 +622,10 @@ Every claim below was checked against real repositories in the `marcy-lms-test` 
 | Writing quality        | 1 = 1             | 1 against 2         |
 
 Every technical score across both pairs agrees with the instructor's. The one difference is pair 2's writing score, on an acknowledged boundary case: the model places it at 1 and quotes the rubric back, since the 2 band requires that errors "do not take away from the understanding". An instructor may reasonably prefer 2 — which is the kind of judgment a rubric cannot fully specify, and the reason a draft is reviewed rather than published. Calibration also found two errors in the reference reports rather than in the pipeline, both since corrected. Coding sections are not calibrated: scoring them is closer to objective, and no graded samples exist.
+
+**A hand-graded assignment, end to end.** `verify:approve` authors a `GOOGLE_DOC` assignment through `create`, publishes it, accepts it as the student and gets the `/copy` link back with no repository created, submits a document link, finds the submission in the queue as `needs_manual_grade`, opens a blank draft, presses the button a second time and gets the same draft rather than a second one, is refused approval while the section is blank, writes a score and feedback, releases it, and then confirms the released submission is in **no** bucket — not in triage, not in the queue, not in the gradebook — with delivery reported as `not_applicable` and no error message, and that the student sees the grade. All of it through the tRPC callers inside a transaction that is rolled back.
+
+That last part is the check the whole delivery change exists for. It also required `approveDraft` to accept the caller's Prisma client: it read the module's own, so rows created inside a caller's transaction were invisible to it and the most consequential write in the application could only ever be tested up to the guards that refuse before writing.
 
 **Approval and resubmission.** Approving recorded 30/30, set `isComplete`, wrote `gradedHeadSha`, and posted a comment; approving the same draft twice is refused rather than posting again. A student calling instructor procedures is refused with `FORBIDDEN`, and cross-course access is refused for an instructor who does not teach the course. A real commit pushed after grading left the status at `GRADED` and moved `headSha` while `gradedHeadSha` stayed put, which is what marks a submission revised since grading. The student's declaration set `RESUBMITTED`, and a second approval posted a distinct second comment.
 

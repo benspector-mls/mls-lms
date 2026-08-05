@@ -1,7 +1,14 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { approveDraft, ApprovalError, retryComment } from '@/lib/grade/approve';
+import { isManualOnly, manualSections } from '@/lib/assignments/spec';
+import { Prisma } from '@/lib/generated/prisma/client';
+import {
+  approveDraft,
+  ApprovalError,
+  deliveryOutcome,
+  retryComment,
+} from '@/lib/grade/approve';
 import { GradingAssetsError } from '@/lib/grade/assets';
 import { generateReportForSubmission, ReportGenerationError } from '@/lib/grade/generate-report';
 import { ProviderError } from '@/lib/grade/provider';
@@ -122,6 +129,90 @@ export const gradingDraftsRouter = createTRPCRouter({
     }),
 
   /**
+   * Opens an empty draft for an instructor to write into.
+   *
+   * The whole of hand grading. A manual grade is not a separate screen or a separate record —
+   * it is a `GradingDraft` whose sections start blank and whose `modelMetadata` is null,
+   * edited through the same editor and released through the same `approve`. Everything
+   * downstream of approval already works without caring where the text came from: the
+   * gradebook, the student's feedback screen, the score history, and the feedback rounds a
+   * resubmission accumulates.
+   *
+   * One row per section the assignment declares, so the point total the instructor scores out
+   * of is the assignment's own rather than a number typed twice.
+   */
+  startManual: instructorProcedure
+    .input(z.object({ submissionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
+
+      const sections = manualSections(submission.assignment.sections);
+
+      if (sections.length === 0) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'This assignment has no sections graded by hand, so there is nothing to open. ' +
+            'Generate a report instead.',
+        });
+      }
+
+      /*
+        An existing draft is returned rather than a second one created. Pressing the button
+        twice is the ordinary way this happens — the first press is slow enough to look like
+        nothing happened — and two blank drafts for one submission would leave an instructor
+        choosing between identical empty forms, one of which their edits are not in.
+      */
+      const open = await ctx.db.gradingDraft.findFirst({
+        where: {
+          submissionId: submission.id,
+          status: 'READY',
+          approvedAt: null,
+          // `DbNull` rather than `null`: on a nullable Json column, Prisma needs to be told
+          // whether it is matching a SQL NULL or the JSON value `null`, and this column being
+          // absent is the SQL one.
+          modelMetadata: { equals: Prisma.DbNull },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+
+      if (open) return open;
+
+      return ctx.db.gradingDraft.create({
+        data: {
+          submissionId: submission.id,
+          /*
+            The commit the work was at when grading started, and null when there is no commit
+            — a document or an upload. Recorded rather than left null for a repository
+            assignment graded by hand, because everything that later asks "has this been
+            revised since it was graded" compares the two, and a null here would make a
+            hand-graded repository submission permanently unable to answer it.
+          */
+          headSha: submission.headSha,
+          // READY, because it is: there is nothing to wait for and nothing to check. The
+          // status describes whether the draft can be reviewed, not whether it is finished —
+          // an unscored section is refused at approval, which is where it matters.
+          status: 'READY',
+          // Null is what marks this as hand-written rather than generated. The review screen
+          // reads it to decide whether to show what a model claimed.
+          modelMetadata: undefined,
+          sections: {
+            create: sections.map((section) => ({
+              // The instructor's own label, which is what a manual section has instead of a
+              // type. It is what the review screen and the feedback history call it.
+              sectionType: section.label,
+              reportMarkdown: null,
+              scoreEarned: null,
+              scorePossible: section.pointValue,
+            })),
+          },
+        },
+        select: { id: true },
+      });
+    }),
+
+  /**
    * Every draft for one submission, newest first.
    *
    * An empty array is normal: no assignment has a draft until someone asks for one.
@@ -142,6 +233,12 @@ export const gradingDraftsRouter = createTRPCRouter({
       const declaredSections = Array.isArray(submission.assignment.sections)
         ? (submission.assignment.sections as { type?: string }[])
         : [];
+
+      // Which of the two ways of grading this assignment applies. Answered here rather than
+      // by the interface reading `sections` for itself, because it is the same question
+      // triage asks to decide the bucket and the two must not disagree — one saying there is
+      // a report to generate while the other says the work is waiting on a person.
+      const manualOnly = isManualOnly(submission.assignment.sections);
 
       const graded = await ctx.db.submission.findUnique({
         where: { id: input.submissionId },
@@ -167,16 +264,27 @@ export const gradingDraftsRouter = createTRPCRouter({
       return {
         drafts,
         /**
+         * Whether this assignment is graded by hand rather than by the pipeline, which decides
+         * which action the review screen offers. Never both: a report cannot be generated for
+         * an assignment with nothing the model can read, and offering the button would promise
+         * something that cannot happen.
+         */
+        manualOnly,
+        /** Whether an empty draft can be opened to write a grade into. */
+        canGradeByHand: manualOnly && manualSections(submission.assignment.sections).length > 0,
+        /**
          * True when there is something to grade. A submission with no pull request,
          * or an assignment with no sections mapping, cannot produce a report — and
          * saying so is more useful than a button that throws.
          */
         canGenerate:
+          !manualOnly &&
           submission.prNumber !== null &&
           submission.headSha !== null &&
           declaredSections.length > 0,
-        blockedReason:
-          submission.prNumber === null || submission.headSha === null
+        blockedReason: manualOnly
+          ? null
+          : submission.prNumber === null || submission.headSha === null
             ? 'The student has not opened a pull request yet.'
             : declaredSections.length === 0
               ? 'This assignment has no sections mapping, so there is no rubric to grade against.'
@@ -196,12 +304,17 @@ export const gradingDraftsRouter = createTRPCRouter({
         grade: graded && {
           ...graded,
           /**
-           * Null when nothing has been approved: there is no comment to have gone out or
-           * not, and saying `true` there — which `latestApproval?.postedPrCommentId !==
-           * null` did, because `undefined !== null` — claims a delivery that never
-           * happened. Three states, so three values.
+           * What became of the most recent approval's comment, by name. Null when nothing
+           * has been approved: there is no comment to have gone out or not.
+           *
+           * Computed here rather than in the browser, because `deliveryOutcome` is the one
+           * authority on the difference between a comment that failed and one there was
+           * never anywhere to send — and the interface holds a submission whose null
+           * `prNumber` it would otherwise have to interpret for itself.
            */
-          commentPosted: latestApproval ? latestApproval.postedPrCommentId !== null : null,
+          delivery: latestApproval
+            ? deliveryOutcome(latestApproval, submission)
+            : null,
         },
       };
     }),
@@ -316,6 +429,10 @@ export const gradingDraftsRouter = createTRPCRouter({
         return await approveDraft({
           draftId: input.draftId,
           approvedByProfileId: ctx.profile.id,
+          // The request's own client rather than the module's. Identical in production, and
+          // what lets a caller driving this inside a transaction see its own rows — which is
+          // how the approval path is checked against real data without writing any.
+          client: ctx.db,
         });
       } catch (err) {
         if (err instanceof ApprovalError) {

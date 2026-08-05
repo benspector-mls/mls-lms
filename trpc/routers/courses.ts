@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { isManualOnly } from '@/lib/assignments/spec';
+import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
@@ -164,6 +166,11 @@ export const coursesRouter = createTRPCRouter({
             pointValue: true,
             dueAt: true,
             githubOrg: true,
+            kind: true,
+            // Read for the grading mode below and not returned. Each cell's bucket depends
+            // on whether the pipeline can grade this assignment at all, and asking the
+            // assignment once is cheaper than carrying the answer on every cell.
+            sections: true,
             // So the course page can mark an unpublished assignment as a draft. A student
             // cannot see it at all; an instructor needs to know why.
             distributedAt: true,
@@ -205,15 +212,14 @@ export const coursesRouter = createTRPCRouter({
       });
 
       const undelivered = await ctx.db.gradingDraft.findMany({
-        where: {
-          submission: { assignment: { courseId: course.id } },
-          status: 'APPROVED',
-          postedPrCommentId: null,
-        },
+        where: undeliveredApprovalWhere({ assignment: { courseId: course.id } }),
         select: { submissionId: true },
         distinct: ['submissionId'],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+      const manualOnlyByAssignment = new Map(
+        assignments.map((assignment) => [assignment.id, isManualOnly(assignment.sections)]),
+      );
 
       return {
         course: {
@@ -224,7 +230,11 @@ export const coursesRouter = createTRPCRouter({
             ? course.moduleStructure.filter((tag): tag is string => typeof tag === 'string')
             : [],
         },
-        assignments,
+        assignments: assignments.map(({ sections, ...assignment }) => ({
+          ...assignment,
+          /** Whether this assignment is graded by hand, which the header cell shows. */
+          manualOnly: isManualOnly(sections),
+        })),
         enrollments,
         /**
          * One entry per submission that exists. A student who has not accepted an
@@ -243,6 +253,7 @@ export const coursesRouter = createTRPCRouter({
               draft,
               draftIsStale,
               undeliveredIds.has(submission.id),
+              manualOnlyByAssignment.get(submission.assignmentId) ?? false,
             ),
           };
         }),

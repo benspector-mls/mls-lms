@@ -15,6 +15,7 @@ import {
   History,
   Loader2,
   Pencil,
+  PencilLine,
   RotateCcw,
   Sparkles,
   Undo2,
@@ -105,23 +106,36 @@ function effectiveReport(section: Section): string | null {
 export function GradingReview({
   submission,
   assignmentTitle,
+  assignmentKind,
   completionThreshold,
   now,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
+  /** Decides whether a test suite is even a possibility for this assignment. */
+  assignmentKind: 'REPO' | 'GOOGLE_DOC' | 'FILE_UPLOAD';
   completionThreshold: number;
   now: Date;
 }) {
   const trpc = useTRPC();
   const [actionsSlot, setActionsSlot] = React.useState<HTMLDivElement | null>(null);
 
+  /*
+    Test evidence exists only where a template repository does. The suite comes from the
+    template and runs against a checkout of the student's repository, so a Google Doc or an
+    uploaded file has nothing to execute — not "no tests configured", which is a real state
+    an assignment can be in and worth reporting, but no such thing as tests. The card is
+    absent rather than empty, and the query is not made.
+  */
+  const canHaveTests = assignmentKind === 'REPO';
+
   const drafts = useQuery(
     trpc.gradingDrafts.listForSubmission.queryOptions({ submissionId: submission.id }),
   );
-  const testRuns = useQuery(
-    trpc.testRuns.listForSubmission.queryOptions({ submissionId: submission.id }),
-  );
+  const testRuns = useQuery({
+    ...trpc.testRuns.listForSubmission.queryOptions({ submissionId: submission.id }),
+    enabled: canHaveTests,
+  });
 
   if (drafts.isPending) {
     return (
@@ -171,13 +185,15 @@ export function GradingReview({
 
             <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
-            <TestEvidence
-              submissionId={submission.id}
-              runs={testRuns.data}
-              currentRun={currentRun}
-              loading={testRuns.isPending}
-              now={now}
-            />
+            {canHaveTests && (
+              <TestEvidence
+                submissionId={submission.id}
+                runs={testRuns.data}
+                currentRun={currentRun}
+                loading={testRuns.isPending}
+                now={now}
+              />
+            )}
 
             <DraftBody
               key={draft?.id ?? 'none'}
@@ -298,9 +314,10 @@ function CommentRecoveryNotice({
     }),
   );
 
-  // Explicitly false, not merely falsy: null means nothing has been approved, which is
-  // not a comment that failed to post.
-  if (!grade || grade.commentPosted !== false) return null;
+  // Only a real failure. `not_applicable` — a hand-graded assignment with no pull request
+  // — is a finished grade, and offering it a retry would offer a button that cannot
+  // succeed against a fault that does not exist.
+  if (grade?.delivery !== 'failed') return null;
 
   return (
     <Alert className="border-amber-500/40 text-amber-700 dark:text-amber-300">
@@ -416,11 +433,21 @@ function DraftBody({
         <StateCard
           icon={GitPullRequest}
           title="Nothing submitted yet"
-          description="This student has a repository but has not opened a pull request, so there is nothing to grade."
+          description={
+            data.manualOnly
+              ? 'This student has not submitted this assignment, so there is nothing to grade.'
+              : 'This student has a repository but has not opened a pull request, so there is nothing to grade.'
+          }
         />
       );
     }
-    return <GeneratePanel submission={submission} data={data} label="Generate report" />;
+    // One of the two, never both. Which one is decided on the server, from the same reading
+    // of the assignment that put this submission in its triage bucket.
+    return data.manualOnly ? (
+      <HandGradePanel submission={submission} data={data} />
+    ) : (
+      <GeneratePanel submission={submission} data={data} label="Generate report" />
+    );
   }
 
   if (draft.status === 'GENERATING') {
@@ -497,6 +524,7 @@ function DraftBody({
           completionThreshold={completionThreshold}
           draft={draft}
           approvalBlocked={stale}
+          manualOnly={data.manualOnly}
         />
       ) : (
         <StateCard
@@ -571,6 +599,73 @@ function useGenerateReport() {
       },
       onError: (error) => toast.error(error.message),
     }),
+  );
+}
+
+/**
+ * Opens an empty draft to write a grade into.
+ *
+ * The counterpart to `GeneratePanel` for work the pipeline cannot read. It creates the same
+ * kind of record — a draft with a section per declared section — so everything after this
+ * point is the editor and the approval an AI-graded submission goes through, rather than a
+ * separate path with its own way of being wrong.
+ */
+function HandGradePanel({
+  submission,
+  data,
+}: {
+  submission: QueueSubmission;
+  data: DraftList;
+}) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  const start = useMutation(
+    trpc.gradingDrafts.startManual.mutationOptions({
+      onSuccess: () => void queryClient.invalidateQueries(),
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <PencilLine className="size-4 text-violet-600 dark:text-violet-400" />
+          Grade this by hand
+        </CardTitle>
+        <CardDescription>
+          This assignment has nothing the pipeline can read, so there is no report to
+          generate. Open the student&apos;s work, then write the feedback and the score here.
+          Nothing reaches the student until you release it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-3">
+        <Button
+          disabled={!data.canGradeByHand || start.isPending}
+          onClick={() => start.mutate({ submissionId: submission.id })}
+        >
+          {start.isPending ? (
+            <Loader2 data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <PencilLine data-icon="inline-start" />
+          )}
+          {start.isPending ? 'Opening…' : 'Start grading'}
+        </Button>
+
+        {submission.submittedUrl && (
+          <a
+            href={submission.submittedUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+          >
+            Open what the student submitted
+            <ExternalLink data-icon="inline-end" />
+          </a>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -662,6 +757,7 @@ function DraftEditor({
   completionThreshold,
   draft,
   approvalBlocked,
+  manualOnly,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
@@ -669,6 +765,8 @@ function DraftEditor({
   draft: Draft;
   /** True when something else on the screen already refuses approval, e.g. a stale draft. */
   approvalBlocked: boolean;
+  /** True when this assignment is graded by hand, so there is no report to generate again. */
+  manualOnly: boolean;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -687,7 +785,9 @@ function DraftEditor({
     trpc.gradingDrafts.approve.mutationOptions({
       onSuccess: (result) => {
         setConfirmOpen(false);
-        if (result.commentError) {
+        // Named outcomes, because "the comment did not post" is a warning on a repository
+        // assignment and a falsehood on one that never had a pull request.
+        if (result.delivery === 'failed') {
           toast.warning(
             `Grade recorded, but the comment did not post: ${result.commentError}`,
           );
@@ -952,7 +1052,12 @@ function DraftEditor({
         </DialogContent>
       </Dialog>
 
-      <RegenerateRow submissionId={submission.id} unsaved={unsaved} />
+      {/*
+        Absent when there is nothing to generate. Offering "grade again" on a hand-written
+        draft would offer to replace the instructor's own writing with a report the pipeline
+        cannot produce — and their way of starting over is to edit what is in front of them.
+      */}
+      {!manualOnly && <RegenerateRow submissionId={submission.id} unsaved={unsaved} />}
 
       {/*
         Last, because it is provenance rather than part of the review: which model wrote

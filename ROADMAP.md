@@ -47,14 +47,15 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-1. **[Assignment authoring](#phase-7-assignment-authoring)** — in progress. The kind axis and the validation schema are built; the catalogue, the procedures, and the screens are not.
-2. **[Token management](#token-management)** — what a report costs and where the cost actually is, and a filter so that nothing gitignored is ever sent to the model. That last one is a disclosure fix as much as a cost one, which is an argument for pulling it forward if a student ever commits a `.env`.
-3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-5. **[Course creation](#course-creation)**
-6. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
-7. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
-8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Assignment authoring](#phase-7-assignment-authoring)** — in progress, and nearly done. Every kind is creatable, publishable, submittable, and gradable; what remains is [file storage](#file-upload-needs-somewhere-to-put-the-file), without which a `FILE_UPLOAD` assignment can be created but not handed in.
+2. **[Module management](#module-management)** — a course's module sequence is currently whatever the seed wrote, and nothing can change it. The half of course creation worth having early, because every other course-level decision is downstream of which modules a cohort takes and in what order.
+3. **[Token management](#token-management)** — what a report costs and where the cost actually is, and a filter so that nothing gitignored is ever sent to the model. That last one is a disclosure fix as much as a cost one, which is an argument for pulling it forward if a student ever commits a `.env`.
+4. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+5. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+6. **[Course creation](#course-creation)**
+7. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
+8. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
+9. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -223,78 +224,50 @@ The same applies to `Math.random()`. Generate such values inside a step, where t
 
 ## Phase 7: assignment authoring
 
-**Started.** The kind axis and the validation schema are built; the catalogue, the procedures, and the screens are not.
+**Nearly done.** All three kinds are creatable, publishable, submittable, and gradable. What is left is [somewhere to put an uploaded file](#file-upload-needs-somewhere-to-put-the-file).
 
-The application can grade, review, approve, and deliver. It cannot create the thing being graded. Every course, enrollment, and assignment in the database exists because `prisma/seed.ts` put it there, and the seed does not generalize: `SEED_ASSIGNMENTS` is a hardcoded map of three repository names to their section mappings, and an unknown template fails the seed rather than guessing. Setting up a real cohort is currently impossible without editing TypeScript. The seed's own comments already named the gap — the map is "a stopgap until an instructor can enter them when creating an assignment."
+An instructor can now put every assignment they give into one place, and the ones the pipeline cannot grade are graded by hand in the same interface as the rest. How each kind is distributed, collected, and graded is in the README — [the loop](README.md#the-loop), [`accept` and `submitWork`](README.md#github-integration), and [grading by hand](README.md#grading-by-hand).
 
-**Scope is assignment authoring only**: creating, editing, duplicating, and removing assignments within a course that already exists. Course creation and the invite-link flow come after; note that nothing reads `inviteToken` today, so a newly created course would have no way to gain students.
+**Scope was assignment authoring only**: creating, editing, duplicating, and removing assignments within a course that already exists. Course creation and the invite-link flow come after; note that nothing reads `inviteToken` today, so a newly created course would have no way to gain students.
 
-**Not repository-only, on reflection.** The plan originally scoped this to repository-backed assignments alone, on the reasoning that the catalogue — the answer-keys repository as the single source of truth for what assignments exist — only needs the one shape it already has. That reasoning does not survive contact with the goal: authoring is only worth building if it can eventually create *every* assignment the program gives, and a Google Doc reflection or an uploaded resume PDF has no repository, no template, and no pull request to diff. Building the form against a repository-shaped catalogue first would mean writing the authoring path twice — once now, once when a non-repo kind arrives and cannot fill three required columns.
+What is deliberately *not* here, and is [item 8](#the-order-of-work): AI grading for the two non-repository kinds. That needs to read a Google Doc's contents or an uploaded file, which needs Drive or storage access, and it needs [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types describes a resume or a reflection.
 
-**All three kinds are creatable in this phase. Non-repo kinds are graded by hand.** That is the decision that makes the scope tractable: a Google Doc or an uploaded file can be created, published, seen by a student, and graded — with an instructor typing the score and the feedback — with no rubric, no answer keys, and no model call. Everything that would require AI grading for those kinds waits for [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and everything that would require reading a Google Doc's contents waits with it.
+`prisma/seed.ts`'s `SEED_ASSIGNMENTS` map is now redundant and should shrink to the minimum needed for a working local database rather than keep pretending to be a curriculum registry. That is on the [code review pass](#a-code-review-pass).
 
-The reason this is worth doing now rather than after is that it removes the last reason to keep assignments outside the application. An instructor can put every assignment they give into one place, and the ones the pipeline cannot grade yet are graded the way they are graded today, in the same interface as the rest.
+#### What manual grading meant for the machinery — done
 
-#### What each non-repo kind actually does — decided
+All of it is built and described in [the README](README.md#grading-by-hand): `IMPLEMENTED_KINDS` covers all three kinds, `accept` branches on the kind, `submissions.submitWork` is the submission signal where there is no webhook, delivery reports three outcomes rather than two, triage has a `needs_manual_grade` bucket, and `gradingDrafts.startManual` opens the empty draft an instructor writes into.
 
-**`GOOGLE_DOC`.** The instructor sets a template document URL ending in `/view`, a due date, a module, a name, a point total, and submission instructions as rich text. A student pressing **Accept** is sent to that URL with `/view` swapped for `/copy`, which is Google's own prompt to take a copy — so the application creates nothing and stores no credentials, and the copy belongs to the student from the moment it exists. The student then pastes their copy's URL into a field on their submission and presses **Submit**, which is what declares it ready. The instructor opens that link, comments **in the document rather than in the application**, and returns to enter a grade.
+Two decisions from that work are worth keeping here rather than only in the code, because both closed off a direction.
 
-The `/view` to `/copy` substitution is worth keeping honest about: it works because that is how Google Docs sharing URLs are shaped, and it will break if that changes. The alternative was Drive API integration to copy documents on the student's behalf, which needs OAuth against each student's Google account and is a great deal of machinery for something a link already does.
+**One grading mode per assignment.** A mix of pipeline-graded and hand-graded sections in one assignment is refused by `assignmentSpecSchema`. It was expressible for a week and nothing in the curriculum was ever one; supporting it means a generated draft covering some of an assignment's sections and not others, which makes the assignment's point total exceed what approving can record — a 30-point assignment releasing as 20 out of 20. Two assignments is the answer, and one section per assignment is where this is heading anyway. The two non-repository kinds accept only manual sections for a stronger version of the same reason: an AI section on a document would validate, save, sit in the queue as a report waiting to be generated, and fail on the missing pull request at the moment an instructor asked for it.
 
-**`FILE_UPLOAD`.** The instructor sets a due date, a module, a name, a point total, and submission instructions. There is no template and therefore **no Accept button at all** — the assignment stays `NOT_STARTED` until the student uploads a file and presses Submit. The instructor grades in the application, since there is nowhere else to comment.
+**The thin case given up** is a coding repository with a hand-marked reflection inside it, which cannot be split into two assignments because each generates its own repository. It is thin because the hand-graded kinds are precisely the ones with no repository: a reflection living inside a coding repo is a `short_response` section the pipeline already grades and is calibrated on.
 
-**What both share, and what it implies.**
+#### `FILE_UPLOAD` needs somewhere to put the file
 
-- **A student-side Submit is what enters the queue.** For a repository assignment, opening the pull request is that declaration and the webhook records it. These kinds have no webhook, so a procedure does the same job: set `SUBMITTED`, stamp `submittedAt`, and compute `isLate` against `dueAt`. Without it, hand-graded work never appears in triage and is invisible rather than merely unstarted.
-- **Submission instructions are a new column on `assignments`.** Rich text in the sense the rest of the application already means it: markdown, authored in a textarea and rendered through the existing `components/markdown.tsx`. A WYSIWYG editor would be a new dependency to render something the application already renders, and feedback is already authored the same way.
-- **The document template URL is a new nullable column**, required when the kind is `GOOGLE_DOC` and null otherwise — the same shape as the three GitHub columns, enforced in `assignmentSpecSchema`'s union rather than by the column.
-- **The student's submitted URL is a new nullable column on `submissions`.** `FILE_UPLOAD` needs a stored file instead, which is the largest unknown in either flow: it means Supabase Storage, a bucket, a privacy rule that keeps one student's upload from being readable by another, a size limit, and an accepted-types list. Worth treating as its own piece of work rather than a field on a form.
-- **The instructor's comment needs no new field.** A manual grade is a draft with blank sections, and a section's report markdown *is* the comment — the existing review editor already writes it, and approving already copies it to the submission and shows it to the student. What `FILE_UPLOAD` does need is a way to download the file from the review screen, since there is no link to open.
+The one part of this phase still outstanding, and the reason it was left last: it is a piece of infrastructure rather than a field on a form.
 
-#### What manual grading means for the machinery
+A `FILE_UPLOAD` assignment can be authored, published, and hand-graded, and `submissions.submitWork` already records a submission for it. What a student cannot do is upload anything, so their screen says so rather than offering a control that does nothing. What it needs, and the decisions each part forces:
 
-The useful realization: **a manual grade is the existing review screen with an empty draft, not a new screen.** Approving already copies section markdown and scores onto the submission, computes `isComplete` against the threshold, and shows the student — none of which cares where the text came from. So a manual grade is a `GradingDraft` whose sections start blank and whose `modelMetadata` is null, edited through the same editor and released through the same `approve`. The gradebook, the student's feedback screen, and the score history all work unchanged.
-
-Five things that do have to change, each small and each currently written as though a repository always exists:
-
-- **`IMPLEMENTED_KINDS` grows to all three.** It currently gates `accept`, so it has to stop meaning "can be graded by the pipeline" and start meaning "can be created and graded at all".
-- **A section says how it is graded — done.** A second discriminated union, on the section: `{ grading: "ai", type, rubricId, answerKeyPaths, ... }` against `{ grading: "manual", label, pointValue }`. Strict on both sides, so a manual section cannot carry a rubric it would never have applied and an AI section cannot omit one it needs. `pointValue` is still required on both and the assignment total is still their sum, so a mixed assignment — coding graded by the pipeline, a reflection graded by hand — adds up correctly. `isAiGraded` and `isManualOnly` are the two readers. `generateReportForSubmission` filters manual sections out before classification and refuses an assignment where nothing is left, naming the review screen instead. Migration `20260804143312_section_grading` backfills `grading: "ai"` into existing rows, so there is one representation in the database rather than a rule that absence means AI.
-- **`accept` means something different per kind, and is decided above.** For `GOOGLE_DOC` it redirects to Google's copy prompt; for `FILE_UPLOAD` it does not exist. Neither creates a repository, and neither needs the row to exist before the student acts — a student-side Submit creates it.
-- **Delivery has three outcomes, not two.** `approve` already declines to post when there is no pull request — the guard is at `lib/grade/approve.ts:258` — but it records that as a *failed* delivery, and three surfaces then report an impossibility as a fault: the approval toast says the comment did not post, `CommentRecoveryNotice` offers a retry that can never succeed, and triage counts it as outstanding forever. `commentPosted: boolean | null` has no way to say "there was never anything to post", so it needs a third state at the source rather than the same rule re-derived at each reader.
-- **Triage needs a bucket that is not about generating a report**, and a bug fixed first. The bug: the undelivered-approval queries at `trpc/routers/submissions.ts:203` and `:323` have no `prNumber` condition, and `triageBucket` checks `hasUndeliveredApproval` before anything else — so every finished hand-graded submission would sit in `comment_not_posted` permanently, in triage, the queue, and the gradebook alike. Then the bucket: `needs_report` is returned for anything submitted with no usable draft, and it offers a button that must not exist for a manual assignment, so a `needs_manual_grade` member is needed. That means a fifth argument to `triageBucket` and a `sections` select in all three of its callers — `isManualOnly` already computes the flag from a stored row.
-
-#### Delivery has three outcomes — decided
-
-One value, three named outcomes, decided where delivery is decided rather than re-derived by each reader: **posted**, **failed**, and **not applicable**. `approve` already knows which it is — the guard at `lib/grade/approve.ts:258` is the moment it finds out — and today it collapses the third into the second, which is why a finished hand-graded submission reads as a fault in three places at once.
-
-The mechanism is a function exported from `lib/grade/approve.ts` mapping a draft and its submission to that state, not a new column. Every reader branches on the name: `gradingDrafts.get`, `CommentRecoveryNotice` (which must offer no retry when there was never anything to post), the approval toast (which must say "released" rather than "released, but"), and the triage query. `triageBucket` and `effectiveSection` are the same pattern — a pure function that is the single authority on a question several screens ask.
-
-Chosen over checking the assignment kind at each read site, on the evidence: `isShortResponseFile` was written out twice and the copies drifted, which graded a section 0/15 for being empty when the work was there, and `triageBucket` exists at all because triage, the queue, and the gradebook were each deciding "is this outstanding" separately. Three or four copies of "does this have a pull request" would go the same way.
-
-One edge worth knowing, because a stored column would behave differently: a repository assignment could be hand-graded before the student opens a pull request, and derivation would then flip that old approval from *not applicable* to *failed* once they open one. That is arguably right — there is somewhere to post now — but it is a behaviour difference, and if it ever reads as wrong, recording the outcome at approval time is the alternative.
-
-#### The triage fix
-
-Two changes, and the first is a bug in what already works rather than new behaviour.
-
-**Add `submission: { prNumber: { not: null } }` to the undelivered-approval queries** at `trpc/routers/submissions.ts:203` and `:323`. They currently match any approved draft with a null `postedPrCommentId`, and `triageBucket` checks `hasUndeliveredApproval` ahead of everything else, so every finished hand-graded submission would sit in `comment_not_posted` permanently — in triage, the grading queue, and the gradebook alike. Work that does not exist and that nothing can clear is worse than work that is merely mislabelled, which is why this goes first.
-
-**Then add a `needs_manual_grade` bucket.** `needs_report` is returned for anything submitted with no usable draft, and the screen offers to generate a report — a button that must not exist for an assignment nothing can generate a report for. `triageBucket` gains a fifth argument for whether the assignment is manual-only, which means a `sections` select in all three of its callers; `isManualOnly` in `lib/assignments/spec.ts` already computes the flag from a stored row and takes only `{ grading }`.
-
-Nothing else about triage changes. A student-set `SUBMITTED` enters the queue through the same condition a webhook-set one does, so the flows decided above need no new query.
+- **A private Supabase Storage bucket**, with a rule that keeps one student's upload from being readable by another. This is the whole of the security question and it is not a default — a public bucket would publish every submission.
+- **A path scheme** keyed by submission id, so a file is traceable back to the row without trusting a filename a student chose.
+- **A size limit and an accepted-types list.** The types belong on the assignment, since "one PDF" and "a zip of your project" are different assignments; the limit is probably global.
+- **A column on `submissions`** for the stored object, alongside `submittedUrl` rather than reusing it — a path in a bucket and a link to a document are not the same thing and the review screen opens them differently.
+- **A download on the review screen**, through a signed URL rather than a public one, since there is no link to open otherwise.
 
 ### Step 0. The kind axis — done
 
 Before any form, the schema had to stop assuming "assignment" means "GitHub repository."
 
-- **`AssignmentKind` enum**, all three values named — `REPO`, `GOOGLE_DOC`, `FILE_UPLOAD` — with only `REPO` implemented. Naming the axis now is what forces every future code path to say which kinds it handles, rather than silently working for one and breaking on another. `IMPLEMENTED_KINDS` in `lib/assignments/spec.ts` is the single line that changes when a kind becomes real.
+- **`AssignmentKind` enum**, all three values named — `REPO`, `GOOGLE_DOC`, `FILE_UPLOAD` — and, at the time, only `REPO` implemented. Naming the axis before building any of it is what forced every code path to say which kinds it handles rather than silently working for one and breaking on another, and it is why making the other two real was a week's work rather than a rewrite. `IMPLEMENTED_KINDS` in `lib/assignments/spec.ts` now holds all three.
 - **`templateRepo`, `assignmentRepoName`, and `githubOrg` are now nullable columns**, required only when `kind` is `REPO`. The requirement lives in the Zod schema, not the column, because a column cannot express "required for one kind" and a `NOT NULL` would force a Google Doc assignment to invent a repository name. `@@unique([courseId, assignmentRepoName])` needed no migration to accommodate this — Postgres treats NULLs as distinct in a unique constraint.
-- **`lib/assignments/spec.ts`** holds `assignmentSpecSchema`, a Zod discriminated union on `kind`. `parseAssignmentSpec` returns `pointValue` computed from the sections rather than accepting it, so no input can make the total disagree with the reports beneath it. `repositorySource(assignment)` is the one place every repository-assuming code path narrows the three nullable columns, and it distinguishes two failures that must not be reported as one another: `UnsupportedAssignmentKindError` (a Google Doc assignment — a feature that does not exist yet) from `AssignmentConfigurationError` (a `REPO` row missing a column — a row that should never have been written, naming which column).
+- **`lib/assignments/spec.ts`** holds `assignmentSpecSchema`, a Zod discriminated union on `kind`. `parseAssignmentSpec` returns `pointValue` computed from the sections rather than accepting it, so no input can make the total disagree with the reports beneath it. `repositorySource(assignment)` is the one place every repository-assuming code path narrows the three nullable columns, and it distinguishes three failures that must not be reported as one another: `NotRepositoryBackedError` (a Google Doc assignment — it works, and the caller asked it a question about repositories), `UnsupportedAssignmentKindError` (a kind nobody has built), and `AssignmentConfigurationError` (a `REPO` row missing a column — a row that should never have been written, naming which column).
 - **`prisma/seed.ts` now calls `parseAssignmentSpec`** instead of computing the point total and writing columns directly, so the seeded shape and the future authored shape are validated by the same rules and cannot drift.
 - **`lib/sandbox/run-tests.ts`, `lib/grade/generate-report.ts`, and `trpc/routers/assignments.ts`** — the three places that read a repository off an assignment — now go through `repositorySource` rather than reading `templateRepo` off the row directly. The compiler found all three once the columns went nullable, which is the point of doing this before the form: `tsc` enumerates the coupling instead of a grep hoping to find it.
 - **`scripts/verify-authoring.ts`** (`npm run verify:authoring`) checks the schema as pure functions: point values are refused when absent or zero and cannot be set on the assignment directly, an unknown section type or kind is refused, a `testNamePattern` with no `evidence: "tests"` is refused (silently ignored otherwise, which grades with no test evidence while looking like it consulted some), a Google Doc assignment accepts no repository or runner fields and they come out null, and `repositorySource` throws the right error for each of the two failure cases above.
 
-What Step 0 deliberately does not do: there is still no catalogue for the two unimplemented kinds, no procedure that writes a new assignment, and no screen. Those are Steps 1 through 5 below, updated to route on kind rather than assume `REPO`.
+The compiler found all three places that read a repository off an assignment once the columns went nullable, which is the point of doing this before the form: `tsc` enumerates the coupling instead of a grep hoping to find it. Making `grading_drafts.head_sha` nullable later did the same thing for the three places that print a commit.
 
 ### The principle this hangs on
 
@@ -333,7 +306,9 @@ A consequence worth surfacing rather than hiding: an existing assignment whose d
 
 **Two repositories, one name.** The catalogue lives in the grading-guides repository — private, read over the API, holds the answer keys. The template a student's repository is generated from is a different repository in a different organization, `{githubOrg}/{directory name}`, exactly as the seed derives it. The directory name is the link between them, which is why picking from the catalogue can fill both, but the two are checked separately and against different installations: the catalogue through `GRADING_ASSETS_INSTALLATION_ID`, the template through the main one. An assignment can have answer keys and no template, or the reverse, and each is its own finding.
 
-**`GOOGLE_DOC` and `FILE_UPLOAD`: not built, and each needs its own source of truth for the same reason `REPO`'s does.** A form that lets an instructor paste any Google Doc link or type any title has the same drift problem the repository catalogue exists to prevent — nothing forces internal organization, so "what Google Doc assignments exist" has no single answer to check a new one against. The shape most likely to work, not yet designed in detail: a shared Drive folder per module plays the role `answer-keys/{moduleTag}/` plays for `REPO`, and an instructor picks a document from it rather than pasting an arbitrary link. `FILE_UPLOAD` likely needs no catalogue at all, since there is no pre-existing thing to pick from — an instructor is describing a submission format (accepted file types, a size limit), not selecting among curriculum content. Settle this when a real `GOOGLE_DOC` or `FILE_UPLOAD` assignment is the next thing being built, not speculatively now.
+**`GOOGLE_DOC` and `FILE_UPLOAD` have no catalogue, and one is still worth having for `GOOGLE_DOC`.** They are creatable without one — an instructor types the title and pastes the template link — which is the same drift problem the repository catalogue exists to prevent: nothing forces internal organization, so "what Google Doc assignments exist" has no single answer to check a new one against. The shape most likely to work, not yet designed in detail: a shared Drive folder per module plays the role `answer-keys/{moduleTag}/` plays for `REPO`, and an instructor picks a document from it rather than pasting an arbitrary link. That is one authentication story with [reading a student's document for grading](#ai-grading-for-non-coding-assignments), which is the argument for doing them together rather than now.
+
+`FILE_UPLOAD` likely needs no catalogue at all: there is no pre-existing thing to pick from, since an instructor is describing a submission format rather than selecting among curriculum content.
 
 ### Step 2. One schema for an assignment's shape — done, as `lib/assignments/spec.ts`
 
@@ -373,7 +348,7 @@ No migration: it already meant this and was read by nothing.
 
 This is what makes authoring safe: an assignment can be built over several sittings without a student seeing a half-finished one, and a mapping can be corrected before anyone is graded against it.
 
-### Step 5. Screens — done for repository assignments
+### Step 5. Screens — done
 
 - `/instructor/courses/[courseId]/assignments/new` and `.../[assignmentId]/edit` — one client form component, `components/instructor/assignment-form.tsx`, with a `section-editor.tsx` sub-form. Validation findings render inline; save is disabled while any check fails.
 - Entry points on `components/instructor/course-detail.tsx`: a "New assignment" action in the header, and "Edit", "Duplicate", and "Remove" per row in the assignments tab.
@@ -383,7 +358,9 @@ This is what makes authoring safe: an assignment can be built over several sitti
   The schema check stays regardless. A select is a convenience and the procedure is what refuses — the same division as the approval guards and the typed removal confirmation, for the same reason: the request that arrives can carry anything the browser did not send.
 - Removal uses a dialog showing the counts from `removalImpact` and requiring the title to be typed — `components/instructor/remove-assignment-dialog.tsx`.
 
-**Built**, for `REPO` assignments. Two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, `assignment-form.tsx`, `section-editor.tsx`, `remove-assignment-dialog.tsx`, and entry points on the course page: a "New assignment" action, a Draft badge on any unpublished row, and a per-row menu with Edit, Publish or Hide, Duplicate, and Remove.
+**Built.** Two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, `assignment-form.tsx`, `section-editor.tsx`, `remove-assignment-dialog.tsx`, and entry points on the course page: a "New assignment" action, a Draft badge on any unpublished row, and a per-row menu with Edit, Publish or Hide, Duplicate, and Remove.
+
+The kind is the form's first question and is fixed once an assignment exists — changing it would change what its existing submissions are, and there is no migration from a pull request to a document. Choosing a non-repository kind hides the catalogue, the runner, and the GitHub card entirely rather than disabling them, since those are questions that do not apply rather than settings left at a default. Only one of the two "add a section" buttons is ever offered, because [an assignment has one grading mode](#what-manual-grading-meant-for-the-machinery--done) and a button that builds a refused draft is worse than no button.
 
 Worth knowing about how it validates: the form holds a *settled* copy of the draft that trails the live one by 600ms, and only that copy is sent to `validateDraft` — the checks make real GitHub calls, so a request per keystroke would be untenable. Saving is refused until the settled copy has actually been checked, rather than merely having no errors: a draft the server has not seen has no findings, which is not the same as being valid.
 
@@ -395,52 +372,46 @@ Worth knowing about how it validates: the form holds a *settled* copy of the dra
 
 **Point values and section types stay manual, deliberately.** They were the two candidates for a manifest in the repository, and the case is weaker than it looks: `duplicate` already carries them into the next cohort, so the cost is paid once per assignment ever rather than once per cohort, and section types are *already* declared and checked against the submission by `classifySections` — a manifest would change who authors the declaration, not whether one exists. A point value is a curriculum judgment no file states, so it needs a person or a manifest either way. See [a manifest in the repository](#deferred-with-the-schema-left-open).
 
-**Non-repo kinds are still not creatable**, which is the remaining part of the manual-grading scope above: `IMPLEMENTED_KINDS` still holds only `REPO`, and the form offers no kind selector because there is nothing yet to select. What that needs is the other four items in [what manual grading means for the machinery](#what-manual-grading-means-for-the-machinery) — `accept` doing something else, delivery skipping the pull request comment, and triage distinguishing "no report generated" from "graded by hand, not yet graded".
-
 ### Files
 
-- **Done:** `lib/assignments/spec.ts`, `scripts/verify-authoring.ts`, one migration (`20260803022300_assignment_kind`)
-- **Changed already, as part of Step 0:** `prisma/schema.prisma` (the `AssignmentKind` enum and three nullable columns), `lib/sandbox/run-tests.ts`, `lib/grade/generate-report.ts`, `trpc/routers/assignments.ts` (`accept` narrows through `repositorySource` now), `prisma/seed.ts` (calls `parseAssignmentSpec`)
-- **Still to build:** `components/instructor/assignment-form.tsx`, `components/instructor/section-editor.tsx`, `components/instructor/remove-assignment-dialog.tsx`, two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, and the rest of `lib/grade/assets.ts` / `lib/github/files.ts` (`list`, `listRepoDirectory`) and `components/instructor/course-detail.tsx` for Steps 1, 3, and 5
+Everything in Steps 0 through 5 is built. The three migrations this phase added are `20260803022300_assignment_kind`, `20260804143312_section_grading`, and `20260805142600_non_repo_assignment_kinds` — the last one adding `assignments.template_doc_url` and `submission_instructions`, `submissions.submitted_url`, and making `grading_drafts.head_sha` nullable so a draft can exist for work that has no commit.
+
+Still to build: [file storage](#file-upload-needs-somewhere-to-put-the-file).
 
 ### Phase 7 verification
 
-The strongest available check, and the reason to do it first: **author `swe-1-3-node-modules` through the new procedures and diff the resulting row against what the seed produces.** That assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output.
+**Done, and re-runnable.** `npm run verify:authoring` is 96 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
 
-`scripts/verify-authoring.ts` already covers what needs no database — schema-level rules on the union, added as Step 0 landed:
-
-- ~~a mistyped answer key path is refused, and the message names the path~~ — needs the catalogue (Step 1); not yet checkable
-- ~~a path escaping `answer-keys` is refused by the same guard grading uses~~ — same
-- **Done.** An unknown `runnerPreset` is refused, naming it — `assignmentSpecSchema` calls the same `resolveRunner` grading uses, via `superRefine`
-- **Done.** `pointValue` equals the sum of sections and cannot be set independently — `parseAssignmentSpec` computes it and the schema is `.strict()`, so passing it is a validation error, not a silent overwrite
-- **Done.** An unknown section type is refused; an unknown `kind` is refused
-- **Done.** A `testNamePattern` with no `evidence: "tests"` is refused, naming the section index
-- **Done.** A `REPO` spec missing `templateRepo`, `assignmentRepoName`, or `githubOrg` is refused; a `GOOGLE_DOC` spec supplying any of them, or a runner preset, is refused
-- **Done.** `repositorySource` throws `UnsupportedAssignmentKindError` for an unimplemented kind and `AssignmentConfigurationError`, naming the missing column, for a misconfigured `REPO` row
-
-**All done.** `verify:authoring` now has a second half that drives the tRPC callers against the real database, inside a transaction that is rolled back — authorization is half of what these procedures are, and a check that only holds when called through the interface is not a check.
-
-- **Done.** The strongest one: authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — kind, title, module tag, point value, threshold, template, org, ref, preset, config, and sections. That assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output.
-- **Done.** An unreachable `templateRepo` is refused, against a real `getRepo` call.
-- **Done.** Renaming `assignmentRepoName` is refused once a submission exists.
-- **Done.** A duplicate colliding with an existing repository name is refused; a duplicate carries the same sections and starts unpublished.
-- **Done.** An unpublished assignment is invisible to a student and visible to an instructor; publishing and unpublishing flip that.
-- **Done.** A student is refused `validateDraft`, `create`, and `remove`; an instructor who does not teach the course is refused `create`.
-- **Done.** A module tag outside the course is refused, and a section paired with the wrong rubric is refused.
-- **Done.** `remove` refuses when `confirmTitle` does not match, called directly rather than through a dialog — the whole point of the check living in the procedure.
-- **Done.** `removalImpact` counts match what `remove` actually destroys, and the repositories it would orphan are reported rather than deleted.
-- **Done.** The rollback leaves the seeded assignment untouched and no authored rows behind, confirmed by re-reading after the transaction.
-
-Existing suites must stay green — `verify:grade`, `verify:approve`, `verify:sandbox`, and `verify:assets` in particular, since this changes `lib/grade/assets.ts`.
-
-Finally, on localhost: create an assignment, confirm the student sees nothing until it is published, publish it, accept it as the student, and generate a report — the same loop already verified against the seeded assignments, but against one no seed script knows about.
+What is left is the one thing a script cannot do, and it is worth doing before a real cohort: **on localhost, author a Google Doc assignment, confirm a student sees nothing until it is published, publish it, accept it as the student and land on Google's copy prompt, submit the link back, grade it by hand, and release it.** Every part of that sequence is checked through the callers already; what this adds is that the screens carry it, which no rolled-back transaction can tell you.
 
 ### Not in this phase
 
 - **[Course creation](#course-creation)** and **[student enrollment](#student-enrollment)**, including the invite-link flow. `duplicate` is built to make the course case cheap when it comes.
-- **AI grading for assignments with no template repository.** Creating and hand-grading them *is* in this phase, per the scope above. What is not: reading a Google Doc's contents or an uploaded file, and generating a report from it. That needs Drive or storage access and [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and it is [item 8](#the-order-of-work).
+- **AI grading for assignments with no template repository.** Creating and hand-grading them is done. What is not: reading a Google Doc's contents or an uploaded file, and generating a report from it. That needs Drive or storage access and [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and it is [item 8](#the-order-of-work).
 - **Any soft delete or archive.** Removal is permanent by decision, so there is no recovery path in the application. The database's own backups are the only way back from a mistaken removal.
 - **Deleting student repositories** when an assignment is removed. They are reported and left alone.
+
+---
+
+## Module management
+
+An instructor can add, reorder, and remove the modules of a course they teach. Today `Course.moduleStructure` is written by exactly one line — `prisma/seed.ts` — and read by four things: the grouping and ordering of assignments on both course pages, the module choices the authoring form offers, the refusal of a `moduleTag` outside the course, and the first path segment of every answer-key path. So a course whose module list is wrong cannot be corrected at all, and a cohort that takes a module the seed did not know about cannot have assignments in it.
+
+**A tag is the name.** `moduleLabel` derives the display name from the tag — `mod-1-js-fundamentals` becomes "Module 1 · JS Fundamentals" through `/^mod-(\d+)(?:-(.+))?$/` and a list of initialisms — so there is nothing else to store and no second field to keep in step. Creating a module is adding a string that matches that pattern; a tag that does not match falls back to being displayed raw, which is legible but sorts by `localeCompare` rather than by number.
+
+The four operations differ enough in risk that they are worth separating, and the order below is the order to build them in.
+
+**Reordering is free.** It feeds `moduleOrder` and nothing else, which is presentation. Nothing to validate, nothing downstream, and it could ship on its own.
+
+**Creating needs to say where the list comes from.** The two candidates are the same pair the assignment catalogue faced: authored by the instructor, or read from the answer-keys repository. `listRepoDirectory` already exists and listing `answer-keys/` itself would return every module the curriculum holds in one request. Neither extreme is right — a course's module *sequence* is a cohort decision rather than a curriculum-wide fact, and a module holding only Google Doc assignments has no directory to be found in. So: offer the repository's list, and allow a typed tag, which is what the assignment form already does one level down.
+
+**Renaming is not in the first version.** A tag is stored on every assignment as `moduleTag` *and* is the first path segment of every answer-key path. Renaming would have to rewrite every assignment in a transaction and would still not rename anything in the answer-keys repository, so the paths would break with nothing to point at the cause. Remove and re-add is the honest shape, and it is refused while assignments exist, which is the point.
+
+**Removing is refused while any assignment uses the tag**, naming the count — the same shape as `update` refusing a repository-name change once anybody has accepted. Allowing it would leave those assignments failing validation on their next edit while still appearing in the list, because `moduleOrder` falls back to numeric order for an undeclared tag. A half-broken state nobody would connect to a module they deleted is worse than a refusal.
+
+**Where it lives:** a fourth tab on the instructor course page, beside Assignments, Roster, and Gradebook — which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
+
+**What to verify.** `verify:authoring` already refuses a module tag outside the course, which is the check these procedures must not break. Add, through the tRPC callers inside a rolled-back transaction: a malformed tag is refused; a duplicate tag is refused; removing a module with assignments in it is refused and says how many; reordering changes nothing but the order; and a student cannot call any of it.
 
 ---
 
@@ -556,13 +527,28 @@ A job that reads `PENDING` submissions, writes them, and records `SYNCED` with t
 
 An instructor creates a cohort rather than a seed script doing it. `duplicate` in [assignment authoring](#step-3-procedures--trpcroutersassignmentsts) is built at the assignment level specifically so this becomes a loop over proven assignment mappings rather than new logic.
 
-Two things already in the schema that this has to settle: `Course.moduleStructure` is a JSON array of module tags, which is what orders a course's assignments and what the authoring form offers as module choices — a new course needs those entered or copied. And a course with no students is useless, so this is bound to student enrollment below.
+Two things already in the schema that this has to settle. `Course.moduleStructure` is a JSON array of module tags, which is what orders a course's assignments and what the authoring form offers as module choices — a new course needs those entered or copied, which is what [module management](#module-management) builds first, so creating a course becomes reusing it rather than writing it again. And a course with no students is useless, so this is bound to student enrollment below.
 
 ---
 
 ## Student enrollment
 
 **The invite-link flow.** The decision is already recorded as standing: an instructor adds a student by name and email, the system generates an invite token, and the student's first GitHub login binds their identity to the enrollment. This avoids the instructor needing to know each student's GitHub username in advance. `Enrollment.inviteToken` exists and is unique; nothing reads it, so this is the piece that makes a created course usable.
+
+### Seeing a course as a student sees it
+
+An instructor should be able to look at what they have published the way a student meets it — the assignment list, the accept button, the submission instructions, the feedback screen. It is the cheapest way to catch an assignment whose instructions make no sense or whose kind hands out the wrong thing, and there is currently no way to do it.
+
+`/courses` used to offer this by accident and got it backwards: the obvious link took an instructor to the *student* view of their own course, which is not what a student sees at all. It shows the instructor their own submissions, and they have none — so an instructor previewing their course would conclude every assignment was unstarted, which is true of them and true of nobody else. That link now opens the instructor view and the second one is gone.
+
+Doing it properly needs a **test enrollment**: a student-shaped identity the instructor can look through, enrolled in every course automatically, whose submissions are real rows so accepting and submitting behave normally. What that has to settle:
+
+- **Whose rows are they.** One test profile per instructor, per course, or one for the whole application. Per instructor is the least surprising — two instructors previewing the same course would otherwise fight over one submission — and the most rows.
+- **It must not appear anywhere a real student does.** The gradebook, the roster, triage, the queue, and every count on a course card. That is a filter in more places than it sounds, and each one missed reports a test row as a student who has not started. A flag on `Enrollment` or `Profile` is the mechanism; finding all the readers is the work.
+- **Whether it can be graded.** Almost certainly not: an approved grade on a test row would reach the Salesforce sync as a real one. Refusing at approval is the safer end.
+- **How an instructor switches into it**, and how obvious it is that they are in it. A preview that looks like the real thing is a way to grade the wrong person.
+
+Worth doing alongside enrollment rather than before it, because it is an enrollment with a flag on it and the same readers have to learn about both.
 
 **Targeted assignments, and excusing a student.** A new capability rather than a screen, and it needs a data-model decision. Today an assignment implicitly applies to every active enrollment in its course — a submission row appears when a student accepts, and the gradebook treats a missing row as not started. Neither "this assignment is only for these students" nor "this student is excused from this one" can be expressed. The options are a per-student exclusion row against an assignment, or an explicit targeting list, and the choice matters for the gradebook: an excused student must read as excused rather than as missing work, or the distinction is worthless.
 

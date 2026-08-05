@@ -52,9 +52,20 @@ import type { RouterOutputs } from '@/trpc/types';
 type Context = RouterOutputs['assignments']['authoringContext'];
 type Draft = RouterOutputs['assignments']['getDraft'];
 
-/** The shape the procedures accept. Mirrors `assignmentSpecSchema` for the REPO kind. */
+type Kind = 'REPO' | 'GOOGLE_DOC' | 'FILE_UPLOAD';
+
+/**
+ * One flat state for every kind, narrowed into the right shape by `toDraft` below.
+ *
+ * Flat rather than a union mirroring `assignmentSpecSchema`, because a form's job is to hold
+ * what has been typed — including the repository fields an instructor filled in before
+ * switching the kind, which a union would discard on every switch. What crosses to the server
+ * is the narrowed shape, and `.strict()` on the other side is what makes that mandatory
+ * rather than a convention: a Google Doc draft carrying `templateRepo: ""` is a validation
+ * error, not a field quietly ignored.
+ */
 type FormState = {
-  kind: 'REPO';
+  kind: Kind;
   title: string;
   moduleTag: string;
   completionThreshold: number;
@@ -65,8 +76,71 @@ type FormState = {
   templateRef: string | null;
   runnerPreset: string;
   runnerConfig: null;
+  templateDocUrl: string;
+  submissionInstructions: string;
   sections: SectionDraft[];
 };
+
+/** What the kind is called on screen, and what it means in one line. */
+const KIND_META: Record<Kind, { label: string; hint: string }> = {
+  REPO: {
+    label: 'GitHub repository',
+    hint: 'Generated from a template. The student opens a pull request, and the pipeline grades it.',
+  },
+  GOOGLE_DOC: {
+    label: 'Google Doc',
+    hint: 'Students take their own copy of a template document and submit the link. Graded by hand.',
+  },
+  FILE_UPLOAD: {
+    label: 'File upload',
+    hint: 'Students hand in a file. No template and nothing to accept. Graded by hand.',
+  },
+};
+
+/** True when this kind has a repository, a template, and a suite that can run. */
+function isRepoKind(kind: Kind): boolean {
+  return kind === 'REPO';
+}
+
+/**
+ * The draft as the procedures want it, per kind.
+ *
+ * The repository fields are *omitted* for the other two kinds rather than sent as null, which
+ * the schema's own defaults then fill in. Sending `templateRepo: ""` would fail validation and
+ * sending `null` would work — omitting says what is meant, which is that a document assignment
+ * has no opinion about repositories at all.
+ */
+function toDraft(state: FormState): unknown {
+  const shared = {
+    title: state.title,
+    moduleTag: state.moduleTag,
+    completionThreshold: state.completionThreshold,
+    dueAt: state.dueAt,
+    sections: state.sections,
+    // Empty is absent. A textarea an instructor cleared should read as no instructions
+    // rather than as instructions that happen to be blank.
+    submissionInstructions: state.submissionInstructions.trim() || null,
+  };
+
+  if (state.kind === 'REPO') {
+    return {
+      ...shared,
+      kind: 'REPO',
+      templateRepo: state.templateRepo,
+      assignmentRepoName: state.assignmentRepoName,
+      githubOrg: state.githubOrg,
+      templateRef: state.templateRef,
+      runnerPreset: state.runnerPreset,
+      runnerConfig: state.runnerConfig,
+    };
+  }
+
+  if (state.kind === 'GOOGLE_DOC') {
+    return { ...shared, kind: 'GOOGLE_DOC', templateDocUrl: state.templateDocUrl.trim() };
+  }
+
+  return { ...shared, kind: 'FILE_UPLOAD' };
+}
 
 const DEBOUNCE_MS = 600;
 
@@ -138,6 +212,11 @@ function Editor({
     existing?.moduleTag ?? context.course.moduleStructure[0] ?? '',
   );
 
+  // Held outside `state` because it is asked before there is a draft: for a repository
+  // assignment nothing exists until one is chosen from the catalogue, and the kind is what
+  // decides whether there is a catalogue at all.
+  const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? 'REPO');
+
   // What the server has been asked about. Trails the form by DEBOUNCE_MS so that typing a
   // point value does not make a GitHub request per keystroke.
   const [settled, setSettled] = React.useState<FormState | null>(state);
@@ -148,7 +227,9 @@ function Editor({
 
   const catalogue = useQuery({
     ...trpc.assignments.catalogue.queryOptions({ courseId, moduleTag }),
-    enabled: moduleTag.length > 0,
+    // Only the repository kind has one. Asking anyway would spend a GitHub call listing
+    // answer-key directories for an assignment that will never have any.
+    enabled: moduleTag.length > 0 && isRepoKind(kind),
   });
 
   const answerKeys = useQuery({
@@ -213,7 +294,9 @@ function Editor({
     ...trpc.assignments.validateDraft.queryOptions({
       courseId,
       assignmentId: existing?.id,
-      draft: settled,
+      // Narrowed to the kind's own shape, so the form is checked against exactly what saving
+      // would send rather than against a superset of it.
+      draft: settled ? toDraft(settled) : null,
     }),
     enabled: settled !== null,
   });
@@ -255,6 +338,12 @@ function Editor({
 
   const runnerNames = [NO_RUNNER, ...Object.keys(RUNNER_PRESETS)];
 
+  // Which mode this assignment is already committed to, so only that one is offered.
+  const hasAiSection = (state?.sections ?? []).some((section) => section.grading === 'ai');
+  const hasManualSection = (state?.sections ?? []).some(
+    (section) => section.grading === 'manual',
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
@@ -271,8 +360,9 @@ function Editor({
               disabled={!canSave}
               onClick={() => {
                 if (!state) return;
-                if (existing) update.mutate({ assignmentId: existing.id, draft: state });
-                else create.mutate({ courseId, draft: state });
+                const draft = toDraft(state);
+                if (existing) update.mutate({ assignmentId: existing.id, draft });
+                else create.mutate({ courseId, draft });
               }}
             >
               {busy ? (
@@ -292,6 +382,56 @@ function Editor({
           <CardTitle className="text-base">Which assignment</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {/*
+            The first question, because it decides everything after it: whether there is a
+            catalogue to pick from, whether there is a runner and a template, and whether the
+            pipeline can grade this at all. Locked once the assignment exists — changing the
+            kind of a saved assignment would change what its existing submissions are, and
+            there is no migration from a pull request to a document.
+          */}
+          <Field
+            label="Kind"
+            findings={fieldFindings('kind')}
+            hint={
+              existing
+                ? 'Fixed once an assignment exists. Create a new one to hand work in a different way.'
+                : KIND_META[state?.kind ?? kind].hint
+            }
+          >
+            {existing ? (
+              <Input value={KIND_META[existing.kind as Kind].label} disabled />
+            ) : (
+              <Select
+                value={kind}
+                onValueChange={(value) => {
+                  const next = (value ?? 'REPO') as Kind;
+                  setKind(next);
+                  /*
+                    A repository assignment is opened from the catalogue, so its state stays
+                    null until an assignment is chosen. The other two have nothing to choose
+                    from, so the form starts immediately with one hand-graded section.
+                  */
+                  setState(
+                    next === 'REPO'
+                      ? null
+                      : blankNonRepoDraft({ kind: next, moduleTag, existingState: state }),
+                  );
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(KIND_META) as Kind[]).map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {KIND_META[name].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </Field>
+
           <Field label="Module" findings={fieldFindings('moduleTag')}>
             <Select
               value={moduleTag}
@@ -302,6 +442,11 @@ function Editor({
                 setModuleTag(tag);
                 setState((prev) => (prev ? { ...prev, moduleTag: tag } : prev));
               }}
+              // The trigger would otherwise show the raw tag — `mod-1-js-fundamentals` — while
+              // the list showed "Module 1 · JS Fundamentals".
+              items={Object.fromEntries(
+                context.course.moduleStructure.map((tag) => [tag, moduleLabel(tag)]),
+              )}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Choose a module" />
@@ -316,7 +461,27 @@ function Editor({
             </Select>
           </Field>
 
-          {existing ? (
+          {/*
+            No catalogue for the other two kinds, deliberately rather than for now. The
+            answer-keys repository is the single source of truth for what repository-backed
+            assignments the curriculum contains, and there is no equivalent list of documents
+            to check a new one against — a shared Drive folder per module is the likely shape,
+            and it is worth designing when a real one exists rather than guessing at it.
+          */}
+          {!isRepoKind(kind) ? (
+            <Field
+              label="Title"
+              findings={fieldFindings('title')}
+              hint="What students see in their list."
+            >
+              <Input
+                value={state?.title ?? ''}
+                onChange={(event) =>
+                  setState((prev) => (prev ? { ...prev, title: event.target.value } : prev))
+                }
+              />
+            </Field>
+          ) : existing ? (
             <Field
               label="Repository name"
               findings={fieldFindings('assignmentRepoName')}
@@ -393,27 +558,69 @@ function Editor({
             <CardHeader>
               <CardTitle className="text-base">What students see</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <Field label="Title" findings={fieldFindings('title')}>
-                <Input
-                  value={state.title}
-                  onChange={(event) => setState({ ...state, title: event.target.value })}
-                />
-              </Field>
+            <CardContent className="flex flex-col gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Entered above for the kinds with no catalogue, so it is not asked twice. */}
+                {isRepoKind(state.kind) && (
+                  <Field label="Title" findings={fieldFindings('title')}>
+                    <Input
+                      value={state.title}
+                      onChange={(event) => setState({ ...state, title: event.target.value })}
+                    />
+                  </Field>
+                )}
+                <Field
+                  label="Due"
+                  findings={fieldFindings('dueAt')}
+                  hint="Optional. A late submission is recorded as late, never refused."
+                >
+                  <Input
+                    type="date"
+                    value={state.dueAt ? toDateInput(state.dueAt) : ''}
+                    onChange={(event) =>
+                      setState({
+                        ...state,
+                        dueAt: event.target.value
+                          ? new Date(`${event.target.value}T23:59:00`)
+                          : null,
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+
+              {state.kind === 'GOOGLE_DOC' && (
+                <Field
+                  label="Template document"
+                  findings={fieldFindings('templateDocUrl')}
+                  hint="Accepting sends the student to Google's own prompt to take a copy, built from this link. Paste the sharing link — it should end in /view or /edit."
+                >
+                  <Input
+                    value={state.templateDocUrl}
+                    placeholder="https://docs.google.com/document/d/…/view"
+                    onChange={(event) =>
+                      setState({ ...state, templateDocUrl: event.target.value })
+                    }
+                  />
+                </Field>
+              )}
+
               <Field
-                label="Due"
-                findings={fieldFindings('dueAt')}
-                hint="Optional. A late submission is recorded as late, never refused."
+                label="Submission instructions"
+                findings={fieldFindings('submissionInstructions')}
+                hint={
+                  isRepoKind(state.kind)
+                    ? 'Optional, in markdown. The draft-branch-and-pull-request steps are already shown, so this is for anything specific to this assignment.'
+                    : 'Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here.'
+                }
               >
-                <Input
-                  type="date"
-                  value={state.dueAt ? toDateInput(state.dueAt) : ''}
+                <textarea
+                  rows={4}
+                  value={state.submissionInstructions}
                   onChange={(event) =>
-                    setState({
-                      ...state,
-                      dueAt: event.target.value ? new Date(`${event.target.value}T23:59:00`) : null,
-                    })
+                    setState({ ...state, submissionInstructions: event.target.value })
                   }
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 />
               </Field>
             </CardContent>
@@ -430,6 +637,12 @@ function Editor({
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {/*
+                Absent rather than disabled for a kind with no repository: there is no template
+                to take a suite from, so a runner is not a setting left at its default, it is a
+                question that does not apply.
+              */}
+              {isRepoKind(state.kind) && (
               <Field
                 label="Test runner"
                 findings={fieldFindings('runnerPreset')}
@@ -459,8 +672,9 @@ function Editor({
                   </SelectContent>
                 </Select>
               </Field>
+              )}
 
-              <Separator />
+              {isRepoKind(state.kind) && <Separator />}
 
               {state.sections.map((section, index) => (
                 <SectionEditor
@@ -492,67 +706,90 @@ function Editor({
                 </p>
               ))}
 
+              {/*
+                One grading mode per assignment, so only one of these is ever offered. A
+                mixed assignment is refused by the schema — the pipeline would report on some
+                of its sections and not others, and the assignment's point total would exceed
+                what approving could record — so the button that would build one is absent
+                rather than present and refused. Splitting the work into two assignments is
+                the answer, and it is the direction the curriculum is going anyway.
+
+                A kind with no repository has nothing for the pipeline to read, so hand
+                grading is its only mode and the choice never arises.
+              */}
               <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setState({
-                      ...state,
-                      sections: [
-                        ...state.sections,
-                        aiSection({ rubrics: context.rubrics }),
-                      ],
-                    })
-                  }
-                >
-                  <Plus data-icon="inline-start" />
-                  Section the model grades
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setState({
-                      ...state,
-                      sections: [
-                        ...state.sections,
-                        { grading: 'manual', label: '', pointValue: 10 },
-                      ],
-                    })
-                  }
-                >
-                  <Plus data-icon="inline-start" />
-                  Section graded by hand
-                </Button>
+                {isRepoKind(state.kind) && !hasManualSection && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setState({
+                        ...state,
+                        sections: [
+                          ...state.sections,
+                          aiSection({ rubrics: context.rubrics }),
+                        ],
+                      })
+                    }
+                  >
+                    <Plus data-icon="inline-start" />
+                    Section the model grades
+                  </Button>
+                )}
+                {!hasAiSection && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setState({
+                        ...state,
+                        sections: [
+                          ...state.sections,
+                          { grading: 'manual', label: '', pointValue: 10 },
+                        ],
+                      })
+                    }
+                  >
+                    <Plus data-icon="inline-start" />
+                    Section graded by hand
+                  </Button>
+                )}
               </div>
+
+              {hasManualSection && isRepoKind(state.kind) && (
+                <p className="text-xs text-muted-foreground">
+                  This assignment is graded by hand, so no report is generated for it.
+                </p>
+              )}
             </CardContent>
           </Card>
 
           {/* ---- GitHub ---------------------------------------------------- */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">GitHub</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <Field label="Organization" findings={fieldFindings('githubOrg')}>
-                <Input
-                  value={state.githubOrg}
-                  onChange={(event) => setState({ ...state, githubOrg: event.target.value })}
-                />
-              </Field>
-              <Field
-                label="Template repository"
-                findings={fieldFindings('templateRepo')}
-                hint="Checked against GitHub. Student repositories are generated from this."
-              >
-                <Input
-                  value={state.templateRepo}
-                  onChange={(event) => setState({ ...state, templateRepo: event.target.value })}
-                />
-              </Field>
-            </CardContent>
-          </Card>
+          {isRepoKind(state.kind) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">GitHub</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <Field label="Organization" findings={fieldFindings('githubOrg')}>
+                  <Input
+                    value={state.githubOrg}
+                    onChange={(event) => setState({ ...state, githubOrg: event.target.value })}
+                  />
+                </Field>
+                <Field
+                  label="Template repository"
+                  findings={fieldFindings('templateRepo')}
+                  hint="Checked against GitHub. Student repositories are generated from this."
+                >
+                  <Input
+                    value={state.templateRepo}
+                    onChange={(event) => setState({ ...state, templateRepo: event.target.value })}
+                  />
+                </Field>
+              </CardContent>
+            </Card>
+          )}
 
           <Findings errors={errors} warnings={warnings} checking={!checked} />
         </>
@@ -682,13 +919,51 @@ function blankDraft({
     templateRef: null,
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
+    templateDocUrl: '',
+    submissionInstructions: '',
     sections: [aiSection({ rubrics })],
+  };
+}
+
+/**
+ * A starting draft for a kind with no catalogue to open from.
+ *
+ * One hand-graded section, because that is the only mode these kinds have and an assignment
+ * needs at least one. What was already typed carries across, so choosing the kind twice while
+ * deciding does not lose a title.
+ */
+function blankNonRepoDraft({
+  kind,
+  moduleTag,
+  existingState,
+}: {
+  kind: Kind;
+  moduleTag: string;
+  existingState: FormState | null;
+}): FormState {
+  return {
+    kind,
+    title: existingState?.title ?? '',
+    moduleTag,
+    completionThreshold: existingState?.completionThreshold ?? 0.75,
+    dueAt: existingState?.dueAt ?? null,
+    templateRepo: '',
+    assignmentRepoName: '',
+    githubOrg: '',
+    templateRef: null,
+    runnerPreset: NO_RUNNER,
+    runnerConfig: null,
+    templateDocUrl: existingState?.templateDocUrl ?? '',
+    submissionInstructions: existingState?.submissionInstructions ?? '',
+    sections: existingState?.sections.every((section) => section.grading === 'manual')
+      ? existingState.sections
+      : [{ grading: 'manual', label: '', pointValue: 10 }],
   };
 }
 
 function fromDraft(draft: Draft): FormState {
   return {
-    kind: 'REPO',
+    kind: draft.kind as Kind,
     title: draft.title,
     moduleTag: draft.moduleTag,
     completionThreshold: draft.completionThreshold,
@@ -699,6 +974,8 @@ function fromDraft(draft: Draft): FormState {
     templateRef: draft.templateRef,
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
+    templateDocUrl: draft.templateDocUrl ?? '',
+    submissionInstructions: draft.submissionInstructions ?? '',
     sections: (draft.sections as SectionDraft[]) ?? [],
   };
 }

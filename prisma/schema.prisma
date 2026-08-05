@@ -239,6 +239,28 @@ model Assignment {
   /// finished cohort, so re-grading an old submission years later reproduces
   /// the result it originally received.
   templateRef String? @map("template_ref")
+
+  /// The document a GOOGLE_DOC assignment is copied from. Required when `kind` is
+  /// GOOGLE_DOC and null otherwise, enforced by the Zod schema for the same reason
+  /// the three GitHub columns above are.
+  ///
+  /// A student pressing Accept is sent to this URL with its last path segment
+  /// swapped for `/copy`, which is Google's own prompt to take a copy. So the
+  /// application creates nothing, stores no Google credentials, and the copy
+  /// belongs to the student from the moment it exists. It works because that is
+  /// how Google Docs URLs are shaped, and it breaks if that changes.
+  templateDocUrl String? @map("template_doc_url")
+
+  /// How a student turns this in, in markdown, written by the instructor.
+  ///
+  /// Optional on every kind. A REPO assignment's ritual is fixed and the student's
+  /// screen states it without being told; the other two kinds have no ritual, so
+  /// this is where "paste the link to your copy" or "one PDF, named after you"
+  /// gets said. Rendered through components/markdown.tsx — the same renderer
+  /// feedback already uses, rather than a WYSIWYG dependency for text this
+  /// application can already render.
+  submissionInstructions String? @map("submission_instructions")
+
   distributedAt DateTime? @map("distributed_at") @db.Timestamptz(6)
   /// One entry per gradable section this assignment can contain, e.g.
   /// [{ "type": "coding_algorithm", "rubricId": "...",
@@ -323,6 +345,11 @@ model Submission {
 
   prNumber   Int?      @map("pr_number")
   prUrl      String?   @map("pr_url")
+  /// Where the student's work is, for a kind that has no repository: the URL of
+  /// their own copy of a Google Doc, pasted in when they submit. Null for every
+  /// other kind. FILE_UPLOAD will need a stored file rather than a URL, which is
+  /// its own piece of work and not this column.
+  submittedUrl String?  @map("submitted_url")
   headBranch String?   @map("head_branch")
   headSha    String?   @map("head_sha")
   submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
@@ -497,7 +524,13 @@ enum Confidence {
 model GradingDraft {
   id           String             @id @default(uuid()) @db.Uuid
   submissionId String             @map("submission_id") @db.Uuid
-  headSha      String             @map("head_sha")
+  /// The commit this run describes, and null when the work has no commit — a hand-graded
+  /// Google Doc or upload. Nullable rather than carrying a placeholder, because every
+  /// reader of this column compares it against the submission's own `head_sha` to decide
+  /// whether a draft has been overtaken, and a placeholder would have to be recognised as
+  /// "not really a commit" at each of those comparisons. Null compares as "no commit to be
+  /// out of date against", which is the truth.
+  headSha      String?            @map("head_sha")
   status       GradingDraftStatus @default(GENERATING)
   errorDetail  String?            @map("error_detail")
   /// Model id, prompt version, grading-asset commit SHA, token usage.

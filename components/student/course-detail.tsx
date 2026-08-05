@@ -9,10 +9,12 @@ import {
   ChevronRight,
   Clock,
   ExternalLink,
+  FileText,
   GitBranch,
   GitPullRequest,
   ListChecks,
   RotateCcw,
+  Upload,
   Wrench,
 } from 'lucide-react';
 
@@ -20,7 +22,7 @@ import { AcceptAssignmentButton } from '@/components/accept-assignment-button';
 import { EmptyState } from '@/components/list-states';
 import { Markdown } from '@/components/markdown';
 import { PageHeader } from '@/components/page-header';
-import { SubmissionStatusBadge } from '@/components/status-badge';
+import { AssignmentKindBadge, SubmissionStatusBadge } from '@/components/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -213,26 +215,45 @@ function AssignmentRow({
   const submission = assignment.submissions[0] ?? null;
   const status = submission?.status ?? 'NOT_STARTED';
 
-  const summary = <RowSummary assignment={assignment} submission={submission} />;
+  const summary = (
+    <RowSummary
+      assignment={assignment}
+      submission={submission}
+      // Rendered inside the left half rather than appended to the row, so a row with a
+      // button has the same right-hand columns as one without.
+      action={
+        !submission || status === 'NOT_STARTED' ? (
+          assignment.kind === 'FILE_UPLOAD' ? null : (
+            <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
+          )
+        ) : null
+      }
+    />
+  );
 
   /*
     An assignment with nothing behind it yet has nothing to expand into, so the row is
     not a control — the Accept button is, and it sits on the row where it can be pressed
     without a detour.
+
+    FILE_UPLOAD has no Accept at all: there is no template and nothing to hand out, so the
+    first thing that happens to it is the student submitting. Its row therefore opens like
+    any other rather than carrying a button, and what it opens into says so.
   */
-  if (!submission || status === 'NOT_STARTED') {
+  if ((!submission || status === 'NOT_STARTED') && assignment.kind !== 'FILE_UPLOAD') {
     return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+      <div className="flex items-center gap-x-3 px-3 py-2.5">
         <span aria-hidden="true" className="size-4 shrink-0" />
         {summary}
-        <AcceptAssignmentButton assignmentId={assignment.id} />
       </div>
     );
   }
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="group flex w-full flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 text-left transition-colors hover:bg-accent/50">
+      {/* Not wrapping: the two halves keep their columns in line, and a wrap would let the
+          right-hand group drop under the title on one row and not the next. */}
+      <CollapsibleTrigger className="group flex w-full items-center gap-x-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/50">
         <ChevronRight
           aria-hidden="true"
           className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
@@ -242,7 +263,7 @@ function AssignmentRow({
 
       <CollapsibleContent>
         <div className="border-t border-border bg-muted/20 px-3 py-4 sm:pl-10">
-          <AssignmentDetail submission={submission} />
+          <AssignmentDetail assignment={assignment} submission={submission} />
 
           {teaches && (
             <Link
@@ -259,13 +280,24 @@ function AssignmentRow({
   );
 }
 
-/** The scannable part of a row, identical whether or not the row opens. */
+/**
+ * The scannable part of a row, identical whether or not the row opens.
+ *
+ * Two halves, and that is the whole point of the shape. The left half holds what varies in
+ * length — the title, and a button on the rows that have one — and the right half holds the
+ * three columns being scanned down. Laying all five out as siblings put the button in the
+ * middle of the row, so every row with one shifted its status, score, and due date out of
+ * line with the rows above it. Anything added to a row from now on belongs on the left.
+ */
 function RowSummary({
   assignment,
   submission,
+  action,
 }: {
   assignment: Assignment;
   submission: Submission | null;
+  /** Sits beside the title. Absent on most rows. */
+  action?: React.ReactNode;
 }) {
   const status = submission?.status ?? 'NOT_STARTED';
   const graded = submission?.finalScore != null;
@@ -273,25 +305,42 @@ function RowSummary({
 
   return (
     <>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{assignment.title}</span>
-
-      <SubmissionStatusBadge status={status} audience="student" />
-
-      <span className="w-24 text-right text-sm whitespace-nowrap tabular-nums sm:w-28">
-        {graded ? (
-          <>
-            <span className="font-medium">
-              {submission?.finalScore}/{submission?.finalScorePossible}
-            </span>{' '}
-            <span className="text-muted-foreground">{formatPercent(percent)}</span>
-          </>
-        ) : (
-          <span className="text-muted-foreground">{assignment.pointValue} pts</span>
-        )}
+      <span className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
+        {/*
+          What they are handing in, which decides what they do next: push and open a pull
+          request, take a copy of a document, or upload a file. Worth knowing before the row is
+          opened, and hidden on the narrowest screens where the title needs the width more.
+        */}
+        <AssignmentKindBadge kind={assignment.kind} className="hidden sm:inline-flex" />
+        {action}
       </span>
 
-      <span className="w-24 text-right text-xs whitespace-nowrap text-muted-foreground">
-        {assignment.dueAt ? `Due ${formatDate(assignment.dueAt)}` : 'No due date'}
+      {/*
+        Fixed widths and right-aligned, so every boundary in this group lands in the same
+        place on every row. The badge's own width varies with its label — "Awaiting another
+        review" against "Graded" — so it is placed first, where the columns to its right pin
+        the edge that is read down the list.
+      */}
+      <span className="flex shrink-0 items-center gap-x-3">
+        <SubmissionStatusBadge status={status} audience="student" />
+
+        <span className="w-24 text-right text-sm whitespace-nowrap tabular-nums sm:w-28">
+          {graded ? (
+            <>
+              <span className="font-medium">
+                {submission?.finalScore}/{submission?.finalScorePossible}
+              </span>{' '}
+              <span className="text-muted-foreground">{formatPercent(percent)}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">{assignment.pointValue} pts</span>
+          )}
+        </span>
+
+        <span className="w-24 text-right text-xs whitespace-nowrap text-muted-foreground">
+          {assignment.dueAt ? `Due ${formatDate(assignment.dueAt)}` : 'No due date'}
+        </span>
       </span>
     </>
   );
@@ -301,19 +350,47 @@ function RowSummary({
  * What is behind a row once it opens. Everything here is student-safe: released
  * feedback, their own repository, and instructions — never a draft, a flag, or an
  * instructor note.
+ *
+ * `submission` is null for a FILE_UPLOAD assignment nobody has started, because that kind
+ * has no Accept to create the row.
  */
-function AssignmentDetail({ submission }: { submission: Submission }) {
-  const rounds = feedbackRounds(submission);
+function AssignmentDetail({
+  assignment,
+  submission,
+}: {
+  assignment: Assignment;
+  submission: Submission | null;
+}) {
+  const rounds = submission ? feedbackRounds(submission) : [];
+  const status = submission?.status ?? 'NOT_STARTED';
   const revised =
+    submission != null &&
     submission.gradedHeadSha != null &&
     submission.headSha != null &&
     submission.headSha !== submission.gradedHeadSha;
 
+  const inQueue =
+    status === 'SUBMITTED' ||
+    status === 'DRAFT_READY' ||
+    status === 'NEEDS_MANUAL_REVIEW' ||
+    status === 'GRADING_FAILED';
+
   return (
     <div className="flex flex-col gap-4">
-      <RepoLinks submission={submission} />
+      {submission && <RepoLinks submission={submission} />}
 
-      {submission.status === 'ACCEPTED' && (
+      {/*
+        The assignment's own instructions, where the instructor wrote any. Above the
+        mechanical steps because it says what the work is, and those say how to hand it in.
+      */}
+      {assignment.submissionInstructions && (
+        <div className="rounded-lg border border-border bg-background p-4">
+          <p className="mb-2 text-sm font-medium">Instructions</p>
+          <Markdown className="text-sm" content={assignment.submissionInstructions} />
+        </div>
+      )}
+
+      {assignment.kind === 'REPO' && status === 'ACCEPTED' && (
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="mb-2 text-sm font-medium">How to submit</p>
           <ol className="ml-4 list-decimal text-sm text-muted-foreground [&>li]:mt-1">
@@ -330,23 +407,63 @@ function AssignmentDetail({ submission }: { submission: Submission }) {
       )}
 
       {/*
-        Every queue state a student can be in reads the same way, deliberately: whether a
-        draft exists, failed, or was never attempted is this system's business.
+        A Google Doc has no pull request to observe, so submitting is an act rather than
+        something inferred. Offered until the work is in the queue, and again after a grade,
+        since revising the document and asking for another look is this kind's resubmission.
       */}
-      {(submission.status === 'SUBMITTED' ||
-        submission.status === 'DRAFT_READY' ||
-        submission.status === 'NEEDS_MANUAL_REVIEW' ||
-        submission.status === 'GRADING_FAILED') && (
+      {assignment.kind === 'GOOGLE_DOC' && !inQueue && status !== 'RESUBMITTED' && (
+        <SubmitWorkForm
+          assignmentId={assignment.id}
+          currentUrl={submission?.submittedUrl ?? null}
+          resubmitting={status === 'GRADED'}
+        />
+      )}
+
+      {submission?.submittedUrl && (
+        <a
+          href={submission.submittedUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'self-start')}
+        >
+          <FileText data-icon="inline-start" />
+          The document you submitted{submission.isLate ? ' (late)' : ''}
+          <ExternalLink data-icon="inline-end" />
+        </a>
+      )}
+
+      {/*
+        Stated rather than shown as a control that does nothing. Uploading needs private
+        file storage — a bucket, a size limit, a rule that keeps one student's work from
+        being readable by another — which is its own piece of work.
+      */}
+      {assignment.kind === 'FILE_UPLOAD' && !inQueue && status !== 'GRADED' && (
         <Alert>
-          <Clock className="size-4" />
-          <AlertTitle>Waiting on your instructor</AlertTitle>
+          <Upload className="size-4" />
+          <AlertTitle>Uploading is not available yet</AlertTitle>
           <AlertDescription>
-            Your pull request is in. Feedback appears here once it is released.
+            Your instructor will tell you how to hand this in for now.
           </AlertDescription>
         </Alert>
       )}
 
-      {submission.status === 'RESUBMITTED' ? (
+      {/*
+        Every queue state a student can be in reads the same way, deliberately: whether a
+        draft exists, failed, or was never attempted is this system's business.
+      */}
+      {inQueue && (
+        <Alert>
+          <Clock className="size-4" />
+          <AlertTitle>Waiting on your instructor</AlertTitle>
+          <AlertDescription>
+            {assignment.kind === 'REPO'
+              ? 'Your pull request is in. Feedback appears here once it is released.'
+              : 'Your work is in. Feedback appears here once it is released.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {status === 'RESUBMITTED' ? (
         <Alert>
           <RotateCcw className="size-4" />
           <AlertTitle>Your revision is being reviewed</AlertTitle>
@@ -372,6 +489,75 @@ function AssignmentDetail({ submission }: { submission: Submission }) {
 
       {rounds.length > 0 && <FeedbackHistory rounds={rounds} />}
     </div>
+  );
+}
+
+/**
+ * Handing in work that has no pull request.
+ *
+ * The whole of the submission signal for a Google Doc. A repository assignment is observed —
+ * the webhook sees the pull request open and records it — and there is nothing to observe
+ * here, so pressing this is what puts the work in front of the instructor. Without it,
+ * finished work would read as never started.
+ *
+ * The link is asked for rather than derived, because the student's copy is theirs and this
+ * application never saw it created: Google made the copy in their Drive on their request.
+ */
+function SubmitWorkForm({
+  assignmentId,
+  currentUrl,
+  resubmitting,
+}: {
+  assignmentId: string;
+  currentUrl: string | null;
+  /** True after a grade, when submitting again is asking for another look at revised work. */
+  resubmitting: boolean;
+}) {
+  const trpc = useTRPC();
+  const router = useRouter();
+  const [url, setUrl] = React.useState(currentUrl ?? '');
+
+  const submit = useMutation(
+    trpc.submissions.submitWork.mutationOptions({
+      onSuccess: () => router.refresh(),
+    }),
+  );
+
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit.mutate({ assignmentId, submittedUrl: url.trim() });
+      }}
+    >
+      <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
+        {resubmitting ? 'Submit your revised document' : 'Submit your document'}
+      </label>
+      <p className="text-sm text-muted-foreground">
+        Paste the link to <strong>your own copy</strong>, and make sure your instructor can
+        open it.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={`submit-url-${assignmentId}`}
+          type="url"
+          required
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder="https://docs.google.com/document/d/…"
+          className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        />
+        <Button size="sm" type="submit" disabled={submit.isPending || url.trim() === ''}>
+          {submit.isPending ? 'Submitting…' : resubmitting ? 'Submit again' : 'Submit'}
+        </Button>
+      </div>
+      {submit.error && (
+        <p className="text-sm text-destructive" role="alert">
+          {submit.error.message}
+        </p>
+      )}
+    </form>
   );
 }
 

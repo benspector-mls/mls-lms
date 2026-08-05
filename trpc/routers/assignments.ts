@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 import {
   assertKindImplemented,
+  copyUrlFromTemplate,
+  NotRepositoryBackedError,
   repositorySource,
   UnsupportedAssignmentKindError,
 } from '@/lib/assignments/spec';
@@ -37,6 +39,10 @@ const assignmentFields = {
   assignmentRepoName: true,
   distributedAt: true,
   courseId: true,
+  // Both student-facing. The template document is what Accept sends them to a copy of, and
+  // the instructions are what the assignment says about turning it in.
+  templateDocUrl: true,
+  submissionInstructions: true,
 } as const;
 
 /**
@@ -123,6 +129,12 @@ function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssi
     templateRef: spec.templateRef,
     runnerPreset: spec.runnerPreset,
     runnerConfig: (spec.runnerConfig ?? null) as never,
+    // Both null on a REPO assignment and both spelled out anyway. Every field of the spec
+    // appears here, because a key left out of this object is not a compile error — it is a
+    // column that silently keeps its old value on update and its default on create, which
+    // for `templateDocUrl` would be a Google Doc assignment with nothing to distribute.
+    templateDocUrl: spec.templateDocUrl,
+    submissionInstructions: spec.submissionInstructions,
     sections: spec.sections as never,
   };
 }
@@ -198,6 +210,9 @@ export const assignmentsRouter = createTRPCRouter({
               status: true,
               repoUrl: true,
               prUrl: true,
+              // Where the work is when there is no repository: the student's own copy of a
+              // document, which is the only link either side has to it.
+              submittedUrl: true,
               submittedAt: true,
               isLate: true,
               // The grade, read straight from the submission. Approving is what makes
@@ -284,22 +299,6 @@ export const assignmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const student = ctx.profile;
 
-      if (!student.githubUsername) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            'Link your GitHub account before accepting an assignment. Your repository is named after your GitHub username.',
-        });
-      }
-
-      if (!isGithubAppConfigured()) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            'The GitHub App is not configured on this deployment. See the GitHub App setup section of the README.',
-        });
-      }
-
       const assignment = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
         select: {
@@ -309,42 +308,12 @@ export const assignmentsRouter = createTRPCRouter({
           templateRepo: true,
           assignmentRepoName: true,
           githubOrg: true,
+          templateDocUrl: true,
         },
       });
 
       if (!assignment) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
-      }
-
-      /*
-        Accepting *is* generating a repository, so this is where the kind stops being
-        incidental. A Google Doc or an uploaded file needs a different act entirely —
-        there is nothing to generate and nothing to add a collaborator to — so the
-        refusal happens before any GitHub call rather than surfacing as a null
-        repository name three requests later.
-      */
-      let source;
-      try {
-        source = repositorySource(assignment);
-      } catch (err) {
-        // Two different situations, worded for the person who hits them rather than
-        // for a stack trace. An unsupported kind means this button should never have
-        // been shown — accepting a Google Doc assignment does not generate a
-        // repository at all, and will call a different procedure once that kind
-        // exists. A misconfigured REPO row is the ordinary case today: an instructor
-        // set up the assignment without a template, org, or repo name.
-        if (err instanceof UnsupportedAssignmentKindError) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'This assignment is not accepted this way. Contact your instructor.',
-            cause: err,
-          });
-        }
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'Source repository not found for this assignment. Contact your instructor.',
-          cause: err,
-        });
       }
 
       // Enrollment is checked here as well as in listForCourse, because a
@@ -362,13 +331,101 @@ export const assignmentsRouter = createTRPCRouter({
         });
       }
 
+      /*
+        What accepting *is* depends on the kind, and this is where that stops being
+        incidental.
+
+        For a Google Doc it is being sent to Google's own copy prompt: no repository, no
+        collaborators, no credentials, and nothing created on this side beyond the row
+        recording that the student started. For a repository it is generating one from the
+        template, which is everything below. FILE_UPLOAD reaches neither — it has no Accept
+        at all, because there is nothing to hand out, and the refusal below is what a request
+        arriving anyway is answered with.
+      */
+      if (assignment.kind === 'GOOGLE_DOC') {
+        if (!assignment.templateDocUrl) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'This assignment has no template document, so there is nothing to copy. ' +
+              'Contact your instructor.',
+          });
+        }
+
+        // Upserted rather than created, so pressing Accept twice is the same as pressing it
+        // once: the copy prompt is idempotent on Google's side too — a second press makes a
+        // second copy, which is the student's business and not a state this owns.
+        const submission = await ctx.db.submission.upsert({
+          where: {
+            assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id },
+          },
+          create: {
+            assignmentId: assignment.id,
+            studentId: student.id,
+            status: 'ACCEPTED',
+            lastActivityAt: new Date(),
+          },
+          update: {},
+        });
+
+        return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDocUrl) };
+      }
+
+      if (assignment.kind === 'FILE_UPLOAD') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'This assignment is not accepted — there is nothing to hand out. Upload your ' +
+            'work and submit it when you are ready.',
+        });
+      }
+
+      if (!student.githubUsername) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'Link your GitHub account before accepting an assignment. Your repository is named after your GitHub username.',
+        });
+      }
+
+      if (!isGithubAppConfigured()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'The GitHub App is not configured on this deployment. See the GitHub App setup section of the README.',
+        });
+      }
+
+      let source;
+      try {
+        source = repositorySource(assignment);
+      } catch (err) {
+        // Worded for the person who hits it rather than for a stack trace. Reaching this
+        // with a kind that has no repository means the branches above missed one, which is a
+        // defect rather than something a student can act on; a misconfigured REPO row is the
+        // ordinary case, where an instructor set up the assignment without a template, org,
+        // or repository name.
+        if (err instanceof NotRepositoryBackedError || err instanceof UnsupportedAssignmentKindError) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'This assignment is not accepted this way. Contact your instructor.',
+            cause: err,
+          });
+        }
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Source repository not found for this assignment. Contact your instructor.',
+          cause: err,
+        });
+      }
+
       // Already accepted. Return the existing submission rather than creating a
       // second repository.
       const existing = await ctx.db.submission.findUnique({
         where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
       });
       if (existing?.repoFullName) {
-        return existing;
+        return { submission: existing, copyUrl: null };
       }
 
       const installationId = getConfiguredInstallationId();
@@ -443,7 +500,7 @@ export const assignmentsRouter = createTRPCRouter({
 
       const repoFullName = `${source.githubOrg}/${repoName}`;
 
-      return ctx.db.submission.upsert({
+      const submission = await ctx.db.submission.upsert({
         where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
         create: {
           assignmentId: assignment.id,
@@ -460,6 +517,11 @@ export const assignmentsRouter = createTRPCRouter({
           repoGithubLoginAtCreation: student.githubUsername,
         },
       });
+
+      // The same shape every kind returns, so the button has one result to handle rather
+      // than a union it has to narrow. Null here because a repository is opened from the
+      // row's own link, not by being sent somewhere on acceptance.
+      return { submission, copyUrl: null };
     }),
   // =====================================================================================
   // Authoring
@@ -552,6 +614,8 @@ export const assignmentsRouter = createTRPCRouter({
           templateRef: true,
           runnerPreset: true,
           runnerConfig: true,
+          templateDocUrl: true,
+          submissionInstructions: true,
           sections: true,
           _count: { select: { submissions: true } },
         },
@@ -790,6 +854,8 @@ export const assignmentsRouter = createTRPCRouter({
           templateRef: true,
           runnerPreset: true,
           runnerConfig: true,
+          templateDocUrl: true,
+          submissionInstructions: true,
           sections: true,
         },
       });
@@ -811,6 +877,8 @@ export const assignmentsRouter = createTRPCRouter({
         templateRef: source.templateRef,
         runnerPreset: source.runnerPreset,
         runnerConfig: source.runnerConfig,
+        templateDocUrl: source.templateDocUrl,
+        submissionInstructions: source.submissionInstructions,
         sections: source.sections,
       };
 

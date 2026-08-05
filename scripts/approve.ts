@@ -76,7 +76,9 @@ async function main() {
 
   console.log(`Submission  ${submission.repoFullName} — ${submission.status}`);
   console.log(`Pull req    #${submission.prNumber} @ ${submission.headSha?.slice(0, 7)}`);
-  console.log(`Draft       ${draft.status} @ ${draft.headSha.slice(0, 7)}`);
+  // "no commit" rather than a blank: a hand-graded draft has none, and this line is read to
+  // confirm the draft describes the code that is there.
+  console.log(`Draft       ${draft.status} @ ${draft.headSha?.slice(0, 7) ?? "no commit"}`);
   console.log(`Sections    ${draft.sections.map((s) => s.sectionType).join(", ")}`);
   console.log(`Score       ${earned}/${possible}` +
     (possible > 0

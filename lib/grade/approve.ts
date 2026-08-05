@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "../generated/prisma/client";
 import { db } from "../prisma";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
@@ -38,6 +39,77 @@ export class ApprovalError extends Error {
   }
 }
 
+/**
+ * Whether there is anywhere to post a comment at all.
+ *
+ * Both columns, because addressing a comment needs both and either being null means there
+ * is no pull request to address. A Google Doc or an uploaded file never has one, so this is
+ * false for every hand-graded submission rather than being a fault of one.
+ */
+export function hasSomewhereToPost<
+  T extends { prNumber: number | null; repoFullName: string | null },
+>(submission: T): submission is T & { prNumber: number; repoFullName: string } {
+  return submission.prNumber !== null && submission.repoFullName !== null;
+}
+
+/**
+ * Approved drafts whose comment never reached a pull request that exists.
+ *
+ * A function rather than an object so the submission condition cannot be dropped: every
+ * caller scopes the query differently — one submission, one assignment, a whole course —
+ * and merging their scope in here is what stops the deliverability test from being
+ * forgotten at one of the four call sites. Forgetting it is not a near miss. `triageBucket`
+ * reads `comment_not_posted` ahead of every other bucket, so a hand-graded submission
+ * matched by a query without it sits in triage, the grading queue, and the gradebook as
+ * work forever, and nothing an instructor can do clears it.
+ *
+ * The same rule as `hasSomewhereToPost` above, expressed for the database. They are
+ * deliberately adjacent: one decides what a loaded row means and the other decides which
+ * rows come back, and a difference between them would be invisible from either side.
+ */
+export function undeliveredApprovalWhere(
+  submission: Prisma.SubmissionWhereInput = {},
+): Prisma.GradingDraftWhereInput {
+  return {
+    status: "APPROVED",
+    postedPrCommentId: null,
+    submission: { ...submission, prNumber: { not: null }, repoFullName: { not: null } },
+  };
+}
+
+/**
+ * What became of an approval's feedback comment.
+ *
+ * Three outcomes rather than two, decided here rather than re-derived by each reader.
+ * `postedPrCommentId` alone cannot tell the difference between a comment that failed to
+ * send and one there was never anywhere to send: both are null. Collapsing them reported an
+ * impossibility as a fault in three places at once — a toast saying the comment did not
+ * post, a retry button that could never succeed, and a triage entry nothing could clear.
+ *
+ * A pure function over a loaded draft and its submission, not a column, so there is nothing
+ * to backfill and nothing that can fall out of step with the grade beside it. One edge
+ * follows from that and is worth knowing: a repository assignment hand-graded before the
+ * student opens a pull request reads as `not_applicable` until they open one, and as
+ * `failed` afterwards. That is arguably right — there is somewhere to post now — but it is
+ * a behaviour a stored column would not have, and recording the outcome at approval time is
+ * the alternative if it ever reads as wrong.
+ */
+export type DeliveryOutcome =
+  /** The comment is on the pull request. */
+  | "posted"
+  /** There is a pull request and the comment did not reach it. Retryable. */
+  | "failed"
+  /** There is no pull request. Nothing was owed to GitHub and nothing is missing. */
+  | "not_applicable";
+
+export function deliveryOutcome(
+  draft: { postedPrCommentId: bigint | null },
+  submission: { prNumber: number | null; repoFullName: string | null },
+): DeliveryOutcome {
+  if (draft.postedPrCommentId !== null) return "posted";
+  return hasSomewhereToPost(submission) ? "failed" : "not_applicable";
+}
+
 export type ApprovalResult = {
   submissionId: string;
   finalScore: number;
@@ -45,7 +117,16 @@ export type ApprovalResult = {
   isComplete: boolean;
   /** Null when the comment could not be posted. The grade is recorded regardless. */
   postedPrCommentId: bigint | null;
-  /** Why posting failed, for the interface to show alongside a recorded grade. */
+  /**
+   * What became of the comment. `not_applicable` is an ordinary, finished outcome — the
+   * interface says "released" and offers no retry — so a reader must branch on this rather
+   * than on `postedPrCommentId` being null.
+   */
+  delivery: DeliveryOutcome;
+  /**
+   * Why posting failed, for the interface to show alongside a recorded grade. Null unless
+   * `delivery` is `failed`: having nowhere to post is not an error and has no message.
+   */
   commentError: string | null;
 };
 
@@ -99,12 +180,31 @@ export function buildFeedbackMarkdown(
  */
 export { statedScoreInText };
 
+/**
+ * A Prisma client, or a transaction's view of one.
+ *
+ * Approving is the most consequential write in the application, and the only way to check a
+ * destructive path against real rows without harming any is to run it inside a transaction
+ * that is rolled back — which is how every other one here is checked. Reading the module's own
+ * client made that impossible: rows created inside a caller's transaction are invisible to it,
+ * so the approval could only ever be tested up to the guards that refuse before writing.
+ */
+type ApprovalClient = typeof db | Prisma.TransactionClient;
+
 export async function approveDraft(params: {
   draftId: string;
   /** The instructor doing the approving. Recorded as `gradedBy`. */
   approvedByProfileId: string;
+  /**
+   * The client to write through. Defaults to the application's own. A caller passing its
+   * transaction gets the two writes below run in order rather than in a nested transaction,
+   * since it is already inside one.
+   */
+  client?: ApprovalClient;
 }): Promise<ApprovalResult> {
-  const draft = await db.gradingDraft.findUnique({
+  const client = params.client ?? db;
+
+  const draft = await client.gradingDraft.findUnique({
     where: { id: params.draftId },
     select: {
       id: true,
@@ -163,7 +263,12 @@ export async function approveDraft(params: {
   // Refused rather than warned about. The instructor read a report describing one
   // commit; approving it would attach that report to different code and record its
   // score as the grade for work nobody has looked at. Regenerating is one click.
-  if (submission.headSha && draft.headSha !== submission.headSha) {
+  //
+  // Both commits are required to compare. A draft with none belongs to work that has none
+  // — a document or an upload — and there is nothing it could be out of date against;
+  // `startManual` copies the submission's commit whenever there is one, so the two columns
+  // are null together rather than one at a time.
+  if (submission.headSha && draft.headSha && draft.headSha !== submission.headSha) {
     throw new ApprovalError(
       `This draft describes commit ${draft.headSha.slice(0, 7)}, but the pull request ` +
       `is now at ${submission.headSha.slice(0, 7)}. Regenerate the report so the grade ` +
@@ -177,6 +282,28 @@ export async function approveDraft(params: {
 
   // Instructor edits where they exist, the model's output where they do not.
   const sections = draft.sections.map(effectiveSection);
+
+  /*
+    A section nobody has filled in. This is what a hand-graded draft starts as — blank text
+    and no score — and releasing one would record a real zero for work nobody assessed and
+    show the student an empty report. Refused rather than treated as 0, because the two are
+    indistinguishable downstream once written and only one of them is ever meant.
+
+    An AI-graded section cannot reach this: the model's output is schema-constrained to carry
+    both, and `updateSection` refuses empty text rather than storing it.
+  */
+  const unscored = sections.filter(
+    (section) => section.scoreEarned === null || !section.reportMarkdown?.trim(),
+  );
+
+  if (unscored.length > 0) {
+    throw new ApprovalError(
+      `${unscored.map((section) => `"${section.sectionType}"`).join(", ")} ` +
+      `${unscored.length === 1 ? "has" : "have"} no score or no feedback written yet. ` +
+      `Fill in every section before releasing — a blank section would be recorded as a ` +
+      `zero and shown to the student as an empty report.`,
+    );
+  }
 
   // The number in the prose against the number being recorded. An instructor revising a
   // report is expected — writing "27/30" into the text while the recorded score stays
@@ -222,8 +349,8 @@ export async function approveDraft(params: {
   // Both rows together, because a draft marked APPROVED whose submission is not GRADED
   // — or the reverse — would put the feedback history and the gradebook out of step.
   // Both are local writes, so the transaction closes without waiting on anything.
-  await db.$transaction([
-    db.submission.update({
+  const writes = [
+    client.submission.update({
       where: { id: submission.id },
       data: {
         status: "GRADED",
@@ -241,7 +368,7 @@ export async function approveDraft(params: {
         salesforceSyncStatus: "PENDING",
       },
     }),
-    db.gradingDraft.update({
+    client.gradingDraft.update({
       where: { id: draft.id },
       data: {
         status: "APPROVED",
@@ -249,15 +376,37 @@ export async function approveDraft(params: {
         approvedById: params.approvedByProfileId,
       },
     }),
-  ]);
+  ];
+
+  /*
+    Decided from whether a client was handed in, not by asking the client what it is. A
+    transaction client still carries `$transaction` at runtime even though its type omits it,
+    and calling it opens a *second* transaction on a different connection — which cannot see
+    the rows the caller's own transaction has written, and fails with "no record was found for
+    an update" on a row that is plainly there.
+
+    So: a caller that passed its client is already inside a transaction and owns the atomicity;
+    the two writes run in order. Otherwise this opens the transaction itself, which is what
+    every request does.
+  */
+  if (params.client) {
+    for (const write of writes) await write;
+  } else {
+    await db.$transaction(writes);
+  }
 
   // ---- Step two: the comment, best effort ---------------------------------
   let postedPrCommentId: bigint | null = null;
   let commentError: string | null = null;
 
-  if (!submission.repoFullName || submission.prNumber === null) {
-    commentError = "This submission has no pull request, so nothing was posted.";
-  } else {
+  /*
+    A submission with no pull request is not a delivery that failed. Every hand-graded
+    assignment is in this state permanently — a Google Doc is commented on in the document
+    and an uploaded file has nowhere to comment at all — so the grade is complete here and
+    `deliveryOutcome` below names it `not_applicable` rather than leaving an error message
+    for a step that was never owed.
+  */
+  if (hasSomewhereToPost(submission)) {
     try {
       // No existingCommentId: a new comment every time. Earlier rounds of feedback
       // stay on the pull request where a student can read back through them.
@@ -268,7 +417,7 @@ export async function approveDraft(params: {
       });
 
       postedPrCommentId = BigInt(comment.id);
-      await db.gradingDraft.update({
+      await client.gradingDraft.update({
         where: { id: draft.id },
         data: { postedPrCommentId },
       });
@@ -283,6 +432,7 @@ export async function approveDraft(params: {
     finalScorePossible,
     isComplete,
     postedPrCommentId,
+    delivery: deliveryOutcome({ postedPrCommentId }, submission),
     commentError,
   };
 }
@@ -339,8 +489,13 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
   }
 
   const submission = draft.submission;
-  if (!submission.repoFullName || submission.prNumber === null) {
-    throw new ApprovalError(`This submission has no pull request to post to.`);
+  if (!hasSomewhereToPost(submission)) {
+    // Reached only by a caller that offered a retry it should not have. Nothing is
+    // missing on this submission, so the message says that rather than implying a failure.
+    throw new ApprovalError(
+      `This submission has no pull request, so there is no comment to post. Its feedback ` +
+      `is already released and the student can read it.`,
+    );
   }
 
   const comment = await postOrUpdatePrComment(getConfiguredInstallationId(), {
@@ -361,6 +516,7 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
     finalScorePossible: submission.finalScorePossible ?? 0,
     isComplete: submission.isComplete ?? false,
     postedPrCommentId,
+    delivery: "posted",
     commentError: null,
   };
 }

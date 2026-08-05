@@ -55,12 +55,20 @@ export const RUBRIC_NAME_BY_SECTION_TYPE: Record<SectionTypeName, string> = {
  * Kinds the application can actually distribute, collect, and grade today.
  *
  * Separate from the enum on purpose. The enum names the axis so that every code path
- * assuming a repository has to say so; this set says which of them are built. When a
- * Google Doc assignment becomes real, this is the one line that changes — and until
- * then the refusal says so in those words rather than failing somewhere downstream on
- * a null repository name.
+ * assuming a repository has to say so; this set says which of them are built.
+ *
+ * All three are built. What differs between them is not whether they work but how far the
+ * pipeline reaches: a `REPO` assignment is distributed from a template, collected as a pull
+ * request, and graded by the model, while the other two are distributed as a link or as
+ * instructions, collected by the student saying they are done, and graded by an instructor
+ * typing the score and the feedback. Reading a Google Doc's contents or an uploaded file and
+ * generating a report from it is a separate feature and needs instructor-authored rubrics.
  */
-export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([AssignmentKind.REPO]);
+export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
+  AssignmentKind.REPO,
+  AssignmentKind.GOOGLE_DOC,
+  AssignmentKind.FILE_UPLOAD,
+]);
 
 /** True when this kind's submissions live in a generated GitHub repository. */
 export function requiresRepository(kind: AssignmentKind): boolean {
@@ -70,11 +78,30 @@ export function requiresRepository(kind: AssignmentKind): boolean {
 export class UnsupportedAssignmentKindError extends Error {
   constructor(readonly kind: AssignmentKind) {
     super(
-      `Assignments of kind ${kind} are not implemented yet. Only ` +
+      `Assignments of kind ${kind} are not implemented. Only ` +
         `${[...IMPLEMENTED_KINDS].join(", ")} can be distributed, collected, or graded. ` +
         `See IMPLEMENTED_KINDS in lib/assignments/spec.ts.`,
     );
     this.name = "UnsupportedAssignmentKindError";
+  }
+}
+
+/**
+ * Asked for a repository that this kind of assignment does not have.
+ *
+ * Distinct from `UnsupportedAssignmentKindError` because it means the opposite thing. That
+ * one says a kind is not built; this one says the kind is built and works, and the caller
+ * asked it a question about repositories that does not apply — a Google Doc has no template
+ * to generate from and no pull request to diff. Reporting them as one another would tell an
+ * instructor a working assignment is unimplemented.
+ */
+export class NotRepositoryBackedError extends Error {
+  constructor(readonly kind: AssignmentKind) {
+    super(
+      `A ${kind} assignment has no repository: nothing is generated from a template and ` +
+        `there is no pull request. Narrow on the kind before asking for one.`,
+    );
+    this.name = "NotRepositoryBackedError";
   }
 }
 
@@ -104,10 +131,12 @@ export type RepositorySource = {
  *
  * Every path that generates a repository, fetches a template, or names a student's
  * repository goes through here, so "this assignment has a repository" is asserted in
- * one place instead of at each use. The two failures are different and are reported
- * differently: a Google Doc assignment is *not yet supported*, while a REPO assignment
- * missing `githubOrg` is *misconfigured* — one is a feature that does not exist and the
- * other is a row that should never have been written.
+ * one place instead of at each use. Three failures, reported differently because an
+ * instructor can act on one of them and not on the others: a kind that is not built at all
+ * (`UnsupportedAssignmentKindError`), a working kind that simply has no repository
+ * (`NotRepositoryBackedError` — the caller should not have asked), and a `REPO` row missing
+ * `githubOrg` (`AssignmentConfigurationError` — a row that should never have been written,
+ * and the only one of the three an instructor can fix).
  */
 export function repositorySource(assignment: {
   kind: AssignmentKind;
@@ -119,7 +148,7 @@ export function repositorySource(assignment: {
   assertKindImplemented(assignment.kind);
 
   if (!requiresRepository(assignment.kind)) {
-    throw new UnsupportedAssignmentKindError(assignment.kind);
+    throw new NotRepositoryBackedError(assignment.kind);
   }
 
   const missing = (
@@ -200,6 +229,39 @@ const manualSectionSchema = z
 
 const sectionSchema = z.discriminatedUnion("grading", [aiSectionSchema, manualSectionSchema]);
 
+/**
+ * Every section of an assignment is graded the same way: all by the pipeline, or all by hand.
+ *
+ * Refused rather than supported, and the reason is worth keeping. A mix is expressible in the
+ * shape above and nothing in the curriculum has ever been one. Supporting it means a report
+ * that covers some of an assignment's sections and not others, which is a second draft shape
+ * for the review screen to render, a point total that has to be assembled from two sources,
+ * and — the way it actually failed — a generated draft carrying only the AI sections, so the
+ * assignment's own point value exceeded what approval could record and a 30-point assignment
+ * released as 20 out of 20.
+ *
+ * The direction of travel is one section per assignment, so a coding exercise with a
+ * hand-marked reflection is two assignments rather than one. Multi-section assignments stay
+ * supported — the checkpoint really has two, both graded by the pipeline — because those are
+ * what exists and separating them is a curriculum change made assignment by assignment.
+ */
+const sectionsSchema = z
+  .array(sectionSchema)
+  .min(1, "an assignment needs at least one gradable section")
+  .superRefine((sections, ctx) => {
+    const modes = new Set(sections.map((section) => section.grading));
+    if (modes.size <= 1) return;
+
+    ctx.addIssue({
+      code: "custom",
+      path: [],
+      message:
+        "Every section of an assignment has to be graded the same way. This one mixes " +
+        "sections the pipeline grades with sections graded by hand, which no assignment " +
+        "does — split it into two assignments instead.",
+    });
+  });
+
 export type AssignmentSectionSpec = z.infer<typeof sectionSchema>;
 export type AiSectionSpec = z.infer<typeof aiSectionSchema>;
 export type ManualSectionSpec = z.infer<typeof manualSectionSchema>;
@@ -217,12 +279,57 @@ export function isAiGraded(section: AssignmentSectionSpec): section is AiSection
  * has nothing for a model to do, and offering the button would promise something that
  * cannot happen.
  */
-export function isManualOnly(sections: readonly { grading: "ai" | "manual" }[]): boolean {
+export function isManualOnly(sections: unknown): boolean {
+  const modes = sectionGradingModes(sections);
   // The length check is load-bearing: `every` is true for an empty array, and an
   // assignment with no sections at all is a configuration error rather than a manually
-  // graded one. Asking only for `grading` lets a stored row be passed in as readily as a
-  // parsed spec.
-  return sections.length > 0 && sections.every((section) => section.grading === "manual");
+  // graded one.
+  return modes.length > 0 && modes.every((mode) => mode === "manual");
+}
+
+/**
+ * How each section of a stored `sections` column is graded.
+ *
+ * Takes `unknown` because the column is JSON and every caller holds it in that shape. This
+ * is the one place that narrows it, so the three screens that ask whether an assignment can
+ * be graded by the pipeline cannot each narrow it slightly differently — which is how
+ * `isShortResponseFile` came to be written twice and drift.
+ *
+ * An entry with no `grading` at all counts as `ai`. Migration `20260804143312_section_grading`
+ * backfilled the column so none should exist, and `ai` is the safe direction if one does: it
+ * leaves the generate button in place on an assignment that has always had it, where the
+ * reverse would quietly hide the only way to grade real work.
+ */
+/**
+ * The hand-graded sections of a stored `sections` column, as the blank draft needs them.
+ *
+ * Reads the label and the point value and nothing else, because that is all a manual section
+ * has: no rubric, no answer keys, no type. A row missing either is skipped rather than
+ * defaulted — a section scored out of an invented total is the failure the whole
+ * "`pointValue` is required and never defaulted" rule exists to prevent, and skipping it is
+ * visible where a zero would not be.
+ */
+export function manualSections(sections: unknown): { label: string; pointValue: number }[] {
+  if (!Array.isArray(sections)) return [];
+
+  return sections.flatMap((section) => {
+    if (!section || typeof section !== "object") return [];
+    const entry = section as { grading?: unknown; label?: unknown; pointValue?: unknown };
+    if (entry.grading !== "manual") return [];
+    if (typeof entry.label !== "string" || entry.label.length === 0) return [];
+    if (typeof entry.pointValue !== "number" || !Number.isFinite(entry.pointValue)) return [];
+    return [{ label: entry.label, pointValue: entry.pointValue }];
+  });
+}
+
+export function sectionGradingModes(sections: unknown): ("ai" | "manual")[] {
+  if (!Array.isArray(sections)) return [];
+  return sections.map((section) =>
+    section && typeof section === "object" &&
+    (section as { grading?: unknown }).grading === "manual"
+      ? "manual"
+      : "ai",
+  );
 }
 
 /**
@@ -310,7 +417,13 @@ const shared = {
     .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, numbers, and hyphens"),
   dueAt: z.date().nullable().default(null),
   completionThreshold: z.number().gt(0).lte(1).default(0.75),
-  sections: z.array(sectionSchema).min(1, "an assignment needs at least one gradable section"),
+  sections: sectionsSchema,
+  /**
+   * How to turn this in, in markdown. Optional on every kind: each kind's own screen states
+   * the mechanical steps already, so this is the assignment's own instructions rather than
+   * the only thing standing between a student and knowing what to do.
+   */
+  submissionInstructions: z.string().trim().min(1).max(10_000).nullable().default(null),
 };
 
 /**
@@ -331,7 +444,49 @@ const noRepository = {
    */
   runnerPreset: z.literal("none").default("none"),
   runnerConfig: z.null().default(null),
+  /**
+   * Every section of a kind with no repository is graded by hand, and the shape refuses any
+   * other. The pipeline's inputs are a pull request's changed files, the tests the template
+   * holds, and the paths `classifySections` matches — a document has none of them, so an AI
+   * section here would validate, save, sit in the queue as a report waiting to be generated,
+   * and fail on the missing pull request at the moment an instructor asked for it. Refusing it
+   * at authoring time is the difference between an assignment that cannot be built wrong and
+   * one that breaks the first time it is used.
+   *
+   * Reading a document's contents and grading it is a real future feature. It needs Drive
+   * access and instructor-authored rubrics, and this line is what changes when it exists.
+   */
+  sections: z
+    .array(manualSectionSchema)
+    .min(1, "an assignment needs at least one gradable section"),
 };
+
+/**
+ * A Google Docs URL the copy prompt can be built from.
+ *
+ * Anchored on the document id and the final path segment rather than accepting any link,
+ * because `copyUrlFromTemplate` below works by replacing that segment: a URL this pattern
+ * does not match is one the substitution would silently leave alone, sending every student
+ * to the instructor's own document to edit in place. `/edit` is accepted as well as `/view`
+ * since that is what Google's Share dialog actually hands over.
+ */
+const GOOGLE_DOC_URL = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+\/(view|edit|preview)(\?[^#]*)?(#.*)?$/;
+
+/**
+ * Google's own "would you like to make a copy?" prompt for a document.
+ *
+ * The whole of the Google Doc distribution mechanism. The application creates nothing, holds
+ * no Google credentials, and touches no student's Drive — the copy is made by Google, on the
+ * student's request, and belongs to them from the moment it exists. The alternative was Drive
+ * API integration with OAuth against every student's Google account, which is a great deal of
+ * machinery for something a link already does.
+ *
+ * The query string is dropped with the segment: `?usp=sharing` on a `/copy` URL is harmless
+ * but meaningless, and keeping it would make the link look assembled rather than deliberate.
+ */
+export function copyUrlFromTemplate(templateDocUrl: string): string {
+  return templateDocUrl.replace(/\/(view|edit|preview)(\?[^#]*)?(#.*)?$/, "/copy");
+}
 
 export const assignmentSpecSchema = z.discriminatedUnion("kind", [
   z
@@ -358,6 +513,8 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       /** Checked against `lib/sandbox/presets.ts` below, not just required to be non-empty. */
       runnerPreset: z.string().min(1).default("none"),
       runnerConfig: z.record(z.string(), z.unknown()).nullable().default(null),
+      /** A repository assignment is distributed from a template, not from a document. */
+      templateDocUrl: z.null().default(null),
     })
     .strict()
     /*
@@ -378,8 +535,39 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       }
     }),
 
-  z.object({ kind: z.literal(AssignmentKind.GOOGLE_DOC), ...shared, ...noRepository }).strict(),
-  z.object({ kind: z.literal(AssignmentKind.FILE_UPLOAD), ...shared, ...noRepository }).strict(),
+  z
+    .object({
+      kind: z.literal(AssignmentKind.GOOGLE_DOC),
+      ...shared,
+      ...noRepository,
+      /**
+       * The document every student takes their own copy of. Required, because without it
+       * there is no way to distribute the assignment at all — a Google Doc assignment with
+       * no template is an instruction to write something somewhere.
+       */
+      templateDocUrl: z
+        .string()
+        .regex(
+          GOOGLE_DOC_URL,
+          'must be a Google Docs link ending in /view or /edit, e.g. ' +
+            'https://docs.google.com/document/d/<id>/view — that is what the copy prompt ' +
+            'is built from',
+        ),
+    })
+    .strict(),
+
+  /**
+   * No template and therefore no Accept: there is nothing to hand out and nothing to copy.
+   * The assignment stays NOT_STARTED until the student submits, which is the one act.
+   */
+  z
+    .object({
+      kind: z.literal(AssignmentKind.FILE_UPLOAD),
+      ...shared,
+      ...noRepository,
+      templateDocUrl: z.null().default(null),
+    })
+    .strict(),
 ]);
 
 export type AssignmentSpec = z.infer<typeof assignmentSpecSchema>;

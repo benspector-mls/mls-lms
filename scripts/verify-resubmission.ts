@@ -140,7 +140,7 @@ async function main() {
       select: { headSha: true, postedPrCommentId: true },
     });
     check("both rounds are on record", rounds.length === before + 1,
-      rounds.map((r) => `${r.headSha.slice(0, 7)}→${r.postedPrCommentId}`).join(", "));
+      rounds.map((r) => `${r.headSha?.slice(0, 7) ?? "no commit"}→${r.postedPrCommentId}`).join(", "));
     check("each round posted a distinct comment",
       new Set(rounds.map((r) => String(r.postedPrCommentId))).size === rounds.length);
 
