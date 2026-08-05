@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { isManualOnly } from '@/lib/assignments/spec';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
+import { signedDownloadUrl } from '@/lib/uploads/storage';
+import { assertCanHandIn } from '@/lib/uploads/submit';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
 
@@ -50,64 +52,30 @@ export const submissionsRouter = createTRPCRouter({
    * started rather than as waiting, which is the difference between an instructor seeing it
    * and not.
    *
-   * The URL is where the student's own copy of the document is. `FILE_UPLOAD` submits with no
-   * URL, because what it needs is a stored file — its own piece of work, and deliberately not
-   * a text field pretending to be one.
+   * The URL is where the student's own copy of the document is. A `FILE_UPLOAD` assignment is
+   * refused here and hands in through `POST /api/submissions/upload` instead: storing the file
+   * *is* the act of submitting, so letting this procedure mark one submitted would put work in
+   * the instructor's queue with nothing to open, and would make two things authorities on the
+   * same columns. The authorization rule is shared with that route rather than written twice.
    */
   submitWork: profileProcedure
     .input(
       z.object({
-        // The assignment rather than the submission, because FILE_UPLOAD has no row until
-        // this runs: submitting is the first thing that happens to it.
+        // The assignment rather than the submission, because a submission row may not exist
+        // yet: for a kind with no Accept, submitting is the first thing that happens to it.
         assignmentId: z.string().uuid(),
         /** The student's copy of the document, for GOOGLE_DOC. */
         submittedUrl: z.string().url().max(2000).nullable().default(null),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: { id: true, kind: true, courseId: true, dueAt: true, distributedAt: true },
+      const assignment = await assertCanHandIn(ctx.db, {
+        profileId: ctx.profile.id,
+        assignmentId: input.assignmentId,
+        expectKind: 'GOOGLE_DOC',
       });
 
-      if (!assignment) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
-      }
-
-      // A repository assignment's submission signal is the pull request. Accepting one here
-      // would let a student mark work submitted with no code to look at, and the webhook
-      // would then be a second authority on the same column.
-      if (assignment.kind === 'REPO') {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message:
-            'This assignment is submitted by opening a pull request from your draft branch ' +
-            'into main. That is what puts it in your instructor\'s queue.',
-        });
-      }
-
-      if (assignment.distributedAt === null) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'That assignment is not available.',
-        });
-      }
-
-      // Checked here rather than relying on having listed the course first, for the same
-      // reason `accept` does: a mutation must not assume which query preceded it.
-      const enrollment = await ctx.db.enrollment.findFirst({
-        where: { courseId: assignment.courseId, studentId: ctx.profile.id, status: 'ACTIVE' },
-        select: { id: true },
-      });
-
-      if (!enrollment) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You are not enrolled in the course this assignment belongs to.',
-        });
-      }
-
-      if (assignment.kind === 'GOOGLE_DOC' && !input.submittedUrl) {
+      if (!input.submittedUrl) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message:
@@ -123,9 +91,8 @@ export const submissionsRouter = createTRPCRouter({
         computes it for a pull request: the comparison is against the assignment's own
         `dueAt`, and a submission with no due date is never late.
 
-        The row may not exist yet. FILE_UPLOAD has no Accept, so submitting is the first
-        thing that happens to it, and an upsert is what lets one procedure serve both that
-        and a Google Doc that was accepted earlier.
+        The row may not exist yet. A student can reach this without having pressed Accept, so
+        an upsert is what keeps a missing row from being an error the student cannot act on.
       */
       return ctx.db.submission.upsert({
         where: {
@@ -149,6 +116,70 @@ export const submissionsRouter = createTRPCRouter({
         },
         select: { id: true, status: true, submittedUrl: true, submittedAt: true, isLate: true },
       });
+    }),
+
+  /**
+   * A short-lived link to one uploaded file.
+   *
+   * **A mutation rather than a query, though it reads nothing.** The URL it returns expires in
+   * minutes, so caching it — which is what a query does — would hand back a dead link on the
+   * second press. This way the link is minted when the button is pressed, and a list of forty
+   * students does not mint forty URLs nobody clicked.
+   *
+   * Reachable by the student who owns the submission and by an instructor who teaches the
+   * course, and nobody else. That check is the *whole* of the access control on stored files:
+   * the bucket is private with no policies, so there is no other route to the bytes.
+   */
+  uploadUrl: profileProcedure
+    .input(z.object({ submissionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const submission = await ctx.db.submission.findUnique({
+        where: { id: input.submissionId },
+        select: {
+          id: true,
+          studentId: true,
+          uploadPath: true,
+          uploadFilename: true,
+          assignment: { select: { courseId: true } },
+        },
+      });
+
+      if (!submission) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Submission not found.' });
+      }
+
+      const isOwner = submission.studentId === ctx.profile.id;
+
+      if (!isOwner && ctx.profile.role !== 'ADMIN') {
+        const teaches = await ctx.db.courseInstructor.findFirst({
+          where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
+          select: { id: true },
+        });
+
+        // Holding the INSTRUCTOR role is not enough, for the reason every authoring procedure
+        // checks the same thing: it says nothing about *which* courses, so without this one
+        // cohort's instructor could read another cohort's submissions.
+        if (!teaches) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'You do not teach the course this submission belongs to.',
+          });
+        }
+      }
+
+      if (!submission.uploadPath) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'There is no uploaded file on this submission.',
+        });
+      }
+
+      return {
+        url: await signedDownloadUrl({
+          path: submission.uploadPath,
+          filename: submission.uploadFilename,
+        }),
+      };
     }),
 
   /**
@@ -428,8 +459,13 @@ export const submissionsRouter = createTRPCRouter({
           prNumber: true,
           headSha: true,
           // What the instructor opens when there is no pull request: the document the student
-          // submitted. Hand grading needs somewhere to read the work from.
+          // submitted, or the file they uploaded. Hand grading needs somewhere to read the
+          // work from. The path is deliberately not selected — a download is a signed URL from
+          // `uploadUrl`, minted per request, and sending the path to the browser would suggest
+          // otherwise.
           submittedUrl: true,
+          uploadFilename: true,
+          uploadSizeBytes: true,
           submittedAt: true,
           isLate: true,
           lastActivityAt: true,

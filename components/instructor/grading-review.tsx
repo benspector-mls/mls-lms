@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { TestRunPanel } from '@/components/instructor/test-run-panel';
 import { Markdown } from '@/components/markdown';
 import { DraftStatusBadge, FlagBadge, SubmissionStatusBadge } from '@/components/status-badge';
+import { UploadedFileRow } from '@/components/uploaded-file';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -193,6 +194,21 @@ export function GradingReview({
                 currentRun={currentRun}
                 loading={testRuns.isPending}
                 now={now}
+              />
+            )}
+
+            {/*
+              The analogue of test evidence for work with no suite: the thing the grade rests
+              on. Here rather than inside the hand-grading card, because that card is gone once
+              a draft exists and the file is most needed while the feedback is being written.
+            */}
+            {submission.uploadFilename && (
+              <UploadedFileRow
+                submissionId={submission.id}
+                filename={submission.uploadFilename}
+                sizeBytes={submission.uploadSizeBytes}
+                isLate={submission.isLate ?? false}
+                label="What the student uploaded"
               />
             )}
 

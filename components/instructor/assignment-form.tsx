@@ -24,6 +24,14 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RUBRIC_NAME_BY_SECTION_TYPE } from '@/lib/assignments/spec';
 import { NO_RUNNER, RUNNER_PRESETS } from '@/lib/sandbox/presets';
+import {
+  formatBytes,
+  isUploadFileTypeKey,
+  MAX_UPLOAD_BYTES,
+  UPLOAD_FILE_TYPE_KEYS,
+  UPLOAD_FILE_TYPES,
+  type UploadFileTypeKey,
+} from '@/lib/uploads/file-types';
 import { moduleLabel } from '@/lib/status';
 import { useTRPC } from '@/trpc/client';
 import type { RouterOutputs } from '@/trpc/types';
@@ -77,6 +85,8 @@ type FormState = {
   runnerPreset: string;
   runnerConfig: null;
   templateDocUrl: string;
+  /** Keys of UPLOAD_FILE_TYPES. Only a FILE_UPLOAD assignment sends these. */
+  acceptedFileTypes: UploadFileTypeKey[];
   submissionInstructions: string;
   sections: SectionDraft[];
 };
@@ -139,7 +149,11 @@ function toDraft(state: FormState): unknown {
     return { ...shared, kind: 'GOOGLE_DOC', templateDocUrl: state.templateDocUrl.trim() };
   }
 
-  return { ...shared, kind: 'FILE_UPLOAD' };
+  return {
+    ...shared,
+    kind: 'FILE_UPLOAD',
+    acceptedFileTypes: state.acceptedFileTypes,
+  };
 }
 
 const DEBOUNCE_MS = 600;
@@ -605,6 +619,46 @@ function Editor({
                 </Field>
               )}
 
+              {/*
+                Checkboxes from a fixed list rather than a text field, for the reason the runner
+                preset is a select: a typo'd MIME type is not an error an instructor sees, it is
+                a student being told their correct file is the wrong kind, on the due date.
+              */}
+              {state.kind === 'FILE_UPLOAD' && (
+                <Field
+                  label="What students may hand in"
+                  findings={fieldFindings('acceptedFileTypes')}
+                  hint={`At least one. Anything else is refused before it is stored, and the limit is ${formatBytes(MAX_UPLOAD_BYTES)} whatever you pick.`}
+                >
+                  <div className="flex flex-wrap gap-x-5 gap-y-2">
+                    {UPLOAD_FILE_TYPE_KEYS.map((key) => {
+                      const ticked = state.acceptedFileTypes.includes(key);
+                      return (
+                        <label key={key} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={ticked}
+                            onChange={() =>
+                              setState({
+                                ...state,
+                                acceptedFileTypes: ticked
+                                  ? state.acceptedFileTypes.filter((held) => held !== key)
+                                  : [...state.acceptedFileTypes, key],
+                              })
+                            }
+                            className="size-4 rounded border-input"
+                          />
+                          <span>{UPLOAD_FILE_TYPES[key].label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {UPLOAD_FILE_TYPES[key].extensions.join(' ')}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </Field>
+              )}
+
               <Field
                 label="Submission instructions"
                 findings={fieldFindings('submissionInstructions')}
@@ -920,6 +974,7 @@ function blankDraft({
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
     templateDocUrl: '',
+    acceptedFileTypes: ['pdf'],
     submissionInstructions: '',
     sections: [aiSection({ rubrics })],
   };
@@ -954,6 +1009,12 @@ function blankNonRepoDraft({
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
     templateDocUrl: existingState?.templateDocUrl ?? '',
+    // Ticked rather than empty, because every file-upload assignment needs at least one and a
+    // PDF is what almost all of them want. An instructor changes it; they cannot forget it.
+    acceptedFileTypes:
+      existingState?.acceptedFileTypes && existingState.acceptedFileTypes.length > 0
+        ? existingState.acceptedFileTypes
+        : ['pdf'],
     submissionInstructions: existingState?.submissionInstructions ?? '',
     sections: existingState?.sections.every((section) => section.grading === 'manual')
       ? existingState.sections
@@ -975,6 +1036,7 @@ function fromDraft(draft: Draft): FormState {
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
     templateDocUrl: draft.templateDocUrl ?? '',
+    acceptedFileTypes: (draft.acceptedFileTypes ?? []).filter(isUploadFileTypeKey),
     submissionInstructions: draft.submissionInstructions ?? '',
     sections: (draft.sections as SectionDraft[]) ?? [],
   };

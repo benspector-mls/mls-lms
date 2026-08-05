@@ -345,8 +345,40 @@ check("a file upload assignment needs no template of any kind",
     title: "Resume, first draft",
     moduleTag: "mod-1-js-fundamentals",
     sections: [manualSection],
+    acceptedFileTypes: ["pdf"],
   }),
   "accepted");
+
+// --- what a file upload accepts ----------------------------------------------
+//
+// Not defaulted to "anything". An assignment that accepts anything cannot tell a student
+// their file is the wrong kind until an instructor opens it and finds a screenshot where a
+// PDF was wanted, by which point the due date has passed.
+const uploadSpec = {
+  kind: AssignmentKind.FILE_UPLOAD,
+  title: "Resume, first draft",
+  moduleTag: "mod-1-js-fundamentals",
+  sections: [manualSection],
+  acceptedFileTypes: ["pdf"],
+};
+
+check("a file upload assignment must say what it accepts",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: [] }, "acceptedFileTypes"), true);
+check("and it is refused when the key is missing entirely",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: undefined }, "acceptedFileTypes"), true);
+check("an unknown file type is refused",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: ["powerpoint"] }, "acceptedFileTypes.0"), true);
+check("a duplicated file type is refused",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: ["pdf", "pdf"] }, "acceptedFileTypes"), true);
+check("several types are accepted",
+  parseAssignmentSpec({ ...uploadSpec, acceptedFileTypes: ["pdf", "image"] }).acceptedFileTypes,
+  ["pdf", "image"]);
+
+// The mirror of the repository columns: a kind that is not handed in as a file accepts none,
+// and says so as an empty list rather than leaving the column to mean two things.
+check("a Google Doc assignment accepts no file types", parseAssignmentSpec(docSpec).acceptedFileTypes, []);
+check("and may not declare any",
+  refusedOn({ ...docSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
 
 // Optional on every kind, because each kind's own screen states the mechanical steps already.
 check("submission instructions are optional and default to null",

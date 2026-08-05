@@ -47,15 +47,14 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-1. **[Assignment authoring](#phase-7-assignment-authoring)** — in progress, and nearly done. Every kind is creatable, publishable, submittable, and gradable; what remains is [file storage](#file-upload-needs-somewhere-to-put-the-file), without which a `FILE_UPLOAD` assignment can be created but not handed in.
-2. **[Module management](#module-management)** — a course's module sequence is currently whatever the seed wrote, and nothing can change it. The half of course creation worth having early, because every other course-level decision is downstream of which modules a cohort takes and in what order.
-3. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
-4. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-5. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-6. **[Course creation](#course-creation)**
-7. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
-8. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
-9. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Module management](#module-management)** — a course's module sequence is currently whatever the seed wrote, and nothing can change it. The half of course creation worth having early, because every other course-level decision is downstream of which modules a cohort takes and in what order.
+2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
+3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+5. **[Course creation](#course-creation)**
+6. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
+7. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
+8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -222,11 +221,11 @@ The same applies to `Math.random()`. Generate such values inside a step, where t
 
 ---
 
-## Phase 7: assignment authoring
+## Phase 7: assignment authoring — done
 
-**Nearly done.** All three kinds are creatable, publishable, submittable, and gradable. What is left is [somewhere to put an uploaded file](#file-upload-needs-somewhere-to-put-the-file).
+All three kinds are creatable, publishable, submittable, and gradable, and nothing in this phase is outstanding. Kept because the decisions it settled are load-bearing for what comes next, and the reasoning is worth having in one place.
 
-An instructor can now put every assignment they give into one place, and the ones the pipeline cannot grade are graded by hand in the same interface as the rest. How each kind is distributed, collected, and graded is in the README — [the loop](README.md#the-loop), [`accept` and `submitWork`](README.md#github-integration), and [grading by hand](README.md#grading-by-hand).
+An instructor can now put every assignment they give into one place, and the ones the pipeline cannot grade are graded by hand in the same interface as the rest. How each kind is distributed, collected, and graded is in the README — [the loop](README.md#the-loop), [`accept` and `submitWork`](README.md#github-integration), [handing in a file](README.md#handing-in-a-file), and [grading by hand](README.md#grading-by-hand).
 
 **Scope was assignment authoring only**: creating, editing, duplicating, and removing assignments within a course that already exists. Course creation and the invite-link flow come after; note that nothing reads `inviteToken` today, so a newly created course would have no way to gain students.
 
@@ -244,17 +243,13 @@ Two decisions from that work are worth keeping here rather than only in the code
 
 **The thin case given up** is a coding repository with a hand-marked reflection inside it, which cannot be split into two assignments because each generates its own repository. It is thin because the hand-graded kinds are precisely the ones with no repository: a reflection living inside a coding repo is a `short_response` section the pipeline already grades and is calibrated on.
 
-#### `FILE_UPLOAD` needs somewhere to put the file
+#### `FILE_UPLOAD` file storage — done
 
-The one part of this phase still outstanding, and the reason it was left last: it is a piece of infrastructure rather than a field on a form.
+Built, and described in [the README](README.md#handing-in-a-file). Every decision the outline anticipated went the way it expected — a private bucket, a path keyed by submission id, types on the assignment and the limit global, its own columns rather than reusing `submittedUrl`, and a signed download — so what is worth keeping here is the two things the outline did not anticipate.
 
-A `FILE_UPLOAD` assignment can be authored, published, and hand-graded, and `submissions.submitWork` already records a submission for it. What a student cannot do is upload anything, so their screen says so rather than offering a control that does nothing. What it needs, and the decisions each part forces:
+**Uploading is one request rather than a signed upload URL**, and that is a durability decision rather than a convenience. Minting a URL and letting the browser send bytes straight to storage leaves a window where the object exists and the submission was never marked handed in — a student who closed the tab in that window has work in a bucket that nothing points at, which is the same silent-never-reviewed failure `submitWork` exists to prevent. One request closes it and lets our own code check the size and the type before a byte is stored. The cost is a second entry point, paid for by `assertCanHandIn` being the one implementation of who may hand in, called by the route and by `submitWork` alike.
 
-- **A private Supabase Storage bucket**, with a rule that keeps one student's upload from being readable by another. This is the whole of the security question and it is not a default — a public bucket would publish every submission.
-- **A path scheme** keyed by submission id, so a file is traceable back to the row without trusting a filename a student chose.
-- **A size limit and an accepted-types list.** The types belong on the assignment, since "one PDF" and "a zip of your project" are different assignments; the limit is probably global.
-- **A column on `submissions`** for the stored object, alongside `submittedUrl` rather than reusing it — a path in a bucket and a link to a document are not the same thing and the review screen opens them differently.
-- **A download on the review screen**, through a signed URL rather than a public one, since there is no link to open otherwise.
+**The upload is the submission**, so `submitWork` now refuses `FILE_UPLOAD` exactly as it refuses `REPO`. Before this, a student could press submit on a file-upload assignment and enter the queue with nothing to open.
 
 ### Step 0. The kind axis — done
 
@@ -374,20 +369,20 @@ Worth knowing about how it validates: the form holds a *settled* copy of the dra
 
 ### Files
 
-Everything in Steps 0 through 5 is built. The three migrations this phase added are `20260803022300_assignment_kind`, `20260804143312_section_grading`, and `20260805142600_non_repo_assignment_kinds` — the last one adding `assignments.template_doc_url` and `submission_instructions`, `submissions.submitted_url`, and making `grading_drafts.head_sha` nullable so a draft can exist for work that has no commit.
+Everything in Steps 0 through 5 is built. The four migrations this phase added are `20260803022300_assignment_kind`, `20260804143312_section_grading`, `20260805142600_non_repo_assignment_kinds` — adding `assignments.template_doc_url` and `submission_instructions`, `submissions.submitted_url`, and making `grading_drafts.head_sha` nullable so a draft can exist for work that has no commit — and `20260805190501_file_upload_storage`, adding `assignments.accepted_file_types` and the four `submissions.upload_*` columns.
 
-Still to build: [file storage](#file-upload-needs-somewhere-to-put-the-file).
+Nothing in this phase is outstanding.
 
 ### Phase 7 verification
 
-**Done, and re-runnable.** `npm run verify:authoring` is 96 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
+**Done, and re-runnable.** `npm run verify:uploads` is 57 checks over the file-upload path, including a real store, sign, fetch, and remove — described in [the README](README.md#what-is-verified-and-how). `npm run verify:authoring` is 103 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
 
 **The one thing a script cannot do is also done.** On localhost: a Google Doc assignment was authored, a student saw nothing until it was published, accepting landed on Google's copy prompt, the link came back, it was graded by hand and released. Every part of that sequence was already checked through the callers; what the walkthrough adds is that the screens carry it, which no rolled-back transaction can tell you.
 
 ### Not in this phase
 
 - **[Course creation](#course-creation)** and **[student enrollment](#student-enrollment)**, including the invite-link flow. `duplicate` is built to make the course case cheap when it comes.
-- **AI grading for assignments with no template repository.** Creating and hand-grading them is done. What is not: reading a Google Doc's contents or an uploaded file, and generating a report from it. That needs Drive or storage access and [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and it is [item 8](#the-order-of-work).
+- **AI grading for assignments with no template repository.** Creating, handing in, and hand-grading them is done, and an uploaded file now has somewhere to be read *from*. What is not: reading a Google Doc's contents or an uploaded file's, and generating a report from it. That needs Drive access and [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and it is the last [item](#the-order-of-work).
 - **Any soft delete or archive.** Removal is permanent by decision, so there is no recovery path in the application. The database's own backups are the only way back from a mistaken removal.
 - **Deleting student repositories** when an assignment is removed. They are reported and left alone.
 

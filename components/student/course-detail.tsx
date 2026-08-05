@@ -14,7 +14,6 @@ import {
   GitPullRequest,
   ListChecks,
   RotateCcw,
-  Upload,
   Wrench,
 } from 'lucide-react';
 
@@ -23,6 +22,7 @@ import { EmptyState } from '@/components/list-states';
 import { Markdown } from '@/components/markdown';
 import { PageHeader } from '@/components/page-header';
 import { AssignmentKindBadge, SubmissionStatusBadge } from '@/components/status-badge';
+import { UploadedFileRow } from '@/components/uploaded-file';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,6 +32,13 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Separator } from '@/components/ui/separator';
+import {
+  acceptAttributeFor,
+  checkUpload,
+  describeAcceptedTypes,
+  formatBytes,
+  MAX_UPLOAD_BYTES,
+} from '@/lib/uploads/file-types';
 import { useTRPC } from '@/trpc/client';
 import type { RouterOutputs } from '@/trpc/types';
 import {
@@ -433,18 +440,30 @@ function AssignmentDetail({
       )}
 
       {/*
-        Stated rather than shown as a control that does nothing. Uploading needs private
-        file storage — a bucket, a size limit, a rule that keeps one student's work from
-        being readable by another — which is its own piece of work.
+        The same shape as the Google Doc form above and offered on the same terms: until the
+        work is in the queue, and again after a grade, since uploading a revised file is this
+        kind's resubmission.
       */}
-      {assignment.kind === 'FILE_UPLOAD' && !inQueue && status !== 'GRADED' && (
-        <Alert>
-          <Upload className="size-4" />
-          <AlertTitle>Uploading is not available yet</AlertTitle>
-          <AlertDescription>
-            Your instructor will tell you how to hand this in for now.
-          </AlertDescription>
-        </Alert>
+      {assignment.kind === 'FILE_UPLOAD' && !inQueue && status !== 'RESUBMITTED' && (
+        <UploadWorkForm
+          assignmentId={assignment.id}
+          acceptedFileTypes={assignment.acceptedFileTypes}
+          resubmitting={status === 'GRADED'}
+        />
+      )}
+
+      {/*
+        What they handed in, so a student can tell that the right file went. No link: the
+        bucket is private and a download is a signed URL minted per request, which is
+        `UploadedFileRow`'s job.
+      */}
+      {submission?.uploadFilename && (
+        <UploadedFileRow
+          submissionId={submission.id}
+          filename={submission.uploadFilename}
+          sizeBytes={submission.uploadSizeBytes}
+          isLate={submission.isLate ?? false}
+        />
       )}
 
       {/*
@@ -555,6 +574,116 @@ function SubmitWorkForm({
       {submit.error && (
         <p className="text-sm text-destructive" role="alert">
           {submit.error.message}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/**
+ * Handing in a file.
+ *
+ * Posts to `/api/submissions/upload` rather than calling a tRPC mutation, because tRPC's
+ * transport is JSON and a file would have to be base64'd into it. One request stores the bytes
+ * and marks the work submitted, so there is no state where a student has uploaded something
+ * and the submission does not say so — see the route's own comment.
+ *
+ * The size and type are checked here as well as on the server. Not as the guarantee, which is
+ * the server's and the bucket's: as the difference between being told immediately and being
+ * told after spending a minute uploading 40MB on a phone tether.
+ */
+function UploadWorkForm({
+  assignmentId,
+  acceptedFileTypes,
+  resubmitting,
+}: {
+  assignmentId: string;
+  acceptedFileTypes: string[];
+  /** True after a grade, when uploading again is asking for another look at revised work. */
+  resubmitting: boolean;
+}) {
+  const router = useRouter();
+  const inputId = `upload-${assignmentId}`;
+  const [file, setFile] = React.useState<File | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const choose = (chosen: File | null) => {
+    setFile(chosen);
+    if (!chosen) return setError(null);
+
+    const check = checkUpload({
+      filename: chosen.name,
+      sizeBytes: chosen.size,
+      acceptedTypes: acceptedFileTypes,
+    });
+    setError(check.ok ? null : check.reason);
+  };
+
+  async function upload(event: React.FormEvent) {
+    event.preventDefault();
+    if (!file || error) return;
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const body = new FormData();
+      body.set('assignmentId', assignmentId);
+      body.set('file', file);
+
+      const response = await fetch('/api/submissions/upload', { method: 'POST', body });
+
+      if (!response.ok) {
+        // The route answers with a message written for a student on every refusal it makes,
+        // so this shows what came back rather than a status code.
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(payload?.error ?? 'That upload did not go through. Try again.');
+        return;
+      }
+
+      setFile(null);
+      router.refresh();
+    } catch {
+      setError('That upload did not go through — check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4"
+      onSubmit={upload}
+    >
+      <label className="text-sm font-medium" htmlFor={inputId}>
+        {resubmitting ? 'Upload your revised file' : 'Upload your file'}
+      </label>
+      <p className="text-sm text-muted-foreground">
+        {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)}. Your
+        instructor is the only person who can open it.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={inputId}
+          type="file"
+          required
+          accept={acceptAttributeFor(acceptedFileTypes)}
+          onChange={(event) => choose(event.target.files?.[0] ?? null)}
+          className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        />
+        <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
+          {busy ? 'Uploading…' : resubmitting ? 'Upload again' : 'Upload'}
+        </Button>
+      </div>
+      {file && !error && (
+        <p className="text-xs text-muted-foreground">
+          {file.name} — {formatBytes(file.size)}
+        </p>
+      )}
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
         </p>
       )}
     </form>

@@ -251,6 +251,20 @@ model Assignment {
   /// how Google Docs URLs are shaped, and it breaks if that changes.
   templateDocUrl String? @map("template_doc_url")
 
+  /// Which kinds of file a FILE_UPLOAD assignment accepts, as keys of
+  /// UPLOAD_FILE_TYPES in lib/uploads/file-types.ts. Non-empty when `kind` is
+  /// FILE_UPLOAD and empty otherwise, enforced by the Zod schema for the same
+  /// reason the columns above are.
+  ///
+  /// On the assignment rather than global because "one PDF" and "a screenshot of
+  /// your finished page" are different assignments. The size limit is global and
+  /// lives in code, because no assignment has a reason to want a different one.
+  ///
+  /// Keys rather than extensions or MIME types: an instructor ticks named types
+  /// and the extensions follow, so there is no way to store a set of extensions
+  /// that no browser produces.
+  acceptedFileTypes String[] @default([]) @map("accepted_file_types")
+
   /// How a student turns this in, in markdown, written by the instructor.
   ///
   /// Optional on every kind. A REPO assignment's ritual is fixed and the student's
@@ -347,9 +361,25 @@ model Submission {
   prUrl      String?   @map("pr_url")
   /// Where the student's work is, for a kind that has no repository: the URL of
   /// their own copy of a Google Doc, pasted in when they submit. Null for every
-  /// other kind. FILE_UPLOAD will need a stored file rather than a URL, which is
-  /// its own piece of work and not this column.
+  /// other kind, FILE_UPLOAD included — a path in a private bucket and a link to
+  /// a document are not the same thing, and the review screen opens them
+  /// differently, so the four columns below hold the stored file instead of this
+  /// one pretending to.
   submittedUrl String?  @map("submitted_url")
+
+  /// The uploaded file, for a FILE_UPLOAD assignment. All four are written
+  /// together by the upload route or all four are null; there is no state where
+  /// some of them mean anything on their own.
+  ///
+  /// `uploadPath` is the object's key inside the private bucket, and it is
+  /// composed of this row's id and a generated name — never the filename the
+  /// student chose, which is not something to build a path out of.
+  /// `uploadFilename` keeps that name anyway, because it is what the instructor
+  /// should see and what their browser should call the download.
+  uploadPath        String? @map("upload_path")
+  uploadFilename    String? @map("upload_filename")
+  uploadSizeBytes   Int?    @map("upload_size_bytes")
+  uploadContentType String? @map("upload_content_type")
   headBranch String?   @map("head_branch")
   headSha    String?   @map("head_sha")
   submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)

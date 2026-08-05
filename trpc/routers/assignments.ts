@@ -39,9 +39,11 @@ const assignmentFields = {
   assignmentRepoName: true,
   distributedAt: true,
   courseId: true,
-  // Both student-facing. The template document is what Accept sends them to a copy of, and
-  // the instructions are what the assignment says about turning it in.
+  // All three student-facing. The template document is what Accept sends them to a copy of,
+  // the accepted types are what their upload control offers and refuses, and the instructions
+  // are what the assignment says about turning it in.
   templateDocUrl: true,
+  acceptedFileTypes: true,
   submissionInstructions: true,
 } as const;
 
@@ -134,6 +136,7 @@ function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssi
     // column that silently keeps its old value on update and its default on create, which
     // for `templateDocUrl` would be a Google Doc assignment with nothing to distribute.
     templateDocUrl: spec.templateDocUrl,
+    acceptedFileTypes: spec.acceptedFileTypes,
     submissionInstructions: spec.submissionInstructions,
     sections: spec.sections as never,
   };
@@ -211,8 +214,12 @@ export const assignmentsRouter = createTRPCRouter({
               repoUrl: true,
               prUrl: true,
               // Where the work is when there is no repository: the student's own copy of a
-              // document, which is the only link either side has to it.
+              // document, or the name and size of the file they uploaded. A student should be
+              // able to see what they handed in, which is also how they notice they sent the
+              // wrong file.
               submittedUrl: true,
+              uploadFilename: true,
+              uploadSizeBytes: true,
               submittedAt: true,
               isLate: true,
               // The grade, read straight from the submission. Approving is what makes
@@ -615,6 +622,7 @@ export const assignmentsRouter = createTRPCRouter({
           runnerPreset: true,
           runnerConfig: true,
           templateDocUrl: true,
+          acceptedFileTypes: true,
           submissionInstructions: true,
           sections: true,
           _count: { select: { submissions: true } },
@@ -855,6 +863,7 @@ export const assignmentsRouter = createTRPCRouter({
           runnerPreset: true,
           runnerConfig: true,
           templateDocUrl: true,
+          acceptedFileTypes: true,
           submissionInstructions: true,
           sections: true,
         },
@@ -878,6 +887,7 @@ export const assignmentsRouter = createTRPCRouter({
         runnerPreset: source.runnerPreset,
         runnerConfig: source.runnerConfig,
         templateDocUrl: source.templateDocUrl,
+        acceptedFileTypes: source.acceptedFileTypes,
         submissionInstructions: source.submissionInstructions,
         sections: source.sections,
       };

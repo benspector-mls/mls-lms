@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { AssignmentKind } from "../generated/prisma/enums";
 import { resolveRunner, UnknownRunnerPresetError } from "../sandbox/presets";
+import { UPLOAD_FILE_TYPE_KEYS, type UploadFileTypeKey } from "../uploads/file-types";
 
 /**
  * What a valid assignment is.
@@ -462,6 +463,19 @@ const noRepository = {
 };
 
 /**
+ * The mirror of `noRepository` for the upload column, spelled out as empty rather than
+ * omitted for the same reason: a kind added later that forgets to say so fails to compile
+ * instead of inheriting whatever the previous branch had.
+ *
+ * Empty rather than nullable, because "which file types does a Google Doc assignment
+ * accept" has an answer — none, it is not handed in as a file — and an empty list says
+ * that without a third state to interpret.
+ */
+const noUpload = {
+  acceptedFileTypes: z.array(z.never()).max(0).default([]),
+};
+
+/**
  * A Google Docs URL the copy prompt can be built from.
  *
  * Anchored on the document id and the final path segment rather than accepting any link,
@@ -515,6 +529,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       runnerConfig: z.record(z.string(), z.unknown()).nullable().default(null),
       /** A repository assignment is distributed from a template, not from a document. */
       templateDocUrl: z.null().default(null),
+      ...noUpload,
     })
     .strict()
     /*
@@ -553,6 +568,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
             'https://docs.google.com/document/d/<id>/view — that is what the copy prompt ' +
             'is built from',
         ),
+      ...noUpload,
     })
     .strict(),
 
@@ -566,6 +582,18 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       ...shared,
       ...noRepository,
       templateDocUrl: z.null().default(null),
+      /**
+       * What a student may hand in, and at least one is required.
+       *
+       * Not defaulted to "anything", because an assignment that accepts anything cannot
+       * tell a student their file is wrong until an instructor opens it and finds a
+       * screenshot where a PDF was wanted. The form ticks PDF by default; what it may not
+       * do is save nothing.
+       */
+      acceptedFileTypes: z
+        .array(z.enum(UPLOAD_FILE_TYPE_KEYS as [UploadFileTypeKey, ...UploadFileTypeKey[]]))
+        .min(1, "say at least one kind of file this assignment accepts")
+        .refine((types) => new Set(types).size === types.length, "no duplicates"),
     })
     .strict(),
 ]);
