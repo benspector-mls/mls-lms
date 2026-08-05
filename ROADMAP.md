@@ -452,7 +452,15 @@ The authoring form stops opening from a catalogue. For a `REPO` assignment an in
 - **`GRADING_ASSETS_REPO` keeps its job unchanged.** `rubric.md`, `agent-rules.md`, and the sample reports are program-wide prompt code, not per-assignment. So `lib/grade/assets.ts` gains a second source with different addressing: program assets from the configured repository, answer keys from the repository the assignment names. `assetSource()` stops reading one repository out of the environment.
 - **`assignmentRepoName` defaults to the template's own name** and stays editable, since it names every student's repository — and stays frozen once anybody has accepted, which `update` already enforces.
 
-**Still to verify before this is built:** whether the App can `generate` a repository *from* a public template in an org it is not installed on, into an org where it is. Read access is proved and write access to the destination is what accept already uses, so it should hold — but that call is the one a student triggers by pressing Accept, which is the worst place to discover otherwise. One throwaway repository in `marcy-lms-test`, created and deleted.
+**Generating from an external public template is confirmed too.** Probed with `actions/typescript-action` — public, `is_template`, in an org the App is not installed on — generated into `marcy-lms-test`: created private, all 31 root entries copied, exactly one commit, which is what the tamper report's diff comparison depends on. Nothing about the design needs the template's org to install the App.
+
+#### The copy is asynchronous, and that is a bug in `accept` today
+
+The probe found this rather than assuming it: `generate` returned after 2.1s and the new repository's content only became readable at 5.6s. For roughly three and a half seconds the repository exists and is empty, and GitHub answers a contents request with 404 and the body `"This repository is empty."`
+
+`accept` generates, adds collaborators, and then calls `removeClassroomWorkflow`, which **returns silently on 404** — correct for "this template has no `classroom.yml`" and wrong for "the copy has not landed yet." Inside that window the file is left in the student's repository, against the standing decision that every generated repository has it removed. It has been winning the race so far, because the collaborator calls buy time and the current templates are small, but that is luck rather than design.
+
+**Phase 2 widens the window**, since an instructor can point at any public template and a large one takes longer to copy. So this is a prerequisite rather than an aside. The fix is to wait for content before anything reads the tree — bounded retry, treating the empty-repository 404 as "not yet" and a genuine missing file as absent, which the response body already distinguishes. Worth a check in `verify:app` or a new one, because the failure is silent and only visible as a `classroom.yml` nobody removed.
 
 ### What to verify
 
