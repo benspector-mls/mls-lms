@@ -263,6 +263,26 @@ Five things that do have to change, each small and each currently written as tho
 - **Delivery has three outcomes, not two.** `approve` already declines to post when there is no pull request — the guard is at `lib/grade/approve.ts:258` — but it records that as a *failed* delivery, and three surfaces then report an impossibility as a fault: the approval toast says the comment did not post, `CommentRecoveryNotice` offers a retry that can never succeed, and triage counts it as outstanding forever. `commentPosted: boolean | null` has no way to say "there was never anything to post", so it needs a third state at the source rather than the same rule re-derived at each reader.
 - **Triage needs a bucket that is not about generating a report**, and a bug fixed first. The bug: the undelivered-approval queries at `trpc/routers/submissions.ts:203` and `:323` have no `prNumber` condition, and `triageBucket` checks `hasUndeliveredApproval` before anything else — so every finished hand-graded submission would sit in `comment_not_posted` permanently, in triage, the queue, and the gradebook alike. Then the bucket: `needs_report` is returned for anything submitted with no usable draft, and it offers a button that must not exist for a manual assignment, so a `needs_manual_grade` member is needed. That means a fifth argument to `triageBucket` and a `sections` select in all three of its callers — `isManualOnly` already computes the flag from a stored row.
 
+#### Delivery has three outcomes — decided
+
+One value, three named outcomes, decided where delivery is decided rather than re-derived by each reader: **posted**, **failed**, and **not applicable**. `approve` already knows which it is — the guard at `lib/grade/approve.ts:258` is the moment it finds out — and today it collapses the third into the second, which is why a finished hand-graded submission reads as a fault in three places at once.
+
+The mechanism is a function exported from `lib/grade/approve.ts` mapping a draft and its submission to that state, not a new column. Every reader branches on the name: `gradingDrafts.get`, `CommentRecoveryNotice` (which must offer no retry when there was never anything to post), the approval toast (which must say "released" rather than "released, but"), and the triage query. `triageBucket` and `effectiveSection` are the same pattern — a pure function that is the single authority on a question several screens ask.
+
+Chosen over checking the assignment kind at each read site, on the evidence: `isShortResponseFile` was written out twice and the copies drifted, which graded a section 0/15 for being empty when the work was there, and `triageBucket` exists at all because triage, the queue, and the gradebook were each deciding "is this outstanding" separately. Three or four copies of "does this have a pull request" would go the same way.
+
+One edge worth knowing, because a stored column would behave differently: a repository assignment could be hand-graded before the student opens a pull request, and derivation would then flip that old approval from *not applicable* to *failed* once they open one. That is arguably right — there is somewhere to post now — but it is a behaviour difference, and if it ever reads as wrong, recording the outcome at approval time is the alternative.
+
+#### The triage fix
+
+Two changes, and the first is a bug in what already works rather than new behaviour.
+
+**Add `submission: { prNumber: { not: null } }` to the undelivered-approval queries** at `trpc/routers/submissions.ts:203` and `:323`. They currently match any approved draft with a null `postedPrCommentId`, and `triageBucket` checks `hasUndeliveredApproval` ahead of everything else, so every finished hand-graded submission would sit in `comment_not_posted` permanently — in triage, the grading queue, and the gradebook alike. Work that does not exist and that nothing can clear is worse than work that is merely mislabelled, which is why this goes first.
+
+**Then add a `needs_manual_grade` bucket.** `needs_report` is returned for anything submitted with no usable draft, and the screen offers to generate a report — a button that must not exist for an assignment nothing can generate a report for. `triageBucket` gains a fifth argument for whether the assignment is manual-only, which means a `sections` select in all three of its callers; `isManualOnly` in `lib/assignments/spec.ts` already computes the flag from a stored row and takes only `{ grading }`.
+
+Nothing else about triage changes. A student-set `SUBMITTED` enters the queue through the same condition a webhook-set one does, so the flows decided above need no new query.
+
 ### Step 0. The kind axis — done
 
 Before any form, the schema had to stop assuming "assignment" means "GitHub repository."

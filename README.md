@@ -123,7 +123,7 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 ## Scripts
 
-Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Those that need no model or network are the first four.
+Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. Those that need no model or network are the first four.
 
 | Script                        | What it does                                                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -552,6 +552,8 @@ Together they produce information neither gives alone: a submission with newer c
 | `/instructor/assignments/[assignmentId]`   | The grading queue and the review surface, `?submission=` to open one |
 
 `lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens.
+
+Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[panel-open]` styles an open Collapsible trigger, and `Select`'s `onValueChange` passes `string | null` — null when a select is cleared, which most of these never do, so the handlers coerce.
 
 **`lib/status.ts` is the single source of presentation truth** — status vocabulary, tone classes, flag copy, relative dates, module ordering. `formatRelative(date, now)` takes the reference instant as an argument rather than reading the clock, and dates render in a fixed school timezone.
 
