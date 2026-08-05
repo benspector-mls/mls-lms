@@ -173,6 +173,12 @@ function CourseSelector({
     <Select
       value={activeCourseId}
       onValueChange={(id) => router.push(`/instructor/courses/${id}`)}
+      /*
+        Without this the trigger renders the *value* — a course id — rather than the name,
+        because `Select.Value` has no other way to know what the selected item was labelled.
+        Any select whose value is not also its label needs it.
+      */
+      items={Object.fromEntries(courses.map((c) => [c.id, c.name]))}
     >
       <SelectTrigger className="w-full" aria-label="Select course">
         <BookOpen className="size-4 text-muted-foreground" />

@@ -1,16 +1,20 @@
 import Link from 'next/link';
-import { Archive, ArrowRight, BookOpen, Wrench } from 'lucide-react';
+import { Archive, ArrowRight, BookOpen } from 'lucide-react';
 
 import { EmptyState } from '@/components/list-states';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
+import { courseHref } from '@/lib/links';
 import { cn } from '@/lib/utils';
 
 /**
- * The courses the caller belongs to. Students and instructors see the same card; the
- * link into the instructor view appears only on courses the caller actually teaches,
- * which is not the same question as their role — an admin teaches none of them, and an
- * instructor may be enrolled in a course somebody else runs.
+ * The courses the caller belongs to. Students and instructors see the same card, and it
+ * opens into whichever view the caller works in — the instructor screens for a course they
+ * teach, the student's own assignments otherwise.
+ *
+ * There is deliberately no second link offering an instructor the student view of their own
+ * course. It would show them their own submissions, which do not exist, rather than what a
+ * student sees — that needs [a test enrollment](../../ROADMAP.md#seeing-a-course-as-a-student-sees-it).
  */
 
 type Course = {
@@ -91,22 +95,22 @@ export function CoursesList({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                    {/*
+                      One link, to the view the caller actually works in. An instructor
+                      opening a course wants their own screen — the roster, the assignments,
+                      the gradebook — and the student view of a course they teach shows them
+                      their own submissions, of which they have none.
+
+                      `teaches` rather than the role: an admin teaches no course and an
+                      instructor may be enrolled in one somebody else runs.
+                    */}
                     <Link
-                      href={`/courses/${course.id}`}
+                      href={course.teaches ? courseHref(course.id) : `/courses/${course.id}`}
                       className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
                     >
                       Open course
                       <ArrowRight className="size-4" />
                     </Link>
-                    {course.teaches && (
-                      <Link
-                        href={`/instructor/courses/${course.id}`}
-                        className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                      >
-                        <Wrench className="size-3.5" />
-                        Instructor view
-                      </Link>
-                    )}
                   </div>
                 </CardContent>
               </Card>

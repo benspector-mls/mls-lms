@@ -113,6 +113,11 @@ export function SectionEditor({
                   );
                   onChange({ ...section, type, rubricId: rubric?.id ?? section.rubricId });
                 }}
+                // Or the trigger shows `coding_algorithm` where the list said "Coding —
+                // algorithm fluency".
+                items={Object.fromEntries(
+                  SECTION_TYPES.map((type) => [type, sectionLabel(type)]),
+                )}
               >
                 <SelectTrigger>
                   <SelectValue />
