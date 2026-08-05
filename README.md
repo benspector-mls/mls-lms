@@ -406,6 +406,24 @@ One schema-constrained language model call per gradable section, given fixed inp
 - **User content:** the assignment README, which carries the verbatim frontend and SQL checklists; the relevant answer key files, labeled as reference and never shown to the student; the student's changed files; and the verified results from the `test_run`.
 - **Output:** schema-constrained JSON carrying the rendered markdown plus `{scoreEarned, scorePossible, rubricItems[], flags[], instructorNotes[], confidence, submissionProcessNote, testClaims[]}`.
 
+### What a student commits, and what reaches the model
+
+The student's files come from the pull request's own diff, so a file git was told to ignore can only appear because the student committed it — which happens. `partitionForPrompt` in `lib/grade/classify.ts` withholds those paths, and it runs on the whole changed-path list before anything reads it, so classification and the prompt cannot disagree about which paths are student work. A committed `dist/bundle.js` should not make a frontend section read as present any more than it should be sent.
+
+Three concerns land on this one filter, and the third is what makes it more than an optimization:
+
+- **Disclosure.** A committed `.env` would put the student's own secrets into a third party's logs. Nothing about that is recoverable afterwards, which is why the filter is enforced rather than advisory.
+- **Context.** A committed `node_modules` can exceed the context window on its own, which fails the run outright rather than merely making it expensive.
+- **Cost.** Every file sent is billed as input, and a dependency tree is many files.
+
+What is withheld: environment files, credentials and private keys, dependency trees, lockfiles, build output and minified bundles, coverage output, cache directories, logs, editor and system files, and compiled artifacts.
+
+**It is a fixed list, and deliberately not the repository's own `.gitignore`.** Reading that file looks more principled and is unsafe. Templates add project-specific lines, and one of them is `server/` in a backend project, with the comment "students will build the entire backend from scratch" — those files are the deliverable, and the classifier reads `server/` as frontend work. Honoring the template's ignore file would send an empty prompt and grade the section as not submitted, which is the confident wrong grade the filter exists to prevent. The student's own copy is no better, since it inherits the same line. A gitignored path that reached the diff is either junk or the whole submission, and no ignore file tells those apart. So the test for adding an entry is that no assignment could ever ask a student to author it, which is stricter than "the templates ignore it".
+
+Every standard Node ignore line is already covered by such a list. Reading the file would add only the project-specific lines, which are precisely the dangerous ones.
+
+What was withheld is recorded on the draft as `modelMetadata.excludedFromPrompt` — a count, a breakdown by reason, and up to twenty example paths rather than the raw list, since a committed dependency tree is thousands of paths. So a report whose prompt was missing files the student did commit says so, and a committed `.env` is traceable afterwards, which matters because that student needs to be told to replace the secret.
+
 ### One section, one call, one report
 
 An assignment with two gradable sections produces two model calls and two reports, each against its own rubric, answer keys, and point value. A checkpoint's short response and its coding work are not commensurable, and nothing tries to combine them into a single narrative.
@@ -611,7 +629,7 @@ Every claim below was checked against real repositories in the `marcy-lms-test` 
 - The network works before revocation and not after. An endless command is killed with exit code 124 and reported `TIMED_OUT`. No sandbox is left running, confirmed through `Sandbox.list`.
 - A second assignment grades correctly with no per-assignment configuration, nested npm package and all.
 
-**Grading.** `verify:grade` is 37 checks with no model call. On real submissions: `swe-1-4-loops` with every test passing scores 30/30 at high confidence; a submission that broke its code and edited the assertion scored 12/13 against the template's own assertion; full credit claimed alongside a failing test is caught; claiming a failed test passed is caught in both the bare and `Suite › name` forms; a submission that passes every test with hardcoded return values is **not** flagged merely for scoring below full credit.
+**Grading.** `verify:grade` is 101 checks with no model call, including that every path a real submission is made of survives the prompt filter while a committed `.env`, dependency tree, or build directory does not — a false positive there would grade a section against a prompt with the student's work missing from it. The filter was also run over all 10,507 files in the curriculum repository, which is the check that matters more than any hand-written case: every path it withheld was genuinely a build artifact, a dependency tree, a committed `.env`, or editor litter, and no directory named `build` or `out` anywhere in the curriculum holds authored work. On real submissions: `swe-1-4-loops` with every test passing scores 30/30 at high confidence; a submission that broke its code and edited the assertion scored 12/13 against the template's own assertion; full credit claimed alongside a failing test is caught; claiming a failed test passed is caught in both the bare and `Suite › name` forms; a submission that passes every test with hardcoded return values is **not** flagged merely for scoring below full credit.
 
 **Calibration.** `npm run calibrate` grades a sample and compares it against the report an instructor wrote about the same work. The toolkit holds two short response pairs; pair 1 is the exemplar embedded in the prompt and **pair 2 is held out**, which is the only reason grading it measures anything.
 

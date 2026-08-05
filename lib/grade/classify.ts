@@ -234,6 +234,131 @@ export function belongsToSection(path: string, sectionType: SectionType): boolea
 }
 
 /**
+ * Paths whose contents must never reach the model, whatever section they belong to.
+ *
+ * Three separate concerns land on this one filter, and the third is what makes it more
+ * than an optimization:
+ *
+ * - **Disclosure.** A student who commits a `.env` would otherwise have their own
+ *   secrets sent to a third party and written into its logs. Nothing about that is
+ *   recoverable afterwards, which is why this list is enforced rather than advisory.
+ * - **Context.** A committed `node_modules` can exceed the context window on its own,
+ *   which fails the run outright rather than merely making it expensive.
+ * - **Cost.** Every file sent is billed as input.
+ *
+ * Student files come from the pull request's own diff, so a path only reaches here if
+ * the student committed it — which happens, and none of these are things git was
+ * supposed to be tracking.
+ *
+ * **This is a fixed list and deliberately not the repository's own `.gitignore`.**
+ * Reading that file looks more principled and is unsafe: assignment templates add
+ * project-specific lines, and one of them is `server/` in a backend project, with the
+ * comment "students will build the entire backend from scratch". Those files are the
+ * deliverable — `RULES` above classifies `server/` as frontend work — so honoring the
+ * template's ignore file would send an empty prompt and grade the section as not
+ * submitted. Nor does the student's own copy help: it inherits the same line. A
+ * gitignored path that reached the diff is either junk or the whole submission, and no
+ * ignore file distinguishes them.
+ *
+ * Every entry below is therefore something no assignment can ask a student to author.
+ * That is the test for adding one, and it is stricter than "the templates ignore it".
+ */
+const PROMPT_EXCLUSIONS: { reason: string; matches: RegExp }[] = [
+  // The unrecoverable one. `.env`, `.env.local`, `.env.production.local`.
+  //
+  // `.env.template` is withheld too, and that is deliberate rather than incidental.
+  // Sixteen of them are committed across the curriculum's backend assignments, none is
+  // student work — the template author wrote them — and they are exactly where a student
+  // who has not understood the distinction pastes real credentials. What the model loses
+  // is a list of variable names it has no rubric item for.
+  { reason: "environment file", matches: /(^|\/)\.env($|\.)/i },
+  {
+    reason: "credential file",
+    matches: /(\.(pem|key|p12|pfx|keystore|jks)$)|((^|\/)id_(rsa|dsa|ecdsa|ed25519)($|\.))/i,
+  },
+  {
+    reason: "dependency tree",
+    matches:
+      /(^|\/)(node_modules|jspm_packages|web_modules|bower_components|site-packages|\.venv|venv)\//,
+  },
+  {
+    reason: "lockfile",
+    matches:
+      /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Pipfile\.lock)$/,
+  },
+  {
+    reason: "build output",
+    matches:
+      /((^|\/)(dist|build|out|\.next|\.nuxt|\.svelte-kit|\.output)\/)|(\.min\.(js|css)$)|(\.bundle\.js$)|(\.(js|css)\.map$)/,
+  },
+  { reason: "coverage output", matches: /(^|\/)(coverage|\.nyc_output|lib-cov|htmlcov)\// },
+  {
+    reason: "cache directory",
+    matches:
+      /(^|\/)\.(cache|parcel-cache|turbo|yarn|npm|eslintcache|stylelintcache|pytest_cache|mypy_cache|ruff_cache|tox)($|\/)/,
+  },
+  { reason: "log file", matches: /(\.log$)|((^|\/)logs\/)/i },
+  { reason: "editor or system file", matches: /(^|\/)(\.DS_Store|Thumbs\.db|\.vscode|\.idea)($|\/)/i },
+  {
+    reason: "compiled artifact",
+    matches: /\.(pyc|pyo|class|o|so|dylib|dll|exe|tsbuildinfo)$/i,
+  },
+];
+
+/** Why this path must not be sent, or null when it is ordinary student work. */
+export function promptExclusionReason(path: string): string | null {
+  return PROMPT_EXCLUSIONS.find((rule) => rule.matches.test(path))?.reason ?? null;
+}
+
+export type ExcludedPath = { path: string; reason: string };
+
+/**
+ * Splits the pull request's changed paths into what may be sent and what may not.
+ *
+ * Applied to the whole changed-path list before anything reads it, rather than at the
+ * point each section's files are fetched, so classification and the prompt cannot
+ * disagree about which paths are student work. A committed `dist/bundle.js` should not
+ * make a frontend section read as present any more than it should be sent to the model.
+ */
+export function partitionForPrompt(paths: string[]): {
+  included: string[];
+  excluded: ExcludedPath[];
+} {
+  const included: string[] = [];
+  const excluded: ExcludedPath[] = [];
+
+  for (const path of paths) {
+    const reason = promptExclusionReason(path);
+    if (reason === null) included.push(path);
+    else excluded.push({ path, reason });
+  }
+
+  return { included, excluded };
+}
+
+/**
+ * What gets recorded about an exclusion, rather than the raw list.
+ *
+ * A committed dependency tree is thousands of paths, and writing all of them into
+ * `modelMetadata` would make the column unreadable to store a fact that counts and one
+ * example already convey.
+ */
+export function summarizeExclusions(excluded: ExcludedPath[]): {
+  count: number;
+  byReason: Record<string, number>;
+  examples: string[];
+} | null {
+  if (excluded.length === 0) return null;
+
+  const byReason: Record<string, number> = {};
+  for (const entry of excluded) {
+    byReason[entry.reason] = (byReason[entry.reason] ?? 0) + 1;
+  }
+
+  return { count: excluded.length, byReason, examples: excluded.slice(0, 20).map((e) => e.path) };
+}
+
+/**
  * Why a section has no test results, or the results if it has them.
  *
  * Four outcomes rather than "results or null", because the reasons are not equivalent

@@ -13,7 +13,10 @@ import {
   belongsToSection,
   classifySections,
   hasTestEvidence,
+  partitionForPrompt,
+  promptExclusionReason,
   resolveSectionTests,
+  summarizeExclusions,
 } from "../lib/grade/classify";
 import { crossCheck, type Facts } from "../lib/grade/cross-check";
 import { extractRubricSection } from "../lib/grade/assets";
@@ -182,6 +185,90 @@ for (const path of ["SHORT_RESPONSE.MD", "short_response.md", "src/short-respons
   check(`${path} is not also frontend content`,
     belongsToSection(path, "coding_frontend"), false);
 }
+
+// --- what may reach the model ---------------------------------------------
+//
+// The student's files come from the pull request's own diff, so a path is only here
+// because the student committed it. Some of them must never be sent, and the disclosure
+// case is the one with no way back: a committed `.env` sent to a third party is in that
+// third party's logs permanently.
+for (const [path, reason] of [
+  [".env", "environment file"],
+  [".env.local", "environment file"],
+  ["config/.env.production", "environment file"],
+  // A decision rather than a side effect of the pattern. The curriculum commits sixteen
+  // of these, none is student work, and it is where a student who has not understood the
+  // distinction pastes real credentials.
+  ["server/.env.template", "environment file"],
+  ["server/private.pem", "credential file"],
+  ["node_modules/lodash/index.js", "dependency tree"],
+  ["src/madlib-challenge/node_modules/prompt-sync/index.js", "dependency tree"],
+  ["package-lock.json", "lockfile"],
+  ["dist/bundle.js", "build output"],
+  ["src/app.min.js", "build output"],
+  ["coverage/lcov-report/index.html", "coverage output"],
+  ["npm-debug.log", "log file"],
+  [".DS_Store", "editor or system file"],
+  ["__pycache__/solution.pyc", "compiled artifact"],
+] as const) {
+  check(`${path} is withheld as a ${reason}`, promptExclusionReason(path), reason);
+}
+
+// The list has to be narrow enough that ordinary work passes through it, and these are
+// the paths every real submission is made of. A false positive here is a section graded
+// against a prompt with the student's work missing from it.
+for (const path of [
+  "src/from-scratch.js",
+  "src/debug.js",
+  "short-response.md",
+  "src/components/Card.jsx",
+  "server/index.js",
+  "queries.sql",
+  "index.html",
+  "styles/main.css",
+  "src/utils/environment.js",
+  "src/build-tree.js",
+  "src/outline.ts",
+  "src/distance.js",
+  "solution.py",
+]) {
+  check(`${path} is ordinary student work`, promptExclusionReason(path), null);
+}
+
+// The two names that make the "never a deliverable" test earn its keep. A template in
+// this curriculum gitignores `server/` because students build the backend from scratch,
+// and `src/build-tree.js` sits one substring away from a build directory — so the filter
+// matches directories as directories rather than anywhere a word appears.
+check("a deliberately withheld deliverable is sent, not filtered",
+  [promptExclusionReason("server/index.js"), promptExclusionReason("server/routes/events.js")],
+  [null, null]);
+
+check("the partition keeps work and names what it withheld",
+  partitionForPrompt(["src/from-scratch.js", ".env", "node_modules/a/index.js", "short-response.md"]),
+  {
+    included: ["src/from-scratch.js", "short-response.md"],
+    excluded: [
+      { path: ".env", reason: "environment file" },
+      { path: "node_modules/a/index.js", reason: "dependency tree" },
+    ],
+  });
+
+check("nothing withheld records nothing", summarizeExclusions([]), null);
+
+// Counts and one example rather than the raw list: a committed dependency tree is
+// thousands of paths, and writing all of them into modelMetadata would make the column
+// unreadable to store a fact two numbers convey.
+check("exclusions are summarized by reason",
+  summarizeExclusions([
+    { path: ".env", reason: "environment file" },
+    { path: "node_modules/a/index.js", reason: "dependency tree" },
+    { path: "node_modules/b/index.js", reason: "dependency tree" },
+  ]),
+  {
+    count: 3,
+    byReason: { "environment file": 1, "dependency tree": 2 },
+    examples: [".env", "node_modules/a/index.js", "node_modules/b/index.js"],
+  });
 
 check("evidence:tests is required for test evidence", hasTestEvidence({ type: "x", evidence: "tests" }), true);
 check("a section without evidence has none", hasTestEvidence({ type: "x" }), false);

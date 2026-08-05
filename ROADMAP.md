@@ -49,7 +49,7 @@ The sequence, most immediate first. A feature's own section says what is known a
 
 1. **[Assignment authoring](#phase-7-assignment-authoring)** — in progress, and nearly done. Every kind is creatable, publishable, submittable, and gradable; what remains is [file storage](#file-upload-needs-somewhere-to-put-the-file), without which a `FILE_UPLOAD` assignment can be created but not handed in.
 2. **[Module management](#module-management)** — a course's module sequence is currently whatever the seed wrote, and nothing can change it. The half of course creation worth having early, because every other course-level decision is downstream of which modules a cohort takes and in what order.
-3. **[Token management](#token-management)** — what a report costs and where the cost actually is, and a filter so that nothing gitignored is ever sent to the model. That last one is a disclosure fix as much as a cost one, which is an argument for pulling it forward if a student ever commits a `.env`.
+3. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
 4. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
 5. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
 6. **[Course creation](#course-creation)**
@@ -382,7 +382,7 @@ Still to build: [file storage](#file-upload-needs-somewhere-to-put-the-file).
 
 **Done, and re-runnable.** `npm run verify:authoring` is 96 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
 
-What is left is the one thing a script cannot do, and it is worth doing before a real cohort: **on localhost, author a Google Doc assignment, confirm a student sees nothing until it is published, publish it, accept it as the student and land on Google's copy prompt, submit the link back, grade it by hand, and release it.** Every part of that sequence is checked through the callers already; what this adds is that the screens carry it, which no rolled-back transaction can tell you.
+**The one thing a script cannot do is also done.** On localhost: a Google Doc assignment was authored, a student saw nothing until it was published, accepting landed on Google's copy prompt, the link came back, it was graded by hand and released. Every part of that sequence was already checked through the callers; what the walkthrough adds is that the screens carry it, which no rolled-back transaction can tell you.
 
 ### Not in this phase
 
@@ -417,15 +417,7 @@ The four operations differ enough in risk that they are worth separating, and th
 
 ## Token management
 
-Three concerns that all come down to what ends up in a prompt: what it costs, how much of the context window it consumes, and what it discloses.
-
-**Nothing gitignored may reach the model.** Today the student's files come from the pull request's own diff, so an ignored file can only appear if the student committed it — which happens. All three concerns land on this one filter, and the third is the one that makes it more than an optimization:
-
-- **Cost.** Every file sent is billed as input, and a committed dependency tree is many files.
-- **Context.** A committed `node_modules` can exceed the context window on its own, which fails the run outright rather than making it expensive. Keeping the prompt to the student's actual work is also what keeps the model's attention on it.
-- **Disclosure.** A committed `.env` would put the student's own secrets into a third party's logs. Nothing about that is recoverable after the fact, and it is a reason not to leave this behind four features.
-
-The filter belongs beside `belongsToSection` in `lib/grade/classify.ts`, and should read the repository's own `.gitignore` rather than only matching a fixed list, since the templates carry one. Worth noting the same rule already exists on the sandbox side for a different reason — the runner receives a git archive, so gitignored files were never there to begin with. This closes the equivalent gap on the grading side.
+Three concerns come down to what ends up in a prompt: what it costs, how much of the context window it consumes, and what it discloses. **The third is closed** — a filter withholds committed dependency trees, environment files, credentials, and build output, described in [what a student commits and what reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). What is left is measurement.
 
 **Where the cost actually is, measured rather than assumed.** Some of this is already answered and recorded in [what a report costs](README.md#what-a-report-costs): output is roughly 60 percent of the bill, because thinking is billed as output, and the frontend prompt's uncached input is the next largest share. What is not measured is the breakdown *within* input — the answer keys against the student's files against the rubric and agent rules — which is what would say whether [moving the answer keys into the cacheable prefix](#deferred-with-the-schema-left-open) is worth more than the 6 percent currently estimated.
 

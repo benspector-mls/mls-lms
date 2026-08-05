@@ -14,7 +14,9 @@ import {
   belongsToSection,
   classifySections,
   findSection,
+  partitionForPrompt,
   resolveSectionTests,
+  summarizeExclusions,
   TEST_EVIDENCE_FLAG,
   type AssignmentSection,
 } from "./classify";
@@ -173,10 +175,27 @@ export async function generateReportForSubmission(
     : [];
 
   // ---- What the pull request contains -------------------------------------
-  const changedPaths = await getPullRequestFiles(installationId, {
-    ...studentRepo,
-    pullNumber: submission.prNumber,
-  });
+  //
+  // Filtered before anything reads it. A student can commit a file git was told to
+  // ignore, and some of those must never be sent — a `.env` would put the student's own
+  // secrets into a third party's logs, which is not recoverable afterwards, and a
+  // committed dependency tree can exceed the context window on its own. Filtering here
+  // rather than at each section's fetch means classification and the prompt agree about
+  // which paths are student work.
+  const { included: changedPaths, excluded: excludedPaths } = partitionForPrompt(
+    await getPullRequestFiles(installationId, {
+      ...studentRepo,
+      pullNumber: submission.prNumber,
+    }),
+  );
+
+  if (excludedPaths.length > 0) {
+    console.warn(
+      `generate-report: withheld ${excludedPaths.length} committed path(s) from the prompt ` +
+      `for ${submission.id} — ` +
+      excludedPaths.slice(0, 10).map((e) => `${e.path} (${e.reason})`).join(", "),
+    );
+  }
 
   const classification = classifySections({
     changedPaths,
@@ -190,10 +209,20 @@ export async function generateReportForSubmission(
   });
 
   if (classification.present.length === 0) {
+    // The withheld count is named because without it this message can read as an empty
+    // pull request when the student committed only files the filter refuses to send —
+    // a dependency tree and nothing else, which is a different problem with a different
+    // answer.
+    const withheld =
+      excludedPaths.length > 0
+        ? ` ${excludedPaths.length} committed path(s) were withheld from the prompt: ` +
+          `${excludedPaths.slice(0, 20).map((e) => `${e.path} (${e.reason})`).join(", ")}.`
+        : "";
+
     throw new ReportGenerationError(
       `The pull request contains none of the sections this assignment declares ` +
       `(${declaredSections.map((s) => s.type).join(", ")}). Changed paths: ` +
-      `${changedPaths.slice(0, 20).join(", ")}`,
+      `${changedPaths.slice(0, 20).join(", ")}.${withheld}`,
     );
   }
 
@@ -386,6 +415,11 @@ export async function generateReportForSubmission(
           sectionsGraded: classification.present,
           sectionsNotSubmitted: classification.notSubmitted,
           testRunId: testRun?.id ?? null,
+          // Null when nothing was withheld, which is the ordinary case. Recorded rather
+          // than only logged so that a report whose prompt was missing files the student
+          // did commit says so, and a committed `.env` is traceable after the fact — a
+          // student whose secret was committed needs to be told to replace it.
+          excludedFromPrompt: summarizeExclusions(excludedPaths),
         },
       },
     });
