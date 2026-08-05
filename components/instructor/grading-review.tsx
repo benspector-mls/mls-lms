@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ExternalLink,
+  EyeOff,
   FlaskConical,
   GitCommitHorizontal,
   GitPullRequest,
@@ -517,6 +518,8 @@ function DraftBody({
         <ManualReviewNotice draft={draft} hasSections={draft.sections.length > 0} />
       )}
 
+      <WithheldFilesNotice draft={draft} />
+
       {draft.sections.length > 0 ? (
         <DraftEditor
           submission={submission}
@@ -550,6 +553,88 @@ function DraftBody({
 
       {stale && <GeneratePanel submission={submission} data={data} label="Generate a new report" retry />}
     </div>
+  );
+}
+
+/**
+ * Files the student committed that the prompt withheld.
+ *
+ * Two very different things arrive through one mechanism, so the notice says which.
+ * A committed dependency tree or build directory is ordinary and the only thing an
+ * instructor needs is the explanation: those files are not in the report because the
+ * model never saw them. A committed environment file or private key is not ordinary and
+ * needs an action from the student — deleting the file does not remove it from the
+ * repository's history, so the credential itself has to be replaced, and nobody but the
+ * student can do that.
+ *
+ * Not a finding and not gating. Committing `node_modules` is common and is not
+ * misconduct, and the filter is what makes it harmless. This exists because the
+ * alternative — recording it in `modelMetadata` and showing nobody — means a report
+ * written without files the student did commit reads exactly like one written with them.
+ */
+function WithheldFilesNotice({ draft }: { draft: Draft }) {
+  const meta = (draft.modelMetadata ?? {}) as Record<string, unknown>;
+  const withheld = meta.excludedFromPrompt;
+  if (typeof withheld !== 'object' || withheld === null) return null;
+
+  const record = withheld as Record<string, unknown>;
+  const count = typeof record.count === 'number' ? record.count : 0;
+  if (count === 0) return null;
+
+  const byReason =
+    typeof record.byReason === 'object' && record.byReason !== null
+      ? (record.byReason as Record<string, unknown>)
+      : {};
+  const reasons = Object.entries(byReason).filter(
+    (entry): entry is [string, number] => typeof entry[1] === 'number',
+  );
+  const examples = Array.isArray(record.examples)
+    ? record.examples.filter((example): example is string => typeof example === 'string')
+    : [];
+
+  const secret = reasons.some(
+    ([reason]) => reason === 'environment file' || reason === 'credential file',
+  );
+
+  return (
+    <Alert
+      className={
+        secret ? 'border-amber-500/40 text-amber-700 dark:text-amber-300' : undefined
+      }
+    >
+      {secret ? (
+        <AlertTriangle className="text-amber-600 dark:text-amber-400" />
+      ) : (
+        <EyeOff />
+      )}
+      <AlertTitle>
+        {secret
+          ? 'This submission commits a secret'
+          : count === 1
+            ? '1 committed file was kept out of the report'
+            : `${count} committed files were kept out of the report`}
+      </AlertTitle>
+      <AlertDescription className="flex flex-col gap-2">
+        <p>
+          {secret
+            ? 'The student committed an environment file or a private key. It was not sent to the model, and it is still in the repository — deleting it does not remove it from the history, so tell the student to replace the credential itself.'
+            : 'These are build output, dependency trees, or editor files, so the model never saw them. Nothing in the report rests on them.'}
+        </p>
+        <ul className="ml-4 list-disc text-sm">
+          {reasons.map(([reason, number]) => (
+            <li key={reason}>
+              {number} × {reason}
+            </li>
+          ))}
+        </ul>
+        {examples.length > 0 && (
+          <p className="font-mono text-xs break-all">
+            {examples.slice(0, 5).join(', ')}
+            {count > 5 ? ', …' : ''}
+          </p>
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
 

@@ -422,7 +422,9 @@ What is withheld: environment files, credentials and private keys, dependency tr
 
 Every standard Node ignore line is already covered by such a list. Reading the file would add only the project-specific lines, which are precisely the dangerous ones.
 
-What was withheld is recorded on the draft as `modelMetadata.excludedFromPrompt` — a count, a breakdown by reason, and up to twenty example paths rather than the raw list, since a committed dependency tree is thousands of paths. So a report whose prompt was missing files the student did commit says so, and a committed `.env` is traceable afterwards, which matters because that student needs to be told to replace the secret.
+What was withheld is recorded on the draft as `modelMetadata.excludedFromPrompt` — a count, a breakdown by reason, and up to twenty example paths rather than the raw list, since a committed dependency tree is thousands of paths — and the review screen says so above the report. Recording it and showing nobody would mean a report written without files the student did commit reads exactly like one written with them.
+
+**The notice distinguishes two things that arrive through one mechanism.** A committed dependency tree or build directory is ordinary, is not misconduct, and needs only the explanation that those files are not in the report. A committed environment file or private key needs an action from the student: deleting the file does not remove it from the repository's history, so the credential itself has to be replaced, and nobody but the student can do that. Neither gates approval.
 
 ### One section, one call, one report
 
