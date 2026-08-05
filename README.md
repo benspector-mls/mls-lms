@@ -169,6 +169,7 @@ These are settled and do not need revisiting.
 - **An uploaded submission is readable only through a signed URL a procedure minted.** The bucket is private and carries no policies, so the browser cannot reach it at all.
 - **The sandbox never holds a GitHub token.**
 - **Verification happens against the `marcy-lms-test` organization**, never the production organization, until a flow is proven.
+- **Production gets a new GitHub organization**, not the one holding the GitHub Classroom era's templates. What matters about it is each template's provenance rather than the org itself: Classroom wrote `.github/workflows/classroom.yml` into the templates it managed, so a template forked or transferred from there brings it along while one created fresh does not.
 
 ---
 

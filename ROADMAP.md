@@ -463,9 +463,9 @@ Step 2's renaming and reassigning is the feature's own first real use, which is 
 | ---------- | --------- | ------- |
 | Story Prep Worksheet, `swe-1-2-strings-conditionals`, `swe-1-3-node-modules`, `swe-1-4-loops`, `swe-1-5-arrays`, Upload a Resume | `mod-1-js-fundamentals` | Mod 1 |
 | `swe-checkpoint-summative-1-4` | `mod-4-dom` | Mod 4 — a tag that was never in the course's own list, which is why editing that assignment fails validation today |
-| Submit the API you are using for your project | `mod-3-async-and-apis` | **Mod 4, assumed** — the tag points at a directory that does not exist, and consuming a third-party API belongs with data-driven interfaces rather than with HTML and CSS. Confirm before step 2 runs; Mod 5 is the other candidate if it is about the project's own server. |
+| Submit the API you are using for your project | `mod-3-async-and-apis` | **Mod 4** — confirmed. The tag pointed at a directory that never existed. |
 
-Two of those six are worth a second look as well: "Upload a Resume" and "Story Prep Worksheet" sit in Mod 1 because that is where they were created for testing, and a resume is not JavaScript fundamentals. They may belong in Mod 0.
+The six in Mod 1 stay there, including "Upload a Resume" and "Story Prep Worksheet" — confirmed, and easy to move later in the interface if they read oddly once a real cohort is in.
 
 **Where it lives:** a fourth tab on the instructor course page beside Assignments, Roster, and Gradebook, which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
 
@@ -488,7 +488,9 @@ The probe found this rather than assuming it: `generate` returned after 2.1s and
 
 `accept` generates, adds collaborators, and then calls `removeClassroomWorkflow`, which **returns silently on 404** — correct for "this template has no `classroom.yml`" and wrong for "the copy has not landed yet." Inside that window the file is left in the student's repository, against the standing decision that every generated repository has it removed. It has been winning the race so far, because the collaborator calls buy time and the current templates are small, but that is luck rather than design.
 
-**Phase 2 widens the window**, since an instructor can point at any public template and a large one takes longer to copy. So this is a prerequisite rather than an aside. The fix is to wait for content before anything reads the tree — bounded retry, treating the empty-repository 404 as "not yet" and a genuine missing file as absent, which the response body already distinguishes. Worth a check in `verify:app` or a new one, because the failure is silent and only visible as a `classroom.yml` nobody removed.
+**Nothing today depends on it, and Phase 2 is where it starts to.** The production organization is being created fresh with no Classroom templates in it, so `removeClassroomWorkflow` has nothing to find and losing the race costs nothing — fixing the templates at the source is what makes that true, rather than this function working. Phase 2 is the change: an instructor can paste *any* public template URL, and a great many public templates on GitHub are Classroom templates with autograding in them. That is the first time the function is load-bearing, and also the first time the window is wide, since an arbitrary template can be large.
+
+So: keep the function, and fix it with Phase 2 rather than now. The fix is to wait for content before anything reads the tree — bounded retry, treating the empty-repository 404 as "not yet" and a genuine missing file as absent, which the response body already distinguishes. It needs a check of its own, because the failure is silent and shows up only as a `classroom.yml` nobody removed.
 
 ### What to verify
 
@@ -693,6 +695,8 @@ Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 a
 ## Open items
 
 - **`GRADING_ASSETS_REPO` must be set in `.env.local`.** It is now required rather than optional, since the local-clone source is gone, so grading and `verify:assets` both fail without it. The installation id beside it is already correct: the development App is installed on `The-Marcy-Lab-School`.
-- **Which GitHub organization.** Everything verified so far used `marcy-lms-test`. Changing to `The-Marcy-Lab-School-Assignments` is a separate, deliberate step.
+- **Which GitHub organization — settled.** A **new organization**, created for this, rather than `The-Marcy-Lab-School-Assignments`. That org holds the GitHub Classroom era's templates and will not be used at all. Everything verified so far used `marcy-lms-test`, and moving to the new one is a matter of `SEED_GITHUB_ORG`, an App installation, and each assignment's `githubOrg`.
+
+  **What matters about the new org is the templates' provenance, not its name.** Classroom wrote `.github/workflows/classroom.yml` into the assignment templates it managed, and every repository generated from one inherits it. A template created fresh, or copied from `marcy-lms-test` — confirmed clean, 27 templates and no workflows at all — carries nothing. A template forked, transferred, or imported from the Classroom-era org brings the workflow with it. So the rule to hold when populating the new org is where each template came from.
 - **Project-wide Supabase default privileges.** Undecided, pending a conversation with your partner. Until it is decided, every new table needs its own `REVOKE` and row level security statements.
 - **`package.json` merge policy for a legitimate dependency collision.** The template wins on a version collision, which is correct when the assignment specifies a version deliberately. Revisit if an assignment ever wants students to choose one.
