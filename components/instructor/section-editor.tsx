@@ -84,10 +84,16 @@ export function SectionEditor({
 
       {section.grading === 'manual' ? (
         <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+          {/*
+            Two suggestions rather than one, because they answer different questions. An
+            assignment with several hand-graded parts wants each named for what it is; an
+            assignment that is simply worth twenty points wants one section called "Total", and
+            nothing else in the interface says that is a reasonable thing to type.
+          */}
           <Field label="What this section is called" findings={fieldFindings('label')}>
             <Input
               value={section.label}
-              placeholder="Reflection"
+              placeholder='"Total" or "Reflection"'
               onChange={(event) => onChange({ ...section, label: event.target.value })}
             />
           </Field>

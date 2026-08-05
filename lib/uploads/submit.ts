@@ -2,6 +2,8 @@ import "server-only";
 
 import { TRPCError } from "@trpc/server";
 
+import { isLinkSubmitted } from "../assignments/spec";
+import type { AssignmentKind } from "../generated/prisma/enums";
 import type { db as globalDb } from "../prisma";
 import { checkUpload } from "./file-types";
 import { storeSubmissionUpload } from "./storage";
@@ -38,7 +40,16 @@ export type HandInAssignment = {
  */
 export async function assertCanHandIn(
   db: Db,
-  params: { profileId: string; assignmentId: string; expectKind?: "GOOGLE_DOC" | "FILE_UPLOAD" },
+  params: {
+    profileId: string;
+    assignmentId: string;
+    /**
+     * How the caller collects work: `"link"` for a URL the student pastes, `"file"` for bytes
+     * they upload. Named for the mechanism rather than for a kind, because two kinds are handed
+     * in as a link and a third added later would otherwise have to be remembered here.
+     */
+    expect?: "link" | "file";
+  },
 ): Promise<HandInAssignment> {
   const assignment = await db.assignment.findUnique({
     where: { id: params.assignmentId },
@@ -71,11 +82,14 @@ export async function assertCanHandIn(
     });
   }
 
-  if (params.expectKind && assignment.kind !== params.expectKind) {
+  const collectedAs: "link" | "file" =
+    isLinkSubmitted(assignment.kind as AssignmentKind) ? "link" : "file";
+
+  if (params.expect && collectedAs !== params.expect) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        params.expectKind === "FILE_UPLOAD"
+        params.expect === "file"
           ? "This assignment is not handed in as a file."
           : "This assignment is not handed in as a link.",
     });

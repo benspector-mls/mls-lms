@@ -58,10 +58,10 @@ export const RUBRIC_NAME_BY_SECTION_TYPE: Record<SectionTypeName, string> = {
  * Separate from the enum on purpose. The enum names the axis so that every code path
  * assuming a repository has to say so; this set says which of them are built.
  *
- * All three are built. What differs between them is not whether they work but how far the
+ * All four are built. What differs between them is not whether they work but how far the
  * pipeline reaches: a `REPO` assignment is distributed from a template, collected as a pull
- * request, and graded by the model, while the other two are distributed as a link or as
- * instructions, collected by the student saying they are done, and graded by an instructor
+ * request, and graded by the model, while the rest are distributed as a link or as instructions,
+ * collected as a link the student pastes or a file they upload, and graded by an instructor
  * typing the score and the feedback. Reading a Google Doc's contents or an uploaded file and
  * generating a report from it is a separate feature and needs instructor-authored rubrics.
  */
@@ -69,7 +69,25 @@ export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
   AssignmentKind.REPO,
   AssignmentKind.GOOGLE_DOC,
   AssignmentKind.FILE_UPLOAD,
+  AssignmentKind.EXTERNAL_URL,
 ]);
+
+/**
+ * Kinds a student hands in by pasting a link, as opposed to by uploading a file or by opening
+ * a pull request.
+ *
+ * Named rather than compared inline, because `submitWork` and the student's screen both have to
+ * agree about it and a fifth kind added later must not be admitted by one and refused by the
+ * other.
+ */
+export const LINK_SUBMITTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
+  AssignmentKind.GOOGLE_DOC,
+  AssignmentKind.EXTERNAL_URL,
+]);
+
+export function isLinkSubmitted(kind: AssignmentKind): boolean {
+  return LINK_SUBMITTED_KINDS.has(kind);
+}
 
 /** True when this kind's submissions live in a generated GitHub repository. */
 export function requiresRepository(kind: AssignmentKind): boolean {
@@ -594,6 +612,34 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
         .array(z.enum(UPLOAD_FILE_TYPE_KEYS as [UploadFileTypeKey, ...UploadFileTypeKey[]]))
         .min(1, "say at least one kind of file this assignment accepts")
         .refine((types) => new Set(types).size === types.length, "no duplicates"),
+    })
+    .strict(),
+
+  /**
+   * Work made on a service this application knows nothing about, handed in as a link to it: a
+   * Canva design, a Loom recording, a deployed site, a Figma file.
+   *
+   * **It has no template, and deliberately no field for one.** The obvious addition is a link to
+   * a starting point for the student to copy, and the reason not to add it is that it would be a
+   * second link doing what `submissionInstructions` already does better — that field is markdown,
+   * so an instructor writes "start from [this Canva template](…)" alongside everything else the
+   * student needs to know, rather than having a bare URL appear on the screen with no explanation
+   * of what to do with it. A column would also imply the copy-prompt machinery `GOOGLE_DOC` has,
+   * which no other service shares.
+   *
+   * **And no shape check on what the student submits.** A `GOOGLE_DOC` submission is checked
+   * against Google's URL pattern because the assignment was distributed as one; here the
+   * assignment did not say where the work lives, so there is no pattern to check against and any
+   * https link is a legitimate answer. Refusing one would mean guessing which services are
+   * allowed and being wrong the first time an instructor names a new one.
+   */
+  z
+    .object({
+      kind: z.literal(AssignmentKind.EXTERNAL_URL),
+      ...shared,
+      ...noRepository,
+      ...noUpload,
+      templateDocUrl: z.null().default(null),
     })
     .strict(),
 ]);

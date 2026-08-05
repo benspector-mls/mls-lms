@@ -38,8 +38,18 @@ export class UploadStorageError extends Error {
  */
 export const SUBMISSION_UPLOAD_BUCKET = "submission-uploads";
 
-/** How long an instructor's download link stays valid. */
+/** How long a download link stays valid. */
 export const SIGNED_URL_TTL_SECONDS = 60 * 5;
+
+/**
+ * How long an embedded preview's link stays valid, and why it is longer.
+ *
+ * A browser's built-in PDF viewer fetches a large document in ranges as the reader scrolls, so
+ * the URL has to outlive the reading rather than the loading. Five minutes is ample to *open* a
+ * PDF and not ample to read one — pages further in would silently fail to appear, which reads
+ * as a corrupt file rather than as an expired link. Still short, and still one unguessable path.
+ */
+export const INLINE_PREVIEW_TTL_SECONDS = 60 * 30;
 
 /**
  * The storage half of the service role client, which bypasses row level security by design.
@@ -125,21 +135,36 @@ export async function storeSubmissionUpload(params: {
 }
 
 /**
- * A link that opens or downloads one stored object, valid for a few minutes.
+ * A link that downloads or displays one stored object, valid for a few minutes.
  *
  * Signed per request rather than stored, because a stored URL is a link that outlives the
- * authorization that produced it. `download` sets the filename the browser saves it as, which
- * is the only reason the student's own filename crosses this boundary.
+ * authorization that produced it.
+ *
+ * **The disposition is the whole difference between the two uses.** Asking for a download sets
+ * `Content-Disposition: attachment`, which is what makes the browser save the file under the
+ * student's own name — the only reason that name crosses this boundary. An `inline` link omits
+ * it, so the response carries the object's content type and nothing else, which is what lets a
+ * PDF be embedded rather than downloaded. Supabase sets no `X-Frame-Options` and no CSP on
+ * these responses, so an inline link can be framed; `verify:uploads` checks both halves of
+ * that, since a change on their side would break the preview silently.
  */
 export async function signedDownloadUrl(params: {
   path: string;
   filename?: string | null;
+  /** `"inline"` for an embedded preview. Defaults to a download. */
+  disposition?: "attachment" | "inline";
 }): Promise<string> {
+  const inline = params.disposition === "inline";
+
   const { data, error } = await storageClient()
     .from(SUBMISSION_UPLOAD_BUCKET)
-    .createSignedUrl(params.path, SIGNED_URL_TTL_SECONDS, {
-      download: params.filename ? safeDownloadName(params.filename) : true,
-    });
+    .createSignedUrl(
+      params.path,
+      inline ? INLINE_PREVIEW_TTL_SECONDS : SIGNED_URL_TTL_SECONDS,
+      inline
+        ? {}
+        : { download: params.filename ? safeDownloadName(params.filename) : true },
+    );
 
   if (error || !data?.signedUrl) {
     throw new UploadStorageError(

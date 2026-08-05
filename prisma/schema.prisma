@@ -193,13 +193,23 @@ model Rubric {
 /// and every code path that assumes a repository has to say so explicitly — a
 /// system where "assignment" silently means "GitHub repository" costs more to
 /// open up later than it costs to keep this enum honest from the start.
+/// What a student turns in. This decides how an assignment is distributed, what a
+/// submission consists of, and how feedback is delivered — see the README.
 enum AssignmentKind {
   /// Generated from a template repository; submitted as a pull request.
   REPO
-  /// A Google Doc the student writes in. Not implemented.
+  /// A Google Doc the student takes their own copy of; submitted as a link to it.
   GOOGLE_DOC
-  /// A file the student uploads. Not implemented.
+  /// A file the student uploads into private storage.
   FILE_UPLOAD
+  /// Work the student made on a service this application knows nothing about — a Canva
+  /// design, a Loom recording, a deployed site — submitted as a link to it.
+  ///
+  /// Distinct from GOOGLE_DOC even though both are submitted as a URL, because the
+  /// difference is distribution rather than collection: a Google Doc assignment hands out
+  /// a template to copy and can therefore check the link's shape, while this one hands out
+  /// nothing and cannot know what a valid link looks like.
+  EXTERNAL_URL
 
   @@schema("public")
 }

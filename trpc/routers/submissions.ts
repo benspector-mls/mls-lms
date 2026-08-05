@@ -72,7 +72,7 @@ export const submissionsRouter = createTRPCRouter({
       const assignment = await assertCanHandIn(ctx.db, {
         profileId: ctx.profile.id,
         assignmentId: input.assignmentId,
-        expectKind: 'GOOGLE_DOC',
+        expect: 'link',
       });
 
       if (!input.submittedUrl) {
@@ -131,7 +131,17 @@ export const submissionsRouter = createTRPCRouter({
    * the bucket is private with no policies, so there is no other route to the bytes.
    */
   uploadUrl: profileProcedure
-    .input(z.object({ submissionId: z.string().uuid() }))
+    .input(
+      z.object({
+        submissionId: z.string().uuid(),
+        /**
+         * `inline` is for an embedded preview and `attachment` saves the file. Both go through
+         * the same authorization, because they are the same bytes — the disposition decides
+         * what the browser does with them, not who may have them.
+         */
+        disposition: z.enum(['attachment', 'inline']).default('attachment'),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const submission = await ctx.db.submission.findUnique({
         where: { id: input.submissionId },
@@ -178,6 +188,7 @@ export const submissionsRouter = createTRPCRouter({
         url: await signedDownloadUrl({
           path: submission.uploadPath,
           filename: submission.uploadFilename,
+          disposition: input.disposition,
         }),
       };
     }),

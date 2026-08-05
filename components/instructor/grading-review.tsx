@@ -49,6 +49,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { statedScoreInText } from '@/lib/grade/report-text';
 import {
   CONFIDENCE_META,
@@ -114,8 +115,12 @@ export function GradingReview({
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
-  /** Decides whether a test suite is even a possibility for this assignment. */
-  assignmentKind: 'REPO' | 'GOOGLE_DOC' | 'FILE_UPLOAD';
+  /**
+   * Decides whether a test suite is even a possibility for this assignment. Typed from the
+   * enum rather than spelled out, so a kind added later is a compile error in the places that
+   * have to decide about it rather than a union two files disagree about.
+   */
+  assignmentKind: AssignmentKind;
   completionThreshold: number;
   now: Date;
 }) {
@@ -209,6 +214,10 @@ export function GradingReview({
                 sizeBytes={submission.uploadSizeBytes}
                 isLate={submission.isLate ?? false}
                 label="What the student uploaded"
+                // Open on arrival. Reading the work is why the instructor is on this screen, and
+                // a cohort of resumes graded by downloading each one in turn is most of the work
+                // of grading them.
+                previewByDefault
               />
             )}
 

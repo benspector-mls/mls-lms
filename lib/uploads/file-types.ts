@@ -93,6 +93,27 @@ export function extensionOf(filename: string): string | null {
   return match ? match[0].toLowerCase() : null;
 }
 
+/**
+ * What a browser can display in place, rather than only download.
+ *
+ * Decided from the extension rather than the stored content type, for the same reason
+ * `checkUpload` is: the content type is what the browser claimed at upload time, and a `.pdf`
+ * that arrived as `application/octet-stream` on one student's machine would be the one
+ * submission an instructor still has to download.
+ *
+ * Word documents are absent because no browser renders one. They are downloaded, which is the
+ * honest answer rather than an empty frame.
+ */
+export function previewKindOf(filename: string): "pdf" | "image" | null {
+  const extension = extensionOf(filename);
+  if (extension === null) return null;
+  if (extension === ".pdf") return "pdf";
+  if ((UPLOAD_FILE_TYPES.image.extensions as readonly string[]).includes(extension)) {
+    return "image";
+  }
+  return null;
+}
+
 export type UploadCheck =
   | { ok: true; type: UploadFileTypeKey; extension: string }
   | { ok: false; reason: string };

@@ -345,9 +345,9 @@ export const assignmentsRouter = createTRPCRouter({
         For a Google Doc it is being sent to Google's own copy prompt: no repository, no
         collaborators, no credentials, and nothing created on this side beyond the row
         recording that the student started. For a repository it is generating one from the
-        template, which is everything below. FILE_UPLOAD reaches neither — it has no Accept
-        at all, because there is nothing to hand out, and the refusal below is what a request
-        arriving anyway is answered with.
+        template, which is everything below. FILE_UPLOAD and EXTERNAL_URL reach neither — they
+        have no Accept at all, because there is nothing to hand out, and the refusal below is
+        what a request arriving anyway is answered with.
       */
       if (assignment.kind === 'GOOGLE_DOC') {
         if (!assignment.templateDocUrl) {
@@ -378,12 +378,15 @@ export const assignmentsRouter = createTRPCRouter({
         return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDocUrl) };
       }
 
-      if (assignment.kind === 'FILE_UPLOAD') {
+      if (assignment.kind === 'FILE_UPLOAD' || assignment.kind === 'EXTERNAL_URL') {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message:
-            'This assignment is not accepted — there is nothing to hand out. Upload your ' +
-            'work and submit it when you are ready.',
+            assignment.kind === 'FILE_UPLOAD'
+              ? 'This assignment is not accepted — there is nothing to hand out. Upload your ' +
+                'work and submit it when you are ready.'
+              : 'This assignment is not accepted — there is nothing to hand out. Make your ' +
+                'work, then submit the link to it when you are ready.',
         });
       }
 

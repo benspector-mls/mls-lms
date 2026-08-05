@@ -32,6 +32,8 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Separator } from '@/components/ui/separator';
+import { isLinkSubmitted } from '@/lib/assignments/spec';
+import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import {
   acceptAttributeFor,
   checkUpload,
@@ -230,7 +232,8 @@ function AssignmentRow({
       // button has the same right-hand columns as one without.
       action={
         !submission || status === 'NOT_STARTED' ? (
-          assignment.kind === 'FILE_UPLOAD' ? null : (
+          // Neither of these has anything to hand out, so there is nothing for Accept to do.
+          assignment.kind === 'FILE_UPLOAD' || assignment.kind === 'EXTERNAL_URL' ? null : (
             <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
           )
         ) : null
@@ -418,9 +421,10 @@ function AssignmentDetail({
         something inferred. Offered until the work is in the queue, and again after a grade,
         since revising the document and asking for another look is this kind's resubmission.
       */}
-      {assignment.kind === 'GOOGLE_DOC' && !inQueue && status !== 'RESUBMITTED' && (
+      {isLinkSubmitted(assignment.kind) && !inQueue && status !== 'RESUBMITTED' && (
         <SubmitWorkForm
           assignmentId={assignment.id}
+          kind={assignment.kind}
           currentUrl={submission?.submittedUrl ?? null}
           resubmitting={status === 'GRADED'}
         />
@@ -434,7 +438,8 @@ function AssignmentDetail({
           className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'self-start')}
         >
           <FileText data-icon="inline-start" />
-          The document you submitted{submission.isLate ? ' (late)' : ''}
+          {assignment.kind === 'GOOGLE_DOC' ? 'The document you submitted' : 'The work you submitted'}
+          {submission.isLate ? ' (late)' : ''}
           <ExternalLink data-icon="inline-end" />
         </a>
       )}
@@ -524,10 +529,19 @@ function AssignmentDetail({
  */
 function SubmitWorkForm({
   assignmentId,
+  kind,
   currentUrl,
   resubmitting,
 }: {
   assignmentId: string;
+  /**
+   * Both link-submitted kinds use this form, and only the words differ. A Google Doc
+   * assignment handed out a template, so the link wanted is "your own copy"; an external-url
+   * assignment handed out nothing, so the link wanted is wherever the student made the work.
+   * Asking for "your copy" of a Loom recording would be asking for something that does not
+   * exist.
+   */
+  kind: AssignmentKind;
   currentUrl: string | null;
   /** True after a grade, when submitting again is asking for another look at revised work. */
   resubmitting: boolean;
@@ -551,11 +565,27 @@ function SubmitWorkForm({
       }}
     >
       <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
-        {resubmitting ? 'Submit your revised document' : 'Submit your document'}
+        {kind === 'GOOGLE_DOC'
+          ? resubmitting
+            ? 'Submit your revised document'
+            : 'Submit your document'
+          : resubmitting
+            ? 'Submit the link to your revised work'
+            : 'Submit the link to your work'}
       </label>
       <p className="text-sm text-muted-foreground">
-        Paste the link to <strong>your own copy</strong>, and make sure your instructor can
-        open it.
+        {kind === 'GOOGLE_DOC' ? (
+          <>
+            Paste the link to <strong>your own copy</strong>, and make sure your instructor can
+            open it.
+          </>
+        ) : (
+          <>
+            Paste the link to your finished work, and{' '}
+            <strong>check that the sharing settings let your instructor open it</strong> — a
+            private link looks like nothing was submitted.
+          </>
+        )}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -564,7 +594,11 @@ function SubmitWorkForm({
           required
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          placeholder="https://docs.google.com/document/d/…"
+          placeholder={
+            kind === 'GOOGLE_DOC'
+              ? 'https://docs.google.com/document/d/…'
+              : 'https://www.canva.com/design/… or https://www.loom.com/share/…'
+          }
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
         <Button size="sm" type="submit" disabled={submit.isPending || url.trim() === ''}>

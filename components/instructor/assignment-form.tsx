@@ -23,6 +23,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RUBRIC_NAME_BY_SECTION_TYPE } from '@/lib/assignments/spec';
+import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { NO_RUNNER, RUNNER_PRESETS } from '@/lib/sandbox/presets';
 import {
   formatBytes,
@@ -60,7 +61,12 @@ import type { RouterOutputs } from '@/trpc/types';
 type Context = RouterOutputs['assignments']['authoringContext'];
 type Draft = RouterOutputs['assignments']['getDraft'];
 
-type Kind = 'REPO' | 'GOOGLE_DOC' | 'FILE_UPLOAD';
+/**
+ * From the enum rather than spelled out, so a kind added to the schema is a compile error in
+ * `KIND_META` and `toDraft` — the two places that have to say something about every one — rather
+ * than a value this form silently cannot express.
+ */
+type Kind = AssignmentKind;
 
 /**
  * One flat state for every kind, narrowed into the right shape by `toDraft` below.
@@ -105,6 +111,10 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
     label: 'File upload',
     hint: 'Students hand in a file. No template and nothing to accept. Graded by hand.',
   },
+  EXTERNAL_URL: {
+    label: 'Link to work elsewhere',
+    hint: 'Students make something on another service — Canva, Loom, a deployed site — and submit the link. No template and nothing to accept. Graded by hand.',
+  },
 };
 
 /** True when this kind has a repository, a template, and a suite that can run. */
@@ -115,7 +125,7 @@ function isRepoKind(kind: Kind): boolean {
 /**
  * The draft as the procedures want it, per kind.
  *
- * The repository fields are *omitted* for the other two kinds rather than sent as null, which
+ * The repository fields are *omitted* for the kinds that have none rather than sent as null, which
  * the schema's own defaults then fill in. Sending `templateRepo: ""` would fail validation and
  * sending `null` would work — omitting says what is meant, which is that a document assignment
  * has no opinion about repositories at all.
@@ -149,11 +159,18 @@ function toDraft(state: FormState): unknown {
     return { ...shared, kind: 'GOOGLE_DOC', templateDocUrl: state.templateDocUrl.trim() };
   }
 
-  return {
-    ...shared,
-    kind: 'FILE_UPLOAD',
-    acceptedFileTypes: state.acceptedFileTypes,
-  };
+  if (state.kind === 'FILE_UPLOAD') {
+    return {
+      ...shared,
+      kind: 'FILE_UPLOAD',
+      acceptedFileTypes: state.acceptedFileTypes,
+    };
+  }
+
+  // Nothing of its own to send. What the student is asked to make, and where, is prose in
+  // `submissionInstructions` rather than a field — see the schema's own note on why there is no
+  // column for a starting link.
+  return { ...shared, kind: 'EXTERNAL_URL' };
 }
 
 const DEBOUNCE_MS = 600;
@@ -422,8 +439,8 @@ function Editor({
                   setKind(next);
                   /*
                     A repository assignment is opened from the catalogue, so its state stays
-                    null until an assignment is chosen. The other two have nothing to choose
-                    from, so the form starts immediately with one hand-graded section.
+                    null until an assignment is chosen. The others have nothing to choose from,
+                    so the form starts immediately with one hand-graded section.
                   */
                   setState(
                     next === 'REPO'
@@ -476,7 +493,7 @@ function Editor({
           </Field>
 
           {/*
-            No catalogue for the other two kinds, deliberately rather than for now. The
+            No catalogue for the kinds with no repository, deliberately rather than for now. The
             answer-keys repository is the single source of truth for what repository-backed
             assignments the curriculum contains, and there is no equivalent list of documents
             to check a new one against — a shared Drive folder per module is the likely shape,

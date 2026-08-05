@@ -343,6 +343,10 @@ export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; descr
     description: 'Handed in as a link to your own copy of a document.',
   },
   FILE_UPLOAD: { label: 'File', description: 'Handed in as an uploaded file.' },
+  EXTERNAL_URL: {
+    label: 'Link',
+    description: 'Made somewhere else — Canva, Loom, a deployed site — and handed in as a link.',
+  },
 };
 
 export const CONFIDENCE_META: Record<'HIGH' | 'LOW', { label: string; tone: StatusTone }> = {

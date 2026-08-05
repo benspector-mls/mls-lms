@@ -40,7 +40,7 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
 async function main() {
   const {
     acceptAttributeFor, checkUpload, describeAcceptedTypes, extensionOf, formatBytes,
-    isUploadFileTypeKey, MAX_UPLOAD_BYTES, mimeTypesFor, safeDownloadName,
+    isUploadFileTypeKey, MAX_UPLOAD_BYTES, mimeTypesFor, previewKindOf, safeDownloadName,
     UPLOAD_FILE_TYPE_KEYS,
   } = await import("../lib/uploads/file-types");
 
@@ -114,6 +114,20 @@ async function main() {
     safeDownloadName('re"su\nme.pdf'), "resume.pdf");
   check("a name that is nothing but junk still has a name",
     safeDownloadName('"""'), "submission");
+
+  // --- what can be shown in place rather than downloaded --------------------
+  //
+  // Decided from the extension for the same reason `checkUpload` is: the stored content type is
+  // what the browser claimed, and a .pdf that arrived as application/octet-stream on one
+  // student's machine would be the one submission an instructor still has to download.
+  check("a PDF can be previewed", previewKindOf("resume.pdf"), "pdf");
+  check("case does not matter here either", previewKindOf("RESUME.PDF"), "pdf");
+  check("an image can be previewed", previewKindOf("screenshot.png"), "image");
+  check("...whichever image it is", previewKindOf("photo.webp"), "image");
+  // No browser renders a .docx, so an empty frame would be a worse answer than a download.
+  check("a Word document cannot", previewKindOf("resume.docx"), null);
+  check("nor plain text, which has no viewer worth framing", previewKindOf("notes.txt"), null);
+  check("nor a file with no extension", previewKindOf("resume"), null);
 
   // --- the path bytes go to -------------------------------------------------
   const { submissionUploadPath, SUBMISSION_UPLOAD_BUCKET, storageClient } =
@@ -190,6 +204,33 @@ async function main() {
     forged.searchParams.set("token", `${token.slice(0, -6)}bad123`);
     const tampered = await fetch(forged.toString());
     check("a tampered signature does not open it", tampered.ok, false);
+
+    /*
+      The embedded preview rests on three properties of an inline link, none of which is ours to
+      control: the response has to carry the object's content type, it must NOT carry an
+      attachment disposition (which makes a browser download rather than display it), and it must
+      not be frame-blocked. A change on Supabase's side would turn the instructor's PDF viewer
+      into an empty box with no error, so it is checked rather than assumed.
+    */
+    const inlineUrl = await signedDownloadUrl({
+      path: stored.path,
+      filename: "round trip.pdf",
+      disposition: "inline",
+    });
+    const inlineResponse = await fetch(inlineUrl);
+    check("an inline link serves the object", inlineResponse.status, 200);
+    check("...as its own content type",
+      inlineResponse.headers.get("content-type"), "application/pdf");
+    check("...with no attachment disposition, so a browser displays it",
+      inlineResponse.headers.get("content-disposition"), null);
+    check("...and is not frame-blocked, which is what lets it be embedded",
+      [inlineResponse.headers.get("x-frame-options"),
+        inlineResponse.headers.get("content-security-policy")],
+      [null, null]);
+
+    // The download link is the opposite, and the filename it saves as is the student's own.
+    check("a download link still asks the browser to save it",
+      (await fetch(url)).headers.get("content-disposition")?.startsWith("attachment"), true);
   } finally {
     await removeSubmissionUpload(stored.path);
   }
@@ -261,7 +302,7 @@ async function main() {
           assertCanHandIn(tx as never, {
             profileId: studentId,
             assignmentId: assignment.id,
-            expectKind: "FILE_UPLOAD",
+            expect: "file",
           })),
         "NOT_FOUND");
 
@@ -283,7 +324,7 @@ async function main() {
       const handIn = await assertCanHandIn(tx as never, {
         profileId: studentId,
         assignmentId: assignment.id,
-        expectKind: "FILE_UPLOAD",
+        expect: "file",
       });
       check("a published assignment can be handed in to", handIn.acceptedFileTypes, ["pdf"]);
 
@@ -359,6 +400,54 @@ async function main() {
       } else {
         console.log("skip  another student cannot — only one student profile is seeded");
       }
+
+      // --- work made somewhere else ---------------------------------------
+      //
+      // Handed in as a link like a Google Doc, and distributed like nothing at all. What is
+      // checked here is that the two halves land on the right side of each rule.
+      const { assignment: linkAssignment } = await asInstructor.assignments.create({
+        courseId: course.id,
+        draft: {
+          kind: "EXTERNAL_URL",
+          title: "Personal site on Canva (verify:uploads)",
+          moduleTag,
+          dueAt: null,
+          submissionInstructions: "Make it in Canva, then share the link.",
+          sections: [{ grading: "manual", label: "Total", pointValue: 15 }],
+        },
+      });
+      await asInstructor.assignments.publish({ assignmentId: linkAssignment.id });
+
+      // Nothing to hand out, so there is no Accept — the same as a file upload.
+      check("an external-url assignment cannot be accepted",
+        await refusal(() => asStudent.assignments.accept({ assignmentId: linkAssignment.id })),
+        "PRECONDITION_FAILED");
+
+      // And it is NOT the upload route's business, which is the half that would be easy to get
+      // wrong once two kinds submit a link.
+      check("it cannot be handed in as a file",
+        await refusal(() =>
+          assertCanHandIn(tx as never, {
+            profileId: studentId,
+            assignmentId: linkAssignment.id,
+            expect: "file",
+          })),
+        "BAD_REQUEST");
+
+      const linkSubmitted = await asStudent.submissions.submitWork({
+        assignmentId: linkAssignment.id,
+        submittedUrl: "https://www.canva.com/design/DAF123/view",
+      });
+      check("submitting the link is what enters the queue",
+        [linkSubmitted.status, linkSubmitted.submittedUrl],
+        ["SUBMITTED", "https://www.canva.com/design/DAF123/view"]);
+
+      const linkQueue = await asInstructor.submissions.listForAssignment({
+        assignmentId: linkAssignment.id,
+      });
+      check("and it waits on a person, like every hand-graded kind",
+        linkQueue.submissions.find((entry) => entry.id === linkSubmitted.id)?.bucket,
+        "needs_manual_grade");
 
       throw new Error("ROLLBACK");
     });

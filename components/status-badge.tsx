@@ -1,4 +1,4 @@
-import { AlertTriangle, Code, FileText, Upload } from 'lucide-react';
+import { AlertTriangle, Code, FileText, Link as LinkIcon, Upload } from 'lucide-react';
 import type * as React from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +83,7 @@ const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
   REPO: Code,
   GOOGLE_DOC: FileText,
   FILE_UPLOAD: Upload,
+  EXTERNAL_URL: LinkIcon,
 };
 
 /**

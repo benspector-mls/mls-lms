@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
+import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { useTRPC } from '@/trpc/client';
 
 /**
@@ -24,7 +25,8 @@ export function AcceptAssignmentButton({
   kind,
 }: {
   assignmentId: string;
-  kind: 'REPO' | 'GOOGLE_DOC' | 'FILE_UPLOAD';
+  /** From the enum rather than spelled out, so a kind added later cannot be silently omitted. */
+  kind: AssignmentKind;
 }) {
   const trpc = useTRPC();
   const router = useRouter();

@@ -22,6 +22,7 @@ import {
   copyUrlFromTemplate,
   derivesTestEvidence,
   isAiGraded,
+  isLinkSubmitted,
   isManualOnly,
   manualSections,
   NotRepositoryBackedError,
@@ -380,6 +381,44 @@ check("a Google Doc assignment accepts no file types", parseAssignmentSpec(docSp
 check("and may not declare any",
   refusedOn({ ...docSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
 
+// --- work made somewhere else ------------------------------------------------
+//
+// Handed in as a link, like a Google Doc, and distributed like nothing at all. The distinction
+// that matters is which of those two halves each rule follows.
+const linkSpec = {
+  kind: AssignmentKind.EXTERNAL_URL,
+  title: "Personal site (Canva)",
+  moduleTag: "mod-1-js-fundamentals",
+  sections: [manualSection],
+};
+
+check("an external-url assignment needs nothing but a title, a module, and a section",
+  rejects(linkSpec), "accepted");
+check("it has no repository", parseAssignmentSpec(linkSpec).templateRepo, null);
+check("no runner", parseAssignmentSpec(linkSpec).runnerPreset, "none");
+check("no file types", parseAssignmentSpec(linkSpec).acceptedFileTypes, []);
+// No template of any kind, and deliberately no field for one: a starting link belongs in the
+// markdown instructions, where it can say what to do with it.
+check("and no template document", parseAssignmentSpec(linkSpec).templateDocUrl, null);
+check("a template document may not be set on it",
+  refusedOn({ ...linkSpec, templateDocUrl: "https://docs.google.com/document/d/x/view" },
+    "templateDocUrl"),
+  true);
+check("nor may file types",
+  refusedOn({ ...linkSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
+check("nor a runner preset",
+  refusedOn({ ...linkSpec, runnerPreset: "node-jest" }, "runnerPreset"), true);
+// The pipeline's inputs are a pull request's files and a template's tests. This kind has
+// neither, so an AI section would sit in the queue as a report waiting to be generated and fail
+// at the moment an instructor asked for it.
+check("and no section the model grades",
+  refusedOn({ ...linkSpec, sections: [codingSection] }, "sections.0.grading"), true);
+
+check("all four kinds are handed in one of three ways",
+  [...IMPLEMENTED_KINDS].map(isLinkSubmitted),
+  [...IMPLEMENTED_KINDS].map((kind) =>
+    kind === AssignmentKind.GOOGLE_DOC || kind === AssignmentKind.EXTERNAL_URL));
+
 // Optional on every kind, because each kind's own screen states the mechanical steps already.
 check("submission instructions are optional and default to null",
   parseAssignmentSpec(docSpec).submissionInstructions, null);
@@ -391,9 +430,12 @@ check("submission instructions are kept when given",
 // --- narrowing at the point of use -------------------------------------------
 check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
 check("GOOGLE_DOC does not", requiresRepository(AssignmentKind.GOOGLE_DOC), false);
-check("all three kinds are implemented",
+check("all four kinds are implemented",
   [...IMPLEMENTED_KINDS].sort(),
-  [AssignmentKind.FILE_UPLOAD, AssignmentKind.GOOGLE_DOC, AssignmentKind.REPO].sort());
+  [AssignmentKind.EXTERNAL_URL, AssignmentKind.FILE_UPLOAD, AssignmentKind.GOOGLE_DOC,
+    AssignmentKind.REPO].sort());
+check("a link-submitted kind is not repository-backed",
+  requiresRepository(AssignmentKind.EXTERNAL_URL), false);
 
 check("repositorySource narrows a REPO row",
   repositorySource({

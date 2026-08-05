@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     const assignment = await assertCanHandIn(db, {
       profileId: profile.id,
       assignmentId,
-      expectKind: 'FILE_UPLOAD',
+      expect: 'file',
     });
 
     const submission = await storeAndRecordUpload(db, {
