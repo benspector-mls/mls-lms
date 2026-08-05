@@ -160,6 +160,55 @@ function Editor({
     enabled: Boolean(state?.moduleTag && state?.assignmentRepoName),
   });
 
+  /*
+    Two things the repository already states, applied once each rather than asked for.
+
+    Both arrive after the assignment is chosen, which is why they are effects rather than part
+    of `blankDraft`: the catalogue choice is synchronous and these are two more round trips.
+    Each guards on having already been applied for this repository, so that an instructor who
+    deliberately unticks every answer key does not have them tick themselves again.
+  */
+  const detection = useQuery({
+    ...trpc.assignments.inferFromTemplate.queryOptions({
+      courseId,
+      templateRepo: state?.templateRepo ?? '',
+    }),
+    enabled: !existing && Boolean(state?.templateRepo),
+  });
+
+  const applied = React.useRef<{ keys?: string; runner?: string }>({});
+
+  React.useEffect(() => {
+    const repoName = state?.assignmentRepoName;
+    const paths = answerKeys.data?.paths;
+    if (!repoName || !paths || paths.length === 0) return;
+    if (applied.current.keys === repoName) return;
+
+    applied.current.keys = repoName;
+    setState((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        sections: prev.sections.map((section) =>
+          // Only a section that has none: editing an existing assignment must not have its
+          // deliberate subset replaced by everything in the directory.
+          section.grading === 'ai' && section.answerKeyPaths.length === 0
+            ? { ...section, answerKeyPaths: paths }
+            : section,
+        ),
+      };
+    });
+  }, [answerKeys.data?.paths, state?.assignmentRepoName, setState]);
+
+  React.useEffect(() => {
+    const repoName = state?.assignmentRepoName;
+    if (!repoName || !detection.data?.confident) return;
+    if (applied.current.runner === repoName) return;
+
+    applied.current.runner = repoName;
+    setState((prev) => (prev ? { ...prev, runnerPreset: detection.data.preset } : prev));
+  }, [detection.data, state?.assignmentRepoName, setState]);
+
   const validation = useQuery({
     ...trpc.assignments.validateDraft.queryOptions({
       courseId,
@@ -385,9 +434,11 @@ function Editor({
                 label="Test runner"
                 findings={fieldFindings('runnerPreset')}
                 hint={
-                  state.runnerPreset === NO_RUNNER
-                    ? 'No automated tests. Normal for short response and frontend work — most of the program.'
-                    : 'The instructor tests come from the template repository, never the student’s copy.'
+                  detection.data?.reason
+                    ? `${detection.data.reason} The tests come from the template repository, never the student’s copy.`
+                    : state.runnerPreset === NO_RUNNER
+                      ? 'No automated tests. Normal for short response and frontend work — most of the program.'
+                      : 'The tests come from the template repository, never the student’s copy.'
                 }
               >
                 <Select

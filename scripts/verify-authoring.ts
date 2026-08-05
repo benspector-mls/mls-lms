@@ -18,6 +18,7 @@ import {
   AssignmentConfigurationError,
   AssignmentKind,
   IMPLEMENTED_KINDS,
+  derivesTestEvidence,
   isAiGraded,
   isManualOnly,
   parseAssignmentSpec,
@@ -25,6 +26,7 @@ import {
   requiresRepository,
   sectionsPointTotal,
   UnsupportedAssignmentKindError,
+  withDerivedFields,
 } from "../lib/assignments/spec";
 
 let failures = 0;
@@ -166,6 +168,56 @@ check("isAiGraded splits them",
 check("manual-only is detected", isManualOnly([manualSection]), true);
 check("a mix is not manual-only", isManualOnly([codingSection, manualSection]), false);
 check("no sections is not manual-only", isManualOnly([]), false);
+
+// --- test evidence is derived, never asked -------------------------------------
+/*
+  The rule has no cases an instructor could usefully disagree with, which is why the checkbox
+  that used to ask went away. A short response has nothing to execute; every other type is
+  checked against the suite when the assignment has one.
+*/
+check("a short response never claims test evidence",
+  derivesTestEvidence("short_response", "node-jest"), false);
+check("an algorithm section does when there is a runner",
+  derivesTestEvidence("coding_algorithm", "node-jest"), true);
+check("...and does not when there is none",
+  derivesTestEvidence("coding_algorithm", "none"), false);
+check("a frontend section follows the same rule",
+  derivesTestEvidence("coding_frontend", "node-vitest"), true);
+
+check("a draft that omits evidence has it filled in",
+  (withDerivedFields({ runnerPreset: "node-jest", sections: [{ ...codingSection, evidence: undefined }] }) as
+    { sections: { evidence?: string }[] }).sections[0].evidence,
+  "tests");
+check("a draft that wrongly claims it has it removed",
+  (withDerivedFields({ runnerPreset: "none", sections: [{ ...codingSection }] }) as
+    { sections: { evidence?: string }[] }).sections[0].evidence,
+  undefined);
+/*
+  A pattern with no evidence declaration is refused by the schema. Clearing it alongside the
+  flag means an author who turns the runner off does not then face a validation error about a
+  field the form no longer shows.
+*/
+check("a stranded testNamePattern is cleared rather than left to fail validation",
+  (withDerivedFields({
+    runnerPreset: "none",
+    sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
+  }) as { sections: { testNamePattern?: string }[] }).sections[0].testNamePattern,
+  undefined);
+// The raw draft would be refused for exactly that stranded pattern; the derived one passes.
+check("...so the raw draft is refused",
+  rejects({
+    ...repoSpec,
+    runnerPreset: "none",
+    sections: [{ ...codingSection, evidence: undefined, testNamePattern: "^from-scratch" }],
+  }),
+  ["sections.0.testNamePattern"]);
+check("...and the derived draft is accepted",
+  rejects(withDerivedFields({
+    ...repoSpec,
+    runnerPreset: "none",
+    sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
+  })),
+  "accepted");
 
 // --- the kind axis ------------------------------------------------------------
 check("REPO requires a template repository",

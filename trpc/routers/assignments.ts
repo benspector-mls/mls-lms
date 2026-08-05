@@ -618,6 +618,20 @@ export const assignmentsRouter = createTRPCRouter({
     }),
 
   /**
+   * What the template repository says about how it runs, so the form does not ask.
+   *
+   * Called when an assignment is chosen from the catalogue. Returns the reason as well as the
+   * preset, because an inference an instructor cannot check is one they have to trust blindly.
+   */
+  inferFromTemplate: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), templateRepo: z.string().min(3) }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+      const { detectRunnerPreset } = await import('@/lib/assignments/detect');
+      return detectRunnerPreset(input.templateRepo);
+    }),
+
+  /**
    * Creates an assignment, unpublished.
    *
    * `pointValue` comes from the validated spec rather than from input, so there is no

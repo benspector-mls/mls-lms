@@ -172,48 +172,20 @@ export function SectionEditor({
             )}
           </Field>
 
-          {hasRunner && (
-            <Field
-              label="Test evidence"
-              findings={[...fieldFindings('evidence'), ...fieldFindings('testNamePattern')]}
-              hint="Whether this section's score is checked against the instructor's test suite."
-            >
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={section.evidence === 'tests'}
-                  onCheckedChange={(checked) =>
-                    onChange({
-                      ...section,
-                      evidence: checked ? 'tests' : undefined,
-                      // Cleared with it: a pattern with no evidence declaration is silently
-                      // ignored, which the schema refuses outright.
-                      testNamePattern: checked ? section.testNamePattern : undefined,
-                    })
-                  }
-                />
-                The test suite covers this section
-              </label>
-
-              {section.evidence === 'tests' && (
-                <div className="mt-2">
-                  <Input
-                    value={section.testNamePattern ?? ''}
-                    placeholder="^from-scratch  (leave empty for the whole suite)"
-                    onChange={(event) =>
-                      onChange({
-                        ...section,
-                        testNamePattern: event.target.value || undefined,
-                      })
-                    }
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    A pattern matched against test names, for when one suite covers more than
-                    one section. Empty means every test counts toward this one.
-                  </p>
-                </div>
-              )}
-            </Field>
-          )}
+          {/*
+            No checkbox. Whether the suite covers this section follows from its type and from
+            the assignment having a runner at all — a short response has nothing to execute and
+            every other type is checked against the suite when there is one. The only two
+            settings a checkbox could have had were "correct" and "silently graded without the
+            evidence it should have had".
+          */}
+          <p className="text-xs text-muted-foreground">
+            {section.type === 'short_response'
+              ? 'Graded against the rubric and the reference answer. A short response has nothing to execute.'
+              : hasRunner
+                ? 'The score is checked against the instructor’s test suite. A report claiming a test passed that failed is held for review.'
+                : 'This assignment runs no tests, so the score rests on the model reading the code against the rubric.'}
+          </p>
         </>
       )}
     </div>

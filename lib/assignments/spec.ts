@@ -226,6 +226,62 @@ export function isManualOnly(sections: readonly { grading: "ai" | "manual" }[]):
 }
 
 /**
+ * Whether a section's score is checked against the test suite.
+ *
+ * Derived, never asked. The rule has no cases an instructor could usefully disagree with: a
+ * short response has nothing to execute, and every other section type is checked against the
+ * suite whenever the assignment has one. Asking produced a checkbox whose only two settings
+ * were "correct" and "silently graded without the evidence it should have had".
+ *
+ * `sections[].evidence` is still stored, because grading reads it and the flag it produces —
+ * `TEST_EVIDENCE` against `NO_TESTS_EXPECTED` — is the difference between "checked" and
+ * "nothing to check", which an instructor reading a report needs to see.
+ */
+export function derivesTestEvidence(
+  sectionType: SectionTypeName,
+  runnerPreset: string,
+): boolean {
+  if (sectionType === "short_response") return false;
+  return runnerPreset !== "none";
+}
+
+/**
+ * Fills in every field that is derived rather than entered, before validation sees the draft.
+ *
+ * Applied on the server rather than in the form, so the derivation is not something a request
+ * could disagree with. Takes an unknown draft because it runs *before* parsing: a draft that
+ * turns out to be invalid should still be reported against the fields the author sees.
+ */
+export function withDerivedFields(draft: unknown): unknown {
+  if (!draft || typeof draft !== "object") return draft;
+
+  const record = draft as Record<string, unknown>;
+  const runnerPreset = typeof record.runnerPreset === "string" ? record.runnerPreset : "none";
+  if (!Array.isArray(record.sections)) return draft;
+
+  return {
+    ...record,
+    sections: record.sections.map((section) => {
+      if (!section || typeof section !== "object") return section;
+      const entry = section as Record<string, unknown>;
+      if (entry.grading !== "ai") return entry;
+
+      const type = entry.type as SectionTypeName;
+      if (!SECTION_TYPES.includes(type)) return entry;
+
+      const evidence = derivesTestEvidence(type, runnerPreset) ? "tests" : undefined;
+      const next: Record<string, unknown> = { ...entry, evidence };
+      // A pattern with no evidence declaration is refused by the schema, and rightly — it
+      // reads as though the tests were consulted when they were not. Cleared with it rather
+      // than left to produce a validation error the author cannot act on.
+      if (!evidence) delete next.testNamePattern;
+      if (next.evidence === undefined) delete next.evidence;
+      return next;
+    }),
+  };
+}
+
+/**
  * The assignment total is the sum of its sections, never entered separately. A
  * gradebook column that disagreed with the reports beneath it would be worse than no
  * column at all.

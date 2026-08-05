@@ -11,6 +11,7 @@ import {
   repositorySource,
   requiresRepository,
   sectionsPointTotal,
+  withDerivedFields,
   type AiSectionSpec,
   type AssignmentSpec,
 } from "./spec";
@@ -76,7 +77,10 @@ export async function validateAssignmentDraft(
     findings.push({ path, message, severity: "warning" });
 
   // ---- Shape first. Nothing below can run against a draft that is not a spec. ----
-  const parsed = assignmentSpecSchema.safeParse(input.draft);
+  //
+  // Derived fields are filled in before parsing, not after: `evidence` follows from the
+  // section type and the runner, so a draft that omits it is complete rather than wrong.
+  const parsed = assignmentSpecSchema.safeParse(withDerivedFields(input.draft));
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
       const path = issue.path.join(".") || "(root)";
