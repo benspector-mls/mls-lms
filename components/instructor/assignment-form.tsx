@@ -112,7 +112,7 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
     hint: 'Students hand in a file. No template and nothing to accept. Graded by hand.',
   },
   EXTERNAL_URL: {
-    label: 'Link to work elsewhere',
+    label: 'External URL',
     hint: 'Students make something on another service — Canva, Loom, a deployed site — and submit the link. No template and nothing to accept. Graded by hand.',
   },
 };
@@ -448,6 +448,14 @@ function Editor({
                       : blankNonRepoDraft({ kind: next, moduleTag, existingState: state }),
                   );
                 }}
+                // Without this the trigger shows the raw enum value — `FILE_UPLOAD` — while the
+                // list it was chosen from showed "File upload". Base UI's trigger renders the
+                // value, not the item, so a select whose label differs from its value has to say
+                // how they map. The module select below needs it for the same reason; the runner
+                // preset and the catalogue do not, because there each label *is* its value.
+                items={Object.fromEntries(
+                  (Object.keys(KIND_META) as Kind[]).map((name) => [name, KIND_META[name].label]),
+                )}
               >
                 <SelectTrigger>
                   <SelectValue />
