@@ -437,7 +437,35 @@ model Module {
 
 **The four operations, in build order.** Reordering first: it feeds presentation and nothing else, validates nothing, and could ship alone. Then creating, which is now just a name and a position. Then renaming, which the id makes trivial. Then removing, **refused while any assignment references the module**, naming the count — the same shape as `update` refusing a repository-name change once anybody has accepted, and for the same reason: a half-broken state nobody would connect back to a module they deleted is worse than a refusal.
 
-**Migration.** `moduleTag` and `moduleId` coexist for one release. The migration creates a `Module` row per distinct existing tag per course, titled from `moduleLabel(tag)` so nothing reads as raw data, points every assignment at the right row, and only then is `moduleTag` dropped. Nothing is orphaned and no assignment stops validating — including the two rows whose tags are wrong today, which become modules to rename or merge in the new interface. That is the feature's first real use.
+**The eight modules, named.** These are the real ones, and they are what the seeded course should hold. Note that they are not the answer-keys repository's directory names and no longer need to be — Mod 0 has no directory at all, and `mod-2-review` and `mod-8-capstone` have directories but no module, which is exactly the freedom this change is for.
+
+| Position | Name |
+| -------- | ---- |
+| 0 | Mod 0 - Command Line Interfaces, Git, and GitHub |
+| 1 | Mod 1 - JavaScript Fundamentals |
+| 2 | Mod 2 - Object-Oriented Programming |
+| 3 | Mod 3 - HTML & CSS |
+| 4 | Mod 4 - Interactive & Data-Driven User Interfaces |
+| 5 | Mod 5 - Server-Side Development |
+| 6 | Mod 6 - Databases |
+| 7 | Mod 7 - React |
+
+**Migration, in two steps rather than one.** `moduleTag` and `moduleId` coexist for a release, because making the column NOT NULL in the same migration that creates the table leaves no room to check the mapping.
+
+1. Create `modules` and a **nullable** `assignments.module_id`. Backfill a module per distinct `(course_id, module_tag)`, named from the raw tag — SQL cannot call `moduleLabel` — and positioned by the tag's numeric prefix, then point every assignment at its row. Nothing is orphaned and no assignment stops validating.
+2. Rename those rows to the eight above, reassign the two assignments whose tags are wrong, and only then drop `module_tag`, drop `Course.moduleStructure`, and make `module_id` NOT NULL.
+
+Step 2's renaming and reassigning is the feature's own first real use, which is the right way to find out whether the interface works.
+
+**The mapping for the eight existing assignments.** Six are already right. Two are not, and one of those needs a curriculum judgment rather than a rule:
+
+| Assignment | Tag today | Goes to |
+| ---------- | --------- | ------- |
+| Story Prep Worksheet, `swe-1-2-strings-conditionals`, `swe-1-3-node-modules`, `swe-1-4-loops`, `swe-1-5-arrays`, Upload a Resume | `mod-1-js-fundamentals` | Mod 1 |
+| `swe-checkpoint-summative-1-4` | `mod-4-dom` | Mod 4 — a tag that was never in the course's own list, which is why editing that assignment fails validation today |
+| Submit the API you are using for your project | `mod-3-async-and-apis` | **Mod 4, assumed** — the tag points at a directory that does not exist, and consuming a third-party API belongs with data-driven interfaces rather than with HTML and CSS. Confirm before step 2 runs; Mod 5 is the other candidate if it is about the project's own server. |
+
+Two of those six are worth a second look as well: "Upload a Resume" and "Story Prep Worksheet" sit in Mod 1 because that is where they were created for testing, and a resume is not JavaScript fundamentals. They may belong in Mod 0.
 
 **Where it lives:** a fourth tab on the instructor course page beside Assignments, Roster, and Gradebook, which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
 
