@@ -47,7 +47,7 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-1. **[Module management](#module-management)** — a course's module sequence is currently whatever the seed wrote, and nothing can change it. The half of course creation worth having early, because every other course-level decision is downstream of which modules a cohort takes and in what order.
+1. **[Modules, and where an assignment's repositories come from](#modules-and-where-an-assignments-repositories-come-from)** — design settled, in two phases. A course's module sequence is currently whatever the seed wrote and nothing can change it, because a module tag is also the first path segment of every answer-key path. Phase 1 makes modules rows an instructor creates and names; Phase 2 moves the template and answer-key repositories onto the assignment, which is what severs the tie.
 2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
 3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
 4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
@@ -301,6 +301,8 @@ A consequence worth surfacing rather than hiding: an existing assignment whose d
 
 **Two repositories, one name.** The catalogue lives in the grading-guides repository — private, read over the API, holds the answer keys. The template a student's repository is generated from is a different repository in a different organization, `{githubOrg}/{directory name}`, exactly as the seed derives it. The directory name is the link between them, which is why picking from the catalogue can fill both, but the two are checked separately and against different installations: the catalogue through `GRADING_ASSETS_INSTALLATION_ID`, the template through the main one. An assignment can have answer keys and no template, or the reverse, and each is its own finding.
 
+**Superseded.** The catalogue-as-source-of-truth reasoning below has been replaced — see [modules and where an assignment's repositories come from](#modules-and-where-an-assignments-repositories-come-from). The listing machinery it built is still used, one level down, to tick answer-key files out of whichever repository an assignment names.
+
 **`GOOGLE_DOC` and `FILE_UPLOAD` have no catalogue, and one is still worth having for `GOOGLE_DOC`.** They are creatable without one — an instructor types the title and pastes the template link — which is the same drift problem the repository catalogue exists to prevent: nothing forces internal organization, so "what Google Doc assignments exist" has no single answer to check a new one against. The shape most likely to work, not yet designed in detail: a shared Drive folder per module plays the role `answer-keys/{moduleTag}/` plays for `REPO`, and an instructor picks a document from it rather than pasting an arbitrary link. That is one authentication story with [reading a student's document for grading](#ai-grading-for-non-coding-assignments), which is the argument for doing them together rather than now.
 
 `FILE_UPLOAD` likely needs no catalogue at all: there is no pre-existing thing to pick from, since an instructor is describing a submission format rather than selecting among curriculum content.
@@ -388,26 +390,73 @@ Nothing in this phase is outstanding.
 
 ---
 
-## Module management
+## Modules, and where an assignment's repositories come from
 
-An instructor can add, reorder, and remove the modules of a course they teach. Today `Course.moduleStructure` is written by exactly one line — `prisma/seed.ts` — and read by four things: the grouping and ordering of assignments on both course pages, the module choices the authoring form offers, the refusal of a `moduleTag` outside the course, and the first path segment of every answer-key path. So a course whose module list is wrong cannot be corrected at all, and a cohort that takes a module the seed did not know about cannot have assignments in it.
+**Design settled, not yet built.** Two phases, in this order. The second depends on the first and not the other way round, so the first can ship alone.
 
-**A tag is the name.** `moduleLabel` derives the display name from the tag — `mod-1-js-fundamentals` becomes "Module 1 · JS Fundamentals" through `/^mod-(\d+)(?:-(.+))?$/` and a list of initialisms — so there is nothing else to store and no second field to keep in step. Creating a module is adding a string that matches that pattern; a tag that does not match falls back to being displayed raw, which is legible but sorts by `localeCompare` rather than by number.
+Today `moduleTag` is not a label, it is data. One string is simultaneously the grouping and ordering key on both course pages, the module choices the authoring form offers, the refusal of a tag outside the course, and **the first path segment of every answer-key path** — `answer-keys/{moduleTag}/{assignmentRepoName}/from-scratch.js`. That is what ties a module to a directory in the answer-keys repository, and it is why a course's module list cannot be corrected: correcting it would move where grading looks for answer keys.
 
-The four operations differ enough in risk that they are worth separating, and the order below is the order to build them in.
+The change severs that. A module becomes a row an instructor creates and names freely, like a module in any general-purpose LMS, and an assignment says which repositories it uses rather than having them inferred from where it sits.
 
-**Reordering is free.** It feeds `moduleOrder` and nothing else, which is presentation. Nothing to validate, nothing downstream, and it could ship on its own.
+### This reverses Step 1, deliberately
 
-**Creating needs to say where the list comes from.** The two candidates are the same pair the assignment catalogue faced: authored by the instructor, or read from the answer-keys repository. `listRepoDirectory` already exists and listing `answer-keys/` itself would return every module the curriculum holds in one request. Neither extreme is right — a course's module *sequence* is a cohort decision rather than a curriculum-wide fact, and a module holding only Google Doc assignments has no directory to be found in. So: offer the repository's list, and allow a typed tag, which is what the assignment form already does one level down.
+[Step 1](#step-1-a-catalogue-per-kind) argues that the answer-keys repository is the single source of truth for what repository-backed assignments the curriculum contains, so adding one is picking from a list that already exists and there is no second list to keep in step. That was right when every assignment was a repository laid out in one prescribed shape. It is wrong now: three of the four kinds have no repository at all, the shape only ever fit `REPO` assignments, and it forces the curriculum's directory names to be the application's module names forever.
 
-**Renaming is not in the first version.** A tag is stored on every assignment as `moduleTag` *and* is the first path segment of every answer-key path. Renaming would have to rewrite every assignment in a transaction and would still not rename anything in the answer-keys repository, so the paths would break with nothing to point at the cause. Remove and re-add is the honest shape, and it is refused while assignments exist, which is the point.
+**The application becomes the source of truth for what a course contains, and the repositories become things an assignment points at.** The cost is real and accepted: drift is now possible, because an assignment can name a template or an answer-key repository that was later renamed or made private upstream. Validation still checks reachability at authoring time and reports it as a finding, which turns drift into a warning on the course page rather than a grading failure weeks later — the same treatment a missing answer-key directory gets today.
 
-**Removing is refused while any assignment uses the tag**, naming the count — the same shape as `update` refusing a repository-name change once anybody has accepted. Allowing it would leave those assignments failing validation on their next edit while still appearing in the list, because `moduleOrder` falls back to numeric order for an undeclared tag. A half-broken state nobody would connect to a module they deleted is worse than a refusal.
+What is *not* lost: the catalogue machinery still earns its keep one level down. `listRepoDirectory` lists the named answer-key repository so its files are ticked from a list rather than typed, which is what keeps a mistyped answer-key path from becoming a confident wrong grade.
 
-**Where it lives:** a fourth tab on the instructor course page, beside Assignments, Roster, and Gradebook — which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
+### Phase 1: modules are rows
 
-**What to verify.** `verify:authoring` already refuses a module tag outside the course, which is the check these procedures must not break. Add, through the tRPC callers inside a rolled-back transaction: a malformed tag is refused; a duplicate tag is refused; removing a module with assignments in it is refused and says how many; reordering changes nothing but the order; and a student cannot call any of it.
+**A module has an id.** `assignment.moduleId` is a foreign key, not a copied string. This is the decision the rest follows from:
 
+- **Renaming is one column.** With the name as the identity, a rename rewrites every assignment that uses it and still cannot fix anything outside the database, which is why the earlier plan ruled renaming out entirely. With an id, renaming is free and can ship on day one.
+- **"The module must exist first" is enforced by the database**, not by validation code that a second caller could forget.
+- **Ordering is an integer**, not the order of a JSON array.
+
+```
+model Module {
+  id        String @id @default(uuid()) @db.Uuid
+  courseId  String @map("course_id") @db.Uuid
+  name      String
+  position  Int
+  createdAt DateTime
+  updatedAt DateTime
+
+  course      Course       @relation(...)
+  assignments Assignment[]
+
+  @@unique([courseId, name])   // one "Module 3" per course
+  @@unique([courseId, position])
+}
+```
+
+**Per course, not program-wide.** Matches `moduleStructure` today and matches how an LMS works: one cohort reordering or dropping a module must not touch another's records. The cost is that a new cohort creates its modules again, which is a copy-from-course action to build alongside [course creation](#course-creation) rather than a reason to share rows between cohorts.
+
+**The name is free text and nothing derives from it.** `moduleLabel` and its initialisms list stop being how a module is titled — an instructor types "Async and APIs" and that is the title. `moduleLabel` survives only for as long as any pre-migration data does; `compareModuleTags` is replaced by `position`.
+
+**The four operations, in build order.** Reordering first: it feeds presentation and nothing else, validates nothing, and could ship alone. Then creating, which is now just a name and a position. Then renaming, which the id makes trivial. Then removing, **refused while any assignment references the module**, naming the count — the same shape as `update` refusing a repository-name change once anybody has accepted, and for the same reason: a half-broken state nobody would connect back to a module they deleted is worse than a refusal.
+
+**Migration.** `moduleTag` and `moduleId` coexist for one release. The migration creates a `Module` row per distinct existing tag per course, titled from `moduleLabel(tag)` so nothing reads as raw data, points every assignment at the right row, and only then is `moduleTag` dropped. Nothing is orphaned and no assignment stops validating — including the two rows whose tags are wrong today, which become modules to rename or merge in the new interface. That is the feature's first real use.
+
+**Where it lives:** a fourth tab on the instructor course page beside Assignments, Roster, and Gradebook, which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
+
+### Phase 2: an assignment names its own repositories
+
+The authoring form stops opening from a catalogue. For a `REPO` assignment an instructor pastes two URLs, and the module is chosen from the course's own modules rather than inferred from anything.
+
+- **`templateRepo` is a public template repository, pasted as a URL.** **Confirmed by probe:** an installation token reads a public repository in an org the App is *not* installed on — repo metadata including `is_template`, individual files, and the tarball. So validation, `detectRunnerPreset` reading `package.json`, and test execution fetching the suite all work against any public template. Validation should additionally check `is_template`, which it does not today, because `generate` fails on a repository that is not one.
+- **`answerKeyRepo` is a new column, "owner/repo", private and in an org the App is installed on.** Reference solutions stay unpublished; only templates are public. `sections[].answerKeyPaths` become paths *within* that repository at any depth.
+- **The migration needs no path rewriting.** Backfilling `answerKeyRepo` with the current `GRADING_ASSETS_REPO` value leaves every existing path — `mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js` — correct exactly as written. The column stops *requiring* every assignment to share one repository rather than forbidding it, so the existing layout keeps working and a new assignment can point elsewhere.
+- **Two failures that must not be reported as one.** A repository that does not exist is a typo an instructor fixes. A private repository in an org the App is not installed on returns the same 404 and is an installation task nobody can fix from the form. The finding has to say which, or the second reads as the first forever.
+- **`GRADING_ASSETS_REPO` keeps its job unchanged.** `rubric.md`, `agent-rules.md`, and the sample reports are program-wide prompt code, not per-assignment. So `lib/grade/assets.ts` gains a second source with different addressing: program assets from the configured repository, answer keys from the repository the assignment names. `assetSource()` stops reading one repository out of the environment.
+- **`assignmentRepoName` defaults to the template's own name** and stays editable, since it names every student's repository — and stays frozen once anybody has accepted, which `update` already enforces.
+
+**Still to verify before this is built:** whether the App can `generate` a repository *from* a public template in an org it is not installed on, into an org where it is. Read access is proved and write access to the destination is what accept already uses, so it should hold — but that call is the one a student triggers by pressing Accept, which is the worst place to discover otherwise. One throwaway repository in `marcy-lms-test`, created and deleted.
+
+### What to verify
+
+`verify:authoring` already refuses a module tag outside the course, and that check becomes a foreign key. Through the tRPC callers inside a rolled-back transaction: a duplicate module name in one course is refused; removing a module with assignments in it is refused and says how many; renaming leaves every assignment pointing at the same row; reordering changes nothing but `position`; a student cannot call any of it; and an assignment cannot be created against a module belonging to a different course. For Phase 2: a template that is not a template repository is refused; an unreachable answer-key repository is a finding that distinguishes missing from private; and authoring `swe-1-4-loops` through `create` still produces a row that grades identically, which is the check that says the new shape did not quietly change what grading reads.
 ---
 
 ## Token management
@@ -514,7 +563,7 @@ A job that reads `PENDING` submissions, writes them, and records `SYNCED` with t
 
 An instructor creates a cohort rather than a seed script doing it. `duplicate` in [assignment authoring](#step-3-procedures--trpcroutersassignmentsts) is built at the assignment level specifically so this becomes a loop over proven assignment mappings rather than new logic.
 
-Two things already in the schema that this has to settle. `Course.moduleStructure` is a JSON array of module tags, which is what orders a course's assignments and what the authoring form offers as module choices — a new course needs those entered or copied, which is what [module management](#module-management) builds first, so creating a course becomes reusing it rather than writing it again. And a course with no students is useless, so this is bound to student enrollment below.
+Two things this has to settle. A new course needs its modules, and since they are [rows per course](#modules-and-where-an-assignments-repositories-come-from) rather than a shared list, creating a cohort means copying a previous one's modules and then its assignments into them — a loop over `duplicate` once the modules exist. And a course with no students is useless, so this is bound to student enrollment below.
 
 ---
 
