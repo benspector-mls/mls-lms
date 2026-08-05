@@ -1,16 +1,38 @@
 'use client';
 
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import type * as React from 'react';
-import { ArrowRight, ClipboardList, GitBranch, Users } from 'lucide-react';
+import * as React from 'react';
+import {
+  ArrowRight,
+  ClipboardList,
+  Copy,
+  Eye,
+  EyeOff,
+  GitBranch,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+} from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Gradebook } from '@/components/instructor/gradebook';
+import { RemoveAssignmentDialog } from '@/components/instructor/remove-assignment-dialog';
 import { EmptyState } from '@/components/list-states';
 import { PageHeader } from '@/components/page-header';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Table,
   TableBody,
@@ -22,6 +44,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { EnrollmentStatus } from '@/lib/generated/prisma/enums';
 import { gradingQueueHref } from '@/lib/links';
+import { useTRPC } from '@/trpc/client';
 import { formatDate, moduleLabel, moduleOrder } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
@@ -58,13 +81,22 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
               } waiting on you`
         }
         actions={
-          <Link
-            href="/instructor"
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-          >
-            Grading triage
-            <ArrowRight data-icon="inline-end" />
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/instructor"
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+            >
+              Grading triage
+              <ArrowRight data-icon="inline-end" />
+            </Link>
+            <Link
+              href={`/instructor/courses/${data.course.id}/assignments/new`}
+              className={cn(buttonVariants({ size: 'sm' }))}
+            >
+              <Plus data-icon="inline-start" />
+              New assignment
+            </Link>
+          </div>
         }
       />
 
@@ -106,7 +138,16 @@ function AssignmentsTab({ data }: { data: Data }) {
       <EmptyState
         icon={ClipboardList}
         title="No assignments yet"
-        description="Assignments for this cohort will appear here once they are created."
+        description="Add one from the answer-keys repository — what it holds is what this course can offer."
+        action={
+          <Link
+            href={`/instructor/courses/${data.course.id}/assignments/new`}
+            className={cn(buttonVariants())}
+          >
+            <Plus data-icon="inline-start" />
+            New assignment
+          </Link>
+        }
       />
     );
   }
@@ -150,12 +191,24 @@ function AssignmentsTab({ data }: { data: Data }) {
             return (
               <TableRow key={assignment.id}>
                 <TableCell>
-                  <Link
-                    href={gradingQueueHref(assignment.id)}
-                    className="font-medium hover:underline"
-                  >
-                    {assignment.title}
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={gradingQueueHref(assignment.id)}
+                      className="font-medium hover:underline"
+                    >
+                      {assignment.title}
+                    </Link>
+                    {/* A student cannot see this one at all, which is worth saying rather
+                        than leaving an instructor to wonder why nobody has submitted. */}
+                    {assignment.distributedAt === null && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+                      >
+                        Draft
+                      </Badge>
+                    )}
+                  </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {assignment.pointValue} pts
                   </p>
@@ -185,13 +238,20 @@ function AssignmentsTab({ data }: { data: Data }) {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Link
-                    href={gradingQueueHref(assignment.id)}
-                    className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    aria-label={`Grade ${assignment.title}`}
-                  >
-                    <ArrowRight className="size-4" />
-                  </Link>
+                  <div className="flex items-center justify-end gap-1">
+                    <Link
+                      href={gradingQueueHref(assignment.id)}
+                      className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label={`Grade ${assignment.title}`}
+                    >
+                      <ArrowRight className="size-4" />
+                    </Link>
+                    <AssignmentActions
+                      assignment={assignment}
+                      courseId={data.course.id}
+                      hasSubmissions={counts.submitted > 0}
+                    />
+                  </div>
                 </TableCell>
               </TableRow>
             );
@@ -199,6 +259,126 @@ function AssignmentsTab({ data }: { data: Data }) {
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+/**
+ * Edit, publish, duplicate, and remove, for one assignment.
+ *
+ * Publishing is the action most often wanted and is offered directly; the rest sit behind the
+ * menu. Removing is last and separated, because it is the one action here that destroys
+ * student work — the dialog it opens states exactly what would go.
+ */
+function AssignmentActions({
+  assignment,
+  courseId,
+  hasSubmissions,
+}: {
+  assignment: Assignment;
+  courseId: string;
+  hasSubmissions: boolean;
+}) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const [removing, setRemoving] = React.useState(false);
+
+  const published = assignment.distributedAt !== null;
+
+  const publish = useMutation(
+    trpc.assignments.publish.mutationOptions({
+      onSuccess: () => {
+        toast.success(`${assignment.title} is now visible to students.`);
+        void queryClient.invalidateQueries();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+  const unpublish = useMutation(
+    trpc.assignments.unpublish.mutationOptions({
+      onSuccess: () => {
+        toast.success(`${assignment.title} is hidden from students. Their work is untouched.`);
+        void queryClient.invalidateQueries();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+  const duplicate = useMutation(
+    trpc.assignments.duplicate.mutationOptions({
+      onSuccess: (result) => {
+        toast.success(`Copied to ${result.assignment.title}. It is not visible to students yet.`);
+        void queryClient.invalidateQueries();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  const busy = publish.isPending || unpublish.isPending || duplicate.isPending;
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              disabled={busy}
+              aria-label={`Actions for ${assignment.title}`}
+              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <MoreHorizontal className="size-4" />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            render={
+              <Link href={`/instructor/courses/${courseId}/assignments/${assignment.id}/edit`}>
+                <Pencil data-icon="inline-start" />
+                Edit
+              </Link>
+            }
+          />
+          {published ? (
+            <DropdownMenuItem onClick={() => unpublish.mutate({ assignmentId: assignment.id })}>
+              <EyeOff data-icon="inline-start" />
+              Hide from students
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={() => publish.mutate({ assignmentId: assignment.id })}>
+              <Eye data-icon="inline-start" />
+              Publish
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onClick={() =>
+              duplicate.mutate({
+                assignmentId: assignment.id,
+                targetCourseId: courseId,
+                // Into the same course, so the name has to differ. Copying to another cohort
+                // keeps the name and is what the procedure is really for; that needs a course
+                // picker, which waits for course creation to exist.
+                assignmentRepoName: `${assignment.title}-copy`,
+              })
+            }
+          >
+            <Copy data-icon="inline-start" />
+            Duplicate here
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onClick={() => setRemoving(true)}>
+            <Trash2 data-icon="inline-start" />
+            {hasSubmissions ? 'Remove, with student work' : 'Remove'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <RemoveAssignmentDialog
+        assignmentId={assignment.id}
+        title={assignment.title}
+        open={removing}
+        onOpenChange={setRemoving}
+      />
+    </>
   );
 }
 

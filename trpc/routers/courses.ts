@@ -164,6 +164,9 @@ export const coursesRouter = createTRPCRouter({
             pointValue: true,
             dueAt: true,
             githubOrg: true,
+            // So the course page can mark an unpublished assignment as a draft. A student
+            // cannot see it at all; an instructor needs to know why.
+            distributedAt: true,
           },
         }),
         ctx.db.enrollment.findMany({

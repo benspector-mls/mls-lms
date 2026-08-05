@@ -337,7 +337,7 @@ No migration: it already meant this and was read by nothing.
 
 This is what makes authoring safe: an assignment can be built over several sittings without a student seeing a half-finished one, and a mapping can be corrected before anyone is graded against it.
 
-### Step 5. Screens
+### Step 5. Screens — done for repository assignments
 
 - `/instructor/courses/[courseId]/assignments/new` and `.../[assignmentId]/edit` — one client form component, `components/instructor/assignment-form.tsx`, with a `section-editor.tsx` sub-form. Validation findings render inline; save is disabled while any check fails.
 - Entry points on `components/instructor/course-detail.tsx`: a "New assignment" action in the header, and "Edit", "Duplicate", and "Remove" per row in the assignments tab.
@@ -346,6 +346,12 @@ This is what makes authoring safe: an assignment can be built over several sitti
 
   The schema check stays regardless. A select is a convenience and the procedure is what refuses — the same division as the approval guards and the typed removal confirmation, for the same reason: the request that arrives can carry anything the browser did not send.
 - Removal uses a dialog showing the counts from `removalImpact` and requiring the title to be typed — `components/instructor/remove-assignment-dialog.tsx`.
+
+**Built**, for `REPO` assignments. Two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, `assignment-form.tsx`, `section-editor.tsx`, `remove-assignment-dialog.tsx`, and entry points on the course page: a "New assignment" action, a Draft badge on any unpublished row, and a per-row menu with Edit, Publish or Hide, Duplicate, and Remove.
+
+Worth knowing about how it validates: the form holds a *settled* copy of the draft that trails the live one by 600ms, and only that copy is sent to `validateDraft` — the checks make real GitHub calls, so a request per keystroke would be untenable. Saving is refused until the settled copy has actually been checked, rather than merely having no errors: a draft the server has not seen has no findings, which is not the same as being valid.
+
+**Non-repo kinds are still not creatable**, which is the remaining part of the manual-grading scope above: `IMPLEMENTED_KINDS` still holds only `REPO`, and the form offers no kind selector because there is nothing yet to select. What that needs is the other four items in [what manual grading means for the machinery](#what-manual-grading-means-for-the-machinery) — `accept` doing something else, delivery skipping the pull request comment, and triage distinguishing "no report generated" from "graded by hand, not yet graded".
 
 ### Files
 

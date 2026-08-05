@@ -397,6 +397,71 @@ async function procedures() {
       mismatched.findings.some((f) => f.path.endsWith("rubricId") && f.severity === "error"), true);
   }
 
+  /*
+    The round trip the edit screen depends on.
+
+    `getDraft` is what fills the form and `update` is what it submits, so those two shapes
+    have to agree exactly. If they do not, editing an assignment to change one field would
+    fail — or worse, silently rewrite the section mapping — and nothing in the pure checks
+    above would notice, because the shapes only meet at this seam. Loading a draft and
+    saving it back with no changes must be valid and must not alter the row.
+  */
+  const loaded = await asInstructor.assignments.getDraft({ assignmentId: seeded.id });
+  const roundTrip = {
+    kind: loaded.kind,
+    title: loaded.title,
+    moduleTag: loaded.moduleTag,
+    completionThreshold: loaded.completionThreshold,
+    dueAt: loaded.dueAt,
+    templateRepo: loaded.templateRepo,
+    assignmentRepoName: loaded.assignmentRepoName,
+    githubOrg: loaded.githubOrg,
+    templateRef: loaded.templateRef,
+    runnerPreset: loaded.runnerPreset,
+    runnerConfig: loaded.runnerConfig,
+    sections: loaded.sections,
+  };
+
+  const roundTripValid = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: roundTrip,
+  });
+  check("what getDraft returns is a draft that validateDraft accepts",
+    { canSave: roundTripValid.canSave, points: roundTripValid.pointValue },
+    { canSave: true, points: seeded.pointValue });
+
+  check("getDraft reports how many students have accepted",
+    loaded.submissionCount > 0, true);
+
+  try {
+    await db.$transaction(async (tx) => {
+      const inTx = createCaller({ db: tx, user: { id: instructor.userId } } as never);
+      await inTx.assignments.update({ assignmentId: seeded.id, draft: roundTrip });
+
+      const after = await tx.assignment.findUnique({
+        where: { id: seeded.id },
+        select: {
+          title: true, moduleTag: true, pointValue: true, completionThreshold: true,
+          templateRepo: true, assignmentRepoName: true, githubOrg: true, templateRef: true,
+          runnerPreset: true, runnerConfig: true, sections: true,
+        },
+      });
+      check("saving a loaded draft unchanged leaves every column as it was",
+        JSON.stringify(after),
+        JSON.stringify({
+          title: seeded.title, moduleTag: seeded.moduleTag, pointValue: seeded.pointValue,
+          completionThreshold: seeded.completionThreshold, templateRepo: seeded.templateRepo,
+          assignmentRepoName: seeded.assignmentRepoName, githubOrg: seeded.githubOrg,
+          templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
+          runnerConfig: seeded.runnerConfig, sections: seeded.sections,
+        }));
+      throw new Error("ROLLBACK");
+    }, { timeout: 20_000 });
+  } catch (err) {
+    if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
+  }
+
   // --- authorization ---------------------------------------------------------
   async function refused(label: string, run: () => Promise<unknown>) {
     try {

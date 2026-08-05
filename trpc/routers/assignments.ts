@@ -470,6 +470,101 @@ export const assignmentsRouter = createTRPCRouter({
   // =====================================================================================
 
   /**
+   * Everything the authoring form needs to open, in one request.
+   *
+   * The module list, the rubrics, and the organization its siblings use. Bundled rather than
+   * fetched separately because the form cannot render its first question without the module
+   * list, and a form that appears one field at a time as three requests land reads as broken.
+   */
+  authoringContext: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+
+      const [course, rubrics, siblings] = await Promise.all([
+        ctx.db.course.findUnique({
+          where: { id: input.courseId },
+          select: { id: true, name: true, cohortTerm: true, moduleStructure: true },
+        }),
+        ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+        ctx.db.assignment.findMany({
+          where: { courseId: input.courseId, githubOrg: { not: null } },
+          select: { githubOrg: true },
+          take: 50,
+        }),
+      ]);
+
+      if (!course) throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+
+      // Whatever this course's other assignments use. An instructor typing an organization
+      // name is a way to get it subtly wrong for one assignment out of twelve.
+      const orgCounts = new Map<string, number>();
+      for (const sibling of siblings) {
+        if (sibling.githubOrg) {
+          orgCounts.set(sibling.githubOrg, (orgCounts.get(sibling.githubOrg) ?? 0) + 1);
+        }
+      }
+      const defaultGithubOrg =
+        [...orgCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+      return {
+        course: {
+          id: course.id,
+          name: course.name,
+          cohortTerm: course.cohortTerm,
+          moduleStructure: Array.isArray(course.moduleStructure)
+            ? (course.moduleStructure as unknown[]).filter(
+                (tag): tag is string => typeof tag === 'string',
+              )
+            : [],
+        },
+        rubrics,
+        defaultGithubOrg,
+      };
+    }),
+
+  /**
+   * One assignment in the shape the authoring form edits.
+   *
+   * Separate from `get`, which returns what any course member may see. This returns the
+   * section mapping and the GitHub configuration, which are instructor-only, and it reports
+   * whether anybody has accepted — the form disables the repository name when they have,
+   * rather than letting an instructor type a change the procedure will refuse.
+   */
+  getDraft: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const assignment = await ctx.db.assignment.findUnique({
+        where: { id: input.assignmentId },
+        select: {
+          id: true,
+          courseId: true,
+          kind: true,
+          title: true,
+          moduleTag: true,
+          pointValue: true,
+          completionThreshold: true,
+          dueAt: true,
+          distributedAt: true,
+          templateRepo: true,
+          assignmentRepoName: true,
+          githubOrg: true,
+          templateRef: true,
+          runnerPreset: true,
+          runnerConfig: true,
+          sections: true,
+          _count: { select: { submissions: true } },
+        },
+      });
+
+      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      await assertTeaches(ctx, assignment.courseId);
+
+      const { _count, ...rest } = assignment;
+      return { ...rest, submissionCount: _count.submissions };
+    }),
+
+  /**
    * What the form calls as fields change. No writes.
    *
    * Returns every finding rather than the first, so an instructor fixes one round of
