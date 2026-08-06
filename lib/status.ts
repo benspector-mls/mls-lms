@@ -2,7 +2,6 @@ import type {
   AssignmentKind,
   GradingDraftStatus,
   SubmissionStatus,
-  TestRunStatus,
 } from '@/lib/generated/prisma/enums';
 
 /**
@@ -120,18 +119,12 @@ export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
   },
   FAILED: { label: 'Failed', tone: 'danger', description: 'The grading pipeline errored.' },
   SUPERSEDED: { label: 'Superseded', tone: 'neutral', description: 'A newer draft replaced this one.' },
-  APPROVED: { label: 'Approved', tone: 'success', description: 'Sent to the student.' },
-};
-
-export const TEST_RUN_STATUS_META: Record<TestRunStatus, StatusMeta> = {
-  RUNNING: { label: 'Running', tone: 'pending', description: 'The suite is executing.' },
-  COMPLETED: { label: 'Completed', tone: 'success', description: 'The suite ran to completion.' },
-  TIMED_OUT: { label: 'Timed out', tone: 'danger', description: 'The runner exceeded its time limit.' },
-  ERRORED: {
-    label: 'Errored',
-    tone: 'danger',
-    description: 'Infrastructure failure — not a score of zero.',
-  },
+  /*
+    Blue rather than green, for the reason `GRADED` is: approving is what releases feedback, not
+    a statement that the work passed. Green means the completion threshold was met — see
+    `completionMeta` — and a green "Approved" beside a 9/15 said otherwise.
+  */
+  APPROVED: { label: 'Approved', tone: 'info', description: 'Sent to the student.' },
 };
 
 /**
@@ -320,6 +313,23 @@ export const TONE_CLASSES: Record<StatusTone, string> = {
   danger: 'border-destructive/40 bg-destructive/10 text-destructive dark:text-red-300',
   success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
 };
+
+/**
+ * Whether a draft's own state says anything the submission's does not.
+ *
+ * `APPROVED` says nothing new: approving is the only thing that sets a submission to `GRADED`,
+ * so showing both is the same fact twice in two words. `SUPERSEDED` is history rather than a
+ * state to act on — it belongs in the draft history list, which shows every state deliberately,
+ * and not beside the submission.
+ *
+ * Everything else is a fact the submission badge cannot carry: a run in flight, a report waiting
+ * to be read, a cross-check finding that holds it back, a run that failed. The grading queue
+ * worked this out first and had it written into a comment; this is that rule, in one place, so
+ * the queue and the review header cannot come to disagree about it.
+ */
+export function draftStatusAddsSomething(status: GradingDraftStatus): boolean {
+  return status !== 'APPROVED' && status !== 'SUPERSEDED';
+}
 
 /**
  * How a released score reads: met the completion threshold, or did not.

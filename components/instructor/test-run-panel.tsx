@@ -13,7 +13,6 @@ import {
   XCircle,
 } from 'lucide-react';
 
-import { TestRunStatusBadge } from '@/components/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Collapsible,
@@ -119,12 +118,17 @@ export function TestRunPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <TestRunStatusBadge status={run.status} />
-          <span className="font-mono text-xs text-muted-foreground">
-            {run.runnerPreset} · {shortSha(run.headSha)}
-          </span>
-        </div>
+        {/*
+          No status badge here. Every state one could report is stated better immediately below
+          by `RunOutcome` — a spinner while running, a destructive alert saying an error is not a
+          score of zero, another for a timeout, and the pass rate itself when the suite finished.
+          The badge was the weaker of two descriptions of the same fact, and the misleading one:
+          "Completed" in green sat above a pass rate of 3 out of 13, which is a suite that ran
+          and work that failed.
+        */}
+        <span className="font-mono text-xs text-muted-foreground">
+          {run.runnerPreset} · {shortSha(run.headSha)}
+        </span>
         <span className="text-xs text-muted-foreground">
           {run.trigger === 'MANUAL' ? 'Manual' : 'Webhook'} ·{' '}
           {formatRelative(run.startedAt, now)}

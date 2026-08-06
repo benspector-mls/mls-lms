@@ -8,7 +8,7 @@ import { GradingReview } from '@/components/instructor/grading-review';
 import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { completionMeta, formatRelative } from '@/lib/status';
+import { completionMeta, draftStatusAddsSomething, formatRelative } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -239,12 +239,12 @@ function QueueRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <SubmissionStatusBadge status={row.status} />
             {/*
-            The draft's own state, which is not the submission's — generating a report
-            does not move the submission, only approving does. Approved and superseded
-            drafts are left off: the submission badge already says GRADED, and a
-            superseded draft is history rather than a state to act on.
-          */}
-            {draft && draft.status !== 'APPROVED' && draft.status !== 'SUPERSEDED' && (
+              The draft's own state, where it says anything the submission's does not —
+              generating a report does not move the submission, only approving does. The rule
+              lives in `draftStatusAddsSomething` so this screen and the review header cannot
+              disagree about it.
+            */}
+            {draft && draftStatusAddsSomething(draft.status) && (
               <DraftStatusBadge status={draft.status} />
             )}
             {row.draftIsStale && (

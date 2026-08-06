@@ -54,6 +54,7 @@ import { statedScoreInText } from '@/lib/grade/report-text';
 import {
   completionMeta,
   CONFIDENCE_META,
+  draftStatusAddsSomething,
   formatDateTime,
   formatPercent,
   formatRelative,
@@ -267,7 +268,9 @@ function ReviewHeader({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SubmissionStatusBadge status={submission.status} />
-            {draft && <DraftStatusBadge status={draft.status} />}
+            {draft && draftStatusAddsSomething(draft.status) && (
+              <DraftStatusBadge status={draft.status} />
+            )}
             {submission.isLate && (
               <Badge variant="outline" className="font-normal">
                 Late

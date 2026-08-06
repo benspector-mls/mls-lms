@@ -6,7 +6,6 @@ import type {
   AssignmentKind,
   GradingDraftStatus,
   SubmissionStatus,
-  TestRunStatus,
 } from '@/lib/generated/prisma/enums';
 import {
   ASSIGNMENT_KIND_META,
@@ -14,7 +13,6 @@ import {
   flagMeta,
   STUDENT_STATUS_META,
   SUBMISSION_STATUS_META,
-  TEST_RUN_STATUS_META,
   TONE_CLASSES,
   TONE_DOT,
   type StatusMeta,
@@ -67,16 +65,6 @@ export function DraftStatusBadge({
   className?: string;
 }) {
   return <BadgeShell meta={DRAFT_STATUS_META[status]} className={className} />;
-}
-
-export function TestRunStatusBadge({
-  status,
-  className,
-}: {
-  status: TestRunStatus;
-  className?: string;
-}) {
-  return <BadgeShell meta={TEST_RUN_STATUS_META[status]} className={className} />;
 }
 
 const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
