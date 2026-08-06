@@ -52,6 +52,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { statedScoreInText } from '@/lib/grade/report-text';
 import {
+  completionMeta,
   CONFIDENCE_META,
   formatDateTime,
   formatPercent,
@@ -1116,15 +1117,10 @@ function DraftEditor({
             <span className="text-sm text-muted-foreground">Final score</span>
             <span className="text-sm font-semibold tabular-nums">
               {totalEarned} / {totalPossible}
-              <span
-                className={cn(
-                  'ml-2 font-normal',
-                  isComplete
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-destructive',
-                )}
-              >
-                {isComplete ? 'Complete' : 'Incomplete'}
+              {/* The words and the colour both from `completionMeta`, so the queue, this pane,
+                  and the student's own page say the same thing in the same green. */}
+              <span className={cn('ml-2 font-normal', completionMeta(isComplete)?.className)}>
+                {completionMeta(isComplete)?.label}
               </span>
             </span>
           </div>

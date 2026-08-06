@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import {
   ArrowLeft,
+  CheckCircle2,
   ChevronRight,
+  CircleSlash,
   Clock,
   ExternalLink,
   FileText,
@@ -44,6 +46,7 @@ import {
 import { useTRPC } from '@/trpc/client';
 import type { RouterOutputs } from '@/trpc/types';
 import {
+  completionMeta,
   formatDate,
   formatPercent,
   scorePercent,
@@ -330,6 +333,8 @@ function RowSummary({
   const status = submission?.status ?? 'NOT_STARTED';
   const graded = submission?.finalScore != null;
   const percent = scorePercent(submission?.finalScore, submission?.finalScorePossible);
+  // Null until something is graded, so an ungraded row cannot read as "Incomplete".
+  const verdict = graded ? completionMeta(submission?.isComplete) : null;
 
   return (
     <>
@@ -353,13 +358,36 @@ function RowSummary({
       <span className="flex shrink-0 items-center gap-x-3">
         <SubmissionStatusBadge status={status} audience="student" />
 
-        <span className="w-24 text-right text-sm whitespace-nowrap tabular-nums sm:w-28">
+        {/*
+          The score carries the verdict, because it is the number a student looks for and the
+          pill beside it deliberately does not say it — "Graded" is blue, and green means
+          "complete" here and nowhere else.
+
+          Colour is not the only signal. An icon gives it a shape, and the word itself is read
+          out to a screen reader, because red against green is the one pair a colourblind
+          student is least likely to distinguish.
+        */}
+        <span
+          className={cn(
+            'flex w-24 items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums sm:w-28',
+            verdict?.className,
+          )}
+        >
           {graded ? (
             <>
+              {verdict &&
+                (submission?.isComplete ? (
+                  <CheckCircle2 aria-hidden="true" className="size-3.5 shrink-0" />
+                ) : (
+                  <CircleSlash aria-hidden="true" className="size-3.5 shrink-0" />
+                ))}
+              {verdict && <span className="sr-only">{verdict.label}. </span>}
               <span className="font-medium">
                 {submission?.finalScore}/{submission?.finalScorePossible}
-              </span>{' '}
-              <span className="text-muted-foreground">{formatPercent(percent)}</span>
+              </span>
+              <span className={verdict ? undefined : 'text-muted-foreground'}>
+                {formatPercent(percent)}
+              </span>
             </>
           ) : (
             <span className="text-muted-foreground">{assignment.pointValue} pts</span>

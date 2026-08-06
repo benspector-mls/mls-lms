@@ -8,7 +8,7 @@ import { GradingReview } from '@/components/instructor/grading-review';
 import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { formatRelative } from '@/lib/status';
+import { completionMeta, formatRelative } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -268,9 +268,9 @@ function QueueRow({
             <span
               className={cn(
                 'shrink-0 text-sm font-semibold tabular-nums',
-                row.isComplete
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-destructive',
+                // From `completionMeta`, so this screen, the review pane, and the student's own
+                // page cannot disagree about what green means or which shade of it.
+                completionMeta(row.isComplete)?.className,
               )}
             >
               {row.finalScore}

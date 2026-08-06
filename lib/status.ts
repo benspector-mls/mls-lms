@@ -37,7 +37,10 @@ export const SUBMISSION_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
     tone: 'review',
     description: 'A draft is waiting for your review.',
   },
-  GRADED: { label: 'Graded', tone: 'success', description: 'Approved and sent to the student.' },
+  // Blue, not green. Green means "met the completion threshold" everywhere else in the
+  // interface, and a 9/15 released with a green pill reads as a pass. Grading being finished
+  // and the work being complete are different facts, and one colour cannot say both.
+  GRADED: { label: 'Graded', tone: 'info', description: 'Approved and sent to the student.' },
   RESUBMITTED: {
     label: 'Resubmitted',
     tone: 'review',
@@ -99,7 +102,12 @@ export const STUDENT_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
     tone: 'review',
     description: 'You have asked for another look.',
   },
-  GRADED: { label: 'Graded', tone: 'success', description: 'Your feedback is ready to read.' },
+  /*
+    Blue, for the reason the instructor's GRADED is. "Your feedback is ready to read" is not
+    "you passed" — the score beside it says that, in green or red — and a green pill on work
+    below the threshold told the student the opposite of the truth.
+  */
+  GRADED: { label: 'Graded', tone: 'info', description: 'Your feedback is ready to read.' },
 };
 
 export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
@@ -312,6 +320,26 @@ export const TONE_CLASSES: Record<StatusTone, string> = {
   danger: 'border-destructive/40 bg-destructive/10 text-destructive dark:text-red-300',
   success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
 };
+
+/**
+ * How a released score reads: met the completion threshold, or did not.
+ *
+ * Separate from the tone system because it answers a different question. A tone says where
+ * something stands in a workflow; this says whether the work passed. They used to share green,
+ * which is what made a graded-but-below-threshold assignment look like a pass.
+ *
+ * Null when there is no verdict to give — nothing graded yet — so a caller cannot accidentally
+ * render "Incomplete" for work nobody has looked at.
+ */
+export function completionMeta(
+  isComplete: boolean | null | undefined,
+): { label: string; className: string } | null {
+  if (isComplete == null) return null;
+
+  return isComplete
+    ? { label: 'Complete', className: 'text-emerald-700 dark:text-emerald-400' }
+    : { label: 'Incomplete', className: 'text-destructive dark:text-red-400' };
+}
 
 export const TONE_DOT: Record<StatusTone, string> = {
   neutral: 'bg-muted-foreground/50',

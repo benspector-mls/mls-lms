@@ -671,6 +671,12 @@ Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[p
 
 `lib/status.ts` is the single source of presentation truth** — status vocabulary, tone classes, flag copy, relative dates, module ordering. `formatRelative(date, now)` takes the reference instant as an argument rather than reading the clock, and dates render in a fixed school timezone.
 
+**Green means one thing: the work met the completion threshold.** `GRADED` used to be the `success` tone in both vocabularies, which put a green pill beside a 9/15 and told the student the opposite of the truth — grading being finished and work being complete are different facts, and one colour cannot say both. `GRADED` is now `info`, and the score beside it carries the verdict in green or red.
+
+`completionMeta` in `lib/status.ts` is the one place that decides it, returning the label and the class together, and null when nothing is graded so no caller can render "Incomplete" for work nobody has looked at. The grading queue, the review pane, and the student's own row all read it, because the same decision written three times is three shades of green waiting to diverge — it already was two. The gradebook is deliberately *not* on it: its green means a score at or above 90 percent rather than a pass, which is a different question and a deliberate one.
+
+Colour is never the only signal. The student's score carries an icon for shape and the verdict as screen-reader text, because red against green is the one pair a colourblind student is least likely to tell apart.
+
 **The student vocabulary is narrower than the instructor's on purpose.** `SUBMITTED`, `DRAFT_READY`, `NEEDS_MANUAL_REVIEW`, and `GRADING_FAILED` all read as "Submitted" to a student. A student has no use for the state of a grading run, and "grading failed" invites a question no student can answer.
 
 The screens came from a Vercel V0 pass once the data shapes were settled; everything before that was deliberately minimal pages that exercised the procedures.
