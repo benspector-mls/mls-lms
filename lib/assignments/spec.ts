@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AssignmentKind } from "../generated/prisma/enums";
 import { resolveRunner, UnknownRunnerPresetError } from "../sandbox/presets";
 import { UPLOAD_FILE_TYPE_KEYS, type UploadFileTypeKey } from "../uploads/file-types";
+import { preprocessRepoRef } from "./repo-ref";
 
 /**
  * What a valid assignment is.
@@ -145,6 +146,25 @@ export type RepositorySource = {
 };
 
 /**
+ * A pasted repository reference, stored as `owner/repo`.
+ *
+ * `z.preprocess` rather than a transform, so the normalization happens before the pattern
+ * is checked and the pattern only ever sees one form. What reaches the column is what the
+ * form displays, which is the property that makes a pasted URL and a typed `owner/repo` the
+ * same field rather than two.
+ */
+const repoReference = (describe: string) =>
+  z.preprocess(
+    preprocessRepoRef,
+    z
+      .string()
+      .regex(
+        /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/,
+        `${describe} must be a GitHub repository — paste its URL, or write owner/repo`,
+      ),
+  );
+
+/**
  * Narrows the four nullable GitHub columns for a repository-backed assignment, or
  * throws saying which case this is.
  *
@@ -209,7 +229,7 @@ const aiSectionSchema = z
     type: z.enum(SECTION_TYPES),
     pointValue,
     rubricId: z.string().uuid(),
-    /** Paths inside the answer-keys repository, relative to `answer-keys/`. */
+    /** Paths inside the assignment's own `answerKeyRepo`, at any depth. */
     answerKeyPaths: z.array(z.string().min(1)).default([]),
     reportTemplate: z.string().min(1).optional(),
     /** Absent means no deterministic evidence constrains this section. */
@@ -426,11 +446,6 @@ const githubName = z
 const shared = {
   title: z.string().min(1).max(200),
   /**
-   * Must be one of the course's own `moduleStructure` entries, and is the first path
-   * segment inside the answer-keys repository. Checked against the course by the
-   * procedure — this schema cannot see the database.
-   */
-  /**
    * Which module of the course this belongs to.
    *
    * An id rather than a name, so renaming a module does not touch its assignments, and
@@ -458,8 +473,14 @@ const shared = {
  */
 const noRepository = {
   templateRepo: z.null().default(null),
-  /** No repository means no answer-keys directory. */
-  moduleTag: z.null().default(null),
+  /**
+   * No repository means no reference solutions.
+   *
+   * These kinds are all graded by hand, so there is nothing for a solution to be compared
+   * against — and `noRepository` also forces every section to be manual, which is what
+   * makes that true rather than merely likely.
+   */
+  answerKeyRepo: z.null().default(null),
   assignmentRepoName: z.null().default(null),
   githubOrg: z.null().default(null),
   templateRef: z.null().default(null),
@@ -532,10 +553,25 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal(AssignmentKind.REPO),
       ...shared,
-      /** "owner/repo" of the template a student's repository is generated from. */
-      templateRepo: z
-        .string()
-        .regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/, 'must be "owner/repo"'),
+      /**
+       * The template a student's repository is generated from, pasted as a URL.
+       *
+       * **Public, and a template repository.** Public because an installation token can
+       * read a public repository in an organization the App is not installed on — which is
+       * what allows an instructor to name any template on GitHub rather than only ones in
+       * their own organization. A template because `generate` refuses a repository that is
+       * not one, and refusing it here is the difference between a message on the field and
+       * every student's Accept failing.
+       */
+      templateRepo: repoReference("The template"),
+      /**
+       * The repository holding this assignment's reference solutions, pasted as a URL.
+       *
+       * Private, in an organization the App is installed on: a public answer-key repository
+       * would publish the solutions. Required even when no section names a path yet, because
+       * the paths are ticked from a listing of it and there is nothing to list without it.
+       */
+      answerKeyRepo: repoReference("The answer key repository"),
       /**
        * The repository name prefix. Generated repositories are
        * `{assignmentRepoName}-{student github login}`, which is why this cannot change
@@ -549,20 +585,6 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
        * archives a finished cohort so re-grading years later reproduces the original.
        */
       templateRef: z.string().min(7).nullable().default(null),
-      /**
-       * Which directory in the answer-keys repository holds this assignment's reference
-       * solutions: `answer-keys/{moduleTag}/{assignmentRepoName}/`.
-       *
-       * Named `moduleTag` because that is the column, and because the curriculum's
-       * directories happen to be named after modules — but it is no longer the course's
-       * module, which is `moduleId`. One string was doing both jobs and a free-text module
-       * name cannot address a directory, so they separated. It is superseded once an
-       * assignment names its own answer-key repository.
-       */
-      moduleTag: z
-        .string()
-        .min(1)
-        .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, numbers, and hyphens"),
       /** Checked against `lib/sandbox/presets.ts` below, not just required to be non-empty. */
       runnerPreset: z.string().min(1).default("none"),
       runnerConfig: z.record(z.string(), z.unknown()).nullable().default(null),

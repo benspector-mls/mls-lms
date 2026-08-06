@@ -23,6 +23,7 @@ import {
   generateRepoFromTemplate,
   getRepo,
   removeClassroomWorkflow,
+  waitForRepoContent,
 } from '@/lib/github/repos';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure, studentProcedure } from '../init';
@@ -33,9 +34,9 @@ const assignmentFields = {
   kind: true,
   title: true,
   /*
-    The module as a row, not a tag. `moduleTag` is deliberately absent: it now means only
-    which answer-keys directory the reference solutions live in, which is nothing a course
-    page or a student needs and nothing a student should be told.
+    The module as a row. `answerKeyRepo` is deliberately absent: it names a private
+    repository of reference solutions, which is nothing a course page needs and the last
+    thing a student should be told.
   */
   moduleId: true,
   module: { select: { id: true, name: true, position: true } },
@@ -128,11 +129,11 @@ function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssi
     kind: spec.kind,
     title: spec.title,
     moduleId: spec.moduleId,
-    moduleTag: spec.moduleTag,
     pointValue,
     completionThreshold: spec.completionThreshold,
     dueAt: spec.dueAt,
     templateRepo: spec.templateRepo,
+    answerKeyRepo: spec.answerKeyRepo,
     assignmentRepoName: spec.assignmentRepoName,
     githubOrg: spec.githubOrg,
     templateRef: spec.templateRef,
@@ -512,10 +513,34 @@ export const assignmentsRouter = createTRPCRouter({
         });
       }
 
-      await removeClassroomWorkflow(installationId, {
+      /*
+        The copy is asynchronous, so the tree is not readable the moment `generate` returns.
+
+        Waiting here rather than inside `removeClassroomWorkflow` because this is the only
+        caller that has just created the repository — everything else reads one that has
+        existed for days. A repository still empty after the wait is reported and not
+        treated as a failure: it exists, the student can work in it, and refusing their
+        accept over a workflow file whose results nothing trusts would be the worse trade.
+      */
+      const landed = await waitForRepoContent(installationId, {
         owner: source.githubOrg,
         repo: repoName,
       });
+
+      const workflow = landed
+        ? await removeClassroomWorkflow(installationId, {
+            owner: source.githubOrg,
+            repo: repoName,
+          })
+        : ('repository-empty' as const);
+
+      if (workflow === 'repository-empty') {
+        console.warn(
+          `accept: ${source.githubOrg}/${repoName} had no content after waiting, so a ` +
+            `classroom.yml may have been left in it. The template is ` +
+            `${source.templateRepo}.`,
+        );
+      }
 
       const repoFullName = `${source.githubOrg}/${repoName}`;
 
@@ -577,24 +602,34 @@ export const assignmentsRouter = createTRPCRouter({
         }),
         ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
         ctx.db.assignment.findMany({
-          where: { courseId: input.courseId, githubOrg: { not: null } },
-          select: { githubOrg: true },
+          where: { courseId: input.courseId, kind: 'REPO' },
+          select: { githubOrg: true, answerKeyRepo: true },
           take: 50,
         }),
       ]);
 
       if (!course) throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
 
-      // Whatever this course's other assignments use. An instructor typing an organization
-      // name is a way to get it subtly wrong for one assignment out of twelve.
-      const orgCounts = new Map<string, number>();
-      for (const sibling of siblings) {
-        if (sibling.githubOrg) {
-          orgCounts.set(sibling.githubOrg, (orgCounts.get(sibling.githubOrg) ?? 0) + 1);
+      /*
+        Whatever this course's other repository assignments use, for the two fields that are
+        the same for nearly every assignment in a cohort: the organization students'
+        repositories are created in, and the repository the reference solutions live in.
+
+        Typing either is a way to get it subtly wrong for one assignment out of twelve, and
+        both are fields where being wrong is invisible until somebody presses Accept or a
+        report comes back graded without its answer keys. Offered as a default rather than
+        enforced, because a cohort legitimately splits its solutions across repositories.
+      */
+      const commonest = (values: (string | null)[]): string | null => {
+        const counts = new Map<string, number>();
+        for (const value of values) {
+          if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
         }
-      }
-      const defaultGithubOrg =
-        [...orgCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+        return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      };
+
+      const defaultGithubOrg = commonest(siblings.map((sibling) => sibling.githubOrg));
+      const defaultAnswerKeyRepo = commonest(siblings.map((sibling) => sibling.answerKeyRepo));
 
       return {
         course: {
@@ -605,6 +640,7 @@ export const assignmentsRouter = createTRPCRouter({
         },
         rubrics,
         defaultGithubOrg,
+        defaultAnswerKeyRepo,
       };
     }),
 
@@ -627,12 +663,12 @@ export const assignmentsRouter = createTRPCRouter({
           kind: true,
           title: true,
           moduleId: true,
-          moduleTag: true,
           pointValue: true,
           completionThreshold: true,
           dueAt: true,
           distributedAt: true,
           templateRepo: true,
+          answerKeyRepo: true,
           assignmentRepoName: true,
           githubOrg: true,
           templateRef: true,
@@ -672,68 +708,65 @@ export const assignmentsRouter = createTRPCRouter({
       return { findings, pointValue, canSave: !hasErrors(findings) };
     }),
 
-  /** The answer keys the curriculum holds for one assignment, for the form to offer. */
+  /**
+   * One directory of an assignment's answer-key repository, so the form can walk it.
+   *
+   * The repository is named by the request rather than read from configuration, which is the
+   * whole of Phase 2 in one line: the assignment says where its reference solutions are, and
+   * the form lists whatever is there rather than assuming a layout.
+   *
+   * `dir` is empty for the repository root. `entries` is null when the directory does not
+   * exist, which is a real answer while a path is being typed and not an error.
+   */
+  browseAnswerKeys: instructorProcedure
+    .input(z.object({
+      courseId: z.string().uuid(),
+      answerKeyRepo: z.string().min(3),
+      dir: z.string().default(''),
+    }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+      const { listAnswerKeyEntries } = await import('@/lib/grade/assets');
+      return { entries: await listAnswerKeyEntries(input.answerKeyRepo, input.dir) };
+    }),
+
+  /**
+   * Every answer key file under one directory, as repository paths ready to store.
+   *
+   * Separate from `browseAnswerKeys` because it recurses: an instructor chooses a directory
+   * and gets everything under it to tick, rather than descending into each subdirectory to
+   * find the keys that nest — `swe-1-3-node-modules` keeps its under `madlib-challenge/`.
+   */
   answerKeyOptions: instructorProcedure
     .input(z.object({
       courseId: z.string().uuid(),
-      moduleTag: z.string().min(1),
-      repoName: z.string().min(1),
+      answerKeyRepo: z.string().min(3),
+      dir: z.string().default(''),
     }))
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
       const { listAnswerKeys } = await import('@/lib/grade/assets');
-      return { paths: await listAnswerKeys(input.moduleTag, input.repoName) };
-    }),
-
-  /** Which assignments the curriculum contains for a module, and which are already added. */
-  /**
-   * Which directories the answer-keys repository holds solutions under.
-   *
-   * A separate question from "what are this course's modules" now that a module is a row an
-   * instructor named. The form asks both: which module the assignment belongs to, and where
-   * its reference solutions live. Conflating them is what tied a cohort's module list to a
-   * repository's directory names.
-   */
-  answerKeyDirs: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-      const { listAnswerKeyDirs } = await import('@/lib/grade/assets');
-      return { dirs: await listAnswerKeyDirs() };
-    }),
-
-  catalogue: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), moduleTag: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-      const { listAssignmentDirs } = await import('@/lib/grade/assets');
-
-      const [available, existing] = await Promise.all([
-        listAssignmentDirs(input.moduleTag),
-        ctx.db.assignment.findMany({
-          where: { courseId: input.courseId, moduleTag: input.moduleTag },
-          select: { assignmentRepoName: true },
-        }),
-      ]);
-
-      const added = new Set(existing.map((row) => row.assignmentRepoName));
-      // Marked rather than filtered out: an instructor looking for an assignment they
-      // already added should see that it is there, not wonder why it is missing.
-      return { assignments: available.map((name) => ({ name, alreadyAdded: added.has(name) })) };
+      return { paths: await listAnswerKeys(input.answerKeyRepo, input.dir) };
     }),
 
   /**
    * What the template repository says about how it runs, so the form does not ask.
    *
-   * Called when an assignment is chosen from the catalogue. Returns the reason as well as the
-   * preset, because an inference an instructor cannot check is one they have to trust blindly.
+   * Called once a template has been named. Returns the reason as well as the preset, because
+   * an inference an instructor cannot check is one they have to trust blindly.
+   *
+   * The reference is normalized here rather than trusted, so a pasted URL works the same as
+   * a typed `owner/repo` — the field the form sends holds whichever the instructor produced.
    */
   inferFromTemplate: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), templateRepo: z.string().min(3) }))
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
-      const { detectRunnerPreset } = await import('@/lib/assignments/detect');
-      return detectRunnerPreset(input.templateRepo);
+      const { normalizeRepoRef } = await import('@/lib/assignments/repo-ref');
+      const { detectRunnerPreset, NOT_A_REPOSITORY } = await import('@/lib/assignments/detect');
+
+      const fullName = normalizeRepoRef(input.templateRepo);
+      return fullName ? detectRunnerPreset(fullName) : NOT_A_REPOSITORY;
     }),
 
   /**
@@ -870,8 +903,8 @@ export const assignmentsRouter = createTRPCRouter({
    *
    * At the assignment level rather than the course level so that course creation, when it
    * comes, is a loop over this rather than new logic. The copy arrives unpublished, and its
-   * sections are re-validated against the target course — a module tag legitimate in one
-   * cohort may not exist in another's `moduleStructure`.
+   * sections are re-validated against the target course — the module has to be matched by
+   * name there, and both repositories are checked again.
    */
   duplicate: instructorProcedure
     .input(z.object({
@@ -887,9 +920,9 @@ export const assignmentsRouter = createTRPCRouter({
           courseId: true,
           kind: true,
           title: true,
-          moduleTag: true,
           completionThreshold: true,
           templateRepo: true,
+          answerKeyRepo: true,
           assignmentRepoName: true,
           githubOrg: true,
           templateRef: true,
@@ -937,10 +970,10 @@ export const assignmentsRouter = createTRPCRouter({
         kind: source.kind,
         title: source.title,
         moduleId: targetModule.id,
-        moduleTag: source.moduleTag,
         completionThreshold: source.completionThreshold,
         dueAt: input.dueAt ?? null,
         templateRepo: source.templateRepo,
+        answerKeyRepo: source.answerKeyRepo,
         assignmentRepoName: input.assignmentRepoName ?? source.assignmentRepoName,
         githubOrg: source.githubOrg,
         templateRef: source.templateRef,

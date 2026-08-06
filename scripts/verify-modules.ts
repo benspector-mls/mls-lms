@@ -109,8 +109,18 @@ async function main() {
         name: "Mod 99 - Verify Two",
       });
 
-      check("a new module goes at the end", second.position, before.length + 1);
-      check("...and the one before it, before that", first.position, before.length);
+      /*
+        Measured against the last position, not against the count.
+
+        Those are the same number only while positions run 0..n-1 with no gaps, and `remove`
+        deliberately leaves a gap rather than renumbering — order is what `position` decides,
+        and a gap does not change it. Comparing against a count passed by luck and failed as
+        soon as a module was removed from the seeded course, which is a check reporting the
+        wrong thing rather than a defect it found.
+      */
+      const lastBefore = Math.max(-1, ...before.map((row) => row.position));
+      check("a new module goes at the end", second.position, lastBefore + 2);
+      check("...and the one before it, before that", first.position, lastBefore + 1);
 
       // Trimmed, because " Mod 98" and "Mod 98" are the same module to everyone but the
       // database, and a leading space is invisible in the interface it would collide in.

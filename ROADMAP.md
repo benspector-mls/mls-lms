@@ -56,14 +56,13 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-1. **[Where an assignment's repositories come from](#phase-2-an-assignment-names-its-own-repositories)** — Phase 2 of the modules work. Phase 1 is done: modules are rows an instructor creates, names, reorders, and removes. What is left is moving the template and answer-key repositories onto the assignment, which is what finally severs the tie to the answer-keys repository's directory layout and lets `module_tag` be dropped.
-2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
-3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-5. **[Course creation](#course-creation)**
-6. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
-7. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
-8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
+2. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+3. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+4. **[Course creation](#course-creation)**
+5. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
+6. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
+7. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -275,20 +274,23 @@ The compiler found all three places that read a repository off an assignment onc
 
 ### The principle this hangs on
 
-An assignment's `sections` array decides which rubric applies, which answer keys are loaded, and which tests count as evidence for which section. It is the highest-leverage and least forgiving data in the system: a wrong `moduleTag` or a mistyped answer key path does not throw, it produces a **confident wrong grade** discovered hours later, or a `NEEDS_MANUAL_REVIEW` whose cause is not obvious.
+An assignment's `sections` array decides which rubric applies, which answer keys are loaded, and which tests count as evidence for which section. It is the highest-leverage and least forgiving data in the system: a wrong rubric or a mistyped answer key path does not throw, it produces a **confident wrong grade** discovered hours later, or a `NEEDS_MANUAL_REVIEW` whose cause is not obvious.
 
 So validate at authoring time against the real sources, using the machinery grading already uses. The form refuses to save a mapping that would fail at grading time. Every field has something real to check against, which is what makes this tractable:
 
 | Field                       | Checked against                              | Existing code                                         |
 | --------------------------- | -------------------------------------------- | ----------------------------------------------------- |
-| `templateRepo`              | the repository exists and the App can see it | `getRepo` — `lib/github/repos.ts`                     |
-| `sections[].answerKeyPaths` | the files exist in the grading-guides repo   | `loadGradingAssets` internals — `lib/grade/assets.ts` |
+| `templateRepo`              | readable by the installation that generates from it, and a template repository | `getRepo` — `lib/github/repos.ts`                     |
+| `answerKeyRepo`             | readable, and private                        | `getRepo`, `installationIdForOwner`                   |
+| `sections[].answerKeyPaths` | the files exist in the assignment's own `answerKeyRepo` | `checkAnswerKeyPaths` — `lib/grade/assets.ts` |
 | `runnerPreset`              | a known preset that resolves                 | `resolveRunner` — `lib/sandbox/presets.ts`            |
 | `sections[].type`           | one of the four with a rubric heading        | `SECTION_ASSETS` — `lib/grade/assets.ts`              |
 | `sections[].rubricId`       | the four seeded `Rubric` rows                | database                                              |
-| `moduleTag`                 | the course's own `moduleStructure`           | database                                              |
+| `moduleId`                  | a module of *this* course                    | database, plus a foreign key                          |
 
 ### Step 1. A catalogue per kind
+
+**Superseded, and worth reading only as the reasoning it replaced.** An assignment names its own repositories — see [modules and where an assignment's repositories come from](#modules-and-where-an-assignments-repositories-come-from). The listing machinery this step built is still used, one level down, to tick answer-key files out of whichever repository an assignment names.
 
 **The form's first question is the kind, and the kind selects the catalogue.** Each kind's catalogue answers the same two questions through its own interface — `list()` what exists, `resolve(choice)` into the fields that populate the form — so adding a kind later means writing one new file against that interface rather than reopening this one.
 
@@ -302,15 +304,7 @@ Three decisions worth knowing, each made because the obvious alternative was wor
 - **`listRepoDirectory` is non-recursive, one request per directory.** The alternative — the git trees API with `recursive=1` — returns every path in a 23MB repository to find three answer keys.
 - **`checkAnswerKeyPaths` reports a traversal path as a finding rather than throwing**, so one bad entry does not hide whether the others are right. The same guard still refuses it; only the reporting differs.
 
-Verified in `verify:assets`, whose strongest check needs no network: the paths the catalogue reports for `swe-1-3-node-modules` are exactly the three `prisma/seed.ts` hardcodes, nested ones included. Those were written by hand against the repository, so agreement means the catalogue reads the same structure the working pipeline was configured from. It also lists 12 assignments in mod-1 where the seed knows 3, which is the point of having it.
-
 **The local-clone source was removed while this was being built**, which is why there is no longer a check comparing two sources: there is one. Two implementations of every read and listing meant a standing risk that an assignment authored against one and graded against the other would diverge silently, and every source after this one is external anyway — Drive for non-repository rubrics — so reading from disk was not going to generalize. See [where rubrics live](#open-thinking-where-rubrics-answer-keys-and-sample-reports-live).
-
-A consequence worth surfacing rather than hiding: an existing assignment whose directory is no longer in the repository has been renamed or retired upstream. `validateDraft` reports that as a finding, so a curriculum change shows up as a warning on the course page instead of as a grading failure weeks later.
-
-**Two repositories, one name.** The catalogue lives in the grading-guides repository — private, read over the API, holds the answer keys. The template a student's repository is generated from is a different repository in a different organization, `{githubOrg}/{directory name}`, exactly as the seed derives it. The directory name is the link between them, which is why picking from the catalogue can fill both, but the two are checked separately and against different installations: the catalogue through `GRADING_ASSETS_INSTALLATION_ID`, the template through the main one. An assignment can have answer keys and no template, or the reverse, and each is its own finding.
-
-**Superseded.** The catalogue-as-source-of-truth reasoning below has been replaced — see [modules and where an assignment's repositories come from](#modules-and-where-an-assignments-repositories-come-from). The listing machinery it built is still used, one level down, to tick answer-key files out of whichever repository an assignment names.
 
 **`GOOGLE_DOC` and `FILE_UPLOAD` have no catalogue, and one is still worth having for `GOOGLE_DOC`.** They are creatable without one — an instructor types the title and pastes the template link — which is the same drift problem the repository catalogue exists to prevent: nothing forces internal organization, so "what Google Doc assignments exist" has no single answer to check a new one against. The shape most likely to work, not yet designed in detail: a shared Drive folder per module plays the role `answer-keys/{moduleTag}/` plays for `REPO`, and an instructor picks a document from it rather than pasting an arbitrary link. That is one authentication story with [reading a student's document for grading](#ai-grading-for-non-coding-assignments), which is the argument for doing them together rather than now.
 
@@ -327,12 +321,12 @@ Built in [Step 0](#step-0-the-kind-axis--done) as `assignmentSpecSchema`, a disc
 Two decisions that shaped the rest:
 
 - **One validation function, called by the form and by every write.** `validateAssignmentDraft` in `lib/assignments/validate.ts` is what `validateDraft` returns findings from and what `create`, `update`, and `duplicate` refuse on. A check the form performs and the write does not is decoration; a check the write performs and the form does not is a refusal an instructor meets only after filling everything in.
-- **Findings carry a severity.** `error` blocks saving — a module tag outside the course, an unreachable template, a rubric that does not match its section type, a colliding repository name. `warning` does not, and is for what is legitimately true of a saved assignment: a missing answer key means grading proceeds without a reference solution, which is worse but not useless, and an assignment the curriculum no longer holds a directory for has been renamed upstream rather than broken.
+- **Findings carry a severity.** `error` blocks saving — a module belonging to another course, an unreachable or non-template template repository, a public answer-key repository, a rubric that does not match its section type, a colliding repository name. `warning` does not, and is for what is legitimately true of a saved assignment: a missing answer key means grading proceeds without a reference solution, which is worse but not useless.
 
 The rubric pairing is worth naming, because nothing else would catch it: `RUBRIC_NAME_BY_SECTION_TYPE` in `spec.ts` fixes which rubric each section type is graded against, and the procedures check the pairing an instructor submits rather than trusting it. A coding section graded against the short response rubric produces a confident report against criteria that do not apply to the work.
 
 - **`validateDraft`** — what the form calls as fields change. Runs the whole table above for `REPO`, skips the GitHub-specific rows for the other kinds (already expressed in `assignmentSpecSchema`, so this procedure mostly wraps a `.safeParse` and turns Zod issues into per-field findings), and returns them. No writes.
-- **`answerKeyOptions({ moduleTag, repoName })`** — wraps `listAnswerKeys`.
+- **`browseAnswerKeys({ answerKeyRepo, dir })`** and **`answerKeyOptions({ answerKeyRepo, dir })`** — one directory of the named repository, and everything beneath it.
 - **`create`** — calls `parseAssignmentSpec` (built — see [Step 0](#step-0-the-kind-axis--done)), which is where `pointValue` and the kind-conditional requirements are already enforced, and writes with `distributedAt: null`.
 - **`update`** — same validation. Refuses to change `assignmentRepoName` once any submission exists, because student repositories are already named after it.
 - **`publish` / `unpublish`** — sets or clears `distributedAt`.
@@ -358,7 +352,7 @@ This is what makes authoring safe: an assignment can be built over several sitti
 
 - `/instructor/courses/[courseId]/assignments/new` and `.../[assignmentId]/edit` — one client form component, `components/instructor/assignment-form.tsx`, with a `section-editor.tsx` sub-form. Validation findings render inline; save is disabled while any check fails.
 - Entry points on `components/instructor/course-detail.tsx`: a "New assignment" action in the header, and "Edit", "Duplicate", and "Remove" per row in the assignments tab.
-- **The first question the form asks is the kind**, which selects the catalogue (see Step 1) and therefore which fields appear at all — a Google Doc or file-upload assignment never shows `githubOrg` or a runner preset, rather than showing them disabled. For `REPO`, choosing a module from `course.moduleStructure` and then an assignment the answer-keys repository holds for it fills `assignmentRepoName`, `title`, and the template repository name — all three are the directory name, as the seed does — and pre-ticks the answer keys found inside. `githubOrg` defaults to what the course's other assignments use, and the rubric follows from the section type. What is left to enter is what genuinely needs a person: point values per section, the due date, and the test evidence pattern.
+- **The first question the form asks is the kind**, which decides which fields appear at all — a Google Doc or file-upload assignment never shows `githubOrg` or a runner preset, rather than showing them disabled. For `REPO`, an instructor pastes the two repository URLs; the repository name follows the template's own name until they change it, the runner follows what the template's `package.json` says, `githubOrg` and the answer-key repository default to what the course's other assignments use, and the rubric follows from the section type. Answer key paths are ticked from a listing of the named repository. What is left to enter is what genuinely needs a person: the title, point values per section, the due date, and the test evidence pattern.
 - **Nothing an instructor can select is typed by hand.** The runner preset is a select populated from `RUNNER_PRESETS`, not a text field — a typo'd preset is a grading failure weeks later, and the cheapest fix is an interface where the wrong value cannot be expressed. The same applies to the section type and the rubric. `lib/sandbox/presets.ts` carries no `server-only` import and neither does its one dependency, so the form imports the list directly rather than needing a procedure to enumerate it.
 
   The schema check stays regardless. A select is a convenience and the procedure is what refuses — the same division as the approval guards and the typed removal confirmation, for the same reason: the request that arrives can carry anything the browser did not send.
@@ -366,7 +360,7 @@ This is what makes authoring safe: an assignment can be built over several sitti
 
 **Built.** Two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, `assignment-form.tsx`, `section-editor.tsx`, `remove-assignment-dialog.tsx`, and entry points on the course page: a "New assignment" action, a Draft badge on any unpublished row, and a per-row menu with Edit, Publish or Hide, Duplicate, and Remove.
 
-The kind is the form's first question and is fixed once an assignment exists — changing it would change what its existing submissions are, and there is no migration from a pull request to a document. Choosing a non-repository kind hides the catalogue, the runner, and the GitHub card entirely rather than disabling them, since those are questions that do not apply rather than settings left at a default. Only one of the two "add a section" buttons is ever offered, because [an assignment has one grading mode](#what-manual-grading-meant-for-the-machinery--done) and a button that builds a refused draft is worse than no button.
+The kind is the form's first question and is fixed once an assignment exists — changing it would change what its existing submissions are, and there is no migration from a pull request to a document. Choosing a non-repository kind hides the repositories card, the runner, and the answer-key browser entirely rather than disabling them, since those are questions that do not apply rather than settings left at a default. Only one of the two "add a section" buttons is ever offered, because [an assignment has one grading mode](#what-manual-grading-meant-for-the-machinery--done) and a button that builds a refused draft is worse than no button.
 
 Worth knowing about how it validates: the form holds a *settled* copy of the draft that trails the live one by 600ms, and only that copy is sent to `validateDraft` — the checks make real GitHub calls, so a request per keystroke would be untenable. Saving is refused until the settled copy has actually been checked, rather than merely having no errors: a draft the server has not seen has no findings, which is not the same as being valid.
 
@@ -401,19 +395,17 @@ Nothing in this phase is outstanding.
 
 ## Modules, and where an assignment's repositories come from
 
-**Design settled, not yet built.** Two phases, in this order. The second depends on the first and not the other way round, so the first can ship alone.
+**Built, in two phases.** The second depended on the first and not the other way round, which is why the first shipped alone.
 
-Today `moduleTag` is not a label, it is data. One string is simultaneously the grouping and ordering key on both course pages, the module choices the authoring form offers, the refusal of a tag outside the course, and **the first path segment of every answer-key path** — `answer-keys/{moduleTag}/{assignmentRepoName}/from-scratch.js`. That is what ties a module to a directory in the answer-keys repository, and it is why a course's module list cannot be corrected: correcting it would move where grading looks for answer keys.
-
-The change severs that. A module becomes a row an instructor creates and names freely, like a module in any general-purpose LMS, and an assignment says which repositories it uses rather than having them inferred from where it sits.
+A module is a row an instructor creates and names freely, like a module in any general-purpose LMS, and an assignment says which repositories it uses rather than having them inferred from where it sits.
 
 ### This reverses Step 1, deliberately
 
-[Step 1](#step-1-a-catalogue-per-kind) argues that the answer-keys repository is the single source of truth for what repository-backed assignments the curriculum contains, so adding one is picking from a list that already exists and there is no second list to keep in step. That was right when every assignment was a repository laid out in one prescribed shape. It is wrong now: three of the four kinds have no repository at all, the shape only ever fit `REPO` assignments, and it forces the curriculum's directory names to be the application's module names forever.
+[Step 1](#step-1-a-catalogue-per-kind) argues that the answer-keys repository is the single source of truth for what repository-backed assignments the curriculum contains, so adding one is picking from a list that already exists and there is no second list to keep in step. That was right when every assignment was a repository laid out in one prescribed shape. It is wrong now: three of the four kinds have no repository at all, the shape only ever fit `REPO` assignments, and it forced the curriculum's directory names to be the application's module names forever.
 
-**The application becomes the source of truth for what a course contains, and the repositories become things an assignment points at.** The cost is real and accepted: drift is now possible, because an assignment can name a template or an answer-key repository that was later renamed or made private upstream. Validation still checks reachability at authoring time and reports it as a finding, which turns drift into a warning on the course page rather than a grading failure weeks later — the same treatment a missing answer-key directory gets today.
+**The application is the source of truth for what a course contains, and the repositories are things an assignment points at.** The cost is real and accepted: drift is possible, because an assignment can name a template or an answer-key repository that is later renamed or made private upstream. Validation checks reachability whenever a draft is saved or published and reports it as a finding, which turns drift into a message on the authoring screen rather than a grading failure weeks later.
 
-What is *not* lost: the catalogue machinery still earns its keep one level down. `listRepoDirectory` lists the named answer-key repository so its files are ticked from a list rather than typed, which is what keeps a mistyped answer-key path from becoming a confident wrong grade.
+What is *not* lost: the catalogue machinery still earns its keep one level down. The named answer-key repository is listed so its files are ticked from a list rather than typed, which is what keeps a mistyped answer-key path from becoming a confident wrong grade.
 
 ### Phase 1: modules are rows — done
 
@@ -463,7 +455,7 @@ model Module {
 
 **The migration went in one step rather than two, and could.** The plan called for a nullable `module_id` so the mapping could be checked before committing to it. In the event the backfill derives its modules from the union of the tags in use *and* the tags each course declared, so every assignment matches one by construction — which means `SET NOT NULL` in the same migration is safe, and it succeeding is itself the proof that nothing was orphaned. Hand-written rather than what `migrate diff` produced, because Prisma emits `ADD COLUMN module_id UUID NOT NULL`, which fails outright on a populated table.
 
-`module_tag` and `Course.moduleStructure` both remain, unread, to be dropped once this has been used against real rows.
+`module_tag` and `Course.moduleStructure` are gone, dropped by [Phase 2](#phase-2-an-assignment-names-its-own-repositories) once it removed their last readers.
 
 **Two things learned by building it**, both recorded in the code:
 
@@ -484,32 +476,37 @@ The six in Mod 1 stay there, including "Upload a Resume" and "Story Prep Workshe
 
 **Where it lives:** a fourth tab on the instructor course page beside Assignments, Roster, and Gradebook, which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
 
-### Phase 2: an assignment names its own repositories
+### Phase 2: an assignment names its own repositories — done
 
-The authoring form stops opening from a catalogue. For a `REPO` assignment an instructor pastes two URLs, and the module is chosen from the course's own modules rather than inferred from anything.
+An assignment says which repositories it uses. The authoring form asks for two pasted URLs, the module comes from the course's own list, and nothing is inferred from a directory name.
 
-- **`templateRepo` is a public template repository, pasted as a URL.** **Confirmed by probe:** an installation token reads a public repository in an org the App is *not* installed on — repo metadata including `is_template`, individual files, and the tarball. So validation, `detectRunnerPreset` reading `package.json`, and test execution fetching the suite all work against any public template. Validation should additionally check `is_template`, which it does not today, because `generate` fails on a repository that is not one.
-- **`answerKeyRepo` is a new column, "owner/repo", private and in an org the App is installed on.** Reference solutions stay unpublished; only templates are public. `sections[].answerKeyPaths` become paths *within* that repository at any depth.
-- **The migration needs no path rewriting.** Backfilling `answerKeyRepo` with the current `GRADING_ASSETS_REPO` value leaves every existing path — `mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js` — correct exactly as written. The column stops *requiring* every assignment to share one repository rather than forbidding it, so the existing layout keeps working and a new assignment can point elsewhere.
-- **Two failures that must not be reported as one.** A repository that does not exist is a typo an instructor fixes. A private repository in an org the App is not installed on returns the same 404 and is an installation task nobody can fix from the form. The finding has to say which, or the second reads as the first forever.
-- **`GRADING_ASSETS_REPO` keeps its job unchanged.** `rubric.md`, `agent-rules.md`, and the sample reports are program-wide prompt code, not per-assignment. So `lib/grade/assets.ts` gains a second source with different addressing: program assets from the configured repository, answer keys from the repository the assignment names. `assetSource()` stops reading one repository out of the environment.
+**Built**, and described in [the README](README.md#data-model). `assignments.answer_key_repo`, both repositories normalized from a pasted URL by `lib/assignments/repo-ref.ts`, `assetSource` parameterized by repository, the answer-key repository browsed by the form rather than assumed, and the asynchronous-copy fix in `accept`. `npm run verify:assets` and `npm run verify:authoring` cover it.
+
+- **`templateRepo` must be readable by the installation that will generate from it, and must have GitHub's template flag set.** The flag is checked because `generate` refuses a repository that is not one, and it fails at the moment a student presses Accept. **Being private is not a failure** — a private template in an organization this deployment's installation covers generates perfectly well, which is how every assignment in the sandbox organization works. That corrects what this section assumed while it was a plan: what being *public* buys is reach, not permission. **Confirmed by probe:** an installation token reads a public repository in an org the App is *not* installed on — metadata including `is_template`, individual files, and the tarball — so validation, `detectRunnerPreset` reading `package.json`, and test execution fetching the suite all work against any public template, wherever it lives.
+- **`answerKeyRepo` is a column, "owner/repo", and must be private.** A public one is refused rather than warned about: reference solutions readable by the students being graded against them is not a configuration detail. `sections[].answerKeyPaths` are paths within it, at any depth.
+- **The migration rewrites the paths, and had to.** `answer_key_repo` backfills with the value `GRADING_ASSETS_REPO` held, and every stored path gains the `answer-keys/` prefix that reading used to add — because a path in the column is now a path in the repository, with nothing between what an instructor ticked and what grading reads. Requiring every answer-key repository to have an `answer-keys/` directory at its root would have avoided the rewrite and imposed the curriculum's layout on every repository an instructor makes, which is the constraint this phase exists to remove. The rewrite is idempotent and preserves order; hand-written, because it walks a JSON column.
+- **Two failures reported differently.** A repository that does not exist and a private one in an organization the App was never installed on both answer 404. Told apart by asking whether the App is installed on that owner at all, which is a question the App can answer about itself — `installationIdForOwner`, which also resolves which installation reads a given answer-key repository, caching the negative answer as well as the hit.
+- **`GRADING_ASSETS_REPO` keeps a narrower job.** `rubric.md`, `agent-rules.md`, and the sample reports are program-wide prompt code, so they stay in the environment; answer keys come from the repository the assignment names. Both commits are recorded on the draft and shown on the review screen, since recording one of two would quietly weaken the claim the field exists to support.
 - **`assignmentRepoName` defaults to the template's own name** and stays editable, since it names every student's repository — and stays frozen once anybody has accepted, which `update` already enforces.
+- **The catalogue machinery survives one level down.** `listAnswerKeyEntries` walks the named repository directory by directory and `listAnswerKeys` recurses beneath the chosen one, so answer key paths are still ticked from a listing rather than typed. That was always the part worth keeping: a mistyped path is not an error anybody sees, it is a report written confidently without the reference solution it should have been compared against.
+- **`assignments.module_tag` and `courses.module_structure` are dropped.** This phase removed their last readers, and an unread column is a second answer to a question that already has one.
 
 **Generating from an external public template is confirmed too.** Probed with `actions/typescript-action` — public, `is_template`, in an org the App is not installed on — generated into `marcy-lms-test`: created private, all 31 root entries copied, exactly one commit, which is what the tamper report's diff comparison depends on. Nothing about the design needs the template's org to install the App.
 
-#### The copy is asynchronous, and that is a bug in `accept` today
+#### The copy is asynchronous, which is why `accept` waits
 
-The probe found this rather than assuming it: `generate` returned after 2.1s and the new repository's content only became readable at 5.6s. For roughly three and a half seconds the repository exists and is empty, and GitHub answers a contents request with 404 and the body `"This repository is empty."`
+Found by probe rather than assumed: `generate` returned after 2.1s and the new repository's content only became readable at 5.6s. For roughly three and a half seconds the repository exists and is empty, and GitHub answers a contents request with 404 and the body `"This repository is empty."` — the same status as a file that genuinely is not there.
 
-`accept` generates, adds collaborators, and then calls `removeClassroomWorkflow`, which **returns silently on 404** — correct for "this template has no `classroom.yml`" and wrong for "the copy has not landed yet." Inside that window the file is left in the student's repository, against the standing decision that every generated repository has it removed. It has been winning the race so far, because the collaborator calls buy time and the current templates are small, but that is luck rather than design.
+The body is the only thing that tells them apart. `waitForRepoContent` retries on that specific 404 with lengthening gaps, and `removeClassroomWorkflow` returns `removed`, `absent`, or `repository-empty` rather than a bare void. `accept` waits before it reads the tree, and logs a repository that is still empty afterwards rather than failing the student's Accept — the repository exists, they can work in it, and refusing over a workflow file whose results nothing trusts would be the worse trade.
 
-**Nothing today depends on it, and Phase 2 is where it starts to.** The production organization is being created fresh with no Classroom templates in it, so `removeClassroomWorkflow` has nothing to find and losing the race costs nothing — fixing the templates at the source is what makes that true, rather than this function working. Phase 2 is the change: an instructor can paste *any* public template URL, and a great many public templates on GitHub are Classroom templates with autograding in them. That is the first time the function is load-bearing, and also the first time the window is wide, since an arbitrary template can be large.
+**Why it needed fixing here.** The production organization is being created fresh with no Classroom templates in it, so losing the race would cost nothing today. This phase is what changes that: an instructor can paste *any* public template URL, and a great many public templates on GitHub are Classroom templates with autograding in them. It is the first time the function is load-bearing, and the first time the window is wide, since an arbitrary template can be large.
 
-So: keep the function, and fix it with Phase 2 rather than now. The fix is to wait for content before anything reads the tree — bounded retry, treating the empty-repository 404 as "not yet" and a genuine missing file as absent, which the response body already distinguishes. It needs a check of its own, because the failure is silent and shows up only as a `classroom.yml` nobody removed.
+### What is verified
 
-### What to verify
+Through the tRPC callers inside a rolled-back transaction: a duplicate module name in one course is refused; removing a module with assignments in it is refused and says how many; renaming leaves every assignment pointing at the same row; reordering changes nothing but `position`; a student cannot call any of it; and an assignment cannot be created against a module belonging to a different course, which is now a foreign key plus one course-level check.
 
-`verify:authoring` already refuses a module tag outside the course, and that check becomes a foreign key. Through the tRPC callers inside a rolled-back transaction: a duplicate module name in one course is refused; removing a module with assignments in it is refused and says how many; renaming leaves every assignment pointing at the same row; reordering changes nothing but `position`; a student cannot call any of it; and an assignment cannot be created against a module belonging to a different course. For Phase 2: a template that is not a template repository is refused; an unreachable answer-key repository is a finding that distinguishes missing from private; and authoring `swe-1-4-loops` through `create` still produces a row that grades identically, which is the check that says the new shape did not quietly change what grading reads.
+For Phase 2: both repositories may be given as pasted URLs and come out as `owner/repo`; a repository that is real, readable, and not a template is refused; an answer-key repository that does not exist and an organization the App is not installed on produce *different* messages, checked by comparing them rather than only by matching each; an answer key path at an arbitrary depth is accepted; a section naming paths with no repository to read them from is refused; and authoring `swe-1-3-node-modules` through `create` still produces a row matching the seeded one field for field, which is the check that says the new shape did not quietly change what grading reads.
+
 ---
 
 ## Token management

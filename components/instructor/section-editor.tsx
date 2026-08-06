@@ -152,7 +152,7 @@ export function SectionEditor({
             findings={fieldFindings('answerKeyPaths')}
             hint={
               answerKeyOptions.length === 0
-                ? 'The answer-keys repository holds none for this assignment. It can still be graded, with the model reading the code against the rubric alone.'
+                ? 'None under the directory chosen above. It can still be graded, with the model reading the code against the rubric alone.'
                 : 'Sent to the model as reference, never shown to the student.'
             }
           >

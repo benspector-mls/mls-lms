@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { normalizeRepoRef, repoNameFromRef } from '@/lib/assignments/repo-ref';
 import { RUBRIC_NAME_BY_SECTION_TYPE } from '@/lib/assignments/spec';
 import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { NO_RUNNER, RUNNER_PRESETS } from '@/lib/sandbox/presets';
@@ -41,16 +42,18 @@ import type { RouterOutputs } from '@/trpc/types';
  *
  * Two properties this screen is built around.
  *
- * **It opens from the catalogue, not from a blank field.** Choosing a module and then an
- * assignment the answer-keys repository actually holds fills the title, the repository name,
- * and the template — all three are the directory name — and offers the answer keys found
- * inside. What is left to enter is what genuinely needs a person: point values, the due date,
- * and whether the test suite covers each section.
+ * **An assignment says which repositories it uses.** For a repository assignment an instructor
+ * pastes two URLs — the template every student's repository is generated from, and the private
+ * repository holding the reference solutions. Everything that can follow from those does: the
+ * repository name follows the template's own name until it is changed, the runner follows what
+ * the template's `package.json` declares, and the answer keys are ticked from a listing of the
+ * repository that was named. What is left to enter is what genuinely needs a person: the
+ * title, point values, the due date, and whether the test suite covers each section.
  *
- * **Nothing an instructor can select is typed by hand.** The module, the assignment, the
- * section type, and the runner preset are all selects, and the rubric follows from the section
- * type. A typo in any of them is a grading failure discovered weeks later, and the cheapest
- * fix is an interface where the wrong value cannot be expressed.
+ * **Nothing an instructor can select is typed by hand.** The module, the section type, and the
+ * runner preset are all selects, the rubric follows from the section type, and answer key paths
+ * come from a directory listing. A typo in any of them is a grading failure discovered weeks
+ * later, and the cheapest fix is an interface where the wrong value cannot be expressed.
  *
  * Validation runs on the server as fields change — the same function the write refuses on, so
  * the form cannot say a draft is fine and then have saving fail. It is debounced because it
@@ -81,11 +84,12 @@ type FormState = {
   kind: Kind;
   title: string;
   moduleId: string;
-  /** Only a REPO assignment has one; null for every other kind. */
-  moduleTag: string | null;
   completionThreshold: number;
   dueAt: Date | null;
+  /** As pasted. Normalized to owner/repo on the way out — see toDraft. */
   templateRepo: string;
+  /** As pasted, and only a REPO assignment has one. */
+  answerKeyRepo: string;
   assignmentRepoName: string;
   githubOrg: string;
   templateRef: string | null;
@@ -147,9 +151,14 @@ function toDraft(state: FormState): unknown {
     return {
       ...shared,
       kind: 'REPO',
-      // Where the reference solutions are, which only this kind has.
-      moduleTag: state.moduleTag,
+      /*
+        Both sent as typed. The schema normalizes them, so a pasted URL and a typed
+        owner/repo are the same value by the time anything checks or stores one — and
+        normalizing here as well would mean two implementations of the same rule, with the
+        server's being the one that decides.
+      */
       templateRepo: state.templateRepo,
+      answerKeyRepo: state.answerKeyRepo,
       assignmentRepoName: state.assignmentRepoName,
       githubOrg: state.githubOrg,
       templateRef: state.templateRef,
@@ -191,10 +200,6 @@ export function AssignmentForm({
 
   const context = useQuery(trpc.assignments.authoringContext.queryOptions({ courseId }));
 
-  const [state, setState] = React.useState<FormState | null>(() =>
-    existing ? fromDraft(existing) : null,
-  );
-
   if (context.isPending) return <FormSkeleton />;
   if (context.error) {
     return (
@@ -213,8 +218,6 @@ export function AssignmentForm({
       courseId={courseId}
       context={context.data}
       existing={existing}
-      state={state}
-      setState={setState}
       onSaved={(assignmentId) => {
         // Back to the course, which is where an instructor sees the result in context —
         // the new row, its draft badge, and its place in the module ordering.
@@ -229,34 +232,55 @@ function Editor({
   courseId,
   context,
   existing,
-  state,
-  setState,
   onSaved,
 }: {
   courseId: string;
   context: Context;
   existing?: Draft;
-  state: FormState | null;
-  setState: React.Dispatch<React.SetStateAction<FormState | null>>;
   onSaved: (assignmentId: string) => void;
 }) {
   const trpc = useTRPC();
 
-  /*
-    Two questions that used to be one. `moduleId` is which module of the course this belongs
-    to — a row an instructor named. `answerKeyDir` is which directory in the answer-keys
-    repository holds the reference solutions, which only a repository assignment has. One
-    string used to do both, which is why a cohort's module list could not be changed without
-    moving where grading looked for answer keys.
-  */
   const [moduleId, setModuleId] = React.useState<string>(
     existing?.moduleId ?? context.course.modules[0]?.id ?? '',
   );
-  const [answerKeyDir, setAnswerKeyDir] = React.useState<string>(existing?.moduleTag ?? '');
 
-  // Held outside `state` because it is asked before there is a draft: for a repository
-  // assignment nothing exists until one is chosen from the catalogue, and the kind is what
-  // decides whether there is a catalogue at all.
+  /*
+    The draft lives here rather than a level up, because it can only be built once the
+    authoring context has loaded: a new repository assignment starts with this course's own
+    organization and answer-key repository already filled in, and neither is known before
+    then. `Editor` renders only after that, so the initial value is a real starting draft
+    rather than a null the form has to render around.
+  */
+  const [state, setState] = React.useState<FormState | null>(() =>
+    existing
+      ? fromDraft(existing)
+      : blankDraft({
+          kind: 'REPO',
+          moduleId: context.course.modules[0]?.id ?? '',
+          defaults: {
+            githubOrg: context.defaultGithubOrg,
+            answerKeyRepo: context.defaultAnswerKeyRepo,
+          },
+          rubrics: context.rubrics,
+          existingState: null,
+        }),
+  );
+
+  /*
+    Which directory of the answer-key repository is being looked at.
+
+    Not part of the draft, because it is not saved: what gets stored is the paths that were
+    ticked, and the directory they were ticked from is scaffolding. Editing an assignment
+    opens at the directory its existing keys are in, which is almost always where a
+    correction belongs.
+  */
+  const [answerKeyDir, setAnswerKeyDir] = React.useState<string>(() =>
+    existing ? commonDirOf(existing.sections) : '',
+  );
+
+  // Held outside `state` because a kind can be chosen before the rest of the form is filled
+  // in, and switching it rebuilds the draft into that kind's shape.
   const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? 'REPO');
 
   // What the server has been asked about. Trails the form by DEBOUNCE_MS so that typing a
@@ -267,54 +291,48 @@ function Editor({
     return () => clearTimeout(timer);
   }, [state]);
 
-  // Listed from the repository rather than derived from the course, because the course's
-  // modules are no longer its directory names.
-  const answerKeyDirs = useQuery({
-    ...trpc.assignments.answerKeyDirs.queryOptions({ courseId }),
-    enabled: isRepoKind(kind),
-  });
-
-  const catalogue = useQuery({
-    ...trpc.assignments.catalogue.queryOptions({ courseId, moduleTag: answerKeyDir }),
-    // Only the repository kind has one. Asking anyway would spend a GitHub call listing
-    // answer-key directories for an assignment that will never have any.
-    enabled: answerKeyDir.length > 0 && isRepoKind(kind),
-  });
+  /*
+    The answer-key repository the *settled* draft names, so the browser does not issue a
+    request per keystroke while a URL is being pasted.
+  */
+  const answerKeyRepo = isRepoKind(kind) ? (settled?.answerKeyRepo ?? '') : '';
 
   const answerKeys = useQuery({
     ...trpc.assignments.answerKeyOptions.queryOptions({
       courseId,
-      moduleTag: state?.moduleTag ?? '',
-      repoName: state?.assignmentRepoName ?? '',
+      answerKeyRepo,
+      dir: answerKeyDir,
     }),
-    enabled: Boolean(state?.moduleTag && state?.assignmentRepoName),
+    enabled: answerKeyRepo.length > 0,
   });
 
   /*
-    Two things the repository already states, applied once each rather than asked for.
+    What the template says about how it runs, applied once rather than asked for.
 
-    Both arrive after the assignment is chosen, which is why they are effects rather than part
-    of `blankDraft`: the catalogue choice is synchronous and these are two more round trips.
-    Each guards on having already been applied for this repository, so that an instructor who
-    deliberately unticks every answer key does not have them tick themselves again.
+    Keyed on the template rather than on the repository name, which is what it is actually
+    about — and guarded on having already been applied for that template, so an instructor
+    who deliberately set the runner to something else does not have it overwritten on the
+    next keystroke.
   */
   const detection = useQuery({
     ...trpc.assignments.inferFromTemplate.queryOptions({
       courseId,
-      templateRepo: state?.templateRepo ?? '',
+      templateRepo: settled?.templateRepo ?? '',
     }),
-    enabled: !existing && Boolean(state?.templateRepo),
+    enabled: !existing && Boolean(settled?.templateRepo),
   });
 
   const applied = React.useRef<{ keys?: string; runner?: string }>({});
 
   React.useEffect(() => {
-    const repoName = state?.assignmentRepoName;
     const paths = answerKeys.data?.paths;
-    if (!repoName || !paths || paths.length === 0) return;
-    if (applied.current.keys === repoName) return;
+    if (!paths || paths.length === 0) return;
+    // Keyed on repository and directory together, so navigating somewhere else offers that
+    // directory's keys rather than nothing.
+    const key = `${answerKeyRepo}:${answerKeyDir}`;
+    if (applied.current.keys === key) return;
 
-    applied.current.keys = repoName;
+    applied.current.keys = key;
     setState((prev) => {
       if (!prev) return prev;
       return {
@@ -328,16 +346,34 @@ function Editor({
         ),
       };
     });
-  }, [answerKeys.data?.paths, state?.assignmentRepoName, setState]);
+  }, [answerKeys.data?.paths, answerKeyRepo, answerKeyDir, setState]);
 
   React.useEffect(() => {
-    const repoName = state?.assignmentRepoName;
-    if (!repoName || !detection.data?.confident) return;
-    if (applied.current.runner === repoName) return;
+    const template = settled?.templateRepo;
+    if (!template || !detection.data?.confident) return;
+    if (applied.current.runner === template) return;
 
-    applied.current.runner = repoName;
+    applied.current.runner = template;
     setState((prev) => (prev ? { ...prev, runnerPreset: detection.data.preset } : prev));
-  }, [detection.data, state?.assignmentRepoName, setState]);
+  }, [detection.data, settled?.templateRepo, setState]);
+
+  /*
+    The repository name follows the template's own name until somebody edits it.
+
+    A suggestion rather than a derivation: it names every student's repository, so an
+    instructor who wants `swe-1-4-loops` from a template called `1-4-loops-starter` has to be
+    able to say so. Applied only while the field is empty, which is what makes it a default
+    rather than something that fights the person typing.
+  */
+  React.useEffect(() => {
+    const template = settled?.templateRepo;
+    if (existing || !template) return;
+    const suggested = repoNameFromRef(template);
+    if (!suggested) return;
+    setState((prev) =>
+      prev && prev.assignmentRepoName === '' ? { ...prev, assignmentRepoName: suggested } : prev,
+    );
+  }, [settled?.templateRepo, existing, setState]);
 
   const validation = useQuery({
     ...trpc.assignments.validateDraft.queryOptions({
@@ -432,11 +468,11 @@ function Editor({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {/*
-            The first question, because it decides everything after it: whether there is a
-            catalogue to pick from, whether there is a runner and a template, and whether the
-            pipeline can grade this at all. Locked once the assignment exists — changing the
-            kind of a saved assignment would change what its existing submissions are, and
-            there is no migration from a pull request to a document.
+            The first question, because it decides everything after it: whether there are
+            repositories and a runner at all, and whether the pipeline can grade this. Locked
+            once the assignment exists — changing the kind of a saved assignment would change
+            what its existing submissions are, and there is no migration from a pull request
+            to a document.
           */}
           <Field
             label="Kind"
@@ -455,22 +491,24 @@ function Editor({
                 onValueChange={(value) => {
                   const next = (value ?? 'REPO') as Kind;
                   setKind(next);
-                  /*
-                    A repository assignment is opened from the catalogue, so its state stays
-                    null until an assignment is chosen. The others have nothing to choose from,
-                    so the form starts immediately with one hand-graded section.
-                  */
                   setState(
-                    next === 'REPO'
-                      ? null
-                      : blankNonRepoDraft({ kind: next, moduleId, existingState: state }),
+                    blankDraft({
+                      kind: next,
+                      moduleId,
+                      defaults: {
+                        githubOrg: context.defaultGithubOrg,
+                        answerKeyRepo: context.defaultAnswerKeyRepo,
+                      },
+                      rubrics: context.rubrics,
+                      existingState: state,
+                    }),
                   );
                 }}
                 // Without this the trigger shows the raw enum value — `FILE_UPLOAD` — while the
                 // list it was chosen from showed "File upload". Base UI's trigger renders the
                 // value, not the item, so a select whose label differs from its value has to say
                 // how they map. The module select below needs it for the same reason; the runner
-                // preset and the catalogue do not, because there each label *is* its value.
+                // preset does not, because there each label *is* its value.
                 items={Object.fromEntries(
                   (Object.keys(KIND_META) as Kind[]).map((name) => [name, KIND_META[name].label]),
                 )}
@@ -534,135 +572,103 @@ function Editor({
             </Field>
           )}
 
-          {/*
-            A second question, and only a repository assignment has it. This used to be the same
-            field as the module above, which is what tied a cohort's module list to the
-            answer-keys repository's directory names — renaming a module moved where grading
-            looked for solutions. Superseded once an assignment names its own answer-key
-            repository, at which point this becomes a URL.
-          */}
-          {isRepoKind(kind) && (
-            <Field
-              label="Reference solutions live under"
-              findings={fieldFindings('moduleTag')}
-              hint="Which directory of the answer-keys repository holds this assignment's solutions. Separate from the module above, which is what this course calls it."
-            >
-              <Select
-                value={answerKeyDir}
-                onValueChange={(value) => {
-                  const next = value ?? '';
-                  setAnswerKeyDir(next);
-                  setState((prev) => (prev ? { ...prev, moduleTag: next } : prev));
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a directory" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(answerKeyDirs.data?.dirs ?? []).map((dir) => (
-                    <SelectItem key={dir} value={dir}>
-                      {dir}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
-
-          {/*
-            No catalogue for the kinds with no repository, deliberately rather than for now. The
-            answer-keys repository is the single source of truth for what repository-backed
-            assignments the curriculum contains, and there is no equivalent list of documents
-            to check a new one against — a shared Drive folder per module is the likely shape,
-            and it is worth designing when a real one exists rather than guessing at it.
-          */}
-          {!isRepoKind(kind) ? (
-            <Field
-              label="Title"
-              findings={fieldFindings('title')}
-              hint="What students see in their list."
-            >
-              <Input
-                value={state?.title ?? ''}
-                onChange={(event) =>
-                  setState((prev) => (prev ? { ...prev, title: event.target.value } : prev))
-                }
-              />
-            </Field>
-          ) : existing ? (
-            <Field
-              label="Repository name"
-              findings={fieldFindings('assignmentRepoName')}
-              hint={
-                existing.submissionCount > 0
-                  ? `${existing.submissionCount} student(s) have accepted this. Their repositories are named after it, so it cannot be changed.`
-                  : undefined
+          {/* Typed, for every kind. It is what a student sees in their list. */}
+          <Field
+            label="Title"
+            findings={fieldFindings('title')}
+            hint="What students see in their list."
+          >
+            <Input
+              value={state?.title ?? ''}
+              onChange={(event) =>
+                setState((prev) => (prev ? { ...prev, title: event.target.value } : prev))
               }
-            >
-              <Input
-                value={state?.assignmentRepoName ?? ''}
-                disabled={existing.submissionCount > 0}
-                onChange={(event) =>
-                  setState((prev) =>
-                    prev ? { ...prev, assignmentRepoName: event.target.value } : prev,
-                  )
-                }
-              />
-            </Field>
-          ) : (
-            <Field
-              label="Assignment"
-              findings={fieldFindings('assignmentRepoName')}
-              hint="Read from the answer-keys repository. Adding a directory there is what makes a new assignment available here."
-            >
-              {catalogue.isPending ? (
-                <Skeleton className="h-9 w-full" />
-              ) : (catalogue.data?.assignments.length ?? 0) === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  The answer-keys repository holds nothing under{' '}
-                  <code>{answerKeyDir || '(no directory chosen)'}</code>.
-                </p>
-              ) : (
-                <Select
-                  value={state?.assignmentRepoName ?? ''}
-                  onValueChange={(value) =>
-                    setState(
-                      blankDraft({
-                        name: value ?? '',
-                        moduleId,
-                        moduleTag: answerKeyDir,
-                        githubOrg: context.defaultGithubOrg ?? '',
-                        rubrics: context.rubrics,
-                      }),
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose an assignment" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {catalogue.data?.assignments.map((entry) => (
-                      <SelectItem key={entry.name} value={entry.name} disabled={entry.alreadyAdded}>
-                        {entry.name}
-                        {/* Marked rather than hidden: an instructor looking for one they
-                            already added should see that it is there. */}
-                        {entry.alreadyAdded && ' — already in this course'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </Field>
-          )}
+            />
+          </Field>
         </CardContent>
       </Card>
 
+      {/*
+        A skeleton rather than instructions, because there is nothing to instruct: the draft is
+        built when this component mounts, so `null` is a state the form passes through for no
+        frames rather than one an instructor is meant to act on. It used to be where a
+        repository assignment waited for a catalogue choice.
+      */}
       {state === null ? (
-        <p className="text-sm text-muted-foreground">
-          Choose an assignment to fill in the rest.
-        </p>
+        <Skeleton className="h-64 w-full" />
       ) : (
         <>
+          {/* ---- Repositories --------------------------------------------- */}
+          {isRepoKind(state.kind) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Repositories</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <Field
+                  label="Template repository"
+                  findings={fieldFindings('templateRepo')}
+                  hint="Paste its URL. It has to be marked as a template repository on GitHub, and readable by this deployment's App — which any public repository is, wherever it lives."
+                >
+                  <Input
+                    value={state.templateRepo}
+                    placeholder="https://github.com/owner/swe-1-4-loops"
+                    onChange={(event) =>
+                      setState({ ...state, templateRepo: event.target.value })
+                    }
+                  />
+                  <NormalizedAs value={state.templateRepo} />
+                </Field>
+
+                <Field
+                  label="Answer key repository"
+                  findings={fieldFindings('answerKeyRepo')}
+                  hint="Paste its URL. Private, and in an organization the GitHub App is installed on — this holds the reference solutions, so it must not be readable by students."
+                >
+                  <Input
+                    value={state.answerKeyRepo}
+                    placeholder="https://github.com/owner/swe-assignment-grading-guides"
+                    onChange={(event) =>
+                      setState({ ...state, answerKeyRepo: event.target.value })
+                    }
+                  />
+                  <NormalizedAs value={state.answerKeyRepo} />
+                </Field>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Organization"
+                    findings={fieldFindings('githubOrg')}
+                    hint="Where each student's repository is created."
+                  >
+                    <Input
+                      value={state.githubOrg}
+                      onChange={(event) => setState({ ...state, githubOrg: event.target.value })}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Repository name"
+                    findings={fieldFindings('assignmentRepoName')}
+                    hint={
+                      existing && existing.submissionCount > 0
+                        ? `${existing.submissionCount} student(s) have accepted this. Their repositories are named after it, so it cannot be changed.`
+                        : 'Each student gets {this}-{their github login}. Follows the template’s name until you change it.'
+                    }
+                  >
+                    <Input
+                      value={state.assignmentRepoName}
+                      disabled={Boolean(existing && existing.submissionCount > 0)}
+                      onChange={(event) =>
+                        setState({ ...state, assignmentRepoName: event.target.value })
+                      }
+                    />
+                  </Field>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* ---- What students see ---------------------------------------- */}
           <Card>
             <CardHeader>
@@ -670,15 +676,6 @@ function Editor({
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                {/* Entered above for the kinds with no catalogue, so it is not asked twice. */}
-                {isRepoKind(state.kind) && (
-                  <Field label="Title" findings={fieldFindings('title')}>
-                    <Input
-                      value={state.title}
-                      onChange={(event) => setState({ ...state, title: event.target.value })}
-                    />
-                  </Field>
-                )}
                 <Field
                   label="Due"
                   findings={fieldFindings('dueAt')}
@@ -824,6 +821,30 @@ function Editor({
               </Field>
               )}
 
+              {/*
+                Where the reference solutions are, browsed rather than typed.
+
+                The one piece of the old catalogue that still earns its keep. A mistyped answer
+                key path is not an error anybody sees — it is a report written confidently
+                without the solution it should have been compared against — so the paths a
+                section offers come from a listing of the repository the assignment names.
+              */}
+              {isRepoKind(state.kind) && (
+                <Field
+                  label="Where the reference solutions are"
+                  hint="Navigate to the directory holding this assignment's answer keys. What is inside it, at any depth, is what each section can tick."
+                >
+                  <AnswerKeyBrowser
+                    courseId={courseId}
+                    answerKeyRepo={state.answerKeyRepo}
+                    dir={answerKeyDir}
+                    onNavigate={setAnswerKeyDir}
+                    fileCount={answerKeys.data?.paths.length ?? 0}
+                    loading={answerKeys.isFetching}
+                  />
+                </Field>
+              )}
+
               {isRepoKind(state.kind) && <Separator />}
 
               {state.sections.map((section, index) => (
@@ -914,33 +935,6 @@ function Editor({
             </CardContent>
           </Card>
 
-          {/* ---- GitHub ---------------------------------------------------- */}
-          {isRepoKind(state.kind) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">GitHub</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <Field label="Organization" findings={fieldFindings('githubOrg')}>
-                  <Input
-                    value={state.githubOrg}
-                    onChange={(event) => setState({ ...state, githubOrg: event.target.value })}
-                  />
-                </Field>
-                <Field
-                  label="Template repository"
-                  findings={fieldFindings('templateRepo')}
-                  hint="Checked against GitHub. Student repositories are generated from this."
-                >
-                  <Input
-                    value={state.templateRepo}
-                    onChange={(event) => setState({ ...state, templateRepo: event.target.value })}
-                  />
-                </Field>
-              </CardContent>
-            </Card>
-          )}
-
           <Findings errors={errors} warnings={warnings} checking={!checked} />
         </>
       )}
@@ -1016,6 +1010,160 @@ function Findings({
   );
 }
 
+/**
+ * What a pasted repository reference will actually be stored as.
+ *
+ * Shown rather than rewriting the field as it is typed. Rewriting a URL to `owner/repo`
+ * mid-paste moves the caret and reads as the form fighting the person; saying what it means
+ * underneath answers the same question — did it understand what I pasted — without touching
+ * what they typed. Absent when the field already is `owner/repo`, since repeating it back
+ * would be noise.
+ */
+function NormalizedAs({ value }: { value: string }) {
+  const normalized = normalizeRepoRef(value);
+  if (!normalized || normalized === value.trim()) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      Stored as <code>{normalized}</code>
+    </p>
+  );
+}
+
+/**
+ * Walking the answer-key repository one directory at a time.
+ *
+ * Directories only. Files are not listed here because they are not chosen here — each
+ * section ticks from everything under the chosen directory, which is what makes nested keys
+ * findable: `swe-1-3-node-modules` keeps its under `madlib-challenge/`, and a picker showing
+ * one level would silently omit them.
+ *
+ * A repository that cannot be read shows nothing and says nothing. The validation findings
+ * beneath the form are what explain why — and they distinguish a name that is wrong from an
+ * organization the App was never installed on, which this could not.
+ */
+function AnswerKeyBrowser({
+  courseId,
+  answerKeyRepo,
+  dir,
+  onNavigate,
+  fileCount,
+  loading,
+}: {
+  courseId: string;
+  answerKeyRepo: string;
+  dir: string;
+  onNavigate: (dir: string) => void;
+  fileCount: number;
+  loading: boolean;
+}) {
+  const trpc = useTRPC();
+  const normalized = normalizeRepoRef(answerKeyRepo);
+
+  const listing = useQuery({
+    ...trpc.assignments.browseAnswerKeys.queryOptions({
+      courseId,
+      answerKeyRepo: normalized ?? '',
+      dir,
+    }),
+    enabled: Boolean(normalized),
+  });
+
+  if (!normalized) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Name an answer key repository above and its directories appear here.
+      </p>
+    );
+  }
+
+  const segments = dir === '' ? [] : dir.split('/');
+  const dirs = (listing.data?.entries ?? []).filter((entry) => entry.type === 'dir');
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+      {/* Every ancestor is clickable, so going back up is one click rather than several. */}
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        <button
+          type="button"
+          className="rounded px-1.5 py-0.5 font-mono hover:bg-accent"
+          onClick={() => onNavigate('')}
+        >
+          {normalized}
+        </button>
+        {segments.map((segment, index) => (
+          <React.Fragment key={index}>
+            <span className="text-muted-foreground">/</span>
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 font-mono hover:bg-accent"
+              onClick={() => onNavigate(segments.slice(0, index + 1).join('/'))}
+            >
+              {segment}
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+
+      {listing.isPending ? (
+        <Skeleton className="h-8 w-full" />
+      ) : listing.data?.entries === null ? (
+        <p className="text-sm text-muted-foreground">
+          There is no <code>{dir}</code> in this repository. It may have been renamed.
+        </p>
+      ) : dirs.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No subdirectories here.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {dirs.map((entry) => (
+            <Button
+              key={entry.name}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="font-mono text-xs"
+              onClick={() => onNavigate(dir === '' ? entry.name : `${dir}/${entry.name}`)}
+            >
+              {entry.name}
+            </Button>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        {loading
+          ? 'Reading the files here…'
+          : fileCount === 0
+            ? 'No files under this directory, so there is nothing for a section to tick.'
+            : `${fileCount} file${fileCount === 1 ? '' : 's'} under this directory, offered to every section below.`}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The directory an existing assignment's answer keys are in, so editing opens there.
+ *
+ * The longest prefix every stored path shares, which for an assignment whose keys all live
+ * in one directory is that directory. Falls back to the repository root when they are spread
+ * across several, which is a legitimate arrangement and not one to guess about.
+ */
+function commonDirOf(sections: unknown): string {
+  const paths = (Array.isArray(sections) ? sections : []).flatMap((section) => {
+    const entry = section as { answerKeyPaths?: unknown };
+    return Array.isArray(entry?.answerKeyPaths) ? (entry.answerKeyPaths as string[]) : [];
+  });
+  if (paths.length === 0) return '';
+
+  const split = paths.map((path) => path.split('/').slice(0, -1));
+  const shared: string[] = [];
+  for (let depth = 0; depth < split[0].length; depth += 1) {
+    const segment = split[0][depth];
+    if (!split.every((parts) => parts[depth] === segment)) break;
+    shared.push(segment);
+  }
+  return shared.join('/');
+}
+
 function FormSkeleton() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 md:p-6">
@@ -1040,72 +1188,44 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
 }
 
 /**
- * What choosing an assignment from the catalogue fills in.
+ * A starting draft for a kind.
  *
- * The directory name is the title, the repository name, and the template repository's name,
- * exactly as `prisma/seed.ts` derives them — that agreement is what lets a catalogue choice
- * fill three fields rather than one.
+ * One per kind rather than one for repository assignments and one for the rest, because
+ * there is no longer a catalogue for a repository assignment to be opened from — every kind
+ * starts from an empty form and the two repositories are pasted in.
+ *
+ * What was already typed carries across, so choosing the kind twice while deciding does not
+ * lose a title. The defaults for the organization and the answer-key repository come from
+ * this course's other repository assignments, which is where they are almost always the same.
  */
 function blankDraft({
-  name,
-  moduleId,
-  moduleTag,
-  githubOrg,
-  rubrics,
-}: {
-  name: string;
-  moduleId: string;
-  moduleTag: string;
-  githubOrg: string;
-  rubrics: { id: string; name: string }[];
-}): FormState {
-  return {
-    kind: 'REPO',
-    title: name,
-    moduleId,
-    moduleTag,
-    completionThreshold: 0.75,
-    dueAt: null,
-    templateRepo: githubOrg ? `${githubOrg}/${name}` : '',
-    assignmentRepoName: name,
-    githubOrg,
-    templateRef: null,
-    runnerPreset: NO_RUNNER,
-    runnerConfig: null,
-    templateDocUrl: '',
-    acceptedFileTypes: ['pdf'],
-    submissionInstructions: '',
-    sections: [aiSection({ rubrics })],
-  };
-}
-
-/**
- * A starting draft for a kind with no catalogue to open from.
- *
- * One hand-graded section, because that is the only mode these kinds have and an assignment
- * needs at least one. What was already typed carries across, so choosing the kind twice while
- * deciding does not lose a title.
- */
-function blankNonRepoDraft({
   kind,
   moduleId,
+  defaults,
+  rubrics,
   existingState,
 }: {
   kind: Kind;
   moduleId: string;
+  defaults: { githubOrg: string | null; answerKeyRepo: string | null };
+  rubrics: { id: string; name: string }[];
   existingState: FormState | null;
 }): FormState {
+  const repo = kind === 'REPO';
+
   return {
     kind,
     title: existingState?.title ?? '',
     moduleId,
-    // No repository, so no answer-keys directory.
-    moduleTag: null,
     completionThreshold: existingState?.completionThreshold ?? 0.75,
     dueAt: existingState?.dueAt ?? null,
-    templateRepo: '',
-    assignmentRepoName: '',
-    githubOrg: '',
+    templateRepo: repo ? (existingState?.templateRepo ?? '') : '',
+    answerKeyRepo: repo
+      ? (existingState?.answerKeyRepo || defaults.answerKeyRepo || '')
+      : '',
+    // Follows the template's own name once one is named — see the effect in `Editor`.
+    assignmentRepoName: repo ? (existingState?.assignmentRepoName ?? '') : '',
+    githubOrg: repo ? (existingState?.githubOrg || defaults.githubOrg || '') : '',
     templateRef: null,
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
@@ -1117,9 +1237,18 @@ function blankNonRepoDraft({
         ? existingState.acceptedFileTypes
         : ['pdf'],
     submissionInstructions: existingState?.submissionInstructions ?? '',
-    sections: existingState?.sections.every((section) => section.grading === 'manual')
-      ? existingState.sections
-      : [{ grading: 'manual', label: '', pointValue: 10 }],
+    /*
+      A repository assignment starts with a section the model grades, and every other kind
+      with one graded by hand — which is not a default but the only mode those kinds have, so
+      offering the other would be offering something the schema refuses.
+    */
+    sections: repo
+      ? (existingState?.sections.every((section) => section.grading === 'ai')
+          ? existingState.sections
+          : [aiSection({ rubrics })])
+      : (existingState?.sections.every((section) => section.grading === 'manual')
+          ? existingState.sections
+          : [{ grading: 'manual', label: '', pointValue: 10 }]),
   };
 }
 
@@ -1128,10 +1257,10 @@ function fromDraft(draft: Draft): FormState {
     kind: draft.kind as Kind,
     title: draft.title,
     moduleId: draft.moduleId,
-    moduleTag: draft.moduleTag,
     completionThreshold: draft.completionThreshold,
     dueAt: draft.dueAt,
     templateRepo: draft.templateRepo ?? '',
+    answerKeyRepo: draft.answerKeyRepo ?? '',
     assignmentRepoName: draft.assignmentRepoName ?? '',
     githubOrg: draft.githubOrg ?? '',
     templateRef: draft.templateRef,

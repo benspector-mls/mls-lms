@@ -1238,11 +1238,22 @@ function ModelMetaBar({ draft }: { draft: Draft }) {
     { label: 'Model', value: typeof meta.provider === 'string' ? meta.provider : '—' },
     { label: 'Prompt', value: typeof meta.promptVersion === 'string' ? meta.promptVersion : '—' },
     {
-      label: 'Assets',
+      label: 'Rubric',
       value:
         typeof meta.gradingAssetsCommitSha === 'string'
           ? shortSha(meta.gradingAssetsCommitSha)
           : '—',
+    },
+    /*
+      A second commit, because the answer keys come from a different repository. Shown rather
+      than folded into the one above: "this report was written against these reference
+      solutions at this commit" is the question an instructor asks when a score looks wrong,
+      and the rubric's commit cannot answer it.
+    */
+    {
+      label: 'Answer keys',
+      value:
+        typeof meta.answerKeyCommitSha === 'string' ? shortSha(meta.answerKeyCommitSha) : '—',
     },
     { label: 'Tokens', value: tokens > 0 ? tokens.toLocaleString() : '—' },
   ];

@@ -95,10 +95,6 @@ model Course {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   cohortTerm String    @map("cohort_term")
-  /// Superseded by the `modules` table and no longer read or written by anything.
-  /// Kept for one release so the backfill that derived those rows can be checked
-  /// against what it came from; dropped once it has been.
-  moduleStructure Json @default("[]") @map("module_structure")
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -266,25 +262,14 @@ model Assignment {
   /// Which module of the course this belongs to. NOT NULL, so an assignment cannot
   /// exist outside one — which is the point of the change that introduced it.
   moduleId String @map("module_id") @db.Uuid
-  /// Which directory inside the answer-keys repository this assignment's reference
-  /// solutions live under — `answer-keys/{moduleTag}/{assignmentRepoName}/`.
-  ///
-  /// This column used to mean two things at once: the course's module, and where the
-  /// answer keys are. `moduleId` took the first job, and this kept the second, which
-  /// is why it is now nullable and meaningful only when `kind` is REPO — a Google Doc
-  /// assignment has no answer-keys directory and never did.
-  ///
-  /// Superseded in turn once an assignment names its own answer-key repository, at
-  /// which point paths are relative to that repository and this goes away.
-  moduleTag String? @map("module_tag")
   kind     AssignmentKind @default(REPO)
   pointValue Int   @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
   /// working-with-assignments.md.
   completionThreshold Float @default(0.75) @map("completion_threshold")
   dueAt    DateTime? @map("due_at") @db.Timestamptz(6)
-  /// The next three are required when `kind` is REPO and null otherwise. The
-  /// requirement is enforced by the Zod schema in lib/assignments/spec.ts rather
+  /// The repository columns below are required when `kind` is REPO and null
+  /// otherwise. The requirement is enforced by the Zod schema in lib/assignments/spec.ts rather
   /// than by the columns, because a column cannot express "required for one kind"
   /// — and a NOT NULL here would force a Google Doc assignment to invent a
   /// repository name.
@@ -295,7 +280,24 @@ model Assignment {
   /// rest.
 
   /// "owner/repo" of the template this assignment is generated from.
+  ///
+  /// Entered as a pasted URL and stored normalized — see lib/assignments/repo-ref.ts.
+  /// It has to be a public repository with GitHub's template flag set: an installation
+  /// token can read a public repository in an organization the App is not installed on,
+  /// and `generate` refuses a repository that is not a template.
   templateRepo String? @map("template_repo")
+  /// "owner/repo" of the repository holding this assignment's reference solutions, and
+  /// the root that `sections[].answerKeyPaths` are relative to.
+  ///
+  /// **Private, in an organization the App is installed on.** Templates are public
+  /// because every student's repository is generated from one; reference solutions are
+  /// not, and nothing about this design publishes them.
+  ///
+  /// Per assignment rather than one repository for the whole program, which is what
+  /// GRADING_ASSETS_REPO used to be for. That variable keeps a narrower job: `rubric.md`,
+  /// `agent-rules.md`, and the sample reports are program-wide prompt code and are still
+  /// read from it.
+  answerKeyRepo String? @map("answer_key_repo")
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
   /// are named `{assignmentRepoName}-{student github login}`.
   assignmentRepoName String? @map("assignment_repo_name")
@@ -346,13 +348,15 @@ model Assignment {
   distributedAt DateTime? @map("distributed_at") @db.Timestamptz(6)
   /// One entry per gradable section this assignment can contain, e.g.
   /// [{ "type": "coding_algorithm", "rubricId": "...",
-  ///    "answerKeyPaths": ["mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
+  ///    "answerKeyPaths": ["answer-keys/mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
   ///    "reportTemplate": "coding-fluency" }]
+  ///
+  /// `answerKeyPaths` are paths inside `answerKeyRepo`, at any depth, exactly as they
+  /// appear in that repository.
   ///
   /// Explicit rather than convention-based because real assignments do not use
   /// consistent {from-scratch,debug,modify}.js filenames, and one pull request
-  /// can contain several gradable sections at once. Unused in Phase 1; the
-  /// grading pipeline reads it in Phase 2.
+  /// can contain several gradable sections at once.
   ///
   /// Two optional fields per entry control test evidence:
   ///   "evidence": "tests"        — absent means no deterministic evidence

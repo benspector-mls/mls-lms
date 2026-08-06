@@ -54,13 +54,13 @@ const ASSIGNMENT_REPO_NAME = TEMPLATE_REPO.split("/")[1];
  * which answer keys are loaded and which rubric is applied. An unknown template
  * therefore fails the seed rather than borrowing another assignment's shape.
  *
- * `moduleTag` is also the first path segment inside the answer-keys repository,
- * which is why the answer key paths are built from it rather than written out.
- * Verify a new entry against
- * `swe-assignment-grading-guides/answer-keys/{moduleTag}/{repo}/`.
+ * `answerKeyDir` is the directory inside the answer-key repository holding this
+ * assignment's reference solutions, which is why the answer key paths are built
+ * from it rather than written out. Verify a new entry against
+ * `{GRADING_ASSETS_REPO}/{answerKeyDir}/{repo}/`.
  */
 type SeedAssignment = {
-  moduleTag: string;
+  answerKeyDir: string;
   /** Names an entry in lib/sandbox/presets.ts. "none" means no runnable tests. */
   runnerPreset: string;
   /**
@@ -111,7 +111,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
   // debug, with the instructor's Jest suite in the template's tests/ directory.
   // This is the assignment Phase 2 is verified against.
   "swe-1-4-loops": {
-    moduleTag: "mod-1-js-fundamentals",
+    answerKeyDir: "answer-keys/mod-1-js-fundamentals",
     runnerPreset: "node-jest",
     sections: (keyDir, rubricId) => [
       {
@@ -149,7 +149,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
   // the assertion was removed from the template instead. Fixing a test that asserted
   // something git cannot carry was smaller than teaching the runner a special case.
   "swe-1-3-node-modules": {
-    moduleTag: "mod-1-js-fundamentals",
+    answerKeyDir: "answer-keys/mod-1-js-fundamentals",
     runnerPreset: "node-jest",
     sections: (keyDir, rubricId) => [
       {
@@ -183,7 +183,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
   // response has nothing to execute and frontend execution is deferred — so the
   // preset is "none" and neither section declares `evidence`.
   "swe-checkpoint-summative-1-4": {
-    moduleTag: "mod-4-dom",
+    answerKeyDir: "answer-keys/mod-4-dom",
     runnerPreset: "none",
     sections: (keyDir, rubricId) => [
       {
@@ -220,20 +220,35 @@ if (!SPEC) {
   throw new Error(
     `No seed definition for template repository "${ASSIGNMENT_REPO_NAME}".\n` +
     `  Known: ${Object.keys(SEED_ASSIGNMENTS).join(", ")}\n` +
-    `  Add an entry to SEED_ASSIGNMENTS in prisma/seed.ts naming its module tag,\n` +
-    `  point value, runner preset, and gradable sections. Seeding it with another\n` +
-    `  assignment's sections would load the wrong answer keys and apply the wrong\n` +
-    `  rubric, so this fails rather than guessing.`,
+    `  Add an entry to SEED_ASSIGNMENTS in prisma/seed.ts naming its answer-key\n` +
+    `  directory, point value, runner preset, and gradable sections. Seeding it with\n` +
+    `  another assignment's sections would load the wrong answer keys and apply the\n` +
+    `  wrong rubric, so this fails rather than guessing.`,
   );
 }
 
 /**
- * Taken from the spec rather than the environment. There is no SEED_MODULE_TAG
- * override, because the tag has to match a real directory in the answer-keys
- * repository and an override can only move it away from the verified value.
- * `mod-1` looks plausible and is wrong; the directory is `mod-1-js-fundamentals`.
+ * Taken from the spec rather than the environment. There is no override, because the
+ * directory has to match a real one in the answer-key repository and an override can only
+ * move it away from the verified value. `mod-1` looks plausible and is wrong; the directory
+ * is `answer-keys/mod-1-js-fundamentals`.
  */
-const MODULE_TAG = SPEC.moduleTag;
+const ANSWER_KEY_DIR = SPEC.answerKeyDir;
+
+/**
+ * Where the seeded assignment's reference solutions live.
+ *
+ * The same repository `GRADING_ASSETS_REPO` names, which is what every existing assignment
+ * uses — an authored assignment can name any repository, and this one names the one the
+ * seeded answer key paths are real in.
+ */
+const ANSWER_KEY_REPO = process.env.GRADING_ASSETS_REPO;
+if (!ANSWER_KEY_REPO) {
+  throw new Error(
+    "GRADING_ASSETS_REPO must be set — the seeded assignment names it as the repository " +
+    "its reference solutions live in. See .env.example.",
+  );
+}
 
 const DATABASE_URL = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error("DIRECT_URL or DATABASE_URL must be set — see .env.example.");
@@ -468,13 +483,13 @@ async function main() {
    * change bought, and exactly the cost of it.
    */
   const MODULE_FOR_KEY_DIR: Record<string, string> = {
-    "mod-1-js-fundamentals": "Mod 1 - JavaScript Fundamentals",
-    "mod-2-oop": "Mod 2 - Object-Oriented Programming",
-    "mod-3-html-css": "Mod 3 - HTML & CSS",
-    "mod-4-dom": "Mod 4 - Interactive & Data-Driven User Interfaces",
-    "mod-5-servers": "Mod 5 - Server-Side Development",
-    "mod-6-databases": "Mod 6 - Databases",
-    "mod-7-react": "Mod 7 - React",
+    "answer-keys/mod-1-js-fundamentals": "Mod 1 - JavaScript Fundamentals",
+    "answer-keys/mod-2-oop": "Mod 2 - Object-Oriented Programming",
+    "answer-keys/mod-3-html-css": "Mod 3 - HTML & CSS",
+    "answer-keys/mod-4-dom": "Mod 4 - Interactive & Data-Driven User Interfaces",
+    "answer-keys/mod-5-servers": "Mod 5 - Server-Side Development",
+    "answer-keys/mod-6-databases": "Mod 6 - Databases",
+    "answer-keys/mod-7-react": "Mod 7 - React",
   };
 
   function moduleIdFor(keyDir: string): string {
@@ -482,7 +497,7 @@ async function main() {
     const id = name ? modulesByName.get(name) : undefined;
     if (!id) {
       throw new Error(
-        `No module for answer-keys directory "${keyDir}". Add it to MODULE_FOR_KEY_DIR, or to ` +
+        `No module for answer key directory "${keyDir}". Add it to MODULE_FOR_KEY_DIR, or to ` +
         `MODULE_NAMES if the course should have a module it does not.`,
       );
     }
@@ -518,17 +533,15 @@ async function main() {
   // repository name, so the sections always describe the assignment actually
   // being seeded.
   //
-  // answerKeyPaths are real paths inside
-  // grading/swe-assignment-grading-guides/answer-keys, built from MODULE_TAG and
-  // ASSIGNMENT_REPO_NAME so they cannot drift from the template repository. Not
-  // read in Phase 1; the grading pipeline uses them in Phase 3.
-  const keyDir = `${MODULE_TAG}/${ASSIGNMENT_REPO_NAME}`;
+  // answerKeyPaths are real paths inside ANSWER_KEY_REPO, built from ANSWER_KEY_DIR and
+  // ASSIGNMENT_REPO_NAME so they cannot drift from the template repository.
+  const keyDir = `${ANSWER_KEY_DIR}/${ASSIGNMENT_REPO_NAME}`;
 
   // Whether those paths exist is deliberately not checked here. It used to be, against a
   // local clone; with assets read over the API that would make seeding require GitHub
   // credentials and a network round trip to produce a warning it can do nothing about.
-  // `npm run verify:assets` checks the catalogue, and `checkAnswerKeyPaths` is what the
-  // authoring form will call — both are better placed for it than a seed script.
+  // `npm run verify:assets` reads the real repository, and `checkAnswerKeyPaths` is what the
+  // authoring form calls — both are better placed for it than a seed script.
 
   /*
     Validated through the same schema the authoring procedures use, so the seeded
@@ -548,10 +561,10 @@ async function main() {
     // `title` stays a separate column because a Google Doc or upload assignment
     // still needs a human-readable name and has no repository to borrow one from.
     title: ASSIGNMENT_REPO_NAME,
-    moduleId: moduleIdFor(MODULE_TAG),
-    moduleTag: MODULE_TAG,
+    moduleId: moduleIdFor(ANSWER_KEY_DIR),
     completionThreshold: 0.75,
     templateRepo: TEMPLATE_REPO,
+    answerKeyRepo: ANSWER_KEY_REPO,
     assignmentRepoName: ASSIGNMENT_REPO_NAME,
     githubOrg: GITHUB_ORG,
     runnerPreset: SPEC.runnerPreset,
@@ -574,10 +587,10 @@ async function main() {
       kind: spec.kind,
       title: spec.title,
       moduleId: spec.moduleId,
-      moduleTag: spec.moduleTag,
       pointValue: spec.pointValue,
       completionThreshold: spec.completionThreshold,
       templateRepo: spec.templateRepo,
+      answerKeyRepo: spec.answerKeyRepo,
       assignmentRepoName: spec.assignmentRepoName,
       githubOrg: spec.githubOrg,
       templateRef: spec.templateRef,
@@ -595,11 +608,11 @@ async function main() {
     update: {
       kind: spec.kind,
       title: spec.title,
-      // Deliberately NOT refreshed: an instructor who moved this assignment to a different
-      // module made a decision, and re-seeding must not undo it. Every other field here is
-      // something the spec is the authority on; the module is not.
-      moduleTag: spec.moduleTag,
+      // `moduleId` is deliberately absent: an instructor who moved this assignment to a
+      // different module made a decision, and re-seeding must not undo it. Every other field
+      // here is something the spec is the authority on; the module is not.
       templateRepo: spec.templateRepo,
+      answerKeyRepo: spec.answerKeyRepo,
       githubOrg: spec.githubOrg,
       pointValue: spec.pointValue,
       runnerPreset: spec.runnerPreset,

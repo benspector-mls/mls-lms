@@ -100,13 +100,55 @@ const repoSpec = {
   kind: AssignmentKind.REPO,
   title: "swe-1-4-loops",
   moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
-  moduleTag: "mod-1-js-fundamentals",
+  answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
   templateRepo: "marcy-lms-test/swe-1-4-loops",
   assignmentRepoName: "swe-1-4-loops",
   githubOrg: "marcy-lms-test",
   runnerPreset: "node-jest",
   sections: [codingSection],
 };
+
+// --- the two repositories an assignment names ---------------------------------
+//
+// Normalized by the schema rather than by the form, so every caller stores one shape. Checked
+// here because it is the only place a URL becomes a column value: if this stopped happening,
+// the form would keep looking right and the column would hold a URL that no GitHub request
+// could be built from.
+check("a pasted template URL is stored as owner/repo",
+  parseAssignmentSpec({
+    ...repoSpec,
+    templateRepo: "https://github.com/marcy-lms-test/swe-1-4-loops/tree/main",
+  }).templateRepo,
+  "marcy-lms-test/swe-1-4-loops");
+check("a pasted answer key URL is too",
+  parseAssignmentSpec({
+    ...repoSpec,
+    answerKeyRepo: "https://github.com/The-Marcy-Lab-School/swe-assignment-grading-guides.git",
+  }).answerKeyRepo,
+  "The-Marcy-Lab-School/swe-assignment-grading-guides");
+check("a repository assignment must name an answer key repository",
+  rejects({ ...repoSpec, answerKeyRepo: undefined }), ["answerKeyRepo"]);
+check("something that is not a repository reference is refused",
+  rejects({ ...repoSpec, answerKeyRepo: "just some words" }), ["answerKeyRepo"]);
+check("a kind with no repository may not name an answer key repository",
+  rejects({
+    kind: AssignmentKind.GOOGLE_DOC,
+    title: "Story Prep Worksheet",
+    moduleId: repoSpec.moduleId,
+    templateDocUrl: "https://docs.google.com/document/d/abc123/view",
+    answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
+    sections: [manualSection],
+  }),
+  ["answerKeyRepo"]);
+// Any depth, because a private repository an instructor made this morning is arranged
+// however they like — the `answer-keys/` prefix in the paths above is a directory in one
+// repository, not a rule.
+check("an answer key path may be at any depth",
+  rejects({
+    ...repoSpec,
+    sections: [{ ...codingSection, answerKeyPaths: ["solutions/2026/spring/mod1/loops.js"] }],
+  }),
+  "accepted");
 
 // --- the total is derived, never entered --------------------------------------
 check("pointValue is the sum of the sections", parseAssignmentSpec(repoSpec).pointValue, 30);
@@ -514,6 +556,12 @@ check("...and the message names the missing column",
 // grading-correct output rather than merely well-formed output.
 // =====================================================================================
 
+/**
+ * A fixed id for the second course this script needs, so a re-run reuses one row rather than
+ * adding another. Nothing else uses it, and the script deletes it before it exits.
+ */
+const ELSEWHERE_COURSE_ID = "e7c1a1d0-0000-4000-8000-00000000ffff";
+
 async function procedures() {
   const { config: loadEnv } = await import("dotenv");
   loadEnv({ path: ".env.local", quiet: true });
@@ -526,7 +574,7 @@ async function procedures() {
   const seeded = await db.assignment.findFirst({
     where: { assignmentRepoName: "swe-1-3-node-modules" },
     select: {
-      id: true, courseId: true, kind: true, title: true, moduleId: true, moduleTag: true,
+      id: true, courseId: true, kind: true, title: true, moduleId: true, answerKeyRepo: true,
       pointValue: true,
       completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
       templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
@@ -561,7 +609,7 @@ async function procedures() {
     kind: seeded.kind,
     title: seeded.title,
     moduleId: seeded.moduleId,
-    moduleTag: seeded.moduleTag,
+    answerKeyRepo: seeded.answerKeyRepo,
     completionThreshold: seeded.completionThreshold,
     dueAt: null,
     templateRepo: seeded.templateRepo,
@@ -610,12 +658,29 @@ async function procedures() {
     catches: the foreign key says the module exists, not that it belongs here. Without this an
     assignment could be filed under another cohort's module and appear in neither course.
   */
-  const elsewhereCourse = await db.course.create({
-    data: { name: "Another course (verify:authoring)", cohortTerm: "Cohort Other" },
+  /*
+    Reused if it is already there, and cleaned up at the end.
+
+    These two rows cannot live in the rolled-back transaction below, because `validateDraft`
+    is called through a caller bound to `db` rather than to the transaction and would not see
+    them. So they are real writes — which means this script has to remove them, and did not:
+    it left a course and a module behind on every run, which is how the seeded course came to
+    have neighbours nobody created on purpose.
+  */
+  const elsewhereCourse = await db.course.upsert({
+    where: { id: ELSEWHERE_COURSE_ID },
+    create: {
+      id: ELSEWHERE_COURSE_ID,
+      name: "Another course (verify:authoring)",
+      cohortTerm: "Cohort Other",
+    },
+    update: {},
     select: { id: true },
   });
-  const foreignModule = await db.module.create({
-    data: { courseId: elsewhereCourse.id, name: "Mod 1 - Somewhere Else", position: 0 },
+  const foreignModule = await db.module.upsert({
+    where: { courseId_name: { courseId: elsewhereCourse.id, name: "Mod 1 - Somewhere Else" } },
+    create: { courseId: elsewhereCourse.id, name: "Mod 1 - Somewhere Else", position: 0 },
+    update: {},
     select: { id: true },
   });
   const crossCourse = await asInstructor.assignments.validateDraft({
@@ -626,6 +691,15 @@ async function procedures() {
   check("a module belonging to another course is refused",
     crossCourse.findings.some((f) => f.path === "moduleId" && f.severity === "error"), true);
 
+  /*
+    A real, readable, public repository that is not a template.
+
+    `octocat/Hello-World` is GitHub's own example repository: it has existed since 2011, it is
+    public, and it is not a template. It also proves the reach a public template buys —
+    nothing has installed this App on `octocat`, and an installation token reads it anyway.
+  */
+  const NOT_A_TEMPLATE_REPO = "octocat/Hello-World";
+
   const badRepo = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
@@ -634,13 +708,86 @@ async function procedures() {
   check("an unreachable template repository is refused",
     badRepo.findings.some((f) => f.path === "templateRepo" && f.severity === "error"), true);
 
+  /*
+    A repository that exists and is readable but is not a template.
+
+    Refused here because `generate` refuses it too, at the moment a student presses Accept —
+    and with a message about the API rather than about the assignment. `marcy-lms-test`
+    itself is an organization rather than a repository, so this uses one that is genuinely
+    an ordinary repository: an easy mistake, since it looks and reads exactly right.
+  */
+  const notATemplate = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: { ...draftFromSeed, templateRepo: NOT_A_TEMPLATE_REPO },
+  });
+  check("a repository that is not a template repository is refused",
+    notATemplate.findings.some((f) =>
+      f.path === "templateRepo" &&
+      f.severity === "error" &&
+      f.message.includes("not a template repository")),
+    true);
+
+  /*
+    A pasted URL and a typed owner/repo are the same field.
+
+    Checked through the procedure rather than only against the parser, because the
+    normalization has to happen before validation reads the value — a draft carrying a URL
+    must pass exactly as one carrying owner/repo does, or the form would have to normalize it
+    first and the server's rule would be the second implementation.
+  */
+  const pastedUrls = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: {
+      ...draftFromSeed,
+      templateRepo: `https://github.com/${seeded.templateRepo}`,
+      answerKeyRepo: `https://github.com/${seeded.answerKeyRepo}.git`,
+    },
+  });
+  check("both repositories may be given as pasted URLs", pastedUrls.canSave, true);
+
+  /*
+    The two answer-key failures that must not be reported as one.
+
+    An organization the App was never installed on and a repository that does not exist both
+    answer 404, and they are not the same thing to the person reading the message: one is a
+    typo fixed in seconds, the other is an installation nobody can perform from a form. If
+    these two messages ever converge, the second reads as the first forever.
+  */
+  const missingKeyRepo = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: {
+      ...draftFromSeed,
+      answerKeyRepo: `${seeded.answerKeyRepo!.split("/")[0]}/no-such-answer-keys`,
+    },
+  });
+  const notInstalled = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: { ...draftFromSeed, answerKeyRepo: "an-org-this-app-is-not-on-xyz/keys" },
+  });
+  const missingMessage =
+    missingKeyRepo.findings.find((f) => f.path === "answerKeyRepo")?.message ?? "";
+  const notInstalledMessage =
+    notInstalled.findings.find((f) => f.path === "answerKeyRepo")?.message ?? "";
+
+  check("an answer key repository that does not exist is refused",
+    missingMessage.includes("Check the name"), true);
+  check("an organization the App is not installed on says so instead",
+    notInstalledMessage.includes("not installed on"), true);
+  check("the two are told apart rather than reported identically",
+    missingMessage !== "" && missingMessage !== notInstalledMessage, true);
+
   const badKey = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
     draft: {
       ...draftFromSeed,
       sections: (seeded.sections as { answerKeyPaths?: string[] }[]).map((s) => ({
-        ...s, answerKeyPaths: ["mod-1-js-fundamentals/swe-1-3-node-modules/typo.js"],
+        ...s,
+        answerKeyPaths: ["answer-keys/mod-1-js-fundamentals/swe-1-3-node-modules/typo.js"],
       })),
     },
   });
@@ -683,7 +830,7 @@ async function procedures() {
     kind: loaded.kind,
     title: loaded.title,
     moduleId: loaded.moduleId,
-    moduleTag: loaded.moduleTag,
+    answerKeyRepo: loaded.answerKeyRepo,
     completionThreshold: loaded.completionThreshold,
     dueAt: loaded.dueAt,
     templateRepo: loaded.templateRepo,
@@ -717,7 +864,7 @@ async function procedures() {
       const after = await tx.assignment.findUnique({
         where: { id: seeded.id },
         select: {
-          title: true, moduleTag: true, pointValue: true, completionThreshold: true,
+          title: true, answerKeyRepo: true, pointValue: true, completionThreshold: true,
           templateRepo: true, assignmentRepoName: true, githubOrg: true, templateRef: true,
           runnerPreset: true, runnerConfig: true, sections: true,
           templateDocUrl: true, submissionInstructions: true,
@@ -726,7 +873,7 @@ async function procedures() {
       check("saving a loaded draft unchanged leaves every column as it was",
         JSON.stringify(after),
         JSON.stringify({
-          title: seeded.title, moduleTag: seeded.moduleTag, pointValue: seeded.pointValue,
+          title: seeded.title, answerKeyRepo: seeded.answerKeyRepo, pointValue: seeded.pointValue,
           completionThreshold: seeded.completionThreshold, templateRepo: seeded.templateRepo,
           assignmentRepoName: seeded.assignmentRepoName, githubOrg: seeded.githubOrg,
           templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
@@ -785,7 +932,7 @@ async function procedures() {
       const authored = await tx.assignment.findUnique({
         where: { id: assignment.id },
         select: {
-          kind: true, title: true, moduleTag: true, pointValue: true, completionThreshold: true,
+          kind: true, title: true, answerKeyRepo: true, pointValue: true, completionThreshold: true,
           templateRepo: true, githubOrg: true, templateRef: true, runnerPreset: true,
           runnerConfig: true, sections: true, distributedAt: true,
         },
@@ -796,14 +943,14 @@ async function procedures() {
       // starts unpublished where the seed publishes immediately.
       check("an authored row matches the seeded one field for field",
         {
-          kind: authored?.kind, title: authored?.title, moduleTag: authored?.moduleTag,
+          kind: authored?.kind, title: authored?.title, answerKeyRepo: authored?.answerKeyRepo,
           pointValue: authored?.pointValue, completionThreshold: authored?.completionThreshold,
           templateRepo: authored?.templateRepo, githubOrg: authored?.githubOrg,
           templateRef: authored?.templateRef, runnerPreset: authored?.runnerPreset,
           runnerConfig: authored?.runnerConfig, sections: authored?.sections,
         },
         {
-          kind: seeded.kind, title: seeded.title, moduleTag: seeded.moduleTag,
+          kind: seeded.kind, title: seeded.title, answerKeyRepo: seeded.answerKeyRepo,
           pointValue: seeded.pointValue, completionThreshold: seeded.completionThreshold,
           templateRepo: seeded.templateRepo, githubOrg: seeded.githubOrg,
           templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
@@ -930,6 +1077,18 @@ async function procedures() {
     { title: seeded.title, published: seeded.distributedAt !== null });
   check("no authored rows survived the rollback",
     await db.assignment.count({ where: { assignmentRepoName: { contains: "-authored" } } }), 0);
+
+  /*
+    The one thing this script writes outside a transaction, removed.
+
+    Checked rather than merely attempted, because the failure is silent and cumulative: a
+    leftover course with a module in it is invisible in the interface a person looks at and
+    shows up much later as a module list nobody recognises. `onDelete: Cascade` from course to
+    modules takes the module with it.
+  */
+  await db.course.deleteMany({ where: { id: ELSEWHERE_COURSE_ID } });
+  check("the other course this script created is gone",
+    await db.course.count({ where: { name: { contains: "(verify:authoring)" } } }), 0);
 }
 
 // Not top-level await: tsx compiles this to CommonJS, which rejects it.

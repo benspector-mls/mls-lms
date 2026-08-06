@@ -31,7 +31,6 @@ export const coursesRouter = createTRPCRouter({
         name: true,
         cohortTerm: true,
         archivedAt: true,
-        moduleStructure: true,
         // Counted here rather than fetched and measured in the interface, so the card
         // does not pull every assignment and enrollment across to say how many there
         // are.

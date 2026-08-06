@@ -1,7 +1,11 @@
 import "server-only";
 
-import { checkAnswerKeyPaths, listAssignmentDirs } from "../grade/assets";
-import { getConfiguredInstallationId, isGithubAppConfigured } from "../github/app-client";
+import { checkAnswerKeyPaths } from "../grade/assets";
+import {
+  getConfiguredInstallationId,
+  installationIdForOwner,
+  isGithubAppConfigured,
+} from "../github/app-client";
 import { getRepo } from "../github/repos";
 import type { db as Db } from "../prisma";
 import {
@@ -173,55 +177,7 @@ export async function validateAssignmentDraft(
     }
   }
 
-  // ---- Answer keys, checked against the repository the pipeline reads ----
-  const keyPaths = aiSections.flatMap(({ section, index }) =>
-    section.answerKeyPaths.map((path) => ({ path, index })));
-
-  if (keyPaths.length > 0) {
-    try {
-      const checked = await checkAnswerKeyPaths(keyPaths.map((entry) => entry.path));
-      checked.forEach((result, position) => {
-        if (result.found) return;
-        const { index } = keyPaths[position];
-        const path = `sections.${index}.answerKeyPaths`;
-        // A traversal is a refusal; a path that simply is not there is a warning, because
-        // grading records it and continues rather than failing.
-        if ((result.reason ?? "").includes("escapes")) error(path, result.reason ?? "Refused.");
-        else warn(path, `${result.path} is not in the answer keys.`);
-      });
-    } catch (err) {
-      warn(
-        "sections",
-        `Could not check the answer keys: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  /*
-    Whether the curriculum still holds a directory for this assignment.
-
-    A warning rather than an error, and surfaced deliberately: an assignment whose directory
-    has gone has been renamed or retired upstream, which is a curriculum change worth seeing
-    on the authoring screen rather than as a grading failure weeks later.
-  */
-  if (spec.assignmentRepoName && spec.moduleTag) {
-    try {
-      const known = await listAssignmentDirs(spec.moduleTag);
-      if (known.length > 0 && !known.includes(spec.assignmentRepoName)) {
-        warn(
-          "assignmentRepoName",
-          `The answer-keys repository has no ${spec.moduleTag}/${spec.assignmentRepoName} ` +
-            `directory, so this assignment has no reference solutions. It may have been ` +
-            `renamed or retired.`,
-        );
-      }
-    } catch {
-      // Already reported by the answer-key check when it matters; a second message about
-      // the same unreachable repository is noise.
-    }
-  }
-
-  // ---- The template repository has to exist and be visible to the App ----
+  // ---- The two repositories an assignment names ----
   if (requiresRepository(spec.kind)) {
     let source;
     try {
@@ -231,24 +187,143 @@ export async function validateAssignmentDraft(
       source = null;
     }
 
-    if (source) {
-      if (!isGithubAppConfigured()) {
-        warn("templateRepo", "The GitHub App is not configured here, so it was not checked.");
-      } else {
-        const [owner, repo] = source.templateRepo.split("/");
-        const found = await getRepo(getConfiguredInstallationId(), { owner, repo });
-        if (!found) {
-          // An error, not a warning: accepting this assignment would fail for every
-          // student, and it fails at the moment a student presses the button.
-          error(
-            "templateRepo",
-            `${source.templateRepo} is not visible to the GitHub App. Check the name, and ` +
-              `that the App is installed on ${owner}.`,
-          );
-        }
-      }
+    if (!isGithubAppConfigured()) {
+      warn("templateRepo", "The GitHub App is not configured here, so it was not checked.");
+    } else if (source) {
+      // Both at once. They are separate organizations, separate installations, and separate
+      // round trips, and an instructor filling in a form should not wait for one to finish
+      // before the other starts.
+      await Promise.all([
+        checkTemplate(source.templateRepo, error),
+        checkAnswerKeyRepo(spec.answerKeyRepo, error),
+      ]);
+    }
+  }
+
+  // ---- Answer keys, checked against the repository this assignment names ----
+  const keyPaths = aiSections.flatMap(({ section, index }) =>
+    section.answerKeyPaths.map((path) => ({ path, index })));
+
+  if (keyPaths.length > 0 && spec.answerKeyRepo) {
+    try {
+      const checked = await checkAnswerKeyPaths(
+        spec.answerKeyRepo,
+        keyPaths.map((entry) => entry.path),
+      );
+      checked.forEach((result, position) => {
+        if (result.found) return;
+        const { index } = keyPaths[position];
+        const path = `sections.${index}.answerKeyPaths`;
+        // A traversal is a refusal; a path that simply is not there is a warning, because
+        // grading records it and continues rather than failing.
+        if ((result.reason ?? "").includes("escapes")) error(path, result.reason ?? "Refused.");
+        else warn(path, `${result.path} is not in ${spec.answerKeyRepo}.`);
+      });
+    } catch (err) {
+      warn(
+        "sections",
+        `Could not check the answer keys: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
   return { findings, pointValue, spec };
+}
+
+type Report = (path: string, message: string) => void;
+
+/**
+ * The template has to be readable by the installation that will generate from it, and it has
+ * to be a template repository.
+ *
+ * Errors rather than warnings, because both fail at the moment a student presses Accept
+ * rather than at grading time — and the student is the one who finds out.
+ *
+ * **Read through the configured installation specifically**, which is the one
+ * `generateRepoFromTemplate` uses. Probing with any installation that happens to be able to
+ * see the repository would answer a different question than the one that matters, and would
+ * pass an assignment whose Accept then fails.
+ *
+ * **Being private is not a failure.** A private template in an organization this
+ * deployment's installation covers generates perfectly well, which is how every assignment
+ * in the sandbox organization works. What being public buys is reach: a public template can
+ * be named wherever it lives, because an installation token reads any public repository.
+ * That distinction belongs in the message on a failed read rather than in a rule that
+ * refuses a working arrangement.
+ *
+ * The template flag is checked because `generate` refuses a repository that is not one, with
+ * a message about the API rather than about the assignment. An ordinary repository is an easy
+ * mistake to make: it looks right, it reads right, and it can be cloned — it just cannot be
+ * generated from.
+ */
+async function checkTemplate(templateRepo: string, error: Report): Promise<void> {
+  const [owner, repo] = templateRepo.split("/");
+  const found = await getRepo(getConfiguredInstallationId(), { owner, repo });
+
+  if (!found) {
+    error(
+      "templateRepo",
+      `${templateRepo} cannot be read, so nothing can be generated from it. Check the ` +
+        `name. If it is private, it has to be in an organization this deployment's GitHub ` +
+        `App installation covers — a public template can be anywhere.`,
+    );
+    return;
+  }
+
+  if (!found.is_template) {
+    error(
+      "templateRepo",
+      `${templateRepo} exists but is not a template repository, so nothing can be ` +
+        `generated from it. Turn on "Template repository" in its settings, or name one ` +
+        `that already is.`,
+    );
+  }
+}
+
+/**
+ * The answer-key repository has to exist and be readable by an installation.
+ *
+ * **Two failures that must not be reported as one.** GitHub answers 404 both for a
+ * repository that does not exist and for a private one in an organization the App was never
+ * installed on, because from an unauthorized caller's position those are the same thing.
+ * They are not the same thing to the person reading the message: the first is a typo they
+ * fix in seconds, and the second is an installation nobody can perform from this form. Told
+ * apart by asking whether the App is installed on the owner at all, which is a question the
+ * App can answer about itself.
+ */
+async function checkAnswerKeyRepo(answerKeyRepo: string | null, error: Report): Promise<void> {
+  if (!answerKeyRepo) return;
+  const [owner, repo] = answerKeyRepo.split("/");
+
+  const installationId = await installationIdForOwner(owner);
+  if (installationId === null) {
+    error(
+      "answerKeyRepo",
+      `The GitHub App is not installed on ${owner}, so nothing there can be read — ` +
+        `including a private repository. Install it on that organization, then try again. ` +
+        `If ${owner} is not where the answer keys live, correct the name.`,
+    );
+    return;
+  }
+
+  const found = await getRepo(installationId, { owner, repo });
+  if (!found) {
+    error(
+      "answerKeyRepo",
+      `${owner} has no repository called ${repo} that this App can see. Check the name — ` +
+        `the App is installed on ${owner}, so a repository that exists there would be ` +
+        `readable unless it was excluded from the installation.`,
+    );
+    return;
+  }
+
+  if (!found.private) {
+    // A warning would be the wrong severity. Reference solutions in a public repository are
+    // available to every student in the program, which is not a configuration detail.
+    error(
+      "answerKeyRepo",
+      `${answerKeyRepo} is public, so its reference solutions can be read by anyone — ` +
+        `including the students being graded against them. Make it private.`,
+    );
+  }
 }

@@ -68,6 +68,7 @@ export async function generateReportForSubmission(
           sections: true,
           kind: true,
           templateRepo: true,
+          answerKeyRepo: true,
           assignmentRepoName: true,
           githubOrg: true,
           pointValue: true,
@@ -281,6 +282,7 @@ export async function generateReportForSubmission(
       cacheWriteTokens: 0,
     };
     let assetsCommitSha: string | null = null;
+    let answerKeyCommitSha: string | null = null;
 
     for (const sectionType of classification.present) {
       const section = findSection(declaredSections, sectionType);
@@ -301,9 +303,13 @@ export async function generateReportForSubmission(
 
       const assets = await loadGradingAssets({
         sectionType,
+        // The assignment's own repository, not one named by the environment. The rubric and
+        // the agent rules still come from the configured one — those are program-wide.
+        answerKeyRepo: submission.assignment.answerKeyRepo,
         answerKeyPaths: section?.answerKeyPaths ?? [],
       });
       assetsCommitSha = assets.commitSha;
+      answerKeyCommitSha = assets.answerKeyCommitSha ?? answerKeyCommitSha;
 
       // Which tests count toward this section, or why there are none. Absent pattern
       // with evidence "tests" means the whole suite counts.
@@ -410,6 +416,12 @@ export async function generateReportForSubmission(
           provider: generator.name,
           promptVersion: PROMPT_VERSION,
           gradingAssetsCommitSha: assetsCommitSha,
+          // The answer keys come from the repository the assignment names, which is a
+          // different repository with its own history. Recorded separately so a report
+          // traces back to the exact reference solutions it was written against, not only
+          // to the rubric — null when the section named no keys.
+          answerKeyRepo: submission.assignment.answerKeyRepo,
+          answerKeyCommitSha,
           usage: usageTotals,
           sectionsGraded: classification.present,
           sectionsNotSubmitted: classification.notSubmitted,

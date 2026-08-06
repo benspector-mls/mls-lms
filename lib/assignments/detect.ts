@@ -32,11 +32,22 @@ const BY_DEPENDENCY: [string, string][] = [
   ["vitest", "node-vitest"],
 ];
 
+/**
+ * What to answer when there is no repository to read yet.
+ *
+ * Exported so the procedure can return it without reaching the network on a field an
+ * instructor is still halfway through typing. `confident: false` is what keeps the form from
+ * applying it — a detection nobody made must not set the runner to `none`.
+ */
+export const NOT_A_REPOSITORY: RunnerDetection = {
+  preset: NO_RUNNER,
+  reason: "That is not a GitHub repository, so nothing was read.",
+  confident: false,
+};
+
 export async function detectRunnerPreset(templateRepo: string): Promise<RunnerDetection> {
   const [owner, repo] = templateRepo.split("/");
-  if (!owner || !repo) {
-    return { preset: NO_RUNNER, reason: "The template repository is not owner/repo.", confident: false };
-  }
+  if (!owner || !repo) return NOT_A_REPOSITORY;
 
   const installationId = getConfiguredInstallationId();
   const read = (path: string) =>
