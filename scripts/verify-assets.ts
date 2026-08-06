@@ -30,7 +30,9 @@ async function main() {
     GradingAssetsError,
     listAnswerKeyEntries,
     listAnswerKeys,
-    checkAnswerKeyPaths,
+    checkAnswerKeyDir,
+    notAReferenceSolution,
+    MAX_ANSWER_KEYS,
   } = await import("../lib/grade/assets");
   const { parseRepoRef } = await import("../lib/assignments/repo-ref");
 
@@ -113,9 +115,10 @@ async function main() {
     `${KEYS}/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals`,
   )!;
   const pastedKeys = await listAnswerKeys(pastedDir.fullName, pastedDir.path);
-  check("the keys under a pasted directory are found without any navigating",
-    pastedKeys.length > 0 && pastedKeys.every((p) => p.startsWith(`${pastedDir.path}/`)),
-    `${pastedKeys.length} found`);
+  check("the keys under a pasted folder are found without any navigating",
+    pastedKeys.paths.length > 0 &&
+      pastedKeys.paths.every((p) => p.startsWith(`${pastedDir.path}/`)),
+    `${pastedKeys.paths.length} found`);
 
   // ---- Browsing the repository an assignment names --------------------------
   //
@@ -157,36 +160,91 @@ async function main() {
     "answer-keys/mod-1-js-fundamentals/swe-1-3-node-modules/madlib-challenge/madlib.js",
   ];
   check(
-    "answer keys match what the seed builds, nested ones included",
-    JSON.stringify([...nested].sort()) === JSON.stringify([...expectedNested].sort()),
-    `got ${JSON.stringify(nested)}`,
+    "a folder resolves to exactly what the seed used to name, nested files included",
+    JSON.stringify([...nested.paths].sort()) === JSON.stringify([...expectedNested].sort()),
+    `got ${JSON.stringify(nested.paths)}`,
   );
-  check(
-    "the paths are repository paths, which is the form sections[].answerKeyPaths stores",
-    nested.every((p) => p.startsWith("answer-keys/mod-1-js-fundamentals/")),
-  );
+  check("nothing in it was skipped", nested.excluded.length === 0,
+    JSON.stringify(nested.excluded));
 
-  const checked = await checkAnswerKeyPaths(answerKeyRepo, [
-    "answer-keys/mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js",
-    "answer-keys/mod-1-js-fundamentals/swe-1-4-loops/does-not-exist.js",
-    "../../../etc/passwd",
-  ]);
-  check("a real answer key is found", checked[0]?.found === true);
-  check("a mistyped answer key is reported, not thrown",
-    checked[1]?.found === false, checked[1]?.reason);
-  // The same guard grading uses, reported per path so one bad entry does not hide the rest.
-  check("a traversal path is refused and the message says so",
-    checked[2]?.found === false && (checked[2]?.reason ?? "").includes("escapes"),
-    checked[2]?.reason);
+  // ---- What "everything in the folder" refuses ------------------------------
+  //
+  // The whole design rests on the folder being the reference set, which is only trustworthy
+  // if the exceptions are both real and visible. This is the assignment that has one: an
+  // archive sitting beside the source files, which would otherwise be base64-decoded into a
+  // prompt as though it were code.
+  const checkpoint = await listAnswerKeys(
+    answerKeyRepo,
+    "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4",
+  );
+  check("an archive in the folder is skipped rather than sent",
+    checkpoint.excluded.some((entry) => entry.path.endsWith("solutions.zip")),
+    JSON.stringify(checkpoint.excluded));
+  check("...and named as an archive, so it is clear it was deliberate",
+    checkpoint.excluded.find((entry) => entry.path.endsWith("solutions.zip"))?.reason ===
+      "an archive");
+  check("the source files beside it are kept",
+    checkpoint.paths.some((p) => p.endsWith("SHORT_RESPONSE.MD")) &&
+      checkpoint.paths.some((p) => p.endsWith("src/main.js")) &&
+      checkpoint.paths.some((p) => p.endsWith("styles.css")),
+    `${checkpoint.paths.length} kept`);
+  check("nothing skipped is also kept",
+    checkpoint.paths.every((p) => !checkpoint.excluded.some((e) => e.path === p)));
+
+  // Pure, so these are the rule itself rather than a repository that happens to hold one of
+  // each. A denylist is used deliberately: an unfamiliar *text* file must be included, since
+  // a reference solution silently left out does not fail, it just makes the grade worse.
+  const refusals: [string, string | null][] = [
+    ["keys/solutions.zip", "an archive"],
+    ["keys/screenshot.png", "an image"],
+    ["keys/rubric.pdf", "a document"],
+    ["keys/walkthrough.mp4", "audio or video"],
+    ["keys/node_modules/left-pad/index.js", "a dependency tree"],
+    ["keys/.DS_Store", "a system file"],
+    ["keys/from-scratch.js", null],
+    ["keys/SHORT_RESPONSE.MD", null],
+    ["keys/styles.css", null],
+    // Not extensions anything here has seen. Included on purpose, which is the point of the
+    // rule being a denylist.
+    ["keys/schema.sql", null],
+    ["keys/solution.py", null],
+    ["keys/template.ejs", null],
+    ["keys/Makefile", null],
+  ];
+  for (const [file, expected] of refusals) {
+    const got = notAReferenceSolution(file);
+    check(`${file} is ${expected ?? "a reference solution"}`, got === expected,
+      `got ${JSON.stringify(got)}`);
+  }
+
+  // ---- What validation tells an instructor ---------------------------------
+  const goodDir = await checkAnswerKeyDir(
+    answerKeyRepo,
+    "answer-keys/mod-1-js-fundamentals/swe-1-4-loops",
+  );
+  check("a real folder is usable", goodDir.ok && goodDir.set.paths.length === 3,
+    goodDir.reason ?? `${goodDir.set.paths.length} files`);
+
+  const goneDir = await checkAnswerKeyDir(answerKeyRepo, "answer-keys/mod-99-nope");
+  check("a folder that is not there is refused and says so",
+    !goneDir.ok && (goneDir.reason ?? "").includes("There is no"), goneDir.reason);
+
+  // A traversal in the column is the one case that must not be reported as a finding an
+  // instructor could shrug at: it is an attempt to read somewhere the assignment does not name.
+  const escapingDir = await checkAnswerKeyDir(answerKeyRepo, "../../../etc");
+  check("a folder escaping the repository is refused",
+    !escapingDir.ok && (escapingDir.reason ?? "").includes("escapes"), escapingDir.reason);
+
+  check("the file limit is a real bound rather than a comment", MAX_ANSWER_KEYS > 0);
 
   // ---- Loading what one section is graded against --------------------------
+  const CHECKPOINT = "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4";
+
   const coldStart = Date.now();
   const assets = await loadGradingAssets({
     sectionType: "short_response",
     answerKeyRepo,
-    answerKeyPaths: [
-      "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/SHORT_RESPONSE.MD",
-    ],
+    answerKeyDir: CHECKPOINT,
   });
   const coldMs = Date.now() - coldStart;
 
@@ -194,7 +252,7 @@ async function main() {
   await loadGradingAssets({
     sectionType: "short_response",
     answerKeyRepo,
-    answerKeyPaths: [],
+    answerKeyDir: CHECKPOINT,
   });
   const warmMs = Date.now() - warmStart;
 
@@ -209,65 +267,80 @@ async function main() {
     `${assets.rubricSection.length} chars`);
   check("the sample report is readable", assets.sampleReport.length > 200,
     `${assets.sampleReport.length} chars`);
-  check("a real answer key is found", assets.answerKeys.length === 1,
-    `${assets.answerKeys.length} found, ${assets.missingAnswerKeys.length} missing`);
+
+  /*
+    Every reference file in the folder, which is the whole mechanism.
+
+    Checked against the listing rather than a hardcoded number, because the point is that the
+    two agree: what the authoring screen showed and what the prompt receives come from the same
+    function, so an instructor who read the list read what the model was given.
+  */
+  check("the prompt gets every reference file in the folder",
+    assets.answerKeys.length === checkpoint.paths.length &&
+      assets.answerKeys.every((key) => checkpoint.paths.includes(key.path)),
+    `${assets.answerKeys.length} loaded against ${checkpoint.paths.length} listed`);
+  check("every one of them has content", assets.answerKeys.every((key) => key.content.length > 0));
+  check("and the archive is reported as excluded rather than absent",
+    assets.excludedAnswerKeys.some((entry) => entry.path.endsWith("solutions.zip")),
+    JSON.stringify(assets.excludedAnswerKeys));
   check("content is cached by commit, so a second read is free", warmMs < coldMs / 2,
     `${coldMs}ms cold, ${warmMs}ms warm`);
 
-  // A section naming no keys reads no second repository, so there is no sha to record and
-  // no request to make. Checked because the alternative — resolving the repository anyway —
-  // would spend a round trip on every short response section in the program.
+  // An assignment with no answer key directory reads no second repository at all: nothing is
+  // resolved and no request is made. Checked because resolving it anyway would spend a round
+  // trip on every section of every assignment that has no reference solutions.
   const noKeys = await loadGradingAssets({
     sectionType: "short_response",
     answerKeyRepo,
-    answerKeyPaths: [],
+    answerKeyDir: null,
   });
-  check("a section with no answer keys records no answer key commit",
-    noKeys.answerKeyCommitSha === null);
+  check("no answer key directory means no answer key commit",
+    noKeys.answerKeyCommitSha === null && noKeys.answerKeys.length === 0);
 
-  // An answer key path that does not exist must be recorded, not thrown: grading
-  // without a reference solution is worse but not useless.
+  // A directory that is not there must be recorded, not thrown: grading without reference
+  // solutions is worse but not useless, and the draft should say so rather than fail.
   const absent = await loadGradingAssets({
     sectionType: "short_response",
     answerKeyRepo,
-    answerKeyPaths: ["answer-keys/mod-4-dom/no-such-assignment/KEY.md"],
+    answerKeyDir: "answer-keys/mod-4-dom/no-such-assignment",
   });
-  check("a missing answer key is recorded rather than fatal",
-    absent.missingAnswerKeys.length === 1 && absent.answerKeys.length === 0);
+  check("a folder that is not there is recorded rather than fatal",
+    absent.answerKeys.length === 0 &&
+      absent.excludedAnswerKeys.some((entry) => entry.reason.includes("no such directory")),
+    JSON.stringify(absent.excludedAnswerKeys));
 
-  // These paths come from a database column, and the repository they address is private, so
+  // The directory comes from a database column, and the repository it addresses is private, so
   // a traversal is a way to read files out of it that no assignment names.
   let escaped = "";
   try {
     await loadGradingAssets({
       sectionType: "short_response",
       answerKeyRepo,
-      answerKeyPaths: ["../../.github/workflows/deploy.yml"],
+      answerKeyDir: "../../.github/workflows",
     });
   } catch (err) {
     escaped = err instanceof GradingAssetsError ? "refused" : String(err);
   }
-  check("a path escaping the repository is refused", escaped === "refused", escaped);
+  check("a folder escaping the repository is refused", escaped === "refused", escaped);
 
   /*
-    Paths with no repository to read them from.
+    A directory with no repository to read it from.
 
-    A section that names keys while the assignment names no repository is a configuration
-    error that would otherwise grade silently without its reference solutions — the exact
-    failure the whole answer-key mechanism exists to prevent.
+    A configuration error that would otherwise grade silently without reference solutions —
+    the exact failure the whole answer key mechanism exists to prevent.
   */
   let orphaned = "";
   try {
     await loadGradingAssets({
       sectionType: "short_response",
       answerKeyRepo: null,
-      answerKeyPaths: ["answer-keys/mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
+      answerKeyDir: CHECKPOINT,
     });
     orphaned = "no error";
   } catch (err) {
     orphaned = err instanceof GradingAssetsError ? "refused" : String(err);
   }
-  check("answer key paths with no repository to read them from are refused",
+  check("an answer key directory with no repository to read it from is refused",
     orphaned === "refused", orphaned);
 
   // A missing rubric section must fail loudly. Grading against nothing would otherwise
@@ -277,7 +350,7 @@ async function main() {
     await loadGradingAssets({
       sectionType: "coding_sql",
       answerKeyRepo,
-      answerKeyPaths: [],
+      answerKeyDir: null,
     });
     missingSection = "no error";
   } catch (err) {

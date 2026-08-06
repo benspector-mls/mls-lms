@@ -134,6 +134,7 @@ function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssi
     dueAt: spec.dueAt,
     templateRepo: spec.templateRepo,
     answerKeyRepo: spec.answerKeyRepo,
+    answerKeyDir: spec.answerKeyDir,
     assignmentRepoName: spec.assignmentRepoName,
     githubOrg: spec.githubOrg,
     templateRef: spec.templateRef,
@@ -669,6 +670,7 @@ export const assignmentsRouter = createTRPCRouter({
           distributedAt: true,
           templateRepo: true,
           answerKeyRepo: true,
+          answerKeyDir: true,
           assignmentRepoName: true,
           githubOrg: true,
           templateRef: true,
@@ -731,13 +733,14 @@ export const assignmentsRouter = createTRPCRouter({
     }),
 
   /**
-   * Every answer key file under one directory, as repository paths ready to store.
+   * What a directory resolves to: the reference files grading will read, and what it skipped.
    *
-   * Separate from `browseAnswerKeys` because it recurses: an instructor chooses a directory
-   * and gets everything under it to tick, rather than descending into each subdirectory to
-   * find the keys that nest — `swe-1-3-node-modules` keeps its under `madlib-challenge/`.
+   * Recursive, because answer keys nest — `swe-1-3-node-modules` keeps two of its three under
+   * `madlib-challenge/`. Read-only, and shown rather than chosen from: an instructor names the
+   * folder and this says what naming it means, which is the same list `loadGradingAssets`
+   * builds at grading time from the same function.
    */
-  answerKeyOptions: instructorProcedure
+  answerKeyPreview: instructorProcedure
     .input(z.object({
       courseId: z.string().uuid(),
       answerKeyRepo: z.string().min(3),
@@ -745,8 +748,9 @@ export const assignmentsRouter = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
-      const { listAnswerKeys } = await import('@/lib/grade/assets');
-      return { paths: await listAnswerKeys(input.answerKeyRepo, input.dir) };
+      const { listAnswerKeys, MAX_ANSWER_KEYS } = await import('@/lib/grade/assets');
+      const set = await listAnswerKeys(input.answerKeyRepo, input.dir);
+      return { ...set, limit: MAX_ANSWER_KEYS };
     }),
 
   /**
@@ -923,6 +927,7 @@ export const assignmentsRouter = createTRPCRouter({
           completionThreshold: true,
           templateRepo: true,
           answerKeyRepo: true,
+          answerKeyDir: true,
           assignmentRepoName: true,
           githubOrg: true,
           templateRef: true,
@@ -974,6 +979,7 @@ export const assignmentsRouter = createTRPCRouter({
         dueAt: input.dueAt ?? null,
         templateRepo: source.templateRepo,
         answerKeyRepo: source.answerKeyRepo,
+        answerKeyDir: source.answerKeyDir,
         assignmentRepoName: input.assignmentRepoName ?? source.assignmentRepoName,
         githubOrg: source.githubOrg,
         templateRef: source.templateRef,

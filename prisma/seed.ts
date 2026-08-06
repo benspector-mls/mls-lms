@@ -54,9 +54,9 @@ const ASSIGNMENT_REPO_NAME = TEMPLATE_REPO.split("/")[1];
  * which answer keys are loaded and which rubric is applied. An unknown template
  * therefore fails the seed rather than borrowing another assignment's shape.
  *
- * `answerKeyDir` is the directory inside the answer-key repository holding this
- * assignment's reference solutions, which is why the answer key paths are built
- * from it rather than written out. Verify a new entry against
+ * `answerKeyDir` is the directory holding the module's answer keys; the assignment's own
+ * folder inside it is named after the template repository, which is where every file is
+ * the reference set. Verify a new entry against
  * `{GRADING_ASSETS_REPO}/{answerKeyDir}/{repo}/`.
  */
 type SeedAssignment = {
@@ -87,7 +87,7 @@ type SeedAssignment = {
    * point value. This map only pre-fills the seeded assignments so the pipeline is
    * testable before the authoring interface exists.
    */
-  sections: (keyDir: string, rubricId: (name: string) => string | undefined) => SeedSection[];
+  sections: (rubricId: (name: string) => string | undefined) => SeedSection[];
 };
 
 /**
@@ -100,7 +100,6 @@ type SeedSection = {
   type: string;
   pointValue: number;
   rubricId?: string;
-  answerKeyPaths?: string[];
   reportTemplate?: string;
   evidence?: string;
   testNamePattern?: string;
@@ -113,7 +112,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
   "swe-1-4-loops": {
     answerKeyDir: "answer-keys/mod-1-js-fundamentals",
     runnerPreset: "node-jest",
-    sections: (keyDir, rubricId) => [
+    sections: (rubricId) => [
       {
         type: "coding_algorithm",
         // Ten questions at 3 points each. The unit is a question, not a file — the
@@ -121,11 +120,6 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
         // separately scored questions.
         pointValue: 30,
         rubricId: rubricId("CODING_ALGORITHM_FLUENCY"),
-        answerKeyPaths: [
-          `${keyDir}/from-scratch.js`,
-          `${keyDir}/modify.js`,
-          `${keyDir}/debug.js`,
-        ],
         reportTemplate: "coding-fluency",
         // The whole suite counts toward this section, so no testNamePattern.
         evidence: "tests",
@@ -151,7 +145,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
   "swe-1-3-node-modules": {
     answerKeyDir: "answer-keys/mod-1-js-fundamentals",
     runnerPreset: "node-jest",
-    sections: (keyDir, rubricId) => [
+    sections: (rubricId) => [
       {
         type: "coding_algorithm",
         // PLACEHOLDER — confirm before grading anyone on this assignment.
@@ -165,11 +159,6 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
         // may have multiple tests or steps
         pointValue: 6,
         rubricId: rubricId("CODING_ALGORITHM_FLUENCY"),
-        answerKeyPaths: [
-          `${keyDir}/modify.js`,
-          `${keyDir}/madlib-challenge/index.js`,
-          `${keyDir}/madlib-challenge/madlib.js`,
-        ],
         reportTemplate: "coding-fluency",
         evidence: "tests",
       },
@@ -185,14 +174,13 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
   "swe-checkpoint-summative-1-4": {
     answerKeyDir: "answer-keys/mod-4-dom",
     runnerPreset: "none",
-    sections: (keyDir, rubricId) => [
+    sections: (rubricId) => [
       {
         type: "short_response",
         // Three technical points for each of 4 questions, plus a single 3-point
         // writing quality score for the submission as a whole.
         pointValue: 15,
         rubricId: rubricId("SHORT_RESPONSE"),
-        answerKeyPaths: [`${keyDir}/SHORT_RESPONSE.MD`],
         reportTemplate: "short-response",
       },
       {
@@ -202,13 +190,6 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
         // are scored against different rubrics and are not meant to be comparable.
         pointValue: 25,
         rubricId: rubricId("CODING_FRONTEND"),
-        answerKeyPaths: [
-          `${keyDir}/src/main.js`,
-          `${keyDir}/src/dom-helpers.js`,
-          `${keyDir}/src/fetch-helpers.js`,
-          `${keyDir}/src/RecipeCollection.js`,
-          `${keyDir}/styles.css`,
-        ],
         reportTemplate: "coding-frontend",
       },
     ],
@@ -533,15 +514,16 @@ async function main() {
   // repository name, so the sections always describe the assignment actually
   // being seeded.
   //
-  // answerKeyPaths are real paths inside ANSWER_KEY_REPO, built from ANSWER_KEY_DIR and
-  // ASSIGNMENT_REPO_NAME so they cannot drift from the template repository.
+  // The folder whose contents are the reference solutions: a real directory inside
+  // ANSWER_KEY_REPO, built from ANSWER_KEY_DIR and ASSIGNMENT_REPO_NAME so it cannot drift
+  // from the template repository.
   const keyDir = `${ANSWER_KEY_DIR}/${ASSIGNMENT_REPO_NAME}`;
 
-  // Whether those paths exist is deliberately not checked here. It used to be, against a
-  // local clone; with assets read over the API that would make seeding require GitHub
-  // credentials and a network round trip to produce a warning it can do nothing about.
-  // `npm run verify:assets` reads the real repository, and `checkAnswerKeyPaths` is what the
-  // authoring form calls — both are better placed for it than a seed script.
+  // Whether it exists is deliberately not checked here. It used to be, against a local clone;
+  // with assets read over the API that would make seeding require GitHub credentials and a
+  // network round trip to produce a warning it can do nothing about. `npm run verify:assets`
+  // reads the real repository, and `checkAnswerKeyDir` is what the authoring form calls —
+  // both are better placed for it than a seed script.
 
   /*
     Validated through the same schema the authoring procedures use, so the seeded
@@ -565,11 +547,12 @@ async function main() {
     completionThreshold: 0.75,
     templateRepo: TEMPLATE_REPO,
     answerKeyRepo: ANSWER_KEY_REPO,
+    answerKeyDir: keyDir,
     assignmentRepoName: ASSIGNMENT_REPO_NAME,
     githubOrg: GITHUB_ORG,
     runnerPreset: SPEC.runnerPreset,
     runnerConfig: SPEC.runnerConfig ?? null,
-    sections: SPEC.sections(keyDir, (name) => rubricsByName.get(name)).map((section) => ({
+    sections: SPEC.sections((name) => rubricsByName.get(name)).map((section) => ({
       grading: "ai" as const,
       ...section,
     })),
@@ -591,6 +574,7 @@ async function main() {
       completionThreshold: spec.completionThreshold,
       templateRepo: spec.templateRepo,
       answerKeyRepo: spec.answerKeyRepo,
+      answerKeyDir: spec.answerKeyDir,
       assignmentRepoName: spec.assignmentRepoName,
       githubOrg: spec.githubOrg,
       templateRef: spec.templateRef,
@@ -613,6 +597,7 @@ async function main() {
       // here is something the spec is the authority on; the module is not.
       templateRepo: spec.templateRepo,
       answerKeyRepo: spec.answerKeyRepo,
+      answerKeyDir: spec.answerKeyDir,
       githubOrg: spec.githubOrg,
       pointValue: spec.pointValue,
       runnerPreset: spec.runnerPreset,

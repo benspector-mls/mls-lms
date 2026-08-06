@@ -383,12 +383,11 @@ export function buildUserPrompt(params: {
     }
   }
 
-  if (assets.missingAnswerKeys.length > 0) {
+  if (assets.answerKeys.length === 0) {
     parts.push(
-      `Note: reference solutions were expected but not found for ` +
-      `${assets.missingAnswerKeys.join(", ")}. Grade against the rubric and the ` +
-      `assignment instructions, and set \`confidence\` to \`"low"\` if their absence ` +
-      `prevented you from assessing correctness.`,
+      `Note: no reference solutions were available for this assignment. Grade against the ` +
+      `rubric and the assignment instructions, and set \`confidence\` to \`"low"\` if their ` +
+      `absence prevented you from assessing correctness.`,
     );
     parts.push("");
   }

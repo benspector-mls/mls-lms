@@ -229,8 +229,6 @@ const aiSectionSchema = z
     type: z.enum(SECTION_TYPES),
     pointValue,
     rubricId: z.string().uuid(),
-    /** Paths inside the assignment's own `answerKeyRepo`, at any depth. */
-    answerKeyPaths: z.array(z.string().min(1)).default([]),
     reportTemplate: z.string().min(1).optional(),
     /** Absent means no deterministic evidence constrains this section. */
     evidence: z.literal("tests").optional(),
@@ -481,6 +479,7 @@ const noRepository = {
    * makes that true rather than merely likely.
    */
   answerKeyRepo: z.null().default(null),
+  answerKeyDir: z.null().default(null),
   assignmentRepoName: z.null().default(null),
   githubOrg: z.null().default(null),
   templateRef: z.null().default(null),
@@ -568,10 +567,31 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
        * The repository holding this assignment's reference solutions, pasted as a URL.
        *
        * Private, in an organization the App is installed on: a public answer-key repository
-       * would publish the solutions. Required even when no section names a path yet, because
-       * the paths are ticked from a listing of it and there is nothing to list without it.
+       * would publish the solutions.
        */
       answerKeyRepo: repoReference("The answer key repository"),
+      /**
+       * The directory inside it whose contents *are* the reference solutions.
+       *
+       * **Every file under it, at any depth, with nothing selected.** That is the whole
+       * mechanism: an instructor pastes the address of the folder they already have open and
+       * there is no second question. The alternative — storing the list of files — is the same
+       * information right up until somebody adds a reference solution to the folder, at which
+       * point the stored list is quietly wrong and nothing says so.
+       *
+       * `""` is the repository root, which is the right answer for a repository holding one
+       * assignment's solutions and nothing else. Recognisable binaries are skipped and the
+       * count is capped, both reported rather than silent — see `lib/grade/assets.ts`.
+       */
+      answerKeyDir: z
+        .string()
+        .default("")
+        .refine(
+          (dir) =>
+            !dir.startsWith("/") &&
+            !dir.split("/").some((segment) => segment === "." || segment === ".."),
+          "must be a path inside the repository, with no leading slash and no . or .. segments",
+        ),
       /**
        * The repository name prefix. Generated repositories are
        * `{assignmentRepoName}-{student github login}`, which is why this cannot change

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { checkAnswerKeyPaths } from "../grade/assets";
+import { checkAnswerKeyDir } from "../grade/assets";
 import {
   getConfiguredInstallationId,
   installationIdForOwner,
@@ -200,28 +200,33 @@ export async function validateAssignmentDraft(
     }
   }
 
-  // ---- Answer keys, checked against the repository this assignment names ----
-  const keyPaths = aiSections.flatMap(({ section, index }) =>
-    section.answerKeyPaths.map((path) => ({ path, index })));
+  /*
+    The answer key directory, checked against the repository the assignment names.
 
-  if (keyPaths.length > 0 && spec.answerKeyRepo) {
+    A warning rather than an error, for the same reason a missing answer key always was: an
+    assignment whose folder is empty or gone still grades, with the model reading the code
+    against the rubric alone. It is worse and it is not nothing, and an instructor should see
+    it on this screen rather than discover it in a report weeks later.
+
+    Skipped when the repository itself could not be read — a second message about the same
+    unreachable repository is noise.
+  */
+  if (aiSections.length > 0 && spec.answerKeyRepo && spec.answerKeyDir !== null) {
     try {
-      const checked = await checkAnswerKeyPaths(
-        spec.answerKeyRepo,
-        keyPaths.map((entry) => entry.path),
-      );
-      checked.forEach((result, position) => {
-        if (result.found) return;
-        const { index } = keyPaths[position];
-        const path = `sections.${index}.answerKeyPaths`;
-        // A traversal is a refusal; a path that simply is not there is a warning, because
-        // grading records it and continues rather than failing.
-        if ((result.reason ?? "").includes("escapes")) error(path, result.reason ?? "Refused.");
-        else warn(path, `${result.path} is not in ${spec.answerKeyRepo}.`);
-      });
+      const checked = await checkAnswerKeyDir(spec.answerKeyRepo, spec.answerKeyDir);
+      if (!checked.ok) warn("answerKeyDir", checked.reason ?? "Could not be read.");
+      else if (checked.set.excluded.length > 0) {
+        // Said out loud, because "everything in the folder" is only trustworthy if the
+        // exceptions are visible. A skipped archive is fine; a skipped answer key is not.
+        warn(
+          "answerKeyDir",
+          `${checked.set.paths.length} reference file(s) will be used. Skipped: ` +
+            `${checked.set.excluded.map((entry) => `${entry.path} (${entry.reason})`).join(", ")}.`,
+        );
+      }
     } catch (err) {
       warn(
-        "sections",
+        "answerKeyDir",
         `Could not check the answer keys: ${err instanceof Error ? err.message : String(err)}`,
       );
     }

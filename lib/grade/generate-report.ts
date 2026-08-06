@@ -69,6 +69,7 @@ export async function generateReportForSubmission(
           kind: true,
           templateRepo: true,
           answerKeyRepo: true,
+          answerKeyDir: true,
           assignmentRepoName: true,
           githubOrg: true,
           pointValue: true,
@@ -306,7 +307,7 @@ export async function generateReportForSubmission(
         // The assignment's own repository, not one named by the environment. The rubric and
         // the agent rules still come from the configured one — those are program-wide.
         answerKeyRepo: submission.assignment.answerKeyRepo,
-        answerKeyPaths: section?.answerKeyPaths ?? [],
+        answerKeyDir: submission.assignment.answerKeyDir,
       });
       assetsCommitSha = assets.commitSha;
       answerKeyCommitSha = assets.answerKeyCommitSha ?? answerKeyCommitSha;

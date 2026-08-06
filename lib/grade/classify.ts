@@ -44,7 +44,6 @@ export type AssignmentSection = {
    */
   pointValue?: number;
   rubricId?: string;
-  answerKeyPaths?: string[];
   reportTemplate?: string;
   /** Absent means no deterministic evidence constrains this section. */
   evidence?: string;

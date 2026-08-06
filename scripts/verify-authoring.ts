@@ -89,7 +89,7 @@ const codingSection = {
   type: "coding_algorithm",
   pointValue: 30,
   rubricId: RUBRIC,
-  answerKeyPaths: ["mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
+
   reportTemplate: "coding-fluency",
   evidence: "tests",
 } as const;
@@ -101,6 +101,7 @@ const repoSpec = {
   title: "swe-1-4-loops",
   moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
   answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
+  answerKeyDir: "answer-keys/mod-1-js-fundamentals/swe-1-4-loops",
   templateRepo: "marcy-lms-test/swe-1-4-loops",
   assignmentRepoName: "swe-1-4-loops",
   githubOrg: "marcy-lms-test",
@@ -140,15 +141,46 @@ check("a kind with no repository may not name an answer key repository",
     sections: [manualSection],
   }),
   ["answerKeyRepo"]);
-// Any depth, because a private repository an instructor made this morning is arranged
-// however they like — the `answer-keys/` prefix in the paths above is a directory in one
-// repository, not a rule.
-check("an answer key path may be at any depth",
+/*
+  The folder, at any depth, and the root.
+
+  Any depth because a private repository an instructor made this morning is arranged however
+  they like — the `answer-keys/` prefix in the existing data is a directory in one repository,
+  not a rule. The root because a repository holding a single assignment's solutions and nothing
+  else needs no subdirectory, and `""` has to mean that rather than "unset".
+*/
+check("an answer key folder may be at any depth",
+  rejects({ ...repoSpec, answerKeyDir: "solutions/2026/spring/mod1" }), "accepted");
+check("the repository root is a legitimate answer key folder",
+  rejects({ ...repoSpec, answerKeyDir: "" }), "accepted");
+check("and it is the default, so a repository of one assignment's keys needs nothing else",
+  parseAssignmentSpec({ ...repoSpec, answerKeyDir: undefined }).answerKeyDir, "");
+// The column is interpolated into a GitHub contents URL, so a traversal is refused where it is
+// written rather than only where it is read.
+check("a folder escaping the repository is refused",
+  rejects({ ...repoSpec, answerKeyDir: "../../../etc" }), ["answerKeyDir"]);
+check("...including one that only climbs out halfway through",
+  rejects({ ...repoSpec, answerKeyDir: "answer-keys/../../etc" }), ["answerKeyDir"]);
+check("an absolute path is refused",
+  rejects({ ...repoSpec, answerKeyDir: "/etc/passwd" }), ["answerKeyDir"]);
+check("a kind with no repository may not name an answer key folder",
+  rejects({
+    kind: AssignmentKind.GOOGLE_DOC,
+    title: "Story Prep Worksheet",
+    moduleId: repoSpec.moduleId,
+    templateDocUrl: "https://docs.google.com/document/d/abc123/view",
+    answerKeyDir: "answer-keys/whatever",
+    sections: [manualSection],
+  }),
+  ["answerKeyDir"]);
+// Sections no longer name files at all, so one that tries is refused by `.strict()`. That is
+// what makes a stale ticked list impossible rather than merely discouraged.
+check("a section may not name answer key files",
   rejects({
     ...repoSpec,
-    sections: [{ ...codingSection, answerKeyPaths: ["solutions/2026/spring/mod1/loops.js"] }],
+    sections: [{ ...codingSection, answerKeyPaths: ["a/b.js"] }],
   }),
-  "accepted");
+  ["sections.0:answerKeyPaths"]);
 
 // --- the total is derived, never entered --------------------------------------
 check("pointValue is the sum of the sections", parseAssignmentSpec(repoSpec).pointValue, 30);
@@ -202,8 +234,8 @@ check("a manual section may not carry a rubric",
   rejects({ ...repoSpec, sections: [{ ...manualSection, rubricId: RUBRIC }] }),
   ["sections.0:rubricId"]);
 check("a manual section may not carry answer keys",
-  rejects({ ...repoSpec, sections: [{ ...manualSection, answerKeyPaths: ["a/b.js"] }] }),
-  ["sections.0:answerKeyPaths"]);
+  rejects({ ...repoSpec, sections: [{ ...manualSection, rubricId: RUBRIC }] }),
+  ["sections.0:rubricId"]);
 check("a manual section may not claim test evidence",
   rejects({ ...repoSpec, sections: [{ ...manualSection, evidence: "tests" }] }),
   ["sections.0:evidence"]);
@@ -574,7 +606,7 @@ async function procedures() {
   const seeded = await db.assignment.findFirst({
     where: { assignmentRepoName: "swe-1-3-node-modules" },
     select: {
-      id: true, courseId: true, kind: true, title: true, moduleId: true, answerKeyRepo: true,
+      id: true, courseId: true, kind: true, title: true, moduleId: true, answerKeyRepo: true, answerKeyDir: true,
       pointValue: true,
       completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
       templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
@@ -610,6 +642,7 @@ async function procedures() {
     title: seeded.title,
     moduleId: seeded.moduleId,
     answerKeyRepo: seeded.answerKeyRepo,
+    answerKeyDir: seeded.answerKeyDir,
     completionThreshold: seeded.completionThreshold,
     dueAt: null,
     templateRepo: seeded.templateRepo,
@@ -780,21 +813,24 @@ async function procedures() {
   check("the two are told apart rather than reported identically",
     missingMessage !== "" && missingMessage !== notInstalledMessage, true);
 
-  const badKey = await asInstructor.assignments.validateDraft({
+  /*
+    A folder that is not in the repository.
+
+    A warning rather than a refusal, and deliberately: an assignment whose folder has been
+    renamed or emptied upstream still grades, with the model reading the code against the
+    rubric alone. It is worse and it is not nothing, so it belongs on this screen rather than
+    in a report weeks later.
+  */
+  const badDir = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
-    draft: {
-      ...draftFromSeed,
-      sections: (seeded.sections as { answerKeyPaths?: string[] }[]).map((s) => ({
-        ...s,
-        answerKeyPaths: ["answer-keys/mod-1-js-fundamentals/swe-1-3-node-modules/typo.js"],
-      })),
-    },
+    draft: { ...draftFromSeed, answerKeyDir: `${seeded.answerKeyDir}-does-not-exist` },
   });
-  check("a mistyped answer key is a warning, not a refusal",
+  check("an answer key folder that is not there is a warning, not a refusal",
     {
-      warns: badKey.findings.some((f) => f.severity === "warning" && f.message.includes("typo.js")),
-      canSave: badKey.canSave,
+      warns: badDir.findings.some(
+        (f) => f.severity === "warning" && f.path === "answerKeyDir"),
+      canSave: badDir.canSave,
     },
     { warns: true, canSave: true });
 
@@ -831,6 +867,7 @@ async function procedures() {
     title: loaded.title,
     moduleId: loaded.moduleId,
     answerKeyRepo: loaded.answerKeyRepo,
+    answerKeyDir: loaded.answerKeyDir,
     completionThreshold: loaded.completionThreshold,
     dueAt: loaded.dueAt,
     templateRepo: loaded.templateRepo,
@@ -864,7 +901,7 @@ async function procedures() {
       const after = await tx.assignment.findUnique({
         where: { id: seeded.id },
         select: {
-          title: true, answerKeyRepo: true, pointValue: true, completionThreshold: true,
+          title: true, answerKeyRepo: true, answerKeyDir: true, pointValue: true, completionThreshold: true,
           templateRepo: true, assignmentRepoName: true, githubOrg: true, templateRef: true,
           runnerPreset: true, runnerConfig: true, sections: true,
           templateDocUrl: true, submissionInstructions: true,
@@ -873,7 +910,8 @@ async function procedures() {
       check("saving a loaded draft unchanged leaves every column as it was",
         JSON.stringify(after),
         JSON.stringify({
-          title: seeded.title, answerKeyRepo: seeded.answerKeyRepo, pointValue: seeded.pointValue,
+          title: seeded.title, answerKeyRepo: seeded.answerKeyRepo,
+          answerKeyDir: seeded.answerKeyDir, pointValue: seeded.pointValue,
           completionThreshold: seeded.completionThreshold, templateRepo: seeded.templateRepo,
           assignmentRepoName: seeded.assignmentRepoName, githubOrg: seeded.githubOrg,
           templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
@@ -932,7 +970,7 @@ async function procedures() {
       const authored = await tx.assignment.findUnique({
         where: { id: assignment.id },
         select: {
-          kind: true, title: true, answerKeyRepo: true, pointValue: true, completionThreshold: true,
+          kind: true, title: true, answerKeyRepo: true, answerKeyDir: true, pointValue: true, completionThreshold: true,
           templateRepo: true, githubOrg: true, templateRef: true, runnerPreset: true,
           runnerConfig: true, sections: true, distributedAt: true,
         },
@@ -944,6 +982,7 @@ async function procedures() {
       check("an authored row matches the seeded one field for field",
         {
           kind: authored?.kind, title: authored?.title, answerKeyRepo: authored?.answerKeyRepo,
+          answerKeyDir: authored?.answerKeyDir,
           pointValue: authored?.pointValue, completionThreshold: authored?.completionThreshold,
           templateRepo: authored?.templateRepo, githubOrg: authored?.githubOrg,
           templateRef: authored?.templateRef, runnerPreset: authored?.runnerPreset,
@@ -951,6 +990,7 @@ async function procedures() {
         },
         {
           kind: seeded.kind, title: seeded.title, answerKeyRepo: seeded.answerKeyRepo,
+          answerKeyDir: seeded.answerKeyDir,
           pointValue: seeded.pointValue, completionThreshold: seeded.completionThreshold,
           templateRepo: seeded.templateRepo, githubOrg: seeded.githubOrg,
           templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,

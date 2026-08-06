@@ -125,7 +125,7 @@ async function main() {
     const assets = await loadGradingAssets({
       sectionType: "short_response",
       answerKeyRepo: null,
-      answerKeyPaths: [],
+      answerKeyDir: null,
     });
 
     const response = await generator.generate({

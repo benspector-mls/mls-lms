@@ -20,9 +20,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { parseRepoRef, repoNameFromRef, repoPathFromRef } from '@/lib/assignments/repo-ref';
+import {
+  normalizeRepoRef,
+  parseRepoRef,
+  repoNameFromRef,
+  repoPathFromRef,
+} from '@/lib/assignments/repo-ref';
 import { RUBRIC_NAME_BY_SECTION_TYPE } from '@/lib/assignments/spec';
 import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { NO_RUNNER, RUNNER_PRESETS } from '@/lib/sandbox/presets';
@@ -90,6 +94,14 @@ type FormState = {
   templateRepo: string;
   /** As pasted, and only a REPO assignment has one. */
   answerKeyRepo: string;
+  /**
+   * The directory inside it whose contents are the reference solutions. "" is the root.
+   *
+   * Part of the draft rather than local state, because it is stored: every file under it is
+   * what grading reads, so it is the assignment's answer to "where are the solutions" and not
+   * a place the form happens to be looking.
+   */
+  answerKeyDir: string;
   assignmentRepoName: string;
   githubOrg: string;
   templateRef: string | null;
@@ -159,6 +171,7 @@ function toDraft(state: FormState): unknown {
       */
       templateRepo: state.templateRepo,
       answerKeyRepo: state.answerKeyRepo,
+      answerKeyDir: state.answerKeyDir,
       assignmentRepoName: state.assignmentRepoName,
       githubOrg: state.githubOrg,
       templateRef: state.templateRef,
@@ -267,18 +280,6 @@ function Editor({
         }),
   );
 
-  /*
-    Which directory of the answer-key repository is being looked at.
-
-    Not part of the draft, because it is not saved: what gets stored is the paths that were
-    ticked, and the directory they were ticked from is scaffolding. Editing an assignment
-    opens at the directory its existing keys are in, which is almost always where a
-    correction belongs.
-  */
-  const [answerKeyDir, setAnswerKeyDir] = React.useState<string>(() =>
-    existing ? commonDirOf(existing.sections) : '',
-  );
-
   // Held outside `state` because a kind can be chosen before the rest of the form is filled
   // in, and switching it rebuilds the draft into that kind's shape.
   const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? 'REPO');
@@ -292,16 +293,24 @@ function Editor({
   }, [state]);
 
   /*
-    The answer-key repository the *settled* draft names, so the browser does not issue a
-    request per keystroke while a URL is being pasted.
+    Read off the *settled* draft, so the listing does not issue a request per keystroke while a
+    URL is being pasted.
   */
   const answerKeyRepo = isRepoKind(kind) ? (settled?.answerKeyRepo ?? '') : '';
+  const answerKeyDir = state?.answerKeyDir ?? '';
 
+  /*
+    What the named directory resolves to: the files grading will read, and what it skipped.
+
+    Read-only. Nothing is chosen here — the folder *is* the answer, and this says what naming
+    it means. It is the same function `loadGradingAssets` calls at grading time, so what an
+    instructor is shown is what the model will be given rather than a second opinion about it.
+  */
   const answerKeys = useQuery({
-    ...trpc.assignments.answerKeyOptions.queryOptions({
+    ...trpc.assignments.answerKeyPreview.queryOptions({
       courseId,
       answerKeyRepo,
-      dir: answerKeyDir,
+      dir: settled?.answerKeyDir ?? '',
     }),
     enabled: answerKeyRepo.length > 0,
   });
@@ -322,52 +331,41 @@ function Editor({
     enabled: !existing && Boolean(settled?.templateRepo),
   });
 
-  const applied = React.useRef<{ keys?: string; runner?: string; dir?: string }>({});
+  const applied = React.useRef<{ runner?: string; pasted?: string }>({});
 
   /*
-    A pasted address that pointed inside the repository opens there.
+    A pasted address that points inside the repository *is* the answer.
 
     `https://github.com/org/guides/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-…` says
-    both which repository and which directory, so there is nothing left to search for — the
-    keys under it are then ticked by the effect below without a single click. A root URL
-    carries no path and lands at the root, which is the right answer for a repository holding
-    one assignment's solutions.
+    both which repository and which folder, and every file under that folder is the reference
+    set — so pasting the address of the folder an instructor already has open finishes the
+    question rather than starting a search.
 
-    Guarded on the exact string that was pasted, so this fires once per paste. An instructor
-    who then navigates somewhere else keeps that place rather than being pulled back on the
-    next keystroke elsewhere in the form.
+    Two cases, and they differ:
+
+    - The address carries a path: take it.
+    - It does not, but names a *different* repository than before: reset to the root, because a
+      directory from the previous repository almost certainly does not exist in this one.
+
+    Otherwise the directory is left alone, so an instructor who navigated somewhere keeps that
+    place rather than being pulled back by an unrelated keystroke. Guarded on the exact pasted
+    string, so this settles once per paste.
   */
   React.useEffect(() => {
     const pasted = settled?.answerKeyRepo;
-    if (!pasted || applied.current.dir === pasted) return;
-    applied.current.dir = pasted;
+    if (pasted === undefined || applied.current.pasted === pasted) return;
+    const previous = applied.current.pasted;
+    applied.current.pasted = pasted;
+
     const within = repoPathFromRef(pasted);
-    if (within) setAnswerKeyDir(within);
-  }, [settled?.answerKeyRepo]);
+    const changedRepository =
+      previous !== undefined && normalizeRepoRef(previous) !== normalizeRepoRef(pasted);
 
-  React.useEffect(() => {
-    const paths = answerKeys.data?.paths;
-    if (!paths || paths.length === 0) return;
-    // Keyed on repository and directory together, so navigating somewhere else offers that
-    // directory's keys rather than nothing.
-    const key = `${answerKeyRepo}:${answerKeyDir}`;
-    if (applied.current.keys === key) return;
-
-    applied.current.keys = key;
-    setState((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        sections: prev.sections.map((section) =>
-          // Only a section that has none: editing an existing assignment must not have its
-          // deliberate subset replaced by everything in the directory.
-          section.grading === 'ai' && section.answerKeyPaths.length === 0
-            ? { ...section, answerKeyPaths: paths }
-            : section,
-        ),
-      };
-    });
-  }, [answerKeys.data?.paths, answerKeyRepo, answerKeyDir, setState]);
+    if (within) setState((prev) => (prev ? { ...prev, answerKeyDir: within } : prev));
+    else if (changedRepository) {
+      setState((prev) => (prev ? { ...prev, answerKeyDir: '' } : prev));
+    }
+  }, [settled?.answerKeyRepo, setState]);
 
   React.useEffect(() => {
     const template = settled?.templateRepo;
@@ -656,6 +654,30 @@ function Editor({
                   <NormalizedAs value={state.answerKeyRepo} showPath />
                 </Field>
 
+                {/*
+                  The folder, and what naming it means.
+
+                  Every file under it is the reference set — nothing is selected. So this shows
+                  the resolved list rather than offering one: the same function grading calls,
+                  so what an instructor reads here is what the model will be given, and a
+                  reference file added to the folder later is used without anybody returning to
+                  this screen.
+                */}
+                <Field
+                  label="Reference solutions"
+                  findings={fieldFindings('answerKeyDir')}
+                  hint="Every file under this folder, at any depth, is sent to the model as reference — never shown to the student. Paste the folder's address above, or walk to it here."
+                >
+                  <AnswerKeyBrowser
+                    courseId={courseId}
+                    answerKeyRepo={state.answerKeyRepo}
+                    dir={answerKeyDir}
+                    onNavigate={(dir) => setState({ ...state, answerKeyDir: dir })}
+                    resolved={answerKeys.data ?? null}
+                    loading={answerKeys.isFetching}
+                  />
+                </Field>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Organization"
@@ -842,38 +864,11 @@ function Editor({
               </Field>
               )}
 
-              {/*
-                Where the reference solutions are, browsed rather than typed.
-
-                The one piece of the old catalogue that still earns its keep. A mistyped answer
-                key path is not an error anybody sees — it is a report written confidently
-                without the solution it should have been compared against — so the paths a
-                section offers come from a listing of the repository the assignment names.
-              */}
-              {isRepoKind(state.kind) && (
-                <Field
-                  label="Where the reference solutions are"
-                  hint="Navigate to the directory holding this assignment's answer keys. What is inside it, at any depth, is what each section can tick."
-                >
-                  <AnswerKeyBrowser
-                    courseId={courseId}
-                    answerKeyRepo={state.answerKeyRepo}
-                    dir={answerKeyDir}
-                    onNavigate={setAnswerKeyDir}
-                    fileCount={answerKeys.data?.paths.length ?? 0}
-                    loading={answerKeys.isFetching}
-                  />
-                </Field>
-              )}
-
-              {isRepoKind(state.kind) && <Separator />}
-
               {state.sections.map((section, index) => (
                 <SectionEditor
                   key={index}
                   section={section}
                   index={index}
-                  answerKeyOptions={answerKeys.data?.paths ?? []}
                   rubrics={context.rubrics}
                   findings={findings}
                   hasRunner={state.runnerPreset !== NO_RUNNER}
@@ -1060,30 +1055,36 @@ function NormalizedAs({ value, showPath = false }: { value: string; showPath?: b
 }
 
 /**
- * Walking the answer-key repository one directory at a time.
+ * The folder whose contents are the reference solutions, and what those turn out to be.
  *
- * Directories only. Files are not listed here because they are not chosen here — each
- * section ticks from everything under the chosen directory, which is what makes nested keys
- * findable: `swe-1-3-node-modules` keeps its under `madlib-challenge/`, and a picker showing
- * one level would silently omit them.
+ * Two jobs in one control, because they are one question. The breadcrumb and the subdirectory
+ * buttons are how a folder is reached when its address was not pasted; the list underneath is
+ * what naming that folder means. **Nothing here is a choice** — the files are shown, not
+ * offered, because every one of them is used.
  *
- * A repository that cannot be read shows nothing and says nothing. The validation findings
- * beneath the form are what explain why — and they distinguish a name that is wrong from an
- * organization the App was never installed on, which this could not.
+ * That is what makes the list worth showing rather than a count. "17 files" says nothing about
+ * whether the right folder was named; seeing `from-scratch.js`, `modify.js`, `debug.js` says it
+ * immediately, and seeing `solutions.zip — an archive` in the skipped line says the exclusion
+ * happened rather than leaving it to be assumed.
+ *
+ * A repository that cannot be read shows nothing and says nothing here. The validation findings
+ * beneath the form explain why, and they distinguish a name that is wrong from an organization
+ * the App was never installed on, which this could not.
  */
 function AnswerKeyBrowser({
   courseId,
   answerKeyRepo,
   dir,
   onNavigate,
-  fileCount,
+  resolved,
   loading,
 }: {
   courseId: string;
   answerKeyRepo: string;
   dir: string;
   onNavigate: (dir: string) => void;
-  fileCount: number;
+  /** What the folder resolves to, from the same function grading calls. */
+  resolved: { paths: string[]; excluded: { path: string; reason: string }[]; missing: boolean; limit: number } | null;
   loading: boolean;
 }) {
   const trpc = useTRPC();
@@ -1101,7 +1102,7 @@ function AnswerKeyBrowser({
   if (!normalized) {
     return (
       <p className="text-sm text-muted-foreground">
-        Name an answer key repository above and its directories appear here.
+        Name an answer key repository above and its folders appear here.
       </p>
     );
   }
@@ -1110,7 +1111,7 @@ function AnswerKeyBrowser({
   const dirs = (listing.data?.entries ?? []).filter((entry) => entry.type === 'dir');
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+    <div className="flex flex-col gap-2.5 rounded-md border border-border p-3">
       {/* Every ancestor is clickable, so going back up is one click rather than several. */}
       <div className="flex flex-wrap items-center gap-1 text-xs">
         <button
@@ -1140,9 +1141,7 @@ function AnswerKeyBrowser({
         <p className="text-sm text-muted-foreground">
           There is no <code>{dir}</code> in this repository. It may have been renamed.
         </p>
-      ) : dirs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No subdirectories here.</p>
-      ) : (
+      ) : dirs.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {dirs.map((entry) => (
             <Button
@@ -1157,41 +1156,54 @@ function AnswerKeyBrowser({
             </Button>
           ))}
         </div>
+      ) : null}
+
+      {/* What will actually be sent. Shown, not offered. */}
+      {loading || resolved === null ? (
+        <p className="text-xs text-muted-foreground">Reading this folder…</p>
+      ) : resolved.missing ? (
+        <p className="text-xs text-muted-foreground">
+          This folder is not in the repository.
+        </p>
+      ) : resolved.paths.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Nothing here can be used as a reference solution. The assignment can still be graded,
+          with the model reading the code against the rubric alone.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground">
+            {resolved.paths.length === 1
+              ? '1 reference file, sent to the model:'
+              : `${resolved.paths.length} reference files, sent to the model:`}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {resolved.paths.map((path) => (
+              // Relative to the folder, because the folder is already named in the breadcrumb
+              // above and repeating it on every row makes the shape of the set harder to read.
+              <li key={path} className="font-mono text-xs text-muted-foreground">
+                {dir === '' ? path : path.slice(dir.length + 1)}
+              </li>
+            ))}
+          </ul>
+          {resolved.paths.length > resolved.limit && (
+            <p className="text-xs text-destructive">
+              Only the first {resolved.limit} would be used. Name a folder further down.
+            </p>
+          )}
+        </div>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        {loading
-          ? 'Reading the files here…'
-          : fileCount === 0
-            ? 'No files under this directory, so there is nothing for a section to tick.'
-            : `${fileCount} file${fileCount === 1 ? '' : 's'} under this directory, offered to every section below.`}
-      </p>
+      {resolved !== null && resolved.excluded.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Skipped:{' '}
+          {resolved.excluded
+            .map((entry) => `${dir === '' ? entry.path : entry.path.slice(dir.length + 1)} (${entry.reason})`)
+            .join(', ')}
+        </p>
+      )}
     </div>
   );
-}
-
-/**
- * The directory an existing assignment's answer keys are in, so editing opens there.
- *
- * The longest prefix every stored path shares, which for an assignment whose keys all live
- * in one directory is that directory. Falls back to the repository root when they are spread
- * across several, which is a legitimate arrangement and not one to guess about.
- */
-function commonDirOf(sections: unknown): string {
-  const paths = (Array.isArray(sections) ? sections : []).flatMap((section) => {
-    const entry = section as { answerKeyPaths?: unknown };
-    return Array.isArray(entry?.answerKeyPaths) ? (entry.answerKeyPaths as string[]) : [];
-  });
-  if (paths.length === 0) return '';
-
-  const split = paths.map((path) => path.split('/').slice(0, -1));
-  const shared: string[] = [];
-  for (let depth = 0; depth < split[0].length; depth += 1) {
-    const segment = split[0][depth];
-    if (!split.every((parts) => parts[depth] === segment)) break;
-    shared.push(segment);
-  }
-  return shared.join('/');
 }
 
 function FormSkeleton() {
@@ -1212,7 +1224,6 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
     type,
     pointValue: 30,
     rubricId: rubrics.find((r) => r.name === RUBRIC_NAME_BY_SECTION_TYPE[type])?.id ?? '',
-    answerKeyPaths: [],
     reportTemplate: 'coding-fluency',
   };
 }
@@ -1253,6 +1264,8 @@ function blankDraft({
     answerKeyRepo: repo
       ? (existingState?.answerKeyRepo || defaults.answerKeyRepo || '')
       : '',
+    // The root until an address with a path is pasted, or a folder is chosen below.
+    answerKeyDir: repo ? (existingState?.answerKeyDir ?? '') : '',
     // Follows the template's own name once one is named — see the effect in `Editor`.
     assignmentRepoName: repo ? (existingState?.assignmentRepoName ?? '') : '',
     githubOrg: repo ? (existingState?.githubOrg || defaults.githubOrg || '') : '',
@@ -1291,6 +1304,7 @@ function fromDraft(draft: Draft): FormState {
     dueAt: draft.dueAt,
     templateRepo: draft.templateRepo ?? '',
     answerKeyRepo: draft.answerKeyRepo ?? '',
+    answerKeyDir: draft.answerKeyDir ?? '',
     assignmentRepoName: draft.assignmentRepoName ?? '',
     githubOrg: draft.githubOrg ?? '',
     templateRef: draft.templateRef,

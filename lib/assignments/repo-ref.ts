@@ -35,10 +35,10 @@ export type RepoRef = {
    * `…/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals` says both
    * which repository and where in it, and there is nothing left to search for.
    *
-   * **Not part of the repository's identity.** `fullName` is what a column stores; this only
-   * decides where a listing starts, because `sections[].answerKeyPaths` already holds full
-   * repository paths. A root URL carrying no path is not a lesser answer — it is the right one
-   * for a repository that holds a single assignment's solutions and nothing else.
+   * Stored in its own column, `answerKeyDir`, separately from the repository — one fact each,
+   * because the repository decides which installation token reads it and the path decides
+   * which files. A root URL carrying no path is not a lesser answer: it is the right one for a
+   * repository that holds a single assignment's solutions and nothing else.
    */
   path: string;
 };

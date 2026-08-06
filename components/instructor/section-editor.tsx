@@ -4,7 +4,6 @@ import { Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -21,10 +20,13 @@ import { sectionLabel } from '@/lib/status';
  * One gradable section of an assignment being authored.
  *
  * Two shapes, because a section is graded one of two ways and they need different fields. An
- * AI-graded section carries a type, a rubric, and answer keys; a manually graded one carries
- * a label and a point value and nothing else. The fields that do not apply are absent rather
- * than disabled — a Google Doc reflection has no answer keys in any sense, so showing an
- * empty answer-key list would invite someone to look for the missing ones.
+ * AI-graded section carries a type and a rubric; a manually graded one carries a label and a
+ * point value and nothing else. The fields that do not apply are absent rather than disabled.
+ *
+ * **A section does not name its reference solutions.** Those are every file under the folder
+ * the assignment names, which is stated once above this editor rather than per section — so
+ * there is nothing here to tick, and no way to author a section whose ticked list has gone
+ * stale against the folder it came from.
  *
  * Nothing here is typed by hand that can be chosen instead: the section type is a select, and
  * the rubric follows from it rather than being a third thing to get right.
@@ -36,7 +38,6 @@ export type SectionDraft =
       type: (typeof SECTION_TYPES)[number];
       pointValue: number;
       rubricId: string;
-      answerKeyPaths: string[];
       reportTemplate?: string;
       evidence?: 'tests';
       testNamePattern?: string;
@@ -46,7 +47,6 @@ export type SectionDraft =
 export function SectionEditor({
   section,
   index,
-  answerKeyOptions,
   rubrics,
   findings,
   hasRunner,
@@ -55,8 +55,6 @@ export function SectionEditor({
 }: {
   section: SectionDraft;
   index: number;
-  /** Every answer key the curriculum holds for this assignment, for ticking. */
-  answerKeyOptions: string[];
   rubrics: { id: string; name: string }[];
   findings: { path: string; message: string; severity: 'error' | 'warning' }[];
   /** False when the assignment runs no tests, which makes test evidence meaningless. */
@@ -146,42 +144,6 @@ export function SectionEditor({
               onChange={(pointValue) => onChange({ ...section, pointValue })}
             />
           </div>
-
-          <Field
-            label="Reference solutions"
-            findings={fieldFindings('answerKeyPaths')}
-            hint={
-              answerKeyOptions.length === 0
-                ? 'None under the directory chosen above. It can still be graded, with the model reading the code against the rubric alone.'
-                : 'Sent to the model as reference, never shown to the student.'
-            }
-          >
-            {answerKeyOptions.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {answerKeyOptions.map((path) => {
-                  const ticked = section.answerKeyPaths.includes(path);
-                  return (
-                    <label key={path} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={ticked}
-                        onCheckedChange={(checked) =>
-                          onChange({
-                            ...section,
-                            answerKeyPaths: checked
-                              ? [...section.answerKeyPaths, path]
-                              : section.answerKeyPaths.filter((kept) => kept !== path),
-                          })
-                        }
-                      />
-                      {/* The path rather than the filename: two sections can name files with
-                          the same basename in different directories. */}
-                      <span className="font-mono text-xs">{path}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </Field>
 
           {/*
             No checkbox. Whether the suite covers this section follows from its type and from

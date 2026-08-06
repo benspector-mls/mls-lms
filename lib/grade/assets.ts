@@ -49,8 +49,15 @@ export type GradingAssets = {
   sampleReport: string;
   /** Reference solutions. Labelled as reference, never shown to the student. */
   answerKeys: { path: string; content: string }[];
-  /** Answer key paths the assignment names that do not exist. */
-  missingAnswerKeys: string[];
+  /**
+   * Files under the answer key directory that were left out, and why.
+   *
+   * Recorded rather than dropped silently. "Everything in the folder" is only trustworthy if
+   * the exceptions are visible: an instructor who put a reference solution somewhere this
+   * refuses to read needs to be told, and a `solutions.zip` being skipped is worth being able
+   * to confirm rather than assume.
+   */
+  excludedAnswerKeys: { path: string; reason: string }[];
   /**
    * The commit the program assets — rubric, agent rules, sample report — were read at,
    * recorded on the draft for reproducibility.
@@ -391,7 +398,7 @@ function repoPathIn(relativePath: string): string {
   if (normalized.startsWith("..") || normalized.startsWith("/") || path.isAbsolute(relativePath)) {
     throw new GradingAssetsError(
       `Answer key path ${JSON.stringify(relativePath)} escapes the repository. ` +
-      `Fix assignment.sections[].answerKeyPaths.`,
+      `Fix assignment.answerKeyDir.`,
     );
   }
   // `path.posix.normalize("")` is ".", and the contents endpoint wants an empty string for
@@ -401,16 +408,56 @@ function repoPathIn(relativePath: string): string {
 }
 
 /**
- * Browsing the repository an assignment names, so its answer keys are ticked from a list
- * rather than typed.
+ * What may not go into a prompt as a reference solution.
  *
- * This is the machinery that survived the repository stopping being the catalogue of what
- * assignments exist. It earns its keep one level down: a mistyped answer key path is not an
- * error anybody sees, it is a confident report written without the reference solution it
- * should have had, and choosing from a listing is what makes typing one impossible.
+ * The answer keys are **every file under the directory an assignment names**, which is the
+ * point: an instructor pastes the folder, nothing has to be selected, and a reference file
+ * added upstream is used without anybody remembering to tick it. That only works if the
+ * obvious junk is refused — the alternative is `solutions.zip` being base64-decoded into a
+ * prompt as though it were source code.
  *
- * Both functions below go through the same `answerKeySource` the grading pipeline uses, and
- * through `repoPathIn`, so authoring cannot offer a path grading would refuse.
+ * A denylist rather than an allowlist, deliberately. An allowlist of known-good extensions
+ * would silently drop the first `.sql`, `.ejs`, or `.py` answer key somebody writes, and a
+ * missing reference solution is invisible in the output — it does not fail, it just makes the
+ * grade worse. This way an unfamiliar text file is included and only recognisable binaries
+ * are refused.
+ */
+const NOT_A_REFERENCE_SOLUTION: { pattern: RegExp; reason: string }[] = [
+  { pattern: /\.(zip|tar|tgz|gz|bz2|7z|rar)$/i, reason: "an archive" },
+  { pattern: /\.(png|jpe?g|gif|webp|svg|ico|bmp|tiff?|avif)$/i, reason: "an image" },
+  { pattern: /\.(pdf|docx?|xlsx?|pptx?|key|pages|numbers)$/i, reason: "a document" },
+  { pattern: /\.(mp[34]|mov|avi|mkv|wav|ogg|webm|flac)$/i, reason: "audio or video" },
+  { pattern: /\.(woff2?|ttf|otf|eot)$/i, reason: "a font" },
+  { pattern: /\.(exe|dll|so|dylib|bin|wasm|class|jar|pyc)$/i, reason: "a compiled artifact" },
+  { pattern: /(^|\/)\.DS_Store$/i, reason: "a system file" },
+  { pattern: /(^|\/)node_modules\//, reason: "a dependency tree" },
+];
+
+/** Why this file is not a reference solution, or null when it is one. */
+export function notAReferenceSolution(filePath: string): string | null {
+  for (const rule of NOT_A_REFERENCE_SOLUTION) {
+    if (rule.pattern.test(filePath)) return rule.reason;
+  }
+  return null;
+}
+
+/**
+ * How many reference files one section may be given.
+ *
+ * A bound rather than a claim about what belongs in a folder. An assignment pointed at a
+ * directory that turns out to hold hundreds of files should degrade into something an
+ * instructor can see and act on rather than into a prompt that costs ten dollars. The
+ * authoring screen shows the count before anything is saved, so this is a backstop rather
+ * than the thing that catches the mistake.
+ */
+export const MAX_ANSWER_KEYS = 40;
+
+/**
+ * Browsing the repository an assignment names, so the folder holding its reference solutions
+ * can be chosen rather than typed.
+ *
+ * Both functions below go through the same `answerKeySource` the grading pipeline uses and the
+ * same `repoPathIn` guard, so the authoring screen lists exactly what grading will read.
  */
 
 /**
@@ -459,77 +506,126 @@ export async function listAnswerKeyEntries(
     a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1);
 }
 
+/** What one answer key directory resolves to: the files that will be read, and what was not. */
+export type AnswerKeySet = {
+  /** Full repository paths, in a stable order. */
+  paths: string[];
+  /** Files under the directory that are not reference solutions, and why. */
+  excluded: { path: string; reason: string }[];
+  /** True when the directory itself does not exist in the repository. */
+  missing: boolean;
+};
+
 /**
- * Every file under one directory of an answer-key repository, as full repository paths —
- * the exact form `sections[].answerKeyPaths` stores, so what this returns can be written to
- * the column without rewriting.
+ * Every reference solution under one directory, as full repository paths.
+ *
+ * **This is the whole of how an assignment says what its answer keys are.** An instructor
+ * names a folder and its contents are the reference set — nothing is selected, and a file
+ * added to the folder upstream is used on the next run without anybody remembering it. The
+ * previous shape stored a list of individual paths, which is the same information until the
+ * folder changes and then it is quietly stale.
  *
  * Recursive, because answer keys nest: `swe-1-3-node-modules` keeps its under
- * `madlib-challenge/`, and a form offering only the top level would silently omit them.
+ * `madlib-challenge/`, and reading only the top level would silently omit them.
+ *
+ * Sorted shallowest-first and alphabetically within a depth, so the prompt a model reads is
+ * byte-identical between runs — which is what makes provider caching possible and what makes
+ * two reports of the same submission comparable.
  */
-export async function listAnswerKeys(answerKeyRepo: string, dir: string): Promise<string[]> {
+export async function listAnswerKeys(
+  answerKeyRepo: string,
+  dir: string,
+): Promise<AnswerKeySet> {
   const source = await answerKeySource(answerKeyRepo);
 
-  // Bounded so that a deep repository cannot turn one form keystroke into hundreds of
-  // requests. Three levels below the chosen directory is well past anything the curriculum
-  // uses, and an instructor who needs deeper can choose a directory further down.
+  // Bounded so that pointing an assignment at a large directory cannot turn one keystroke in
+  // the form into hundreds of requests. Three levels below the named directory is well past
+  // anything the curriculum uses, and a folder further down is always nameable instead.
   const MAX_DEPTH = 3;
-  const found: string[] = [];
+  const paths: string[] = [];
+  const excluded: { path: string; reason: string }[] = [];
   const root = repoPathIn(dir);
 
-  async function walk(relative: string, depth: number): Promise<void> {
-    const entries = await source.list(relative);
-    if (entries === null) return;
+  const top = await source.list(root);
+  if (top === null) return { paths: [], excluded: [], missing: true };
 
-    // Files before directories, alphabetical within each, so an instructor reads a stable
-    // list rather than whatever order the API happened to return.
+  async function walk(relative: string, entries: AssetEntry[], depth: number): Promise<void> {
     const sorted = [...entries].sort((a, b) =>
       a.type === b.type ? a.name.localeCompare(b.name) : a.type === "file" ? -1 : 1);
 
     for (const entry of sorted) {
       const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.type === "file") found.push(child);
-      else if (depth < MAX_DEPTH) await walk(child, depth + 1);
+
+      if (entry.type === "file") {
+        const reason = notAReferenceSolution(child);
+        if (reason) excluded.push({ path: child, reason });
+        else paths.push(child);
+        continue;
+      }
+
+      if (depth >= MAX_DEPTH) continue;
+      const reason = notAReferenceSolution(`${child}/`);
+      if (reason) {
+        excluded.push({ path: `${child}/`, reason });
+        continue;
+      }
+      const nested = await source.list(child);
+      if (nested !== null) await walk(child, nested, depth + 1);
     }
   }
 
-  await walk(root, 1);
-  return found;
+  await walk(root, top, 1);
+  return { paths, excluded, missing: false };
 }
 
 /**
- * Whether each of these answer key paths exists, for validation as a form is filled in.
+ * Whether an answer key directory is usable, for validation as a form is filled in.
  *
- * A path that escapes the repository is reported as a finding on that path rather than
- * thrown, so one bad entry does not hide whether the others are right — but it is the same
- * `repoPathIn` guard refusing it, so nothing can be saved here that grading would later
- * reject.
+ * Reports rather than throws, because every one of these is something an instructor fixes by
+ * correcting a URL: a directory that is not there, one holding nothing readable, one holding
+ * more than a prompt should carry.
  */
-export async function checkAnswerKeyPaths(
+export async function checkAnswerKeyDir(
   answerKeyRepo: string,
-  paths: readonly string[],
-): Promise<{ path: string; found: boolean; reason?: string }[]> {
-  const source = await answerKeySource(answerKeyRepo);
+  dir: string,
+): Promise<{ ok: boolean; reason?: string; set: AnswerKeySet }> {
+  let set: AnswerKeySet;
+  try {
+    set = await listAnswerKeys(answerKeyRepo, dir);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+      set: { paths: [], excluded: [], missing: true },
+    };
+  }
 
-  return Promise.all(
-    paths.map(async (relativePath) => {
-      let guarded: string;
-      try {
-        guarded = repoPathIn(relativePath);
-      } catch (err) {
-        return {
-          path: relativePath,
-          found: false,
-          reason: err instanceof Error ? err.message : String(err),
-        };
-      }
+  if (set.missing) {
+    return { ok: false, reason: `There is no ${dir || "root directory"} in ${answerKeyRepo}.`, set };
+  }
+  if (set.paths.length === 0) {
+    return {
+      ok: false,
+      reason:
+        `${dir || answerKeyRepo} holds no files that can be used as reference solutions` +
+        (set.excluded.length > 0
+          ? ` — ${set.excluded.length} were skipped as ${
+              [...new Set(set.excluded.map((entry) => entry.reason))].join(", ")}.`
+          : "."),
+      set,
+    };
+  }
+  if (set.paths.length > MAX_ANSWER_KEYS) {
+    return {
+      ok: false,
+      reason:
+        `${dir || answerKeyRepo} holds ${set.paths.length} files, more than the ` +
+        `${MAX_ANSWER_KEYS} one section can be given. Name a directory further down.`,
+      set,
+    };
+  }
 
-      const content = await source.read(guarded);
-      return content === null
-        ? { path: relativePath, found: false, reason: `No such file in ${answerKeyRepo}.` }
-        : { path: relativePath, found: true };
-    }),
-  );
+  return { ok: true, set };
 }
 
 export async function loadGradingAssets(params: {
@@ -537,22 +633,21 @@ export async function loadGradingAssets(params: {
   /**
    * The repository the answer keys live in, or null when the assignment names none.
    *
-   * Null is a real state rather than a configuration error: `answerKeyPaths` is allowed to
-   * be empty, and an assignment with no reference solutions has no repository to name. The
-   * two have to agree, which is what the schema enforces.
+   * Null is a real state rather than a configuration error: an assignment with no reference
+   * solutions has no repository to name, and the kinds with no repository at all are graded
+   * by hand. `answerKeyDir` must be null with it, which is what the schema enforces.
    */
   answerKeyRepo: string | null;
-  /** Paths inside `answerKeyRepo`, from `assignment.sections`. */
-  answerKeyPaths: string[];
+  /** The directory inside it whose contents are the reference solutions. */
+  answerKeyDir: string | null;
 }): Promise<GradingAssets> {
   const source = await programAssetSource();
   const config = SECTION_ASSETS[params.sectionType];
 
-  if (params.answerKeyPaths.length > 0 && !params.answerKeyRepo) {
+  if (params.answerKeyDir !== null && !params.answerKeyRepo) {
     throw new GradingAssetsError(
-      `This section names ${params.answerKeyPaths.length} answer key path(s) but the ` +
-      `assignment names no answer key repository, so there is nowhere to read them from. ` +
-      `Set answerKeyRepo on the assignment.`,
+      `This assignment names an answer key directory (${JSON.stringify(params.answerKeyDir)}) ` +
+      `but no repository to read it from. Set answerKeyRepo on the assignment.`,
     );
   }
 
@@ -563,7 +658,7 @@ export async function loadGradingAssets(params: {
     readRequired(source, "grading-toolkit/agent-rules.md"),
     readRequired(source, "grading-toolkit/rubric.md"),
     readRequired(source, `grading-toolkit/${config.sampleFile}`),
-    readAnswerKeys(params.answerKeyRepo, params.answerKeyPaths),
+    readAnswerKeys(params.answerKeyRepo, params.answerKeyDir),
   ]);
 
   return {
@@ -571,42 +666,59 @@ export async function loadGradingAssets(params: {
     rubricSection: extractRubricSection(rubric, config.rubricHeading),
     sampleReport,
     answerKeys: keys.answerKeys,
-    missingAnswerKeys: keys.missingAnswerKeys,
+    excludedAnswerKeys: keys.excluded,
     commitSha: source.commitSha,
     answerKeyCommitSha: keys.commitSha,
   };
 }
 
-/** The reference solutions this section names, and which of them are not there. */
+/**
+ * The reference solutions under the directory this assignment names.
+ *
+ * A file that lists but cannot be read — too large for `fetchRepoFile`, or removed between the
+ * listing and the read — is recorded as excluded rather than thrown. The model then grades with
+ * fewer references than the folder holds, which is worse but not useless, and the draft says so.
+ */
 async function readAnswerKeys(
   answerKeyRepo: string | null,
-  answerKeyPaths: readonly string[],
+  answerKeyDir: string | null,
 ): Promise<{
   answerKeys: { path: string; content: string }[];
-  missingAnswerKeys: string[];
+  excluded: { path: string; reason: string }[];
   commitSha: string | null;
 }> {
-  if (answerKeyRepo === null || answerKeyPaths.length === 0) {
-    return { answerKeys: [], missingAnswerKeys: [], commitSha: null };
+  if (answerKeyRepo === null || answerKeyDir === null) {
+    return { answerKeys: [], excluded: [], commitSha: null };
+  }
+
+  const set = await listAnswerKeys(answerKeyRepo, answerKeyDir);
+  if (set.missing) {
+    return {
+      answerKeys: [],
+      excluded: [{ path: answerKeyDir, reason: `no such directory in ${answerKeyRepo}` }],
+      commitSha: null,
+    };
   }
 
   const source = await answerKeySource(answerKeyRepo);
+  const chosen = set.paths.slice(0, MAX_ANSWER_KEYS);
+  const excluded = [...set.excluded];
+  for (const dropped of set.paths.slice(MAX_ANSWER_KEYS)) {
+    excluded.push({ path: dropped, reason: `over the ${MAX_ANSWER_KEYS}-file limit` });
+  }
+
   const contents = await Promise.all(
-    answerKeyPaths.map(async (relativePath) => ({
+    chosen.map(async (relativePath) => ({
       path: relativePath,
       content: await source.read(repoPathIn(relativePath)),
     })),
   );
 
   const answerKeys: { path: string; content: string }[] = [];
-  const missingAnswerKeys: string[] = [];
   for (const key of contents) {
-    // Recorded rather than thrown. A missing key means the model grades without a
-    // reference solution, which is worse but not useless, and it should surface as a
-    // review reason rather than as a crash.
-    if (key.content === null) missingAnswerKeys.push(key.path);
+    if (key.content === null) excluded.push({ path: key.path, reason: "could not be read" });
     else answerKeys.push({ path: key.path, content: key.content });
   }
 
-  return { answerKeys, missingAnswerKeys, commitSha: source.commitSha };
+  return { answerKeys, excluded, commitSha: source.commitSha };
 }

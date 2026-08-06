@@ -286,8 +286,7 @@ model Assignment {
   /// token can read a public repository in an organization the App is not installed on,
   /// and `generate` refuses a repository that is not a template.
   templateRepo String? @map("template_repo")
-  /// "owner/repo" of the repository holding this assignment's reference solutions, and
-  /// the root that `sections[].answerKeyPaths` are relative to.
+  /// "owner/repo" of the repository holding this assignment's reference solutions.
   ///
   /// **Private, in an organization the App is installed on.** Templates are public
   /// because every student's repository is generated from one; reference solutions are
@@ -298,6 +297,18 @@ model Assignment {
   /// `agent-rules.md`, and the sample reports are program-wide prompt code and are still
   /// read from it.
   answerKeyRepo String? @map("answer_key_repo")
+  /// The directory inside `answerKeyRepo` whose contents *are* the reference solutions.
+  ///
+  /// Every file under it, at any depth, with nothing selected. An instructor pastes the
+  /// address of the folder they already have open and there is no second question — and a
+  /// reference solution added to the folder later is used on the next run rather than being
+  /// missed because nobody remembered to tick it.
+  ///
+  /// `""` is the repository root, which is the right answer for a repository holding a single
+  /// assignment's solutions and nothing else. NULL for the kinds with no repository, which
+  /// have no reference solutions at all. Recognisable binaries are skipped and the file count
+  /// is capped, both reported rather than silent — see lib/grade/assets.ts.
+  answerKeyDir String? @map("answer_key_dir")
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
   /// are named `{assignmentRepoName}-{student github login}`.
   assignmentRepoName String? @map("assignment_repo_name")
@@ -348,11 +359,11 @@ model Assignment {
   distributedAt DateTime? @map("distributed_at") @db.Timestamptz(6)
   /// One entry per gradable section this assignment can contain, e.g.
   /// [{ "type": "coding_algorithm", "rubricId": "...",
-  ///    "answerKeyPaths": ["answer-keys/mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js"],
   ///    "reportTemplate": "coding-fluency" }]
   ///
-  /// `answerKeyPaths` are paths inside `answerKeyRepo`, at any depth, exactly as they
-  /// appear in that repository.
+  /// A section does not name reference solutions. Those come from `answerKeyDir` and are the
+  /// same for every section of the assignment, which for a multi-section assignment means each
+  /// section is given the whole folder.
   ///
   /// Explicit rather than convention-based because real assignments do not use
   /// consistent {from-scratch,debug,modify}.js filenames, and one pull request
