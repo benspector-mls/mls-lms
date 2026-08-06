@@ -197,6 +197,103 @@ async function main() {
         await refusal(() =>
           asStudent.courses.create({ name: "Nope", cohortTerm: "Nope" })), "FORBIDDEN");
 
+      /*
+        ---- One repository cannot serve two cohorts ----------------------------
+
+        The failure copying a course makes reachable. A generated repository is
+        `{assignmentRepoName}-{github login}` with no course in it, so two cohorts holding an
+        assignment of the same name in the same organization want *one* repository for two
+        submissions — and `submissions.repoFullName` is unique, so the second write is refused.
+
+        Different students never collide, which is why reusing a name every term is normal. This
+        is about the one person in both, and both halves are checked: the instructor is warned
+        while renaming is still free, and the student is refused before anything touches GitHub
+        rather than by a constraint violation afterwards.
+      */
+      const twinInCopy = await tx.assignment.findFirst({
+        where: {
+          courseId: copy.course.id,
+          kind: 'REPO',
+          assignmentRepoName: { not: null },
+          githubOrg: { not: null },
+        },
+        select: { id: true, assignmentRepoName: true, githubOrg: true },
+      });
+
+      if (twinInCopy) {
+        // Built field by field rather than handing `getDraft`'s output straight back: it also
+        // carries `id`, `courseId`, `distributedAt`, and `submissionCount`, and the spec is
+        // `.strict()`, so passing it whole is refused for reasons that have nothing to do with
+        // what this check is about.
+        const loaded = await asInstructor.assignments.getDraft({ assignmentId: twinInCopy.id });
+        const reused = await asInstructor.assignments.validateDraft({
+          courseId: copy.course.id,
+          assignmentId: twinInCopy.id,
+          draft: {
+            kind: loaded.kind,
+            title: loaded.title,
+            moduleId: loaded.moduleId,
+            completionThreshold: loaded.completionThreshold,
+            dueAt: loaded.dueAt,
+            templateRepo: loaded.templateRepo,
+            answerKeyRepo: loaded.answerKeyRepo,
+            answerKeyDir: loaded.answerKeyDir,
+            assignmentRepoName: loaded.assignmentRepoName,
+            githubOrg: loaded.githubOrg,
+            templateRef: loaded.templateRef,
+            runnerPreset: loaded.runnerPreset,
+            runnerConfig: loaded.runnerConfig,
+            templateDocUrl: loaded.templateDocUrl,
+            submissionInstructions: loaded.submissionInstructions,
+            sections: loaded.sections,
+          },
+        });
+        check("an instructor is warned that another cohort generates the same repository name",
+          {
+            warns: reused.findings.some(
+              (f) => f.severity === 'warning' && f.path === 'assignmentRepoName'),
+            canSave: reused.canSave,
+          },
+          { warns: true, canSave: true });
+
+        /*
+          And the student is refused before anything touches GitHub.
+
+          Conditional on the seeded student actually holding the colliding repository, so this
+          asserts the refusal when there is something to collide with and says so when there is
+          not, rather than passing vacuously. The refusal is reached without a network call —
+          which is the point of moving the check ahead of `generate`.
+        */
+        const heldElsewhere = await tx.submission.findFirst({
+          where: {
+            studentId,
+            assignment: { assignmentRepoName: twinInCopy.assignmentRepoName },
+            repoFullName: { not: null },
+          },
+          select: { repoFullName: true },
+        });
+
+        if (heldElsewhere) {
+          await asInstructor.assignments.publish({ assignmentId: twinInCopy.id });
+          const copyToken = (await tx.course.findUnique({
+            where: { id: copy.course.id },
+            select: { joinToken: true },
+          }))!.joinToken;
+          await asStudent.enrollments.join({ token: copyToken });
+
+          const refusedAccept = await refusalMessage(() =>
+            asStudent.assignments.accept({ assignmentId: twinInCopy.id }));
+          check("...and the student's second Accept is refused, naming the other course",
+            refusedAccept.includes('cannot serve two courses'), true);
+          check("...before creating anything on GitHub",
+            await tx.submission.count({ where: { assignmentId: twinInCopy.id } }), 0);
+        } else {
+          console.log(
+            '     (skipped the Accept half — the seeded student holds no colliding repository)',
+          );
+        }
+      }
+
       // ---- The join link ----------------------------------------------------
       const token = created!.joinToken;
 

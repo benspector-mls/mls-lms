@@ -143,6 +143,39 @@ export async function validateAssignmentDraft(
           `${spec.assignmentRepoName}-{github login}. Two assignments cannot share that.`,
       );
     }
+
+    /*
+      The same name in a *different* course, in the same organization.
+
+      A warning rather than an error, because the ordinary case is fine and common: a new cohort
+      every term reuses `swe-1-4-loops`, and since a generated repository is
+      `{assignmentRepoName}-{github login}`, a new cohort of new students never collides.
+
+      What it warns about is the one student who is in both. There is no course in a generated
+      repository's name, so their second Accept wants a repository that already exists and is
+      refused — `accept` says so before touching GitHub. Surfaced here because the instructor is
+      the only person who can fix it, and renaming is free until somebody has accepted.
+    */
+    if (spec.githubOrg) {
+      const elsewhere = await db.assignment.findFirst({
+        where: {
+          assignmentRepoName: spec.assignmentRepoName,
+          githubOrg: spec.githubOrg,
+          courseId: { not: input.courseId },
+        },
+        select: { title: true, course: { select: { name: true, cohortTerm: true } } },
+      });
+
+      if (elsewhere) {
+        warn(
+          "assignmentRepoName",
+          `${elsewhere.course.name} (${elsewhere.course.cohortTerm}) also generates ` +
+            `${spec.githubOrg}/${spec.assignmentRepoName}-{github login}. That is fine unless ` +
+            `one student is in both cohorts — a repository cannot serve two courses, so their ` +
+            `second Accept would be refused. Rename this one if that is a possibility.`,
+        );
+      }
+    }
   }
 
   // ---- Rubrics: the row has to exist, and has to be the one for that section type ----

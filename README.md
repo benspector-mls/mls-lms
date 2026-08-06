@@ -308,6 +308,22 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 
 What that trades away is an allowlist, so the controls are after the fact: `regenerateJoinToken` replaces a link that reached the wrong person, and removing deals with whoever got in. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.gradebook`, which is instructor-only *and* teach-gated — and appears in nothing a student receives.
 
+**One repository cannot serve two cohorts.** A generated repository is
+`{assignmentRepoName}-{github login}` with no course in it, so two courses holding an assignment
+of the same name in the same organization want *one* repository for two submissions —
+and `submissions.repoFullName` is unique, so the second write is refused.
+`@@unique([courseId, assignmentRepoName])` does not catch this: it is per course, and the
+collision domain is the organization.
+
+**Different students never collide**, which is why reusing `swe-1-4-loops` for a new cohort every
+term is normal. It bites the one person who is in both, which happens when a cohort is copied and
+tested, and when a student repeats a module. Two things say so:
+
+- **Authoring warns**, not errors, naming the other cohort — renaming is free until somebody has accepted.
+- **`accept` refuses before touching GitHub**, naming the course that holds the repository. Without that check the sequence is ugly rather than wrong: `generate` fails on the taken name, the catch reuses the existing repository — which is correct when retrying a half-finished accept — collaborators are added, and only then does the unique constraint refuse, with a raw Prisma error reaching a student.
+
+The constraint is what makes this safe rather than silently wrong. Two submissions sharing one repository would be worse than a refusal, because the webhook resolves a pull request *by* `repoFullName` — one push would land on whichever row Postgres returned first.
+
 **An `Enrollment` row is created *by* somebody joining**, so `studentId` is `NOT NULL` and there is no "invited" state: `@@unique([courseId, studentId])` is what makes redeeming a link twice return the enrollment that exists rather than adding another. A removed student redeeming again is refused, and that is the one place idempotence would be wrong — if the link let them back in, removal would not stick while they still held it, so coming back is `enrollments.restore`, which the instructor calls.
 
 **The join link is behind authentication, and the proxy carries the destination.** `/join/[token]` sits inside the authenticated shell, so an unauthenticated visitor is redirected to sign in and arrives back at the link — which is what binds the enrollment to whoever signed in, with no token left to reconcile against an identity afterwards. The proxy sets `?next=` for this reason: a join link is the one address somebody reaches having never signed in, and without it they would authenticate, land on `/courses`, and never know they were one step from joining.

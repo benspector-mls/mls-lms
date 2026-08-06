@@ -420,6 +420,44 @@ export const assignmentsRouter = createTRPCRouter({
         });
       }
 
+      /*
+        The same repository name in two cohorts, for the same student.
+
+        A generated repository is `{assignmentRepoName}-{github login}` with no course in it, so
+        two courses holding an assignment of the same name in the same organization would want
+        one repository for two submissions. `@@unique([courseId, assignmentRepoName])` does not
+        catch this — it is per course, and the collision domain is the organization.
+
+        **Different students never collide**, which is why reusing `swe-1-4-loops` for a new
+        cohort every term is fine and normal. This only fires when one person is in both, which
+        happens when a cohort is copied and tested, and when a student repeats a module.
+
+        Checked here, before anything touches GitHub, because the failure without it is ugly:
+        `generate` fails on the taken name, the catch reuses the existing repository — correct
+        for retrying a half-finished accept — collaborators are added, and only then does
+        `repo_full_name @unique` refuse the write, with a Prisma constraint error reaching a
+        student. The database is what makes that safe rather than silently wrong; this is what
+        makes it legible.
+      */
+      const repoFullNameToCreate = `${source.githubOrg}/${repoName}`;
+      const claimed = await ctx.db.submission.findUnique({
+        where: { repoFullName: repoFullNameToCreate },
+        select: {
+          assignment: { select: { title: true, course: { select: { name: true } } } },
+        },
+      });
+
+      if (claimed) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message:
+            `You already have the repository ${repoFullNameToCreate}, for ` +
+            `"${claimed.assignment.title}" in ${claimed.assignment.course.name}. One ` +
+            `repository cannot serve two courses, so this assignment needs a different ` +
+            `repository name — ask your instructor to change it.`,
+        });
+      }
+
       // A repository with this name can already exist on GitHub without a
       // matching submission row: a previous attempt may have created the
       // repository and then failed before the database write, or a local reseed
