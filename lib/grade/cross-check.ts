@@ -46,30 +46,32 @@ export type CrossCheckFinding = {
     | "TEST_CLAIM_CONTRADICTION"
     | "UNKNOWN_TEST_CLAIMED"
     | "FULL_CREDIT_DESPITE_FAILURES"
-    | "PROTECTED_PATHS_CHANGED"
-    | "LOW_CONFIDENCE";
+    | "PROTECTED_PATHS_CHANGED";
   detail: string;
 };
 
 /**
  * Findings that describe uncertainty rather than a fault.
  *
- * Every other finding is a contradiction: rubric points that do not sum to the score, a
- * claim about a test that never ran, full marks beside failures. Those are reasons a
- * draft must not be passed over, and they hold it back.
+ * Every finding this module produces today is a contradiction: rubric points that do not sum
+ * to the score, a claim about a test that never ran, full marks beside failures. Those are
+ * reasons a draft must not be passed over, and they hold it back.
  *
- * Low confidence is not that. It is the model saying it found the work hard to judge,
- * which is the honest answer for a section with no suite to check against — short
- * response and frontend work, most of the curriculum. Holding those back marked every
- * one of them as exceptional, which is the fastest way to teach an instructor that the
- * marking means nothing. It stays a badge on the section, where it is a useful hint about
- * where to read carefully, and stops being a gate.
+ * The distinction had one member and no longer does. Low confidence was it — the model saying
+ * it found the work hard to judge, which is the honest answer for a section with no suite to
+ * check against, meaning short response and frontend work, most of the curriculum. Holding
+ * those back marked every one of them as exceptional, which is the fastest way to teach an
+ * instructor that the marking means nothing. It is now the confidence pill on the section and
+ * not a finding at all, so there is nothing left here to exempt.
  *
- * This is only sound because nothing is ever sent without approval. If automatic
- * approval is ever built, low confidence must gate again.
+ * That remains sound only because nothing is sent without approval.
  */
 const NON_GATING_FINDINGS: ReadonlySet<CrossCheckFinding["code"]> = new Set([
-  "LOW_CONFIDENCE",
+  // Empty, and kept rather than deleted. Every finding this module produces today is a
+  // contradiction, so every one of them gates — but "which findings are only a hint" is a real
+  // question that had a member until low confidence stopped being a finding at all, and it is
+  // the seam a future non-gating finding belongs in. Deleting it would mean rediscovering the
+  // distinction the next time one exists.
 ]);
 
 /** True when this finding alone should keep a draft from being offered as ready. */
@@ -257,12 +259,17 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     });
   }
 
-  if (report.confidence === "low") {
-    findings.push({
-      code: "LOW_CONFIDENCE",
-      detail: "The model reported low confidence in its own assessment.",
-    });
-  }
+  /*
+    Low confidence is deliberately NOT a finding.
+
+    It used to be one, non-gating, whose only effect was a badge on the section — and the
+    section already carries a confidence pill, which says the same thing always rather than
+    conditionally. Two badges for one fact, and the fact is a column on the row.
+
+    What has not changed is the decision underneath: low confidence does not hold a draft back.
+    That is only sound because nothing reaches a student without approval, so if automatic
+    approval is ever built, confidence has to gate again — and this is where that would go.
+  */
 
   return {
     findings,

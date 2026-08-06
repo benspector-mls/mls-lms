@@ -428,11 +428,16 @@ check("a changed protected path always routes to review",
   must not gate. Sound only because nothing is ever sent without approval; if automatic
   approval is ever built, this has to gate again.
 */
-check("low confidence is still recorded",
-  codes(crossCheck(report({ confidence: "low" }), noFacts)), ["LOW_CONFIDENCE"]);
+/*
+  Low confidence produces no finding at all. It is a column on the section and a pill on the
+  screen, and it used to be a non-gating finding whose only effect was a second badge saying
+  what the pill already said.
+*/
+check("low confidence is not a finding",
+  codes(crossCheck(report({ confidence: "low" }), noFacts)), []);
 check("low confidence alone does not hold a draft back",
   crossCheck(report({ confidence: "low" }), noFacts).needsManualReview, false);
-check("low confidence beside a real fault still holds it back",
+check("...and a real fault beside it still does",
   crossCheck(report({ confidence: "low", scoreEarned: 99 }), noFacts).needsManualReview, true);
 
 // --- schema ---------------------------------------------------------------

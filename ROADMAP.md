@@ -13,18 +13,26 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [E2B does not remove the need to choose](#e2b-does-not-remove-the-need-to-choose)
   - [Comparison](#comparison)
   - [What to know about Workflow before choosing Design B](#what-to-know-about-workflow-before-choosing-design-b)
-- [Phase 7: assignment authoring](#phase-7-assignment-authoring)
-    - [What manual grading means for the machinery](#what-manual-grading-means-for-the-machinery)
+- [Phase 7: assignment authoring — done](#phase-7-assignment-authoring--done)
+    - [What manual grading meant for the machinery — done](#what-manual-grading-meant-for-the-machinery--done)
+    - [`FILE_UPLOAD` file storage — done](#file_upload-file-storage--done)
   - [Step 0. The kind axis — done](#step-0-the-kind-axis--done)
   - [The principle this hangs on](#the-principle-this-hangs-on)
   - [Step 1. A catalogue per kind](#step-1-a-catalogue-per-kind)
   - [Step 2. One schema for an assignment's shape — done, as `lib/assignments/spec.ts`](#step-2-one-schema-for-an-assignments-shape--done-as-libassignmentsspects)
-  - [Step 3. Procedures — `trpc/routers/assignments.ts`](#step-3-procedures--trpcroutersassignmentsts)
-  - [Step 4. `distributedAt` becomes the publish flag](#step-4-distributedat-becomes-the-publish-flag)
-  - [Step 5. Screens](#step-5-screens)
+  - [Step 3. Procedures — done, in `trpc/routers/assignments.ts`](#step-3-procedures--done-in-trpcroutersassignmentsts)
+  - [Step 4. `distributedAt` becomes the publish flag — done](#step-4-distributedat-becomes-the-publish-flag--done)
+  - [Step 5. Screens — done](#step-5-screens--done)
   - [Files](#files)
   - [Phase 7 verification](#phase-7-verification)
   - [Not in this phase](#not-in-this-phase)
+- [Modules, and where an assignment's repositories come from](#modules-and-where-an-assignments-repositories-come-from)
+  - [This reverses Step 1, deliberately](#this-reverses-step-1-deliberately)
+  - [Phase 1: modules are rows — done](#phase-1-modules-are-rows--done)
+  - [Phase 2: an assignment names its own repositories](#phase-2-an-assignment-names-its-own-repositories)
+    - [The copy is asynchronous, and that is a bug in `accept` today](#the-copy-is-asynchronous-and-that-is-a-bug-in-accept-today)
+  - [What to verify](#what-to-verify)
+- [`verify:authoring` already refuses a module tag outside the course, and that check becomes a foreign key. Through the tRPC callers inside a rolled-back transaction: a duplicate module name in one course is refused; removing a module with assignments in it is refused and says how many; renaming leaves every assignment pointing at the same row; reordering changes nothing but `position`; a student cannot call any of it; and an assignment cannot be created against a module belonging to a different course. For Phase 2: a template that is not a template repository is refused; an unreachable answer-key repository is a finding that distinguishes missing from private; and authoring `swe-1-4-loops` through `create` still produces a row that grades identically, which is the check that says the new shape did not quietly change what grading reads.](#verifyauthoring-already-refuses-a-module-tag-outside-the-course-and-that-check-becomes-a-foreign-key-through-the-trpc-callers-inside-a-rolled-back-transaction-a-duplicate-module-name-in-one-course-is-refused-removing-a-module-with-assignments-in-it-is-refused-and-says-how-many-renaming-leaves-every-assignment-pointing-at-the-same-row-reordering-changes-nothing-but-position-a-student-cannot-call-any-of-it-and-an-assignment-cannot-be-created-against-a-module-belonging-to-a-different-course-for-phase-2-a-template-that-is-not-a-template-repository-is-refused-an-unreachable-answer-key-repository-is-a-finding-that-distinguishes-missing-from-private-and-authoring-swe-1-4-loops-through-create-still-produces-a-row-that-grades-identically-which-is-the-check-that-says-the-new-shape-did-not-quietly-change-what-grading-reads)
 - [Token management](#token-management)
 - [A code review pass](#a-code-review-pass)
   - [An automated test suite](#an-automated-test-suite)
@@ -34,6 +42,7 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [The shape of the work here, once those are answered](#the-shape-of-the-work-here-once-those-are-answered)
 - [Course creation](#course-creation)
 - [Student enrollment](#student-enrollment)
+  - [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
 - [An admin view for approving instructors](#an-admin-view-for-approving-instructors)
 - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
   - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
@@ -439,16 +448,16 @@ model Module {
 
 **The eight modules, named.** These are the real ones, and they are what the seeded course should hold. Note that they are not the answer-keys repository's directory names and no longer need to be — Mod 0 has no directory at all, and `mod-2-review` and `mod-8-capstone` have directories but no module, which is exactly the freedom this change is for.
 
-| Position | Name |
-| -------- | ---- |
-| 0 | Mod 0 - Command Line Interfaces, Git, and GitHub |
-| 1 | Mod 1 - JavaScript Fundamentals |
-| 2 | Mod 2 - Object-Oriented Programming |
-| 3 | Mod 3 - HTML & CSS |
-| 4 | Mod 4 - Interactive & Data-Driven User Interfaces |
-| 5 | Mod 5 - Server-Side Development |
-| 6 | Mod 6 - Databases |
-| 7 | Mod 7 - React |
+| Position | Name                                              |
+| -------- | ------------------------------------------------- |
+| 0        | Mod 0 - Command Line Interfaces, Git, and GitHub  |
+| 1        | Mod 1 - JavaScript Fundamentals                   |
+| 2        | Mod 2 - Object-Oriented Programming               |
+| 3        | Mod 3 - HTML & CSS                                |
+| 4        | Mod 4 - Interactive & Data-Driven User Interfaces |
+| 5        | Mod 5 - Server-Side Development                   |
+| 6        | Mod 6 - Databases                                 |
+| 7        | Mod 7 - React                                     |
 
 **Built**, and described in [the README](README.md#data-model). `modules` with `position` and `@@unique([courseId, name])`, `assignments.moduleId` as a `RESTRICT` foreign key, the four procedures in `trpc/routers/modules.ts`, and a Modules tab beside Assignments. `npm run verify:modules` is 22 checks through the callers.
 
@@ -465,11 +474,11 @@ model Module {
 
 **The mapping that was applied.** Six were already right; two were not:
 
-| Assignment | Tag today | Goes to |
-| ---------- | --------- | ------- |
-| Story Prep Worksheet, `swe-1-2-strings-conditionals`, `swe-1-3-node-modules`, `swe-1-4-loops`, `swe-1-5-arrays`, Upload a Resume | `mod-1-js-fundamentals` | Mod 1 |
-| `swe-checkpoint-summative-1-4` | `mod-4-dom` | Mod 4 — a tag that was never in the course's own list, which is why editing that assignment fails validation today |
-| Submit the API you are using for your project | `mod-3-async-and-apis` | **Mod 4** — confirmed. The tag pointed at a directory that never existed. |
+| Assignment                                                                                                                       | Tag today               | Goes to                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Story Prep Worksheet, `swe-1-2-strings-conditionals`, `swe-1-3-node-modules`, `swe-1-4-loops`, `swe-1-5-arrays`, Upload a Resume | `mod-1-js-fundamentals` | Mod 1                                                                                                              |
+| `swe-checkpoint-summative-1-4`                                                                                                   | `mod-4-dom`             | Mod 4 — a tag that was never in the course's own list, which is why editing that assignment fails validation today |
+| Submit the API you are using for your project                                                                                    | `mod-3-async-and-apis`  | **Mod 4** — confirmed. The tag pointed at a directory that never existed.                                          |
 
 The six in Mod 1 stay there, including "Upload a Resume" and "Story Prep Worksheet" — confirmed, and easy to move later in the interface if they read oddly once a real cohort is in.
 

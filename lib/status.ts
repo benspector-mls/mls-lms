@@ -149,28 +149,32 @@ export const FLAG_META: Record<string, FlagMeta> = {
     kind: 'writing',
     tone: 'neutral',
     fault: false,
-    description: 'Grammar, spelling, or punctuation cost points.',
+    description:
+      'Points came off for spelling, grammar, or punctuation.',
   },
   CLARITY: {
     label: 'Clarity',
     kind: 'writing',
     tone: 'neutral',
     fault: false,
-    description: 'The writing was hard to follow in places.',
+    description:
+      'Points came off because the writing was vague, contradictory, or more involved than it needed to be.',
   },
   MARKDOWN: {
     label: 'Markdown',
     kind: 'writing',
     tone: 'neutral',
     fault: false,
-    description: 'Markdown formatting issues.',
+    description:
+      'Points came off because the markdown does not render, or because formatting would have helped and was not used.',
   },
   STRUCTURE: {
     label: 'Structure',
     kind: 'writing',
     tone: 'neutral',
     fault: false,
-    description: 'The response was poorly organized.',
+    description:
+      'Points came off for unclear structure or poor flow.',
   },
   // Technical score.
   INCOMPLETE: {
@@ -178,21 +182,24 @@ export const FLAG_META: Record<string, FlagMeta> = {
     kind: 'technical',
     tone: 'neutral',
     fault: false,
-    description: 'Part of the work was not attempted or finished.',
+    description:
+      'Points came off because part of the assignment was not attempted or was left unfinished.',
   },
   UNDERSTANDING: {
     label: 'Understanding',
     kind: 'technical',
     tone: 'neutral',
     fault: false,
-    description: 'A conceptual misunderstanding cost points.',
+    description:
+      'Points came off for a gap, an inaccuracy, or a misunderstanding of the concept.',
   },
   TERMINOLOGY: {
     label: 'Terminology',
     kind: 'technical',
     tone: 'neutral',
     fault: false,
-    description: 'Imprecise or incorrect terminology.',
+    description:
+      'Points came off for missing or misused terminology.',
   },
   // Test evidence — exactly one of these per section, always.
   TEST_EVIDENCE: {
@@ -200,92 +207,111 @@ export const FLAG_META: Record<string, FlagMeta> = {
     kind: 'test',
     tone: 'success',
     fault: false,
-    description: 'Claims were checked against a real test run.',
+    description:
+      "The report's claims about which tests passed were checked against a real run at this commit.",
   },
   NO_TESTS_EXPECTED: {
     label: 'No tests by design',
     kind: 'test',
     tone: 'neutral',
     fault: false,
-    description: 'This section has no suite by design; graded on the rubric alone.',
+    description:
+      'This section has no test suite, so the score rests on the rubric and a reading of the work. Ordinary for short response and frontend assignments.',
   },
   TEST_RUN_MISSING: {
     label: 'Test run missing',
     kind: 'test',
     tone: 'danger',
     fault: true,
-    description: 'Tests were expected but none ran at this commit; graded without them.',
+    description:
+      'This section expects test results and none exist at this commit, so it was graded without evidence it should have had. Run the tests and generate the report again.',
   },
   TEST_MATCH_MISSING: {
-    label: 'Test file missing',
+    label: 'No matching tests',
     kind: 'test',
     tone: 'danger',
     fault: true,
-    description: 'Tests ran but the section pattern matched none; the score was reached without them.',
+    description:
+      "The suite ran, but this section's test name pattern matched none of it. Either the pattern is wrong or the tests it names do not exist.",
   },
   // Added by the cross-check rather than the model.
+  /*
+    No longer written. The confidence pill on every section says this already and always, so
+    recording it here as well was the same fact twice — and the cross-check stopped producing
+    the finding when the pill got a tooltip of its own.
+
+    The entry stays because this map decodes *stored* flags, and drafts generated before that
+    change have this code in their arrays. Without it `flagMeta` would fall back to rendering
+    the raw string `LOW_CONFIDENCE` as a badge.
+  */
   LOW_CONFIDENCE: {
     label: 'Low confidence',
     kind: 'pipeline',
     tone: 'pending',
     fault: false,
-    description: 'The pipeline flagged this section as uncertain.',
+    description: 'Recorded by an older grading run. The confidence pill says the same thing.',
   },
   ARITHMETIC_MISMATCH: {
     label: 'Arithmetic mismatch',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'Rubric points do not sum to the section score.',
+    description:
+      'The rubric items do not add up to the section score, so one of the two is wrong.',
   },
   REPORT_TEXT_SCORE_MISMATCH: {
     label: 'Report/score mismatch',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'The score written in the report disagrees with the recorded score.',
+    description:
+      'The score written in the report text is not the score being recorded. The student reads the prose; the gradebook reads the number.',
   },
   INTERNAL_LABEL_IN_REPORT: {
     label: 'Internal label in report',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'An internal label leaked into the student-facing report.',
+    description:
+      'An internal flag code was left in the report text, which the student would read. Remove it before approving.',
   },
   TEST_CLAIM_CONTRADICTION: {
     label: 'Test claim contradiction',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: "The report's test claims contradict the recorded run.",
+    description:
+      'The report says a test passed that the recorded run says failed, or the reverse.',
   },
   UNKNOWN_TEST_CLAIMED: {
     label: 'Unknown test claimed',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'The report cites a test that does not exist.',
+    description: 'The report cites a test that was not in the run.',
   },
   FULL_CREDIT_DESPITE_FAILURES: {
     label: 'Full credit despite failures',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'Full marks despite failing tests.',
+    description:
+      'Full marks were given on a criterion while tests were failing. Withholding points when tests pass is a legitimate judgment; this is the reverse.',
   },
   PROTECTED_PATHS_CHANGED: {
     label: 'Protected paths changed',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'The student changed test or configuration files.',
+    description:
+      "The pull request changes test or configuration files. The template's tests were used instead so the score is unaffected — but the change is worth a look.",
   },
   SCORE_OUT_OF_RANGE: {
     label: 'Score out of range',
     kind: 'pipeline',
     tone: 'danger',
     fault: true,
-    description: 'The section score is outside its possible range.',
+    description: 'The section score is below zero or above its maximum.',
   },
 };
 
@@ -387,9 +413,32 @@ export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; descr
   },
 };
 
-export const CONFIDENCE_META: Record<'HIGH' | 'LOW', { label: string; tone: StatusTone }> = {
-  HIGH: { label: 'High confidence', tone: 'success' },
-  LOW: { label: 'Low confidence', tone: 'pending' },
+/**
+ * How sure the model was about a section, as a `StatusMeta` so it renders through the same
+ * badge as everything else rather than being assembled at the call site.
+ *
+ * The low description lists the reasons because they are specific and the prompt names them:
+ * a file that was needed and absent, code that could not be read, a rubric that does not cover
+ * what was submitted, or reference solutions that were expected and missing. **An ordinary
+ * borderline judgment is deliberately not one of them** — the prompt says not to use confidence
+ * to hedge, and directs a genuine boundary case into `instructorNotes` naming both bands. If
+ * that rule ever changes, this text has to change with it.
+ */
+export const CONFIDENCE_META: Record<'HIGH' | 'LOW', StatusMeta> = {
+  HIGH: {
+    label: 'High confidence',
+    tone: 'success',
+    description: 'The model reported no reservations about this section’s score.',
+  },
+  LOW: {
+    label: 'Low confidence',
+    tone: 'pending',
+    description:
+      'The model could not assess something: a file it needed was absent, the code could not ' +
+      'be read, the rubric does not cover what was submitted, or the reference solutions were ' +
+      'missing. It does not hold the draft back, but read this section closely. A borderline ' +
+      'judgment call is not a reason for it — those go in the instructor notes.',
+  },
 };
 
 /**

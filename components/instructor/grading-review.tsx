@@ -25,7 +25,12 @@ import { toast } from 'sonner';
 
 import { TestRunPanel } from '@/components/instructor/test-run-panel';
 import { Markdown } from '@/components/markdown';
-import { DraftStatusBadge, FlagBadge, SubmissionStatusBadge } from '@/components/status-badge';
+import {
+  ConfidenceBadge,
+  DraftStatusBadge,
+  FlagBadge,
+  SubmissionStatusBadge,
+} from '@/components/status-badge';
 import { UploadedFileRow } from '@/components/uploaded-file';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -53,7 +58,6 @@ import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { statedScoreInText } from '@/lib/grade/report-text';
 import {
   completionMeta,
-  CONFIDENCE_META,
   draftStatusAddsSomething,
   formatDateTime,
   formatPercent,
@@ -61,7 +65,6 @@ import {
   scorePercent,
   sectionLabel,
   shortSha,
-  TONE_CLASSES,
 } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import { useTRPC } from '@/trpc/client';
@@ -1328,14 +1331,7 @@ function SectionEditor({
                   Edited by you
                 </Badge>
               )}
-              {section.confidence && (
-                <Badge
-                  variant="outline"
-                  className={cn('font-normal', TONE_CLASSES[CONFIDENCE_META[section.confidence].tone])}
-                >
-                  {CONFIDENCE_META[section.confidence].label}
-                </Badge>
-              )}
+              {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
               {section.flags.map((flag) => (
                 <FlagBadge key={flag} code={flag} />
               ))}
