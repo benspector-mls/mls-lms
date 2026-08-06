@@ -20,7 +20,7 @@ import {
   TEST_EVIDENCE_FLAG,
   type AssignmentSection,
 } from "./classify";
-import { crossCheck, findingGatesApproval, type Facts } from "./cross-check";
+import { crossCheck, type Facts } from "./cross-check";
 import { buildSystemPrompt, buildUserPrompt } from "./prompts";
 import { getReportGenerator, ProviderError } from "./provider";
 import { ReportValidationError } from "./schema";
@@ -391,11 +391,10 @@ export async function generateReportForSubmission(
         },
       });
 
-      // Every finding is recorded on the section above as a flag. Only the ones that
-      // describe a fault hold the draft back — see NON_GATING_FINDINGS in cross-check.ts
-      // for why low confidence is not one of them.
+      // Recorded twice on purpose, for two readers: as a flag on the section above, which is
+      // what an instructor scans, and as a review reason here, which is what holds the draft
+      // back and says why.
       for (const finding of check.findings) {
-        if (!findingGatesApproval(finding.code)) continue;
         reviewReasons.push(`${sectionType}: ${finding.detail}`);
       }
     }

@@ -429,15 +429,15 @@ check("a changed protected path always routes to review",
   approval is ever built, this has to gate again.
 */
 /*
-  Low confidence produces no finding at all. It is a column on the section and a pill on the
-  screen, and it used to be a non-gating finding whose only effect was a second badge saying
-  what the pill already said.
+  Confidence produces no finding. It is a column on the section and a pill on the review screen,
+  and low confidence on work with no suite to check against is the ordinary condition of most of
+  this curriculum — treating it as a fault would hold back almost every short response section.
 */
 check("low confidence is not a finding",
   codes(crossCheck(report({ confidence: "low" }), noFacts)), []);
-check("low confidence alone does not hold a draft back",
+check("...so it does not hold a draft back",
   crossCheck(report({ confidence: "low" }), noFacts).needsManualReview, false);
-check("...and a real fault beside it still does",
+check("...while a real fault beside it does",
   crossCheck(report({ confidence: "low", scoreEarned: 99 }), noFacts).needsManualReview, true);
 
 // --- schema ---------------------------------------------------------------

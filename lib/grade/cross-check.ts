@@ -50,35 +50,6 @@ export type CrossCheckFinding = {
   detail: string;
 };
 
-/**
- * Findings that describe uncertainty rather than a fault.
- *
- * Every finding this module produces today is a contradiction: rubric points that do not sum
- * to the score, a claim about a test that never ran, full marks beside failures. Those are
- * reasons a draft must not be passed over, and they hold it back.
- *
- * The distinction had one member and no longer does. Low confidence was it — the model saying
- * it found the work hard to judge, which is the honest answer for a section with no suite to
- * check against, meaning short response and frontend work, most of the curriculum. Holding
- * those back marked every one of them as exceptional, which is the fastest way to teach an
- * instructor that the marking means nothing. It is now the confidence pill on the section and
- * not a finding at all, so there is nothing left here to exempt.
- *
- * That remains sound only because nothing is sent without approval.
- */
-const NON_GATING_FINDINGS: ReadonlySet<CrossCheckFinding["code"]> = new Set([
-  // Empty, and kept rather than deleted. Every finding this module produces today is a
-  // contradiction, so every one of them gates — but "which findings are only a hint" is a real
-  // question that had a member until low confidence stopped being a finding at all, and it is
-  // the seam a future non-gating finding belongs in. Deleting it would mean rediscovering the
-  // distinction the next time one exists.
-]);
-
-/** True when this finding alone should keep a draft from being offered as ready. */
-export function findingGatesApproval(code: CrossCheckFinding["code"]): boolean {
-  return !NON_GATING_FINDINGS.has(code);
-}
-
 export type CrossCheckResult = {
   findings: CrossCheckFinding[];
   /** True when an instructor must look before this can reach a student. */
@@ -260,19 +231,20 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
   }
 
   /*
-    Low confidence is deliberately NOT a finding.
+    Confidence is deliberately not a finding.
 
-    It used to be one, non-gating, whose only effect was a badge on the section — and the
-    section already carries a confidence pill, which says the same thing always rather than
-    conditionally. Two badges for one fact, and the fact is a column on the row.
-
-    What has not changed is the decision underneath: low confidence does not hold a draft back.
-    That is only sound because nothing reaches a student without approval, so if automatic
-    approval is ever built, confidence has to gate again — and this is where that would go.
+    It is a column on the section and a pill on the review screen, which says how sure the model
+    was on every section always rather than conditionally. Low confidence on work with no suite
+    to check against is the ordinary condition of most of this curriculum, so treating it as a
+    fault would mark almost every short response and frontend section as exceptional — which is
+    the fastest way to teach an instructor that the marking means nothing.
   */
 
   return {
     findings,
-    needsManualReview: findings.some((finding) => findingGatesApproval(finding.code)),
+    // Every finding is a contradiction — rubric points that do not sum to the score, a claim
+    // about a test that never ran, full marks beside failures — so any of them is a reason a
+    // draft must not be passed over.
+    needsManualReview: findings.length > 0,
   };
 }

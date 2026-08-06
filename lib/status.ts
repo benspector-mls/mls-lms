@@ -436,8 +436,7 @@ export const CONFIDENCE_META: Record<'HIGH' | 'LOW', StatusMeta> = {
     description:
       'The model could not assess something: a file it needed was absent, the code could not ' +
       'be read, the rubric does not cover what was submitted, or the reference solutions were ' +
-      'missing. It does not hold the draft back, but read this section closely. A borderline ' +
-      'judgment call is not a reason for it — those go in the instructor notes.',
+      'missing. It does not hold the draft back, but read this section closely.',
   },
 };
 
