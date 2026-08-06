@@ -95,6 +95,20 @@ model Course {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   cohortTerm String    @map("cohort_term")
+  /// The one link that enrolls a student in this course.
+  ///
+  /// An instructor copies it and sends it however they already talk to their students;
+  /// opening it and signing in with GitHub creates the enrollment. There is no per-student
+  /// invite and no email is sent by this application.
+  ///
+  /// **Regenerating it is the only control over who can use it.** Anyone holding the link
+  /// joins immediately, so a link that reached the wrong person is invalidated by replacing
+  /// it, and the wrongly-enrolled student is removed from the roster. Random rather than
+  /// derived from the id, because the id appears in URLs.
+  joinToken  String    @unique @map("join_token")
+  /// Set when a cohort finishes. The course leaves every active list and stays readable to
+  /// the people who were in it; nothing new can be submitted. Reversible, because a tidying
+  /// action that cannot be undone gets avoided instead of used.
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -128,30 +142,35 @@ model CourseInstructor {
 }
 
 enum EnrollmentStatus {
-  INVITED
   ACTIVE
+  /// The student is no longer in the cohort. They keep reading the feedback they were
+  /// given and the course stays in their list, labelled; they cannot accept, submit, or
+  /// upload, and they are not counted as a student anywhere.
+  ///
+  /// Removal is a status rather than a deleted row because a student who leaves had
+  /// submissions, grades, and released feedback, and destroying those to tidy a roster is
+  /// the worse failure.
   REMOVED
 
   @@schema("public")
 }
 
-/// Invite-link self-binding: an instructor adds a student by name and email, the
-/// system generates an invite token, and the student's first GitHub login binds
-/// their profile to this row. Chosen over pre-entering GitHub usernames because
-/// instructors do not reliably know them in advance.
+/// One student in one course.
+///
+/// The row is created *by* a student redeeming the course's join link, so it never exists
+/// without a student — which is why `studentId` is NOT NULL and why there is no "invited"
+/// state. `@@unique([courseId, studentId])` is what makes redeeming a link twice return the
+/// enrollment that exists rather than adding another.
 model Enrollment {
-  id           String           @id @default(uuid()) @db.Uuid
-  courseId     String           @map("course_id") @db.Uuid
-  /// Null until a student redeems the invite token.
-  studentId    String?          @map("student_id") @db.Uuid
-  inviteToken  String           @unique @map("invite_token")
-  invitedEmail String           @map("invited_email")
-  status       EnrollmentStatus @default(INVITED)
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id        String           @id @default(uuid()) @db.Uuid
+  courseId  String           @map("course_id") @db.Uuid
+  studentId String           @map("student_id") @db.Uuid
+  status    EnrollmentStatus @default(ACTIVE)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  student Profile? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student Profile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([courseId, studentId])
   @@map("enrollments")

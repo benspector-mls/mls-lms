@@ -102,8 +102,16 @@ export async function assertCanHandIn(
     throw new TRPCError({ code: "NOT_FOUND", message: "That assignment is not available." });
   }
 
-  // Checked here rather than relying on having listed the course first: a mutation must not
-  // assume which query preceded it.
+  /*
+    Checked here rather than relying on having listed the course first: a mutation must not
+    assume which query preceded it.
+
+    `ACTIVE` deliberately, and this is one of the three checks that must *not* widen when the
+    read checks do. A removed student can still open this assignment and read what they were
+    given; handing new work in is what stops. The two clauses differ by one enum value, which
+    is why the difference is named in `lib/courses/membership.ts` rather than left to be
+    noticed here.
+  */
   const enrollment = await db.enrollment.findFirst({
     where: { courseId: assignment.courseId, studentId: params.profileId, status: "ACTIVE" },
     select: { id: true },

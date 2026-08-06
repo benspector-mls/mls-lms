@@ -30,6 +30,12 @@ async function Courses() {
   ]);
 
   return (
-    <CoursesList courses={courses} githubLinked={Boolean(profile?.githubUsername)} />
+    <CoursesList
+      courses={courses}
+      githubLinked={Boolean(profile?.githubUsername)}
+      // Any instructor may start a cohort; the procedure is what refuses, so this decides
+      // only whether the button is offered.
+      canCreate={profile?.role === 'INSTRUCTOR' || profile?.role === 'ADMIN'}
+    />
   );
 }

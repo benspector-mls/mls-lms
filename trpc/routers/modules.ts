@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { assertCourseMember } from '@/lib/courses/membership';
+
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
 
 /**
@@ -83,22 +85,10 @@ export const modulesRouter = createTRPCRouter({
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       // Membership rather than teaching, and checked because Prisma bypasses row level
-      // security: without it any signed-in user could read any course's modules by id.
-      if (ctx.profile.role !== 'ADMIN') {
-        const [enrollment, instructorRow] = await Promise.all([
-          ctx.db.enrollment.findFirst({
-            where: { courseId: input.courseId, studentId: ctx.profile.id, status: 'ACTIVE' },
-            select: { id: true },
-          }),
-          ctx.db.courseInstructor.findFirst({
-            where: { courseId: input.courseId, userId: ctx.profile.id },
-            select: { id: true },
-          }),
-        ]);
-        if (!enrollment && !instructorRow) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not a member of this course.' });
-        }
-      }
+      // security: without it any signed-in user could read any course's modules by id. A
+      // removed student is admitted — the course stays readable to them, and its module
+      // sequence is how their own assignment list is ordered.
+      await assertCourseMember(ctx, input.courseId);
 
       return ctx.db.module.findMany({
         where: { courseId: input.courseId },

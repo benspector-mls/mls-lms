@@ -131,13 +131,17 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 ## Scripts
 
-Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. Those that need no model or network are the first four.
+Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. The first two need neither a model nor a network; the next four drive the real procedures against the development database inside a transaction that is rolled back.
 
 | Script                        | What it does                                                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `npm run verify:sandbox`      | Sandbox logic with no sandbox: path matching, tamper reporting, the `package.json` merge, the restore script, all three parsers |
 | `npm run verify:grade`        | Grading logic with no model call: classification, rubric extraction, every cross-check rule, arithmetic                         |
 | `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers |
+| `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
+| `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                             |
+| `npm run verify:enrollment`   | Creating a cohort, copying one, the join link, and the removed-student pair — through the callers                                |
+| `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                        |
 | `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                    |
 | `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points        |
 | `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                    |
@@ -168,7 +172,8 @@ These are settled and do not need revisiting.
 - **Each assignment stores an explicit `sections` mapping** rather than guessing file paths by convention. Real assignments do not use consistent `{from-scratch,debug,modify}.js` filenames, and one pull request can contain more than one gradable section.
 - **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
 - **Completion is judged at 75 percent**, matching the Complete/Incomplete policy in `working-with-assignments.md`. Stored per assignment as `completionThreshold`.
-- **Students join a course by invite link.** An instructor adds a student by name and email, the system generates an invite token, and the student's first GitHub login binds their identity to the enrollment. This avoids requiring the instructor to know each student's GitHub username in advance. (The token column exists; the flow that consumes it does not — see [ROADMAP.md](ROADMAP.md).)
+- **Students join a course through one link per course.** An instructor copies it and sends it however they already talk to their students; opening it and signing in with GitHub creates the enrollment. This application holds no email credentials and sends nothing. See [getting students into a course](#getting-students-into-a-course).
+- **Removing a student and archiving a course make lists go quiet; they never take work back.** A removed student keeps reading the feedback they were given, and an archived cohort stays readable to the people who were in it. Neither can hand anything new in.
 - **GitHub's numeric user ID is the durable identity key**, because usernames are mutable.
 - **An uploaded submission is readable only through a signed URL a procedure minted.** The bucket is private and carries no policies, so the browser cannot reach it at all.
 - **The sandbox never holds a GitHub token.**
@@ -296,6 +301,33 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 **`grading_draft_sections`** are child rows, because one submission can have more than one graded section per run. The submission's final score on approval is the sum of a run's section scores.
 
 **`test_runs`** is described under [test execution](#test-execution).
+
+### Getting students into a course
+
+**`courses.joinToken`** is one unique token per course. An instructor copies the link, sends it however they already talk to their students, and anyone who opens it and signs in with GitHub is enrolled. It is per *course* rather than per student because distributing the link is a person's job either way, so twenty-five tokens would buy nothing — and because this application holds no email credentials and sends nothing.
+
+What that trades away is an allowlist, so the controls are after the fact: `regenerateJoinToken` replaces a link that reached the wrong person, and removing deals with whoever got in. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.gradebook`, which is instructor-only *and* teach-gated — and appears in nothing a student receives.
+
+**An `Enrollment` row is created *by* somebody joining**, so `studentId` is `NOT NULL` and there is no "invited" state: `@@unique([courseId, studentId])` is what makes redeeming a link twice return the enrollment that exists rather than adding another. A removed student redeeming again is refused, and that is the one place idempotence would be wrong — if the link let them back in, removal would not stick while they still held it, so coming back is `enrollments.restore`, which the instructor calls.
+
+**The join link is behind authentication, and the proxy carries the destination.** `/join/[token]` sits inside the authenticated shell, so an unauthenticated visitor is redirected to sign in and arrives back at the link — which is what binds the enrollment to whoever signed in, with no token left to reconcile against an identity afterwards. The proxy sets `?next=` for this reason: a join link is the one address somebody reaches having never signed in, and without it they would authenticate, land on `/courses`, and never know they were one step from joining.
+
+### `assertCourseMember` and `assertActiveStudent` are two different questions
+
+Because [removing and archiving never take work back](#standing-decisions), "is this person in this course" has two right answers:
+
+| | Admits | Governs |
+| - | - | - |
+| `assertCourseMember` | active students, **removed students**, instructors, admins | the course page, an assignment's page, released feedback |
+| `assertActiveStudent` | active students only | `accept`, `submitWork`, the upload route |
+
+They live side by side in `lib/courses/membership.ts` because the two `where` clauses differ by one enum value in code that otherwise reads identically. Written out at each call site, the failure is not spotting a difference — it is not noticing there was a decision to make.
+
+**The write paths were already right, and the read paths were the work**, which is the opposite of how it looks. `accept` and `assertCanHandIn` each checked `ACTIVE` themselves — a mutation must not assume which query preceded it — so a removed student was already refused. What had to widen was the four read checks, which filtered on `ACTIVE` too and would otherwise deny a removed student the course they are meant to keep.
+
+`courses.listMine` is the one where admitting them is not the whole answer: it returns `enrolledAs`, so the card can say *no longer enrolled*. A course that silently reappeared, indistinguishable from the cohorts they are still in, would be telling a student something false.
+
+**A gradebook and a roster want opposite things from the same payload.** `courses.gradebook` returns `enrollments` — every status, so the Roster tab can show a departed student and offer to restore them — and `activeEnrollments`, which is what the grid and every count read. Two lists rather than one filtered in the interface, because a component that had to remember which question it was asking would eventually get it wrong.
 
 ### Migrations are authored with `migrate diff`, never `migrate dev`
 

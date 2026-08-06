@@ -13,6 +13,7 @@ import {
   validateAssignmentDraft,
   type ValidationFinding,
 } from '@/lib/assignments/validate';
+import { assertActiveStudent, assertCourseMember } from '@/lib/courses/membership';
 import { effectiveSection } from '@/lib/grade/approve';
 import {
   getConfiguredInstallationId,
@@ -53,38 +54,6 @@ const assignmentFields = {
   acceptedFileTypes: true,
   submissionInstructions: true,
 } as const;
-
-/**
- * Whether the caller is connected to a course, either enrolled or teaching.
- *
- * Pulled out because every course-scoped read needs it and Prisma is not restricted by
- * row level security: without this check any signed-in user could read any course by
- * guessing an id.
- */
-async function assertCourseMember(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
-  courseId: string,
-) {
-  if (ctx.profile.role === 'ADMIN') return;
-
-  const [enrollment, instructorRow] = await Promise.all([
-    ctx.db.enrollment.findFirst({
-      where: { courseId, studentId: ctx.profile.id, status: 'ACTIVE' },
-      select: { id: true },
-    }),
-    ctx.db.courseInstructor.findFirst({
-      where: { courseId, userId: ctx.profile.id },
-      select: { id: true },
-    }),
-  ]);
-
-  if (!enrollment && !instructorRow) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'You are not a member of this course.',
-    });
-  }
-}
 
 /**
  * Whether the caller *teaches* this course, which is stronger than being a member of it.
@@ -334,20 +303,11 @@ export const assignmentsRouter = createTRPCRouter({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
       }
 
-      // Enrollment is checked here as well as in listForCourse, because a
-      // mutation must never rely on the caller having gone through a particular
-      // query first.
-      const enrollment = await ctx.db.enrollment.findFirst({
-        where: { courseId: assignment.courseId, studentId: student.id, status: 'ACTIVE' },
-        select: { id: true },
-      });
-
-      if (!enrollment) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You are not enrolled in the course this assignment belongs to.',
-        });
-      }
+      // Checked here as well as in listForCourse, because a mutation must never rely on the
+      // caller having gone through a particular query first. `assertActiveStudent` rather
+      // than `assertCourseMember`: a removed student can still read this assignment and must
+      // not be able to accept it.
+      await assertActiveStudent(ctx, assignment.courseId);
 
       /*
         What accepting *is* depends on the kind, and this is where that stops being
@@ -920,26 +880,7 @@ export const assignmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const source = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
-        select: {
-          courseId: true,
-          kind: true,
-          title: true,
-          completionThreshold: true,
-          templateRepo: true,
-          answerKeyRepo: true,
-          answerKeyDir: true,
-          assignmentRepoName: true,
-          githubOrg: true,
-          templateRef: true,
-          runnerPreset: true,
-          runnerConfig: true,
-          templateDocUrl: true,
-          acceptedFileTypes: true,
-          submissionInstructions: true,
-          sections: true,
-          moduleId: true,
-          module: { select: { name: true } },
-        },
+        select: copyableAssignmentSelect,
       });
       if (!source) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
 
@@ -947,72 +888,12 @@ export const assignmentsRouter = createTRPCRouter({
       await assertTeaches(ctx, source.courseId);
       await assertTeaches(ctx, input.targetCourseId);
 
-      /*
-        A module belongs to one course, so copying into a *different* course cannot reuse the
-        source's module. Matched by name, which is the only thing the two courses can agree
-        about, and refused when the target has no module of that name rather than guessing —
-        filing a copied assignment under whichever module happened to be first would be a
-        wrong answer that looks like a right one.
-      */
-      const targetModule =
-        input.targetCourseId === source.courseId
-          ? { id: source.moduleId }
-          : await ctx.db.module.findFirst({
-              where: { courseId: input.targetCourseId, name: source.module.name },
-              select: { id: true },
-            });
-
-      if (!targetModule) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message:
-            `The target course has no module called "${source.module.name}". Create it there ` +
-            `first, so the copy has somewhere to go.`,
-        });
-      }
-
-      const draft = {
-        kind: source.kind,
-        title: source.title,
-        moduleId: targetModule.id,
-        completionThreshold: source.completionThreshold,
+      return copyAssignmentInto(ctx.db, {
+        source,
+        targetCourseId: input.targetCourseId,
+        assignmentRepoName: input.assignmentRepoName,
         dueAt: input.dueAt ?? null,
-        templateRepo: source.templateRepo,
-        answerKeyRepo: source.answerKeyRepo,
-        answerKeyDir: source.answerKeyDir,
-        assignmentRepoName: input.assignmentRepoName ?? source.assignmentRepoName,
-        githubOrg: source.githubOrg,
-        templateRef: source.templateRef,
-        runnerPreset: source.runnerPreset,
-        runnerConfig: source.runnerConfig,
-        templateDocUrl: source.templateDocUrl,
-        acceptedFileTypes: source.acceptedFileTypes,
-        submissionInstructions: source.submissionInstructions,
-        sections: source.sections,
-      };
-
-      const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, {
-        courseId: input.targetCourseId,
-        draft,
       });
-      refuseOnErrors(findings);
-      if (!spec || pointValue === null) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'The assignment being copied is not a valid draft. Edit it first.',
-        });
-      }
-
-      const assignment = await ctx.db.assignment.create({
-        data: {
-          courseId: input.targetCourseId,
-          distributedAt: null,
-          ...writableFields(spec, pointValue),
-        },
-        select: assignmentFields,
-      });
-
-      return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
     }),
 
   /**
@@ -1111,3 +992,139 @@ export const assignmentsRouter = createTRPCRouter({
       };
     }),
 });
+
+/** What `copyAssignmentInto` reads off the assignment being copied. */
+type CopyableAssignment = {
+  courseId: string;
+  kind: import('@/lib/generated/prisma/enums').AssignmentKind;
+  title: string;
+  completionThreshold: number;
+  templateRepo: string | null;
+  answerKeyRepo: string | null;
+  answerKeyDir: string | null;
+  assignmentRepoName: string | null;
+  githubOrg: string | null;
+  templateRef: string | null;
+  runnerPreset: string;
+  runnerConfig: unknown;
+  templateDocUrl: string | null;
+  acceptedFileTypes: string[];
+  submissionInstructions: string | null;
+  sections: unknown;
+  moduleId: string;
+  module: { name: string };
+};
+
+/** The columns `copyAssignmentInto` needs, as a Prisma select. Shared so the two callers agree. */
+export const copyableAssignmentSelect = {
+  courseId: true,
+  kind: true,
+  title: true,
+  completionThreshold: true,
+  templateRepo: true,
+  answerKeyRepo: true,
+  answerKeyDir: true,
+  assignmentRepoName: true,
+  githubOrg: true,
+  templateRef: true,
+  runnerPreset: true,
+  runnerConfig: true,
+  templateDocUrl: true,
+  acceptedFileTypes: true,
+  submissionInstructions: true,
+  sections: true,
+  moduleId: true,
+  module: { select: { name: true } },
+} as const;
+
+/**
+ * Copies one assignment into a course, re-validated against where it is going.
+ *
+ * Extracted from `duplicate` so that creating a course can loop over it, which is what
+ * `duplicate` was built at the assignment level for. **Authorization is not here**: both
+ * callers check that the caller teaches the source and the target before reaching this, and a
+ * function that copied assignments without being asked who wanted it done would be the wrong
+ * shape to leave lying around.
+ *
+ * Re-validated rather than copied column for column, because a mapping legitimate in one course
+ * may not be in another — the module has to exist there by name, and both repositories are
+ * reached over the network to check they are still readable.
+ */
+export async function copyAssignmentInto(
+  db: typeof import('@/lib/prisma').db,
+  params: {
+    source: CopyableAssignment;
+    targetCourseId: string;
+    assignmentRepoName?: string;
+    dueAt: Date | null;
+  },
+) {
+  const { source, targetCourseId } = params;
+
+      /*
+        A module belongs to one course, so copying into a *different* course cannot reuse the
+        source's module. Matched by name, which is the only thing the two courses can agree
+        about, and refused when the target has no module of that name rather than guessing —
+        filing a copied assignment under whichever module happened to be first would be a
+        wrong answer that looks like a right one.
+      */
+      const targetModule =
+        targetCourseId === source.courseId
+          ? { id: source.moduleId }
+          : await db.module.findFirst({
+              where: { courseId: targetCourseId, name: source.module.name },
+              select: { id: true },
+            });
+
+      if (!targetModule) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            `The target course has no module called "${source.module.name}". Create it there ` +
+            `first, so the copy has somewhere to go.`,
+        });
+      }
+
+      const draft = {
+        kind: source.kind,
+        title: source.title,
+        moduleId: targetModule.id,
+        completionThreshold: source.completionThreshold,
+        dueAt: params.dueAt,
+        templateRepo: source.templateRepo,
+        answerKeyRepo: source.answerKeyRepo,
+        answerKeyDir: source.answerKeyDir,
+        assignmentRepoName: params.assignmentRepoName ?? source.assignmentRepoName,
+        githubOrg: source.githubOrg,
+        templateRef: source.templateRef,
+        runnerPreset: source.runnerPreset,
+        runnerConfig: source.runnerConfig,
+        templateDocUrl: source.templateDocUrl,
+        acceptedFileTypes: source.acceptedFileTypes,
+        submissionInstructions: source.submissionInstructions,
+        sections: source.sections,
+      };
+
+      const { findings, spec, pointValue } = await validateAssignmentDraft(db, {
+        courseId: targetCourseId,
+        draft,
+      });
+      refuseOnErrors(findings);
+      if (!spec || pointValue === null) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'The assignment being copied is not a valid draft. Edit it first.',
+        });
+      }
+
+      const assignment = await db.assignment.create({
+        data: {
+          courseId: targetCourseId,
+          distributedAt: null,
+          ...writableFields(spec, pointValue),
+        },
+        select: assignmentFields,
+      });
+
+  return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+}

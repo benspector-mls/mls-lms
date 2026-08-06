@@ -29,11 +29,15 @@ import type { RouterOutputs } from '@/trpc/types';
 type Gradebook = RouterOutputs['courses']['gradebook'];
 
 export function Gradebook({ data }: { data: Gradebook }) {
-  // Only students who are actually in the course. An invitation nobody has redeemed has
-  // no work to show and would be a row of em dashes.
-  const roster = data.enrollments.flatMap((enrollment) =>
-    enrollment.status === 'ACTIVE' && enrollment.student ? [enrollment.student] : [],
-  );
+  /*
+    Only students who are actually in the cohort — `activeEnrollments` rather than
+    `enrollments`, which carries removed students too for the Roster tab.
+
+    A departed student's work is not destroyed and does not belong in a figure about the
+    cohort's current state: left in, they would read as somebody with unfinished assignments
+    for as long as the course exists.
+  */
+  const roster = data.activeEnrollments.map((enrollment) => enrollment.student);
 
   const assignments = [...data.assignments].sort((a, b) => {
     // Course order, which is `module.position` — the sequence an instructor set, not

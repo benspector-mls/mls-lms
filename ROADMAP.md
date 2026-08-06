@@ -55,17 +55,17 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-**The first three are what stand between a working pipeline and a cohort actually using it.** Everything downstream of a course — authoring, accepting, running, grading, reviewing, releasing — works and is deployed. What cannot be done at all is start a course, put students in it, or let anybody but a hand-edited database row teach. Until those exist this is a system that grades correctly for one seeded cohort, which is why they come before measurement and before a review of code that already works.
+**Instructor approval is first because it is the last thing standing between this and a second person running a cohort on it.** A course can now be created, copied, filled from a join link, and retired; what still needs the database is deciding who may teach. It comes before measurement and before a review of code that already works, for the same reason the other two did.
 
-1. **[Course creation](#course-creation)** — an instructor makes a cohort, rather than `prisma/seed.ts` being the only thing that can, and archives it when it finishes. `courses.ts` has `listMine`, `get`, `gradebook`, and `roster`, and no `create`.
-2. **[Student enrollment](#student-enrollment)** — one join link per course, and removing a student. There is no `enrollments` router at all, the Roster tab is a read-only list, and every enrollment in the system was written by the seed.
-3. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)** — `Profile.role` is set by hand in the database today. Independent of the two above and smaller than either, so it can go first or last within this group.
-
-All three are designed: see [getting a cohort into the application](#getting-a-cohort-into-the-application), which settles the one rule they share before it settles any of them.
-4. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-5. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-6. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+1. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)** — `Profile.role` is set by hand in the database today. Designed; the last of the three, and the smallest.
+2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+5. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+6. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
 7. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+
+**Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, and retired.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -389,7 +389,7 @@ Nothing in this phase is outstanding.
 
 ### Not in this phase
 
-- **[Course creation](#course-creation)** and **[student enrollment](#student-enrollment)**, including the join link. `duplicate` is built to make the course case cheap when it comes.
+- **[Course creation](#course-creation--done)** and **[student enrollment](#student-enrollment--done)**, including the join link. `duplicate` is built at the assignment level so the course case becomes a loop over it, which is what it turned out to be.
 - **AI grading for assignments with no template repository.** Creating, handing in, and hand-grading them is done, and an uploaded file now has somewhere to be read *from*. What is not: reading a Google Doc's contents or an uploaded file's, and generating a report from it. That needs Drive access and [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), and it is the last [item](#the-order-of-work).
 - **Any soft delete or archive.** Removal is permanent by decision, so there is no recovery path in the application. The database's own backups are the only way back from a mistaken removal.
 - **Deleting student repositories** when an assignment is removed. They are reported and left alone.
@@ -435,7 +435,7 @@ model Module {
 }
 ```
 
-**Per course, not program-wide.** Matches `moduleStructure` today and matches how an LMS works: one cohort reordering or dropping a module must not touch another's records. The cost is that a new cohort creates its modules again, which is a copy-from-course action to build alongside [course creation](#course-creation) rather than a reason to share rows between cohorts.
+**Per course, not program-wide.** Matches `moduleStructure` today and matches how an LMS works: one cohort reordering or dropping a module must not touch another's records. The cost is that a new cohort creates its modules again, which is the copy-from-course action [course creation](#course-creation--done) performs rather than a reason to share rows between cohorts.
 
 **The name is free text and nothing derives from it.** `moduleLabel` and its initialisms list stop being how a module is titled — an instructor types "Async and APIs" and that is the title. `moduleLabel` survives only for as long as any pre-migration data does; `compareModuleTags` is replaced by `position`.
 
@@ -615,7 +615,7 @@ A job that reads `PENDING` submissions, writes them, and records `SYNCED` with t
 
 ## Getting a cohort into the application
 
-**Design settled, not yet built.** Three features that interlock: a course has to exist, students have to get into it, and somebody other than a hand-edited database row has to be allowed to teach. Everything downstream of a course already works and is deployed.
+Three features that interlock: a course has to exist, students have to get into it, and somebody other than a hand-edited database row has to be allowed to teach. **The first two are built; instructor approval is designed and not.**
 
 One rule they all share, decided once here rather than three times below.
 
@@ -638,9 +638,9 @@ So the risk in this change is not "a removed student can still submit". It is th
 
 ---
 
-## Course creation
+## Course creation — done
 
-An instructor creates a cohort rather than a seed script doing it. `courses.ts` today has `listMine`, `get`, `gradebook`, and `roster` — reads only.
+An instructor creates a cohort rather than a seed script doing it. **Built**: `courses.create`, `courses.setArchived`, `courses.regenerateJoinToken`, and a New course form on the course list. `npm run verify:enrollment` covers this and enrollment together, because the two share a transaction's worth of setup and the interesting checks cross both.
 
 **`create({ name, cohortTerm, copyFromCourseId? })`**, and the creator becomes the primary instructor: a `CourseInstructor` row with `isPrimary: true`. That matters more than it sounds, because every authoring procedure checks `CourseInstructor` rather than the role — an instructor who is not in that table for a course cannot author anything in it. Which is correct, and is why creating a course has to write that row in the same transaction.
 
@@ -670,7 +670,9 @@ An archived course is readable by its members and accepts nothing new — the sa
 
 ---
 
-## Student enrollment
+## Student enrollment — done
+
+**Built**: `trpc/routers/enrollments.ts` with `preview`, `join`, `remove`, and `restore`; `/join/[token]`; and a Roster tab that shows the link and who has used it.
 
 **One join link per course.** The instructor copies it and sends it however they already talk to their students; opening it and signing in with GitHub enrolls you. There is no email infrastructure in this application and this design does not add any — no provider, no sending domain, no delivery states to chase.
 
@@ -732,7 +734,7 @@ Doing it properly needs a **test enrollment**: a student-shaped identity the ins
 - **Whether it can be graded.** Almost certainly not: an approved grade on a test row would reach the Salesforce sync as a real one. Refusing at approval is the safer end.
 - **How an instructor switches into it**, and how obvious it is that they are in it. A preview that looks like the real thing is a way to grade the wrong person.
 
-**Separate from [enrollment](#student-enrollment), and after it.** The argument for bundling them is that both add a roster state every reader has to learn about, and it is weaker than it looks: teaching those readers about `REMOVED` is the expensive pass, and adding a third state to a pattern that already exists is much cheaper than establishing the pattern. This is also the only part of this area whose design is unresolved — the four questions above — and there is a version that costs nothing meanwhile, which is joining your own course with a second GitHub account.
+**Separate from [enrollment](#student-enrollment--done), and after it.** The argument for bundling them is that both add a roster state every reader has to learn about, and it is weaker than it looks: teaching those readers about `REMOVED` is the expensive pass, and adding a third state to a pattern that already exists is much cheaper than establishing the pattern. This is also the only part of this area whose design is unresolved — the four questions above — and there is a version that costs nothing meanwhile, which is joining your own course with a second GitHub account.
 
 ---
 

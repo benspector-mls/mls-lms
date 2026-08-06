@@ -63,9 +63,22 @@ export async function updateSession(request: NextRequest) {
     // data requests. Only the redirect is skipped.
     !request.nextUrl.pathname.startsWith("/api")
   ) {
-    // no user, potentially respond by redirecting the user to the login page
+    /*
+      No user: send them to sign in, and remember where they were going.
+
+      `next` matters most for a course join link, which is the one address a person arrives at
+      having never signed in — that is what it is for. Without it they would authenticate,
+      land on `/courses`, and have no idea they were one step from joining the cohort somebody
+      sent them. `login-form.tsx` and `/auth/callback` both already honour `next` and both
+      refuse anything that is not a relative path, so this only has to set it.
+
+      The search string is carried along with the path, because a link's query is part of where
+      the person was going.
+    */
+    const destination = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
+    url.search = `?next=${encodeURIComponent(destination)}`;
     return NextResponse.redirect(url);
   }
 

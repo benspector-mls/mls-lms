@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import * as React from 'react';
 import {
+  Archive,
   ArrowDown,
   ArrowRight,
   ArrowUp,
+  Check,
   ChevronsUpDown,
   ClipboardList,
   Copy,
@@ -21,6 +23,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  UserMinus,
   Users,
   X,
 } from 'lucide-react';
@@ -33,7 +36,7 @@ import { PageHeader } from '@/components/page-header';
 import { AssignmentKindBadge } from '@/components/status-badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   DropdownMenu,
@@ -76,9 +79,7 @@ type Assignment = Data['assignments'][number];
 const KIND_ORDER = ['REPO', 'GOOGLE_DOC', 'FILE_UPLOAD'] as const;
 
 export function InstructorCourseDetail({ data }: { data: Data }) {
-  const activeStudents = data.enrollments.filter(
-    (enrollment) => enrollment.status === 'ACTIVE',
-  ).length;
+  const activeStudents = data.activeEnrollments.length;
 
   // The same count the triage screen shows, from the same field, so the two agree.
   const outstanding = data.cells.filter(
@@ -99,6 +100,10 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ArchiveCourseButton
+              courseId={data.course.id}
+              archived={data.course.archivedAt !== null}
+            />
             <Link
               href="/instructor"
               className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
@@ -117,6 +122,21 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
         }
       />
 
+      {/*
+        Said at the top of the course rather than only on the card that lists it, because this is
+        the screen an instructor is on when they wonder why nothing is happening.
+      */}
+      {data.course.archivedAt !== null && (
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+          <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p className="text-muted-foreground">
+            This cohort is archived. It is off everyone&apos;s active course list and its
+            submissions are out of triage and the grading queue. Everything stays readable to
+            the people who were in it, and nothing new can be handed in.
+          </p>
+        </div>
+      )}
+
       <Tabs defaultValue="assignments">
         <TabsList>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
@@ -133,7 +153,11 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
           <ModulesTab courseId={data.course.id} />
         </TabsContent>
         <TabsContent value="roster" className="mt-4">
-          <RosterTab enrollments={data.enrollments} />
+          <RosterTab
+            courseId={data.course.id}
+            enrollments={data.enrollments}
+            joinToken={data.course.joinToken}
+          />
         </TabsContent>
         <TabsContent value="gradebook" className="mt-4">
           <Gradebook data={data} />
@@ -997,17 +1021,268 @@ function AssignmentActions({
   );
 }
 
-function RosterTab({ enrollments }: { enrollments: Data['enrollments'] }) {
-  if (enrollments.length === 0) {
+/**
+ * Retiring a cohort, or bringing it back.
+ *
+ * Two clicks to archive and one to unarchive, deliberately asymmetric. Archiving is the one that
+ * changes what a whole cohort of students sees, so it says what it will do first; unarchiving
+ * only undoes it, and a confirmation on an undo is a confirmation nobody reads.
+ */
+function ArchiveCourseButton({
+  courseId,
+  archived,
+}: {
+  courseId: string;
+  archived: boolean;
+}) {
+  const trpc = useTRPC();
+  const router = useRouter();
+  const [confirming, setConfirming] = React.useState(false);
+
+  const setArchived = useMutation(
+    trpc.courses.setArchived.mutationOptions({
+      onSuccess: (result) => {
+        toast.success(
+          result.archivedAt === null
+            ? `${result.name} is active again.`
+            : `${result.name} is archived.`,
+        );
+        setConfirming(false);
+        router.refresh();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  if (archived) {
     return (
-      <EmptyState
-        icon={Users}
-        title="Nobody is enrolled yet"
-        description="Students appear here once they have been invited to the cohort."
-      />
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={setArchived.isPending}
+        onClick={() => setArchived.mutate({ courseId, archived: false })}
+      >
+        <RotateCcw data-icon="inline-start" />
+        Reopen cohort
+      </Button>
     );
   }
 
+  if (!confirming) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
+        <Archive data-icon="inline-start" />
+        Archive cohort
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={setArchived.isPending}
+        onClick={() => setArchived.mutate({ courseId, archived: true })}
+      >
+        Archive — students keep their feedback
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The roster: the join link, and who has used it.
+ *
+ * **Removed students are shown, not filtered out.** This is the instructor's own list and the
+ * one screen where a departed student has to be visible — they are who Restore acts on, and a
+ * roster that silently omitted them would make removal look like deletion.
+ */
+function RosterTab({
+  courseId,
+  enrollments,
+  joinToken,
+}: {
+  courseId: string;
+  enrollments: Data['enrollments'];
+  joinToken: string;
+}) {
+  const trpc = useTRPC();
+  const router = useRouter();
+
+  const settled = {
+    onSuccess: () => router.refresh(),
+    onError: (error: { message: string }) => toast.error(error.message),
+  };
+
+  const remove = useMutation(
+    trpc.enrollments.remove.mutationOptions({
+      ...settled,
+      onSuccess: (result) => {
+        toast.success(`Removed ${result.studentName} from the cohort.`);
+        router.refresh();
+      },
+    }),
+  );
+  const restore = useMutation(
+    trpc.enrollments.restore.mutationOptions({
+      ...settled,
+      onSuccess: (result) => {
+        toast.success(`${result.studentName} is back in the cohort.`);
+        router.refresh();
+      },
+    }),
+  );
+  const regenerate = useMutation(
+    trpc.courses.regenerateJoinToken.mutationOptions({
+      ...settled,
+      onSuccess: () => {
+        toast.success('New join link. The old one no longer works.');
+        router.refresh();
+      },
+    }),
+  );
+
+  const busy = remove.isPending || restore.isPending || regenerate.isPending;
+  const active = enrollments.filter((enrollment) => enrollment.status === 'ACTIVE').length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <JoinLinkCard
+        joinToken={joinToken}
+        active={active}
+        busy={busy}
+        onRegenerate={() => regenerate.mutate({ courseId })}
+      />
+
+      {enrollments.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="Nobody has joined yet"
+          description="Send the link above. Students appear here as they use it."
+        />
+      ) : (
+        <RosterTable
+          enrollments={enrollments}
+          busy={busy}
+          onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
+          onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The one link that enrolls a student, and the only control over it.
+ *
+ * The link is shown rather than hidden behind a reveal: it is not a password, it is something
+ * an instructor has to copy and send at the start of every term, and putting it behind a click
+ * would make the common action slower to protect against a screenshot.
+ *
+ * **Regenerating says what it costs before it happens.** Anyone who has not joined yet is
+ * holding a link that is about to stop working, so the confirmation names that rather than
+ * asking "are you sure".
+ */
+function JoinLinkCard({
+  joinToken,
+  active,
+  busy,
+  onRegenerate,
+}: {
+  joinToken: string;
+  active: number;
+  busy: boolean;
+  onRegenerate: () => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+
+  // Built in the browser, because the server rendering this has no reliable idea what host the
+  // instructor is looking at — a preview deployment and production share the same code.
+  const [origin, setOrigin] = React.useState('');
+  React.useEffect(() => setOrigin(window.location.origin), []);
+  const link = origin ? `${origin}/join/${joinToken}` : `/join/${joinToken}`;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">Join link</span>
+        <span className="text-xs text-muted-foreground">
+          Send this to your students however you already talk to them. Anyone who opens it and
+          signs in with GitHub joins this cohort, so treat it as you would a class password.
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-background px-3 py-2 text-xs">
+          {link}
+        </code>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void navigator.clipboard.writeText(link);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+        >
+          {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+
+      {confirming ? (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
+          <span className="text-xs text-amber-700 dark:text-amber-300">
+            The current link stops working immediately. The {active}{' '}
+            {active === 1 ? 'student' : 'students'} already in the cohort stay enrolled — anyone
+            who has not joined yet will need the new link.
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                onRegenerate();
+                setConfirming(false);
+              }}
+            >
+              Replace the link
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="self-start text-xs text-muted-foreground underline-offset-4 hover:underline"
+          onClick={() => setConfirming(true)}
+        >
+          Replace this link
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RosterTable({
+  enrollments,
+  busy,
+  onRemove,
+  onRestore,
+}: {
+  enrollments: Data['enrollments'];
+  busy: boolean;
+  onRemove: (enrollmentId: string) => void;
+  onRestore: (enrollmentId: string) => void;
+}) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <Table>
@@ -1015,33 +1290,41 @@ function RosterTab({ enrollments }: { enrollments: Data['enrollments'] }) {
           <TableRow>
             <TableHead>Student</TableHead>
             <TableHead className="hidden sm:table-cell">GitHub</TableHead>
-            <TableHead className="text-right">Enrollment</TableHead>
+            <TableHead>Enrollment</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {enrollments.map((enrollment) => {
-            // Before an invitation is redeemed there is no profile, only the address it
-            // was sent to. That is what identifies the row until they sign in.
-            const name = enrollment.student?.displayName ?? enrollment.invitedEmail;
-            const email = enrollment.student?.email ?? enrollment.invitedEmail;
+            // An enrollment always has a student now, because the row is created by somebody
+            // joining. The fallbacks are for a profile that has signed in with GitHub and
+            // never set a display name.
+            const name =
+              enrollment.student.displayName ??
+              enrollment.student.githubUsername ??
+              enrollment.student.email ??
+              'Unnamed';
+            const removed = enrollment.status === 'REMOVED';
 
             return (
-              <TableRow key={enrollment.id}>
+              <TableRow key={enrollment.id} className={removed ? 'opacity-60' : undefined}>
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <Avatar className="size-8">
                       <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-                        {enrollment.student ? initials(enrollment.student.displayName) : '?'}
+                        {initials(enrollment.student.displayName)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex min-w-0 flex-col">
                       <span className="truncate font-medium">{name}</span>
-                      <span className="truncate text-xs text-muted-foreground">{email}</span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {enrollment.student.email ?? '—'}
+                      </span>
                     </div>
                   </div>
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">
-                  {enrollment.student?.githubUsername ? (
+                  {enrollment.student.githubUsername ? (
                     <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                       <GitBranch className="size-3.5" />
                       {enrollment.student.githubUsername}
@@ -1050,8 +1333,32 @@ function RosterTab({ enrollments }: { enrollments: Data['enrollments'] }) {
                     <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell>
                   <EnrollmentBadge status={enrollment.status} />
+                </TableCell>
+                <TableCell className="text-right">
+                  {removed ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => onRestore(enrollment.id)}
+                    >
+                      <RotateCcw data-icon="inline-start" />
+                      Restore
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      disabled={busy}
+                      onClick={() => onRemove(enrollment.id)}
+                    >
+                      <UserMinus data-icon="inline-start" />
+                      Remove
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             );
@@ -1068,10 +1375,8 @@ function EnrollmentBadge({ status }: { status: EnrollmentStatus }) {
       label: 'Active',
       className: 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300',
     },
-    INVITED: {
-      label: 'Invited',
-      className: 'border-amber-500/40 text-amber-700 dark:text-amber-300',
-    },
+    // Grey rather than red. Removing a student is an ordinary administrative act, not a
+    // failure, and their work is untouched — a warning colour would say otherwise.
     REMOVED: { label: 'Removed', className: 'border-border text-muted-foreground' },
   };
 

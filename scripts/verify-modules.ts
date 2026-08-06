@@ -79,12 +79,12 @@ async function main() {
     : null;
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE", studentId: { not: null } },
+        where: { courseId: course.id, status: "ACTIVE" },
         select: { studentId: true },
       })
     : null;
 
-  if (!course || !instructor || !enrollment?.studentId) {
+  if (!course || !instructor || !enrollment) {
     console.log("skip — no seeded course with an instructor and a bound student");
     return report();
   }
@@ -235,7 +235,11 @@ async function main() {
         instructor could rename another's modules.
       */
       const otherCourse = await tx.course.create({
-        data: { name: "Elsewhere (verify:modules)", cohortTerm: "Cohort Elsewhere" },
+        data: {
+          name: "Elsewhere (verify:modules)",
+          cohortTerm: "Cohort Elsewhere",
+          joinToken: `verify-modules-${crypto.randomUUID()}`,
+        },
         select: { id: true },
       });
       const outsider = await tx.profile.findFirst({

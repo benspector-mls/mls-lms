@@ -706,6 +706,7 @@ async function procedures() {
       id: ELSEWHERE_COURSE_ID,
       name: "Another course (verify:authoring)",
       cohortTerm: "Cohort Other",
+      joinToken: `verify-authoring-${ELSEWHERE_COURSE_ID}`,
     },
     update: {},
     select: { id: true },

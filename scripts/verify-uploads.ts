@@ -257,7 +257,7 @@ async function main() {
   // that nobody has claimed yet cannot stand in for a student here.
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE", studentId: { not: null } },
+        where: { courseId: course.id, status: "ACTIVE" },
         select: { studentId: true },
       })
     : null;

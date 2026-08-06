@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { Archive, ArrowRight, BookOpen } from 'lucide-react';
+import { Archive, ArrowRight, BookOpen, UserMinus } from 'lucide-react';
 
+import { NewCourseDialog } from '@/components/instructor/new-course-dialog';
 import { EmptyState } from '@/components/list-states';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,19 +24,37 @@ type Course = {
   cohortTerm: string;
   archivedAt: Date | null;
   teaches: boolean;
+  /**
+   * The caller's own enrollment status, or null when they are not a student of this course.
+   *
+   * `REMOVED` is why this is here. A student who has left a cohort keeps the course — they can
+   * still read the feedback they were given — and a card that looked identical to the cohorts
+   * they are still in would be telling them something false.
+   */
+  enrolledAs: 'ACTIVE' | 'REMOVED' | null;
   _count: { assignments: number; enrollments: number };
 };
 
 export function CoursesList({
   courses,
   githubLinked,
+  canCreate,
 }: {
   courses: Course[];
   githubLinked: boolean;
+  /**
+   * Whether to offer creating one. Any instructor may — a cohort belongs to whoever runs it —
+   * and the procedure is what refuses, so this only decides whether the button is there.
+   */
+  canCreate: boolean;
 }) {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader title="Courses" description="The cohorts you belong to." />
+      <PageHeader
+        title="Courses"
+        description="The cohorts you belong to."
+        actions={canCreate ? <NewCourseDialog courses={courses} /> : undefined}
+      />
 
       {/*
         Worth saying before they try. Accepting an assignment creates a repository named
@@ -65,9 +84,10 @@ export function CoursesList({
         <div className="flex flex-col gap-3">
           {courses.map((course) => {
             const archived = course.archivedAt != null;
+            const removed = course.enrolledAs === 'REMOVED';
 
             return (
-              <Card key={course.id} className={cn(archived && 'opacity-80')}>
+              <Card key={course.id} className={cn((archived || removed) && 'opacity-80')}>
                 <CardContent className="flex flex-col gap-4 py-5">
                   <div className="flex items-start gap-3">
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -84,6 +104,17 @@ export function CoursesList({
                             Archived
                           </span>
                         )}
+                        {/*
+                          Said on the card rather than only inside the course, because this is
+                          where somebody would otherwise be misled: a cohort they have left,
+                          sitting in the same list as the ones they are in.
+                        */}
+                        {removed && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            <UserMinus className="size-3" />
+                            No longer enrolled
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 text-sm text-muted-foreground">
                         {course.cohortTerm} · {course._count.assignments}{' '}
@@ -91,6 +122,12 @@ export function CoursesList({
                         {course._count.enrollments}{' '}
                         {course._count.enrollments === 1 ? 'student' : 'students'}
                       </p>
+                      {removed && (
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Your work and the feedback you were given stay available here. You
+                          cannot hand in anything new.
+                        </p>
+                      )}
                     </div>
                   </div>
 

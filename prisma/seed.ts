@@ -18,6 +18,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { config as loadEnv } from "dotenv";
 
 import { AssignmentKind, parseAssignmentSpec } from "../lib/assignments/spec";
+import { newJoinToken } from "../lib/courses/join-token";
 import { PrismaClient, Prisma, Role, EnrollmentStatus, RubricScaleType } from "../lib/generated/prisma/client";
 
 loadEnv({ path: ".env.local", quiet: true });
@@ -416,7 +417,11 @@ async function main() {
   const course =
     existingCourse ??
     (await prisma.course.create({
-      data: { name: "Software Engineering Fellowship", cohortTerm: "Cohort Test" },
+      data: {
+        name: "Software Engineering Fellowship",
+        cohortTerm: "Cohort Test",
+        joinToken: newJoinToken(),
+      },
     }));
   console.log(`Course: ${course.name} (${course.cohortTerm}) — ${course.id}`);
 
@@ -493,17 +498,17 @@ async function main() {
   console.log(`Instructor: ${INSTRUCTOR_EMAIL}`);
 
   // ---- Enrollment ---------------------------------------------------------
-  // Already bound to a student, because both accounts exist. The invite-token
-  // redemption path is what a real new student would go through instead.
+  // Written directly, because both accounts already exist. Redeeming the course's join link is
+  // what a real new student goes through instead, and it produces exactly this row.
   await prisma.enrollment.upsert({
     where: { courseId_studentId: { courseId: course.id, studentId: student.id } },
     create: {
       courseId: course.id,
       studentId: student.id,
-      inviteToken: `seed-${course.id}-${student.id}`,
-      invitedEmail: STUDENT_EMAIL,
       status: EnrollmentStatus.ACTIVE,
     },
+    // Re-seeding puts a student the roster removed back, which is what every other `update`
+    // here does too: the seed is the authority on the shape it describes.
     update: { status: EnrollmentStatus.ACTIVE },
   });
   console.log(`Student: ${STUDENT_EMAIL}${student.githubUsername ? ` (${student.githubUsername})` : ""}`);

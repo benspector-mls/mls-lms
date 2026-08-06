@@ -30,6 +30,7 @@
     "setup:storage": "tsx --conditions=react-server scripts/setup-storage.ts",
     "verify:uploads": "tsx --conditions=react-server scripts/verify-uploads.ts",
     "verify:modules": "tsx --conditions=react-server scripts/verify-modules.ts",
+    "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts"
   },
   "dependencies": {

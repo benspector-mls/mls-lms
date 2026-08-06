@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createTRPCRouter, protectedProcedure } from '../init';
 import { assignmentsRouter } from './assignments';
 import { coursesRouter } from './courses';
+import { enrollmentsRouter } from './enrollments';
 import { gradingDraftsRouter } from './grading-drafts';
 import { modulesRouter } from './modules';
 import { submissionsRouter } from './submissions';
@@ -56,6 +57,7 @@ export const appRouter = createTRPCRouter({
     ),
 
   courses: coursesRouter,
+  enrollments: enrollmentsRouter,
   modules: modulesRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
