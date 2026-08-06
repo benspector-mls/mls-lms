@@ -55,12 +55,14 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
-2. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-3. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-4. **[Course creation](#course-creation)**
-5. **[Student enrollment](#student-enrollment)** — including assignments targeted at some students, and excusing a student from one.
-6. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)**
+**The first three are what stand between a working pipeline and a cohort actually using it.** Everything downstream of a course — authoring, accepting, running, grading, reviewing, releasing — works and is deployed. What cannot be done at all is start a course, put students in it, or let anybody but a hand-edited database row teach. Until those exist this is a system that grades correctly for one seeded cohort, which is why they come before measurement and before a review of code that already works.
+
+1. **[Course creation](#course-creation)** — an instructor makes a cohort, rather than `prisma/seed.ts` being the only thing that can. `courses.ts` has `listMine`, `get`, `gradebook`, and `roster`, and no `create`.
+2. **[Student enrollment](#student-enrollment)** — the invite-link flow, which is designed and standing. `Enrollment` carries `inviteToken` and an `INVITED / ACTIVE / REMOVED` status; there is no `enrollments` router at all, the Roster tab is a read-only list, and nothing has ever set `REMOVED`. Also covers assignments targeted at some students, and excusing a student from one.
+3. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)** — `Profile.role` is set by hand in the database today. Independent of the two above and smaller than either, so it can go first or last within this group.
+4. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+5. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+6. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
 7. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
@@ -611,15 +613,31 @@ A job that reads `PENDING` submissions, writes them, and records `SYNCED` with t
 
 ## Course creation
 
-An instructor creates a cohort rather than a seed script doing it. `duplicate` in [assignment authoring](#step-3-procedures--trpcroutersassignmentsts) is built at the assignment level specifically so this becomes a loop over proven assignment mappings rather than new logic.
+An instructor creates a cohort rather than a seed script doing it. `duplicate` in [assignment authoring](#step-3-procedures--trpcroutersassignmentsts) is built at the assignment level specifically so this becomes a loop over proven assignment mappings rather than new logic. `courses.ts` today has `listMine`, `get`, `gradebook`, and `roster` — reads only.
 
-Two things this has to settle. A new course needs its modules, and since they are [rows per course](#modules-and-where-an-assignments-repositories-come-from) rather than a shared list, creating a cohort means copying a previous one's modules and then its assignments into them — a loop over `duplicate` once the modules exist. And a course with no students is useless, so this is bound to student enrollment below.
+**Copy in one order, and it is forced.** Modules first, then assignments. `duplicate` matches a module across courses **by name**, and refuses when the target has no module of that name rather than guessing — so copying the assignments before the modules exist fails on every one of them, and copying modules under corrected names before the assignments arrive fails just as reliably. The rename comes after the copy, which is safe precisely because [the module id is the identity](#phase-1-modules-are-rows--done).
+
+**What must not carry across.** `dueAt` — a new cohort has new dates, and `duplicate` already takes it optionally and defaults to null. What should is everything the assignment *is*: both repositories, the answer key folder, the runner, the sections, the point values. `@@unique([courseId, assignmentRepoName])` is per course, so a copied assignment keeps its repository name without colliding with the cohort it came from.
+
+**Who teaches it.** `CourseInstructor` records teaching and carries `isPrimary`, which the seed sets and nothing else does. The creator becoming the primary instructor is the obvious rule; what it has to settle is how a second instructor is added, since every authoring procedure checks `CourseInstructor` rather than the role — an instructor not in that table cannot author anything in the course, which is correct and currently unfixable from the interface.
+
+**Creating courses makes archiving them necessary.** `Course.archivedAt` exists, `listMine` and the student course list already filter and label on it, and **nothing has ever set it** — the same shape as `EnrollmentStatus.REMOVED` below. One seeded cohort never needed it; a school running three cohorts a year does within the first year, or the course list grows without end and every instructor sees every cohort that ever ran. What it has to settle is what archiving means for the work inside: whether a student can still read released feedback on an archived course, and whether its submissions stay in triage and the grading queue.
+
+And a course with no students is useless, so this is bound to student enrollment below.
 
 ---
 
 ## Student enrollment
 
 **The invite-link flow.** The decision is already recorded as standing: an instructor adds a student by name and email, the system generates an invite token, and the student's first GitHub login binds their identity to the enrollment. This avoids the instructor needing to know each student's GitHub username in advance. `Enrollment.inviteToken` exists and is unique; nothing reads it, so this is the piece that makes a created course usable.
+
+**What exists and what does not**, because the Roster tab makes this look further along than it is. `courses.roster` reads enrollments and `components/instructor/course-detail.tsx` renders them, so a course's students can be *seen*. There is no `enrollments` router, so nothing can add one, invite one, bind one, or remove one — every enrollment in the system was written by `prisma/seed.ts`. `EnrollmentStatus` already has the three states this needs (`INVITED`, `ACTIVE`, `REMOVED`) and nothing has ever set `REMOVED`, so the vocabulary is in place and unexercised.
+
+**`REMOVED` rather than deleting the row**, and the reason is the same one that keeps `remove` on an assignment from touching student repositories: a student who leaves a cohort had submissions, grades, and released feedback, and destroying those to tidy a roster is the worse failure. What it forces is a decision the gradebook has to make anyway — whether a removed student's work still counts in cohort figures, and whether their released grades stay visible to them. Neither is answered today.
+
+**Every reader of "the students in this course" has to learn about it.** `status: 'ACTIVE'` appears in eleven places, and each one is a question about what a removed or not-yet-bound student means there: the gradebook, the roster, the grading queue, triage, the counts on a course card, and the membership checks that decide whether somebody may read a course at all. That last one is the security-relevant case — a removed student must stop being a member, and an invited one who has not logged in yet is not a member of anything.
+
+**The same enumeration problem as the test enrollment below**, which is the argument for building the two together: both add a state that most readers of a roster currently cannot express, and finding every reader once is cheaper than finding it twice.
 
 ### Seeing a course as a student sees it
 
@@ -644,7 +662,13 @@ Worth doing alongside enrollment rather than before it, because it is an enrollm
 
 Today `Profile.role` is set by hand in the database. The feature is a request-and-approve flow: someone signs up, an admin sees them pending, and grants instructor access.
 
-One constraint this must not violate, and the reason it deserves care rather than a quick form: migration `20260730024911_tighten_profiles_grants` exists because a signed-in student could once have set their own `role` to `ADMIN` from browser JavaScript. Any approval flow goes through a procedure that checks the caller is an admin. The role column must never become writable by the account it describes.
+**One constraint this must not violate**, and the reason it deserves care rather than a quick form: migration `20260730024911_tighten_profiles_grants` exists because a signed-in student could once have set their own `role` to `ADMIN` from browser JavaScript. Any approval flow goes through a procedure that checks the caller is an admin. The role column must never become writable by the account it describes — which is a property of the grants, not of the procedure, so the procedure being correct is not on its own enough.
+
+**There is no `adminProcedure`.** `Role` has three values and `trpc/init.ts` builds `instructorProcedure` as `requireRole('INSTRUCTOR', 'ADMIN')` — so an admin is currently an instructor with a wider reach rather than a separate capability, and twelve places compare a role by hand. This feature is the first thing that is admin-only, so it is also what decides whether admin becomes its own procedure or stays a comparison repeated at each site. The former, almost certainly, for the reason every other guard here is a procedure: a check that has to be remembered at twelve call sites is a check that will be forgotten at the thirteenth.
+
+**What "pending" is has to be stored somewhere**, and `Role` cannot express it — a signed-up person who has asked to teach is `STUDENT` today, which is indistinguishable from a student. A fourth enum value, a nullable request column on `Profile`, or a separate request table are the options; the enum is the cheapest and the worst, because "pending instructor" would then be a role that every `requireRole` call has to know is not a student.
+
+**Nothing sets `ADMIN` from inside the application, and nothing should.** The first admin of a deployment is a hand-edited row by necessity — there is nobody to approve them. That is worth writing down rather than discovering, because it means this feature never removes the need for database access, it only removes it from the ordinary case.
 
 ---
 
