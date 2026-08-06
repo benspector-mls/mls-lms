@@ -74,7 +74,7 @@ export function StudentCourseDetail({
   assignments: Assignment[];
   githubLinked: boolean;
 }) {
-  const modules = groupByModule(assignments);
+  const modules = groupByModule(course, assignments);
   const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
 
   return (
@@ -117,7 +117,7 @@ export function StudentCourseDetail({
         </Card>
       )}
 
-      {assignments.length === 0 ? (
+      {modules.length === 0 ? (
         <EmptyState
           icon={ListChecks}
           title="No assignments yet"
@@ -140,14 +140,23 @@ export function StudentCourseDetail({
 }
 
 /**
- * Groups assignments under their module, in the order the course puts them in.
+ * Every module of the course, in the order the instructor set, with its assignments under it.
  *
- * The order is `module.position`, which an instructor sets, rather than anything parsed out of
- * a name. A module the student has no assignments in does not appear — an empty section would
- * tell them nothing, and it is the instructor's course page that needs to show one.
+ * **Built from the course's modules rather than from the assignments**, so a module a student
+ * has nothing in yet still appears. That is the point: the module list is the shape of the
+ * course, and a student should be able to see what is coming rather than only what has been
+ * handed out. A module whose assignments are all still drafts looks empty to them and full to
+ * the instructor, which is what `distributedAt` is for.
+ *
+ * An assignment whose module is somehow not in the list is still shown, under that module, so
+ * nothing can go missing from a student's page because of a data problem they cannot see.
  */
-function groupByModule(assignments: Assignment[]) {
+function groupByModule(course: Course, assignments: Assignment[]) {
   const groups = new Map<string, { id: string; name: string; position: number; rows: Assignment[] }>();
+
+  for (const row of course.modules) {
+    groups.set(row.id, { ...row, rows: [] });
+  }
 
   for (const assignment of assignments) {
     const existing = groups.get(assignment.module.id);
@@ -169,7 +178,9 @@ function ModuleSection({
   assignments: Assignment[];
   teaches: boolean;
 }) {
-  const [open, setOpen] = React.useState(true);
+  // Collapsed when there is nothing in it. A module with no assignments yet is worth seeing in
+  // the list and not worth taking up space open.
+  const [open, setOpen] = React.useState(assignments.length > 0);
   const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
 
   return (
@@ -190,19 +201,27 @@ function ModuleSection({
               {name}
             </span>
             <span className="text-xs whitespace-nowrap text-muted-foreground">
-              {complete} of {assignments.length} complete
+              {assignments.length === 0
+                ? 'Nothing yet'
+                : `${complete} of ${assignments.length} complete`}
             </span>
           </CollapsibleTrigger>
         </h2>
 
         <CollapsibleContent>
-          <ul className="divide-y divide-border border-t border-border">
-            {assignments.map((assignment) => (
-              <li key={assignment.id}>
-                <AssignmentRow assignment={assignment} teaches={teaches} />
-              </li>
-            ))}
-          </ul>
+          {assignments.length === 0 ? (
+            <p className="border-t border-border px-3 py-3 text-sm text-muted-foreground">
+              Nothing has been handed out for this module yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {assignments.map((assignment) => (
+                <li key={assignment.id}>
+                  <AssignmentRow assignment={assignment} teaches={teaches} />
+                </li>
+              ))}
+            </ul>
+          )}
         </CollapsibleContent>
       </section>
     </Collapsible>

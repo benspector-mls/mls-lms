@@ -206,6 +206,20 @@ async function main() {
         (await asStudent.modules.listForCourse({ courseId: course.id })).length > 0, true);
 
       /*
+        And an empty module is in what the student's page is built from. Their course page
+        renders a section per module rather than per module-that-has-work, so a student can see
+        the shape of the course ahead of them — which means `courses.get` has to return every
+        module, not only the ones with assignments in.
+      */
+      const emptyOne = await asInstructor.modules.create({
+        courseId: course.id,
+        name: "Mod 94 - Nothing In It",
+      });
+      const asSeenByStudent = await asStudent.courses.get({ courseId: course.id });
+      check("an empty module still reaches the student's course page",
+        asSeenByStudent.modules.some((row) => row.id === emptyOne.id), true);
+
+      /*
         An instructor of a different course is the check the role alone cannot make. INSTRUCTOR
         says nothing about *which* courses, so without the course-level test one cohort's
         instructor could rename another's modules.

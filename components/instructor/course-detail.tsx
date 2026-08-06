@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import * as React from 'react';
 import {
@@ -878,7 +879,23 @@ function AssignmentActions({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [removing, setRemoving] = React.useState(false);
+
+  /*
+    Both, and both are needed for different halves of this screen.
+
+    This page's assignments, roster, and gradebook are fetched by a *server* component and
+    passed down as a prop, so the browser's query cache never held them — `invalidateQueries`
+    has nothing to invalidate and the row went on showing "Draft" until the page was reloaded
+    by hand. `router.refresh()` re-runs the server component, which is what updates them.
+    `invalidateQueries` is still right for the parts that *are* client queries, the Modules tab
+    among them, since duplicating or removing an assignment changes its module's count.
+  */
+  const settled = () => {
+    void queryClient.invalidateQueries();
+    router.refresh();
+  };
 
   const published = assignment.distributedAt !== null;
 
@@ -886,7 +903,7 @@ function AssignmentActions({
     trpc.assignments.publish.mutationOptions({
       onSuccess: () => {
         toast.success(`${assignment.title} is now visible to students.`);
-        void queryClient.invalidateQueries();
+        settled();
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -895,7 +912,7 @@ function AssignmentActions({
     trpc.assignments.unpublish.mutationOptions({
       onSuccess: () => {
         toast.success(`${assignment.title} is hidden from students. Their work is untouched.`);
-        void queryClient.invalidateQueries();
+        settled();
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -904,7 +921,7 @@ function AssignmentActions({
     trpc.assignments.duplicate.mutationOptions({
       onSuccess: (result) => {
         toast.success(`Copied to ${result.assignment.title}. It is not visible to students yet.`);
-        void queryClient.invalidateQueries();
+        settled();
       },
       onError: (error) => toast.error(error.message),
     }),

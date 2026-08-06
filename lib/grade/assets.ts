@@ -304,7 +304,11 @@ function answerKeyPathIn(relativePath: string): string {
       `directory. Fix assignment.sections[].answerKeyPaths.`,
     );
   }
-  return `answer-keys/${normalized}`;
+  // `path.posix.normalize("")` is ".", so without this the root listing asks GitHub for
+  // `answer-keys/.` and gets nothing back — which reads as an empty repository rather than as a
+  // malformed path. That is exactly how it failed: the authoring form's directory select was
+  // empty and refused to let an assignment be created.
+  return normalized === "." ? "answer-keys" : `answer-keys/${normalized}`;
 }
 
 /**

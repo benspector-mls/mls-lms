@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import { AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -51,6 +52,7 @@ export function RemoveAssignmentDialog({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [typed, setTyped] = React.useState('');
 
   const impact = useQuery({
@@ -79,6 +81,9 @@ export function RemoveAssignmentDialog({
           );
         }
         void queryClient.invalidateQueries();
+        // The course page's assignment list comes from a server component, so invalidating the
+        // client cache alone leaves the removed row on screen until a manual reload.
+        router.refresh();
         onRemoved?.();
       },
       onError: (error) => toast.error(error.message),

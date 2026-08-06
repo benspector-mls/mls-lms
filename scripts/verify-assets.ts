@@ -22,7 +22,7 @@ function check(label: string, ok: boolean, detail = "") {
 }
 
 async function main() {
-  const { loadGradingAssets, GradingAssetsError, listAssignmentDirs, listAnswerKeys, checkAnswerKeyPaths } =
+  const { loadGradingAssets, GradingAssetsError, listAnswerKeyDirs, listAssignmentDirs, listAnswerKeys, checkAnswerKeyPaths } =
     await import("../lib/grade/assets");
 
   if (!process.env.GRADING_ASSETS_REPO) {
@@ -46,6 +46,17 @@ async function main() {
     pipeline was configured from — including the nested `madlib-challenge/` keys a
     non-recursive listing would miss.
   */
+  /*
+    The root listing, which the authoring form's "reference solutions live under" select is
+    built from. Checked because it failed silently: the path builder normalises "" to ".", so it
+    asked GitHub for `answer-keys/.` and got nothing — an empty select that read as an empty
+    repository, and refused to let an assignment be created at all.
+  */
+  const rootDirs = await listAnswerKeyDirs();
+  check("the answer-keys root lists its module directories", rootDirs.length > 0,
+    `${rootDirs.length} found`);
+  check("...including mod-1-js-fundamentals", rootDirs.includes("mod-1-js-fundamentals"));
+
   const dirs = await listAssignmentDirs("mod-1-js-fundamentals");
   check("the catalogue lists mod-1 assignments", dirs.length > 0, `${dirs.length} found`);
   for (const seeded of ["swe-1-4-loops", "swe-1-3-node-modules"]) {

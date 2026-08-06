@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
@@ -27,19 +28,25 @@ import { useTRPC } from '@/trpc/client';
 export function ModulesTab({ courseId }: { courseId: string }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const modules = useQuery(trpc.modules.listForCourse.queryOptions({ courseId }));
 
   const [newName, setNewName] = React.useState('');
   const [renaming, setRenaming] = React.useState<string | null>(null);
 
   /*
-    Every mutation invalidates everything rather than patching the list in place. A module's
-    name and order are read by the assignments tab, the gradebook, the authoring form, and the
-    student's own page — a local update would leave those showing the old name until something
-    else happened to refetch.
+    Both, because this screen's own list is a client query and the Assignments tab beside it is
+    not — that one is fetched by a server component and passed down, so renaming a module here
+    would leave the old name on the assignment rows until a manual reload. `invalidateQueries`
+    refreshes this list; `router.refresh()` re-runs the server component for the rest.
   */
+  function refreshEverything() {
+    void queryClient.invalidateQueries();
+    router.refresh();
+  }
+
   const settled = {
-    onSuccess: () => void queryClient.invalidateQueries(),
+    onSuccess: () => refreshEverything(),
     onError: (error: { message: string }) => toast.error(error.message),
   };
 
@@ -49,7 +56,7 @@ export function ModulesTab({ courseId }: { courseId: string }) {
       ...settled,
       onSuccess: () => {
         setRenaming(null);
-        void queryClient.invalidateQueries();
+        refreshEverything();
       },
     }),
   );
@@ -59,7 +66,7 @@ export function ModulesTab({ courseId }: { courseId: string }) {
       ...settled,
       onSuccess: (result) => {
         toast.success(`Removed "${result.name}".`);
-        void queryClient.invalidateQueries();
+        refreshEverything();
       },
     }),
   );

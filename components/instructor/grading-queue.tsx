@@ -8,7 +8,7 @@ import { GradingReview } from '@/components/instructor/grading-review';
 import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { formatRelative, shortSha } from '@/lib/status';
+import { formatRelative } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -227,7 +227,7 @@ function QueueRow({
               {row.student.displayName ?? row.student.githubUsername ?? row.student.email ?? 'Unknown student'}
             </span>
             <span className="truncate font-mono text-xs text-muted-foreground">
-              {shortSha(row.headSha)} · {formatRelative(row.lastActivityAt ?? row.submittedAt, now)}
+              {formatRelative(row.lastActivityAt ?? row.submittedAt, now)}
             </span>
           </div>
           {/*
@@ -236,6 +236,34 @@ function QueueRow({
             gone out is shown here — a superseded score belongs to a report nobody reads
             anymore.
           */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <SubmissionStatusBadge status={row.status} />
+            {/*
+            The draft's own state, which is not the submission's — generating a report
+            does not move the submission, only approving does. Approved and superseded
+            drafts are left off: the submission badge already says GRADED, and a
+            superseded draft is history rather than a state to act on.
+          */}
+            {draft && draft.status !== 'APPROVED' && draft.status !== 'SUPERSEDED' && (
+              <DraftStatusBadge status={draft.status} />
+            )}
+            {row.draftIsStale && (
+              <Badge
+                variant="outline"
+                className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+              >
+                Report out of date
+              </Badge>
+            )}
+            {row.bucket === 'comment_not_posted' && (
+              <Badge
+                variant="outline"
+                className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+              >
+                Not delivered
+              </Badge>
+            )}
+          </div>
           {row.status === 'GRADED' && row.finalScore != null && (
             <span
               className={cn(
@@ -248,35 +276,6 @@ function QueueRow({
               {row.finalScore}
               <span className="font-normal text-muted-foreground">/{row.finalScorePossible}</span>
             </span>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <SubmissionStatusBadge status={row.status} />
-          {/*
-            The draft's own state, which is not the submission's — generating a report
-            does not move the submission, only approving does. Approved and superseded
-            drafts are left off: the submission badge already says GRADED, and a
-            superseded draft is history rather than a state to act on.
-          */}
-          {draft && draft.status !== 'APPROVED' && draft.status !== 'SUPERSEDED' && (
-            <DraftStatusBadge status={draft.status} />
-          )}
-          {row.draftIsStale && (
-            <Badge
-              variant="outline"
-              className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-            >
-              Report out of date
-            </Badge>
-          )}
-          {row.bucket === 'comment_not_posted' && (
-            <Badge
-              variant="outline"
-              className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-            >
-              Not delivered
-            </Badge>
           )}
         </div>
       </button>
