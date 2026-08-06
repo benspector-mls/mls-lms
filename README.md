@@ -160,6 +160,7 @@ These are settled and do not need revisiting.
 - **Deterministic facts are computed by code and the model may only report them.** Test results, lint findings, and SQL comparisons are inputs the model must honor. A cross-check compares the model's claims against those facts.
 - **Test results are one input to the rubric, not the score.**
 - **One grading mode per assignment.** Every section is graded by the pipeline, or every section is graded by hand. A coding exercise with a hand-marked reflection is two assignments.
+- **A module is a row an instructor names, and an assignment must belong to one.** Modules are per course, ordered by an integer, and nothing about them is derived from a repository's layout.
 - **A kind is fixed once an assignment exists.** Changing it would change what its existing submissions are, and there is no migration from a pull request to a document.
 - **Each assignment stores an explicit `sections` mapping** rather than guessing file paths by convention. Real assignments do not use consistent `{from-scratch,debug,modify}.js` filenames, and one pull request can contain more than one gradable section.
 - **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
@@ -208,19 +209,33 @@ export default function Page({ params }: { params: Promise<{ courseId: string }>
 
 ## Data model
 
-`prisma/schema.prisma`, seventeen migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
+`prisma/schema.prisma`, nineteen migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
 
 ```
 Profile ──1:1── auth.users
-Course ──< CourseInstructor, Enrollment, Assignment
-Assignment ──< Submission ──< GradingDraft ──< GradingDraftSection
-                          └──< TestRun
+Course ──< CourseInstructor, Enrollment, Module, Assignment
+Module ──< Assignment ──< Submission ──< GradingDraft ──< GradingDraftSection
+                                     └──< TestRun
 Rubric ──< (referenced by assignment.sections[].rubricId)
 ```
 
 Enums: `Role`, `EnrollmentStatus`, `RubricScaleType`, `SubmissionStatus`, `SalesforceSyncStatus`, `GradingDraftStatus`, `Confidence`, `TestRunStatus`, `TestRunTrigger`.
 
 **`profiles`** carries the `Role` enum, `githubUsername`, a display name fallback, and `githubUserId BigInt? @unique`. The numeric ID is recorded by the `sync_github_identity` trigger from `auth.identities.provider_id`, guarded by a regular expression because that column is text and other providers put non-numeric values in it. Repository naming still uses the username, because that is the existing convention, which is why `submissions.repo_github_login_at_creation` exists.
+
+**`modules`** is a course's own list of modules, created and named by an instructor and tied to nothing outside the application. `assignments.moduleId` is a foreign key onto it.
+
+**The id is the identity, not the name**, and everything about this table follows from that. A module used to be a *tag*: one string that was simultaneously the grouping key on both course pages, the authoring form's choices, a validation constraint, and **the first path segment of every answer-key path** in the grading-guides repository. That last job is why a course's module list could not be corrected at all — correcting it moved where grading looked for answer keys. With a row:
+
+- **Renaming is one column.** With the name as the identity, a rename rewrites every assignment that used it and still cannot fix anything outside the database, which is why an earlier plan ruled renaming out entirely.
+- **"The module must exist first" is a foreign key**, not validation code a second caller could forget to run. `onDelete: Restrict`, so removing a module can never take the assignments in it — and their submissions, and every graded draft beneath those — with it.
+- **Ordering is `position`**, an integer an instructor sets, and deliberately *not* unique: `reorder` rewrites the whole sequence in one statement, and a unique constraint would refuse any intermediate state where two modules briefly share a position.
+
+`@@unique([courseId, name])` gives one "Mod 4" per course, because two modules with the same name are indistinguishable in every select an instructor picks from. Modules are **per course** rather than shared across cohorts, matching how an LMS works: one cohort reordering or dropping a module must not change another's records, including finished ones.
+
+**`reorder` is a single raw `UPDATE`.** The obvious implementation is one update per module inside a transaction, and it has two problems: a half-applied order is worse than none, and Prisma refuses a nested interactive transaction, so any caller already inside one — every verification script — fails outright. One statement is atomic by definition and composes with whatever is above it. `course_id` is in its predicate as well as checked beforehand, so even a bypassed validation could not touch another course's rows.
+
+**`assignments.moduleTag` still exists and no longer means the module.** It narrowed to its second job: which directory of the answer-keys repository holds the reference solutions, as `answer-keys/{moduleTag}/{assignmentRepoName}/`. That is why it is now nullable and required only when the kind is `REPO` — a Google Doc assignment has no answer-keys directory and never did. The authoring form therefore asks two questions where it used to ask one, and they are visibly different: which module this belongs to, and where its solutions live.
 
 **`assignments`** carries `kind`, `templateRepo`, `assignmentRepoName`, `githubOrg`, `completionThreshold`, `dueAt`, `distributedAt`, `runnerPreset`, `runnerConfig`, `templateRef`, `templateDocUrl`, `acceptedFileTypes`, `submissionInstructions`, and the `sections` JSON array. `@@unique([courseId, assignmentRepoName])` prevents two assignments in one course from generating colliding repository names.
 
@@ -640,7 +655,7 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 | `/courses`                                 | A student's courses                                                  |
 | `/courses/[courseId]`                      | Assignments, status, and feedback for one course                     |
 | `/instructor`                              | Triage across every course the instructor teaches                    |
-| `/instructor/courses/[courseId]`           | One course: assignments and roster                                   |
+| `/instructor/courses/[courseId]`           | One course: assignments, modules, roster, gradebook                   |
 | `/instructor/courses/[courseId]/gradebook` | Assignments × roster, each cell carrying its triage bucket           |
 | `/instructor/assignments/[assignmentId]`   | The grading queue and the review surface, `?submission=` to open one |
 
@@ -688,6 +703,10 @@ Every claim below was checked against real repositories in the `marcy-lms-test` 
 | Writing quality        | 1 = 1             | 1 against 2         |
 
 Every technical score across both pairs agrees with the instructor's. The one difference is pair 2's writing score, on an acknowledged boundary case: the model places it at 1 and quotes the rubric back, since the 2 band requires that errors "do not take away from the understanding". An instructor may reasonably prefer 2 — which is the kind of judgment a rubric cannot fully specify, and the reason a draft is reviewed rather than published. Calibration also found two errors in the reference reports rather than in the pipeline, both since corrected. Coding sections are not calibrated: scoring them is closer to objective, and no graded samples exist.
+
+**Modules.** `verify:modules` is 22 checks through the tRPC callers inside a rolled-back transaction: a new module goes at the end, a name is trimmed, a blank one is refused, a duplicate in one course is refused, renaming changes the name and not the position, reordering rewrites every position as a dense sequence from zero, a partial order or one listing a module twice is refused, an empty module can be removed, **a module holding assignments cannot be — by the procedure with a count, and by the foreign key underneath it** — and a student can read the list but call none of the writes, while an instructor who does not teach the course cannot either.
+
+One thing that verification taught rather than confirmed: **provoking a database constraint aborts the whole Postgres transaction**, so every check that trips a unique index or a foreign key needs a transaction of its own. Discovered by having the first duplicate-name check take eleven unrelated checks down with it.
 
 **Handing in a file, and handing in a link.** `verify:uploads` is 73 checks. The pure half is what may be stored: the extension decides and the last dot wins, so `resume.pdf.exe` is refused; a file at exactly the limit is accepted and one byte over is not; a path is built from the submission id and never from the student's filename; and a filename keeps its spaces while losing its slashes, quotes, and control characters. The live half stores a real object, fetches it back through a signed URL and compares the bytes, and then checks the two things the whole design rests on — **the unsigned public URL for that same object does not work, and a forged token does not either.** The rest runs through the tRPC callers inside a rolled-back transaction: an unpublished assignment cannot be handed in to, `submitWork` refuses this kind, a `.png` is refused where PDFs were asked for, uploading is what sets `SUBMITTED` and computes `isLate`, the submission lands in `needs_manual_grade`, and the student who uploaded it and the instructor who teaches the course can both fetch it while another student is refused. It also authors an `EXTERNAL_URL` assignment and checks that the two link-submitted kinds land on the right side of every rule: it cannot be accepted, it cannot be handed in as a file, submitting the link is what enters the queue, and it waits on a person like every hand-graded kind. Objects written inside the transaction are removed afterwards, because a rollback undoes the rows and not the bytes.
 

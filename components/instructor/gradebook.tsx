@@ -11,7 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { gradingQueueHref } from '@/lib/links';
-import { moduleOrder, scoreLabel, scorePercent } from '@/lib/status';
+import { scoreLabel, scorePercent } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -36,7 +36,10 @@ export function Gradebook({ data }: { data: Gradebook }) {
   );
 
   const assignments = [...data.assignments].sort((a, b) => {
-    const byModule = moduleOrder(data.course.moduleStructure)(a.moduleTag, b.moduleTag);
+    // Course order, which is `module.position` — the sequence an instructor set, not
+    // anything alphabetical or parsed out of a name.
+    const byModule =
+      a.module.position - b.module.position || a.module.name.localeCompare(b.module.name);
     return byModule !== 0 ? byModule : a.title.localeCompare(b.title);
   });
 

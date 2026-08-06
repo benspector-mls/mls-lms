@@ -47,7 +47,7 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-1. **[Modules, and where an assignment's repositories come from](#modules-and-where-an-assignments-repositories-come-from)** — design settled, in two phases. A course's module sequence is currently whatever the seed wrote and nothing can change it, because a module tag is also the first path segment of every answer-key path. Phase 1 makes modules rows an instructor creates and names; Phase 2 moves the template and answer-key repositories onto the assignment, which is what severs the tie.
+1. **[Where an assignment's repositories come from](#phase-2-an-assignment-names-its-own-repositories)** — Phase 2 of the modules work. Phase 1 is done: modules are rows an instructor creates, names, reorders, and removes. What is left is moving the template and answer-key repositories onto the assignment, which is what finally severs the tie to the answer-keys repository's directory layout and lets `module_tag` be dropped.
 2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model).
 3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization, before more surface area is added on top. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
 4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
@@ -406,7 +406,7 @@ The change severs that. A module becomes a row an instructor creates and names f
 
 What is *not* lost: the catalogue machinery still earns its keep one level down. `listRepoDirectory` lists the named answer-key repository so its files are ticked from a list rather than typed, which is what keeps a mistyped answer-key path from becoming a confident wrong grade.
 
-### Phase 1: modules are rows
+### Phase 1: modules are rows — done
 
 **A module has an id.** `assignment.moduleId` is a foreign key, not a copied string. This is the decision the rest follows from:
 
@@ -450,14 +450,20 @@ model Module {
 | 6 | Mod 6 - Databases |
 | 7 | Mod 7 - React |
 
-**Migration, in two steps rather than one.** `moduleTag` and `moduleId` coexist for a release, because making the column NOT NULL in the same migration that creates the table leaves no room to check the mapping.
+**Built**, and described in [the README](README.md#data-model). `modules` with `position` and `@@unique([courseId, name])`, `assignments.moduleId` as a `RESTRICT` foreign key, the four procedures in `trpc/routers/modules.ts`, and a Modules tab beside Assignments. `npm run verify:modules` is 22 checks through the callers.
 
-1. Create `modules` and a **nullable** `assignments.module_id`. Backfill a module per distinct `(course_id, module_tag)`, named from the raw tag — SQL cannot call `moduleLabel` — and positioned by the tag's numeric prefix, then point every assignment at its row. Nothing is orphaned and no assignment stops validating.
-2. Rename those rows to the eight above, reassign the two assignments whose tags are wrong, and only then drop `module_tag`, drop `Course.moduleStructure`, and make `module_id` NOT NULL.
+**The migration went in one step rather than two, and could.** The plan called for a nullable `module_id` so the mapping could be checked before committing to it. In the event the backfill derives its modules from the union of the tags in use *and* the tags each course declared, so every assignment matches one by construction — which means `SET NOT NULL` in the same migration is safe, and it succeeding is itself the proof that nothing was orphaned. Hand-written rather than what `migrate diff` produced, because Prisma emits `ADD COLUMN module_id UUID NOT NULL`, which fails outright on a populated table.
 
-Step 2's renaming and reassigning is the feature's own first real use, which is the right way to find out whether the interface works.
+`module_tag` and `Course.moduleStructure` both remain, unread, to be dropped once this has been used against real rows.
 
-**The mapping for the eight existing assignments.** Six are already right. Two are not, and one of those needs a curriculum judgment rather than a rule:
+**Two things learned by building it**, both recorded in the code:
+
+- **`reorder` is a single raw `UPDATE`, not one per module in a transaction.** Prisma refuses a nested interactive transaction, so the obvious implementation failed in every verification script — which is where any caller that reorders as part of a larger write would also have failed. One statement is atomic by definition.
+- **Provoking a database constraint aborts the whole Postgres transaction.** A duplicate-name check and a foreign-key check each need a transaction of their own, or they take every later check in the same one down with them. Found by having exactly that happen.
+
+**The eight modules exist and the assignments are in them.** `prisma/seed.ts` creates the modules by name and `scripts/reconcile-modules.ts` — a one-off, run once, safe to delete — moved the eight assignments out of the modules the migration derived from tags and removed those. The mapping it used is written out in that file rather than buried in a migration, because two of the old tags pointed at answer-key directories that never existed and deciding where their assignments belong was a curriculum judgment rather than a rule.
+
+**The mapping that was applied.** Six were already right; two were not:
 
 | Assignment | Tag today | Goes to |
 | ---------- | --------- | ------- |

@@ -62,7 +62,7 @@ export const coursesRouter = createTRPCRouter({
   /**
    * One course the caller belongs to.
    *
-   * Separate from `listMine` because the course screens need `moduleStructure` — the
+   * Separate from `listMine` because the course screens need the course's modules — the
    * cohort's own module sequence, which is what puts the assignment groups in teaching
    * order rather than alphabetical order — and fetching every course to find one would
    * be the wrong shape.
@@ -76,8 +76,11 @@ export const coursesRouter = createTRPCRouter({
           id: true,
           name: true,
           cohortTerm: true,
-          moduleStructure: true,
           archivedAt: true,
+          modules: {
+            orderBy: [{ position: 'asc' }, { name: 'asc' }],
+            select: { id: true, name: true, position: true },
+          },
           instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
         },
       });
@@ -102,18 +105,9 @@ export const coursesRouter = createTRPCRouter({
         }
       }
 
-      const { instructors, moduleStructure, ...rest } = course;
+      const { instructors, ...rest } = course;
 
-      return {
-        ...rest,
-        // Stored as Json, so it arrives as an unknown shape. Narrowed here rather than
-        // at every call site: a malformed value should degrade to "no declared order",
-        // not throw on a page the instructor is trying to read.
-        moduleStructure: Array.isArray(moduleStructure)
-          ? moduleStructure.filter((tag): tag is string => typeof tag === 'string')
-          : [],
-        teaches: isAdmin || instructors.length > 0,
-      };
+      return { ...rest, teaches: isAdmin || instructors.length > 0 };
     }),
 
   /**
@@ -148,7 +142,15 @@ export const coursesRouter = createTRPCRouter({
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
-        select: { id: true, name: true, cohortTerm: true, moduleStructure: true },
+        select: {
+          id: true,
+          name: true,
+          cohortTerm: true,
+          modules: {
+            orderBy: [{ position: 'asc' }, { name: 'asc' }],
+            select: { id: true, name: true, position: true },
+          },
+        },
       });
 
       if (!course) {
@@ -158,11 +160,11 @@ export const coursesRouter = createTRPCRouter({
       const [assignments, enrollments] = await Promise.all([
         ctx.db.assignment.findMany({
           where: { courseId: course.id },
-          orderBy: [{ moduleTag: 'asc' }, { assignmentRepoName: 'asc' }],
+          orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
           select: {
             id: true,
             title: true,
-            moduleTag: true,
+            module: { select: { id: true, name: true, position: true } },
             pointValue: true,
             dueAt: true,
             githubOrg: true,
@@ -226,9 +228,7 @@ export const coursesRouter = createTRPCRouter({
           id: course.id,
           name: course.name,
           cohortTerm: course.cohortTerm,
-          moduleStructure: Array.isArray(course.moduleStructure)
-            ? course.moduleStructure.filter((tag): tag is string => typeof tag === 'string')
-            : [],
+          modules: course.modules,
         },
         assignments: assignments.map(({ sections, ...assignment }) => ({
           ...assignment,

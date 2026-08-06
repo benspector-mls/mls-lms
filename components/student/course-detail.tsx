@@ -46,8 +46,6 @@ import type { RouterOutputs } from '@/trpc/types';
 import {
   formatDate,
   formatPercent,
-  moduleLabel,
-  moduleOrder,
   scorePercent,
   sectionLabel,
   shortSha,
@@ -76,7 +74,7 @@ export function StudentCourseDetail({
   assignments: Assignment[];
   githubLinked: boolean;
 }) {
-  const modules = groupByModule(assignments, course.moduleStructure);
+  const modules = groupByModule(assignments);
   const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
 
   return (
@@ -127,10 +125,10 @@ export function StudentCourseDetail({
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {modules.map(({ moduleTag, rows }) => (
+          {modules.map(({ id, name, rows }) => (
             <ModuleSection
-              key={moduleTag}
-              moduleTag={moduleTag}
+              key={id}
+              name={name}
               assignments={rows}
               teaches={course.teaches}
             />
@@ -142,31 +140,32 @@ export function StudentCourseDetail({
 }
 
 /**
- * Groups assignments under their module, in the order the cohort declares them.
- * `moduleOrder` handles the tags a course never declared, which would otherwise vanish.
+ * Groups assignments under their module, in the order the course puts them in.
+ *
+ * The order is `module.position`, which an instructor sets, rather than anything parsed out of
+ * a name. A module the student has no assignments in does not appear — an empty section would
+ * tell them nothing, and it is the instructor's course page that needs to show one.
  */
-function groupByModule(assignments: Assignment[], moduleStructure: string[]) {
-  const groups = new Map<string, Assignment[]>();
+function groupByModule(assignments: Assignment[]) {
+  const groups = new Map<string, { id: string; name: string; position: number; rows: Assignment[] }>();
 
   for (const assignment of assignments) {
-    const existing = groups.get(assignment.moduleTag);
-    if (existing) existing.push(assignment);
-    else groups.set(assignment.moduleTag, [assignment]);
+    const existing = groups.get(assignment.module.id);
+    if (existing) existing.rows.push(assignment);
+    else groups.set(assignment.module.id, { ...assignment.module, rows: [assignment] });
   }
 
-  const compare = moduleOrder(moduleStructure);
-
-  return [...groups.keys()]
-    .sort(compare)
-    .map((moduleTag) => ({ moduleTag, rows: groups.get(moduleTag)! }));
+  return [...groups.values()].sort(
+    (a, b) => a.position - b.position || a.name.localeCompare(b.name),
+  );
 }
 
 function ModuleSection({
-  moduleTag,
+  name,
   assignments,
   teaches,
 }: {
-  moduleTag: string;
+  name: string;
   assignments: Assignment[];
   teaches: boolean;
 }) {
@@ -188,7 +187,7 @@ function ModuleSection({
               className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
             />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-              {moduleLabel(moduleTag)}
+              {name}
             </span>
             <span className="text-xs whitespace-nowrap text-muted-foreground">
               {complete} of {assignments.length} complete

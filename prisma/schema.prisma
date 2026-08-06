@@ -95,8 +95,9 @@ model Course {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   cohortTerm String    @map("cohort_term")
-  /// Ordered module/topic tags for this cohort, e.g.
-  /// ["mod-1-js-fundamentals", "mod-2-html-css-dom", ...]
+  /// Superseded by the `modules` table and no longer read or written by anything.
+  /// Kept for one release so the backfill that derived those rows can be checked
+  /// against what it came from; dropped once it has been.
   moduleStructure Json @default("[]") @map("module_structure")
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -105,6 +106,7 @@ model Course {
   instructors CourseInstructor[]
   enrollments Enrollment[]
   assignments Assignment[]
+  modules     Module[]
 
   @@map("courses")
   @@schema("public")
@@ -214,11 +216,67 @@ enum AssignmentKind {
   @@schema("public")
 }
 
+/// One module of a course, created and named by an instructor.
+///
+/// Deliberately not tied to anything outside the application. A module used to be a
+/// *tag* — one string that was simultaneously the grouping key, the authoring form's
+/// choices, a validation constraint, and the first path segment of every answer-key
+/// path in the grading-guides repository. That last job is why a course's module list
+/// could not be corrected: correcting it moved where grading looked for answer keys.
+/// A repository the assignment itself names is now what says where its answer keys
+/// are, so a module is free to be whatever an instructor calls it.
+///
+/// **The id is the identity, not the name.** With the name as the identity a rename
+/// rewrites every assignment that used it and is still only ever a string; with a row,
+/// renaming is one column and `assignments.module_id` goes on pointing at the same
+/// module. The foreign key is also what enforces "a module must exist before an
+/// assignment can be added to it", rather than validation code a second caller could
+/// forget to run.
+model Module {
+  id       String @id @default(uuid()) @db.Uuid
+  courseId String @map("course_id") @db.Uuid
+  /// Free text, typed by an instructor. Nothing is derived from it and nothing parses
+  /// it: "Mod 4 - Interactive & Data-Driven User Interfaces" is the title, not a tag a
+  /// display name is computed from.
+  name     String
+  /// Presentation order within the course. Deliberately NOT unique — `reorder` rewrites
+  /// the whole sequence in one statement, and a unique constraint would refuse any
+  /// intermediate state where two modules briefly share a position. Duplicates would
+  /// only affect tie-breaking, which rewriting the sequence prevents anyway.
+  position Int
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+
+  /// One "Mod 4" per course. Two modules with the same name are indistinguishable in
+  /// every select an instructor picks from.
+  @@unique([courseId, name])
+  @@index([courseId, position])
+  @@map("modules")
+  @@schema("public")
+}
+
 model Assignment {
   id       String @id @default(uuid()) @db.Uuid
   courseId String @map("course_id") @db.Uuid
   title    String
-  moduleTag String @map("module_tag")
+  /// Which module of the course this belongs to. NOT NULL, so an assignment cannot
+  /// exist outside one — which is the point of the change that introduced it.
+  moduleId String @map("module_id") @db.Uuid
+  /// Which directory inside the answer-keys repository this assignment's reference
+  /// solutions live under — `answer-keys/{moduleTag}/{assignmentRepoName}/`.
+  ///
+  /// This column used to mean two things at once: the course's module, and where the
+  /// answer keys are. `moduleId` took the first job, and this kept the second, which
+  /// is why it is now nullable and meaningful only when `kind` is REPO — a Google Doc
+  /// assignment has no answer-keys directory and never did.
+  ///
+  /// Superseded in turn once an assignment names its own answer-key repository, at
+  /// which point paths are relative to that repository and this goes away.
+  moduleTag String? @map("module_tag")
   kind     AssignmentKind @default(REPO)
   pointValue Int   @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
@@ -318,6 +376,11 @@ model Assignment {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  /// Restrict rather than Cascade: removing a module must never silently delete the
+  /// assignments in it, along with their submissions and every graded draft beneath
+  /// them. `modules.remove` refuses while any assignment references it, and this is
+  /// the database saying the same thing rather than trusting that it was asked.
+  module      Module       @relation(fields: [moduleId], references: [id], onDelete: Restrict)
   submissions Submission[]
 
   @@unique([courseId, assignmentRepoName])

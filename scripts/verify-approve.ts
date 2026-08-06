@@ -258,7 +258,7 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
 
   const course = await db.course.findFirst({
     where: { archivedAt: null },
-    select: { id: true, moduleStructure: true },
+    select: { id: true },
   });
   const instructor = course
     ? await db.courseInstructor.findFirst({
@@ -273,11 +273,18 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
       })
     : null;
 
-  const moduleTag = Array.isArray(course?.moduleStructure)
-    ? (course.moduleStructure as unknown[]).find((tag): tag is string => typeof tag === "string")
-    : undefined;
+  // A module row rather than a tag off the course. An assignment belongs to a module and the
+  // foreign key says so, so a course with none cannot hold one — which is a skip, not a failure.
+  const firstModule = course
+    ? await db.module.findFirst({
+        where: { courseId: course.id },
+        orderBy: { position: "asc" },
+        select: { id: true },
+      })
+    : null;
+  const moduleId = firstModule?.id;
 
-  if (!course || !instructor || !student || !moduleTag) {
+  if (!course || !instructor || !student || !moduleId) {
     console.log("\nskip the hand-graded lifecycle — no seeded course with an instructor, a student, and a module");
     return;
   }
@@ -295,7 +302,7 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
         draft: {
           kind: "GOOGLE_DOC",
           title: "Reflection (verify:approve)",
-          moduleTag,
+          moduleId,
           dueAt: null,
           templateDocUrl: "https://docs.google.com/document/d/1AbC_dEF-123/view",
           submissionInstructions: "Take a copy, write your reflection, submit the link.",

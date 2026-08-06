@@ -4,6 +4,7 @@ import { createTRPCRouter, protectedProcedure } from '../init';
 import { assignmentsRouter } from './assignments';
 import { coursesRouter } from './courses';
 import { gradingDraftsRouter } from './grading-drafts';
+import { modulesRouter } from './modules';
 import { submissionsRouter } from './submissions';
 import { testRunsRouter } from './test-runs';
 
@@ -55,6 +56,7 @@ export const appRouter = createTRPCRouter({
     ),
 
   courses: coursesRouter,
+  modules: modulesRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
   testRuns: testRunsRouter,

@@ -420,26 +420,74 @@ async function main() {
   const course =
     existingCourse ??
     (await prisma.course.create({
-      data: {
-        name: "Software Engineering Fellowship",
-        cohortTerm: "Cohort Test",
-        // The real module tags, taken from the directory names in the
-        // answer-keys repository. These are the values assignments use in
-        // moduleTag, so inventing different ones would break any grouping by
-        // module.
-        moduleStructure: [
-          "mod-1-js-fundamentals",
-          "mod-2-oop",
-          "mod-3-html-css",
-          "mod-4-dom",
-          "mod-5-servers",
-          "mod-6-databases",
-          "mod-7-react",
-          "mod-8-capstone",
-        ],
-      },
+      data: { name: "Software Engineering Fellowship", cohortTerm: "Cohort Test" },
     }));
   console.log(`Course: ${course.name} (${course.cohortTerm}) — ${course.id}`);
+
+  /*
+    The course's modules, as rows.
+
+    These are the program's real module names and they are deliberately NOT the answer-keys
+    repository's directory names — Mod 0 has no directory at all, and the repository holds
+    mod-2-review and mod-8-capstone which are not modules of this course. That divergence is
+    the point of modules being rows: what a cohort takes is a cohort decision, not a fact
+    about how a repository is laid out.
+
+    Upserted by name, so re-seeding a database whose modules were renamed by hand does not
+    create duplicates and does not undo the rename.
+  */
+  const MODULE_NAMES = [
+    "Mod 0 - Command Line Interfaces, Git, and GitHub",
+    "Mod 1 - JavaScript Fundamentals",
+    "Mod 2 - Object-Oriented Programming",
+    "Mod 3 - HTML & CSS",
+    "Mod 4 - Interactive & Data-Driven User Interfaces",
+    "Mod 5 - Server-Side Development",
+    "Mod 6 - Databases",
+    "Mod 7 - React",
+  ];
+
+  const modulesByName = new Map<string, string>();
+  for (const [position, name] of MODULE_NAMES.entries()) {
+    const row = await prisma.module.upsert({
+      where: { courseId_name: { courseId: course.id, name } },
+      create: { courseId: course.id, name, position },
+      update: { position },
+      select: { id: true, name: true },
+    });
+    modulesByName.set(row.name, row.id);
+  }
+  console.log(`Modules: ${MODULE_NAMES.length}`);
+
+  /**
+   * Which module each seeded assignment goes in.
+   *
+   * Keyed by the answer-keys directory the assignment's solutions live under, because that is
+   * what `SEED_ASSIGNMENTS` already carries. The two are no longer the same thing, so the
+   * mapping has to be written down rather than derived — which is exactly the freedom the
+   * change bought, and exactly the cost of it.
+   */
+  const MODULE_FOR_KEY_DIR: Record<string, string> = {
+    "mod-1-js-fundamentals": "Mod 1 - JavaScript Fundamentals",
+    "mod-2-oop": "Mod 2 - Object-Oriented Programming",
+    "mod-3-html-css": "Mod 3 - HTML & CSS",
+    "mod-4-dom": "Mod 4 - Interactive & Data-Driven User Interfaces",
+    "mod-5-servers": "Mod 5 - Server-Side Development",
+    "mod-6-databases": "Mod 6 - Databases",
+    "mod-7-react": "Mod 7 - React",
+  };
+
+  function moduleIdFor(keyDir: string): string {
+    const name = MODULE_FOR_KEY_DIR[keyDir];
+    const id = name ? modulesByName.get(name) : undefined;
+    if (!id) {
+      throw new Error(
+        `No module for answer-keys directory "${keyDir}". Add it to MODULE_FOR_KEY_DIR, or to ` +
+        `MODULE_NAMES if the course should have a module it does not.`,
+      );
+    }
+    return id;
+  }
 
   await prisma.courseInstructor.upsert({
     where: { courseId_userId: { courseId: course.id, userId: instructor.id } },
@@ -500,6 +548,7 @@ async function main() {
     // `title` stays a separate column because a Google Doc or upload assignment
     // still needs a human-readable name and has no repository to borrow one from.
     title: ASSIGNMENT_REPO_NAME,
+    moduleId: moduleIdFor(MODULE_TAG),
     moduleTag: MODULE_TAG,
     completionThreshold: 0.75,
     templateRepo: TEMPLATE_REPO,
@@ -524,6 +573,7 @@ async function main() {
       courseId: course.id,
       kind: spec.kind,
       title: spec.title,
+      moduleId: spec.moduleId,
       moduleTag: spec.moduleTag,
       pointValue: spec.pointValue,
       completionThreshold: spec.completionThreshold,
@@ -545,6 +595,9 @@ async function main() {
     update: {
       kind: spec.kind,
       title: spec.title,
+      // Deliberately NOT refreshed: an instructor who moved this assignment to a different
+      // module made a decision, and re-seeding must not undo it. Every other field here is
+      // something the spec is the authority on; the module is not.
       moduleTag: spec.moduleTag,
       templateRepo: spec.templateRepo,
       githubOrg: spec.githubOrg,
@@ -557,7 +610,7 @@ async function main() {
     },
   });
   console.log(
-    `Assignment: ${assignment.title} (${assignment.moduleTag}) — template ${assignment.templateRepo}`,
+    `Assignment: ${assignment.title} — template ${assignment.templateRepo}`,
   );
   console.log(`  student repositories will be named ${ASSIGNMENT_REPO_NAME}-{github login}`);
 

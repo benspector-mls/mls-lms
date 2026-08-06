@@ -37,7 +37,14 @@ export const submissionsRouter = createTRPCRouter({
         gradedAt: true,
         headSha: true,
         gradedHeadSha: true,
-        assignment: { select: { id: true, title: true, moduleTag: true, dueAt: true } },
+        assignment: {
+          select: {
+            id: true,
+            title: true,
+            dueAt: true,
+            module: { select: { id: true, name: true, position: true } },
+          },
+        },
       },
     }),
   ),
@@ -326,7 +333,7 @@ export const submissionsRouter = createTRPCRouter({
           // in a different bucket, because the action waiting on the instructor is
           // different and generating a report is not one of the things they can do.
           assignment: {
-            select: { id: true, title: true, moduleTag: true, courseId: true, sections: true },
+            select: { id: true, title: true, courseId: true, sections: true },
           },
           // The most recent run, superseded ones included: a draft that was replaced is
           // still what the row's flags describe until a newer one finishes.

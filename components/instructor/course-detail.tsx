@@ -54,11 +54,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ModulesTab } from '@/components/instructor/modules-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { EnrollmentStatus } from '@/lib/generated/prisma/enums';
 import { gradingQueueHref } from '@/lib/links';
 import { useTRPC } from '@/trpc/client';
-import { ASSIGNMENT_KIND_META, formatDate, moduleLabel, moduleOrder } from '@/lib/status';
+import { ASSIGNMENT_KIND_META, formatDate } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -118,12 +119,17 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
       <Tabs defaultValue="assignments">
         <TabsList>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
+          {/* Beside Assignments, which is where they group by module already. */}
+          <TabsTrigger value="modules">Modules</TabsTrigger>
           <TabsTrigger value="roster">Roster</TabsTrigger>
           <TabsTrigger value="gradebook">Gradebook</TabsTrigger>
         </TabsList>
 
         <TabsContent value="assignments" className="mt-4">
           <AssignmentsTab data={data} />
+        </TabsContent>
+        <TabsContent value="modules" className="mt-4">
+          <ModulesTab courseId={data.course.id} />
         </TabsContent>
         <TabsContent value="roster" className="mt-4">
           <RosterTab enrollments={data.enrollments} />
@@ -161,13 +167,25 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
  * due date" is not earlier or later than every date, it is outside the ordering, and negating
  * the comparator would march every undated assignment to the top of the list.
  */
+/**
+ * Course order: the order the modules are taught in, which is neither alphabetical nor by
+ * date. `position` is what an instructor sets on the Modules tab, so this is that decision
+ * rather than anything parsed out of a name.
+ */
+function compareByModule(a: Assignment, b: Assignment): number {
+  return (
+    a.module.position - b.module.position ||
+    a.module.name.localeCompare(b.module.name) ||
+    a.title.localeCompare(b.title)
+  );
+}
+
 function compareOn(
   key: SortKey,
   dir: 'asc' | 'desc',
   a: Assignment,
   b: Assignment,
   helpers: {
-    compare: (x: string, y: string) => number;
     countsFor: (assignment: Assignment) => Counts;
   },
 ): number {
@@ -177,7 +195,7 @@ function compareOn(
     case 'title':
       return sign * a.title.localeCompare(b.title);
     case 'module':
-      return sign * helpers.compare(a.moduleTag, b.moduleTag);
+      return sign * compareByModule(a, b);
     case 'due': {
       if (!a.dueAt || !b.dueAt) {
         if (!a.dueAt && !b.dueAt) return 0;
@@ -303,12 +321,12 @@ function withinDueRange(dueAt: Date | null, from: string | null, to: string | nu
  * select cannot express it.
  */
 function AssignmentFilterMenu({
-  moduleTags,
+  modules,
   kindsInUse,
   filters,
   onChange,
 }: {
-  moduleTags: string[];
+  modules: { id: string; name: string }[];
   kindsInUse: readonly Assignment['kind'][];
   filters: FilterState;
   onChange: (next: FilterState) => void;
@@ -344,7 +362,7 @@ function AssignmentFilterMenu({
       />
 
       <DropdownMenuContent align="start" className="w-52">
-        {moduleTags.length > 1 && (
+        {modules.length > 1 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               Modules
@@ -367,15 +385,15 @@ function AssignmentFilterMenu({
                 Show all modules
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              {moduleTags.map((tag) => (
+              {modules.map((moduleRow) => (
                 <DropdownMenuCheckboxItem
-                  key={tag}
-                  checked={filters.modules.includes(tag)}
+                  key={moduleRow.id}
+                  checked={filters.modules.includes(moduleRow.id)}
                   onCheckedChange={() =>
-                    onChange({ ...filters, modules: toggle(filters.modules, tag) })
+                    onChange({ ...filters, modules: toggle(filters.modules, moduleRow.id) })
                   }
                 >
-                  {moduleLabel(tag)}
+                  {moduleRow.name}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuSubContent>
@@ -588,14 +606,13 @@ function AssignmentsTab({ data }: { data: Data }) {
     );
   }
 
-  const compare = moduleOrder(data.course.moduleStructure);
   const term = query.trim().toLowerCase();
 
   const assignments = data.assignments
     .filter((assignment) => {
       // An empty list is not a filter. Every one of these reads "unless something was chosen
       // and this is not it".
-      if (filters.modules.length > 0 && !filters.modules.includes(assignment.moduleTag)) {
+      if (filters.modules.length > 0 && !filters.modules.includes(assignment.module.id)) {
         return false;
       }
       if (filters.kinds.length > 0 && !filters.kinds.includes(assignment.kind)) return false;
@@ -608,19 +625,16 @@ function AssignmentsTab({ data }: { data: Data }) {
     })
     .sort((a, b) => {
       for (const { key, dir } of sorts) {
-        const result = compareOn(key, dir, a, b, { compare, countsFor });
+        const result = compareOn(key, dir, a, b, { countsFor });
         if (result !== 0) return result;
       }
 
       /*
-        Course order underneath everything, and the default when nothing has been clicked. It
-        is the order the course is taught in, which is neither alphabetical nor by date —
-        `moduleOrder` reads the cohort's own `moduleStructure`. Having it as the final
-        tiebreak is also what stops equal rows — three assignments with nothing to grade —
-        from coming back in a different order on each render.
+        Course order underneath everything, and the default when nothing has been clicked.
+        Having it as the final tiebreak is also what stops equal rows — three assignments with
+        nothing to grade — from coming back in a different order on each render.
       */
-      const byModule = compare(a.moduleTag, b.moduleTag);
-      return byModule !== 0 ? byModule : a.title.localeCompare(b.title);
+      return compareByModule(a, b);
     });
 
   const toGradeCount = data.assignments.filter(
@@ -650,7 +664,7 @@ function AssignmentsTab({ data }: { data: Data }) {
         </div>
 
         <AssignmentFilterMenu
-          moduleTags={data.course.moduleStructure}
+          modules={data.course.modules}
           kindsInUse={kindsInUse}
           filters={filters}
           onChange={setFilters}
@@ -797,7 +811,7 @@ function AssignmentsTab({ data }: { data: Data }) {
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <Badge variant="secondary" className="font-normal">
-                        {moduleLabel(assignment.moduleTag)}
+                        {assignment.module.name}
                       </Badge>
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">

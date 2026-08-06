@@ -99,6 +99,7 @@ const manualSection = { grading: "manual", label: "Reflection", pointValue: 10 }
 const repoSpec = {
   kind: AssignmentKind.REPO,
   title: "swe-1-4-loops",
+  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
   moduleTag: "mod-1-js-fundamentals",
   templateRepo: "marcy-lms-test/swe-1-4-loops",
   assignmentRepoName: "swe-1-4-loops",
@@ -278,7 +279,7 @@ const DOC_URL = "https://docs.google.com/document/d/1AbC_dEF-123/view";
 const docSpec = {
   kind: AssignmentKind.GOOGLE_DOC,
   title: "Reflection: what I learned in mod 1",
-  moduleTag: "mod-1-js-fundamentals",
+  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
   templateDocUrl: DOC_URL,
   sections: [manualSection],
 };
@@ -336,7 +337,7 @@ check("a file upload assignment may not either",
   refusedOn({
     kind: AssignmentKind.FILE_UPLOAD,
     title: "Resume, first draft",
-    moduleTag: "mod-1-js-fundamentals",
+    moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
     sections: [codingSection],
   }, "sections.0.grading"),
   true);
@@ -344,7 +345,7 @@ check("a file upload assignment needs no template of any kind",
   rejects({
     kind: AssignmentKind.FILE_UPLOAD,
     title: "Resume, first draft",
-    moduleTag: "mod-1-js-fundamentals",
+    moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
     sections: [manualSection],
     acceptedFileTypes: ["pdf"],
   }),
@@ -358,7 +359,7 @@ check("a file upload assignment needs no template of any kind",
 const uploadSpec = {
   kind: AssignmentKind.FILE_UPLOAD,
   title: "Resume, first draft",
-  moduleTag: "mod-1-js-fundamentals",
+  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
   sections: [manualSection],
   acceptedFileTypes: ["pdf"],
 };
@@ -388,7 +389,7 @@ check("and may not declare any",
 const linkSpec = {
   kind: AssignmentKind.EXTERNAL_URL,
   title: "Personal site (Canva)",
-  moduleTag: "mod-1-js-fundamentals",
+  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
   sections: [manualSection],
 };
 
@@ -525,7 +526,8 @@ async function procedures() {
   const seeded = await db.assignment.findFirst({
     where: { assignmentRepoName: "swe-1-3-node-modules" },
     select: {
-      id: true, courseId: true, kind: true, title: true, moduleTag: true, pointValue: true,
+      id: true, courseId: true, kind: true, title: true, moduleId: true, moduleTag: true,
+      pointValue: true,
       completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
       templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
       distributedAt: true, templateDocUrl: true, submissionInstructions: true,
@@ -558,6 +560,7 @@ async function procedures() {
   const draftFromSeed = {
     kind: seeded.kind,
     title: seeded.title,
+    moduleId: seeded.moduleId,
     moduleTag: seeded.moduleTag,
     completionThreshold: seeded.completionThreshold,
     dueAt: null,
@@ -589,13 +592,39 @@ async function procedures() {
     collides.findings.some((f) => f.path === "assignmentRepoName" && f.severity === "error"),
     true);
 
-  const badModule = await asInstructor.assignments.validateDraft({
+  /*
+    A module that does not exist at all, which the foreign key would also refuse — but as a
+    constraint violation reaching an instructor as an error rather than as a finding on the
+    field.
+  */
+  const noModule = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
-    draft: { ...draftFromSeed, moduleTag: "mod-99-not-in-this-course" },
+    draft: { ...draftFromSeed, moduleId: "e7c1a1d0-0000-4000-8000-0000000000ff" },
   });
-  check("a module tag outside the course is refused",
-    badModule.findings.some((f) => f.path === "moduleTag" && f.severity === "error"), true);
+  check("a module that does not exist is refused",
+    noModule.findings.some((f) => f.path === "moduleId" && f.severity === "error"), true);
+
+  /*
+    And a module of a *different* course, which is the failure nothing at the database level
+    catches: the foreign key says the module exists, not that it belongs here. Without this an
+    assignment could be filed under another cohort's module and appear in neither course.
+  */
+  const elsewhereCourse = await db.course.create({
+    data: { name: "Another course (verify:authoring)", cohortTerm: "Cohort Other" },
+    select: { id: true },
+  });
+  const foreignModule = await db.module.create({
+    data: { courseId: elsewhereCourse.id, name: "Mod 1 - Somewhere Else", position: 0 },
+    select: { id: true },
+  });
+  const crossCourse = await asInstructor.assignments.validateDraft({
+    courseId: seeded.courseId,
+    assignmentId: seeded.id,
+    draft: { ...draftFromSeed, moduleId: foreignModule.id },
+  });
+  check("a module belonging to another course is refused",
+    crossCourse.findings.some((f) => f.path === "moduleId" && f.severity === "error"), true);
 
   const badRepo = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
@@ -653,6 +682,7 @@ async function procedures() {
   const roundTrip = {
     kind: loaded.kind,
     title: loaded.title,
+    moduleId: loaded.moduleId,
     moduleTag: loaded.moduleTag,
     completionThreshold: loaded.completionThreshold,
     dueAt: loaded.dueAt,

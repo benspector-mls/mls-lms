@@ -341,7 +341,25 @@ export async function readToolkitFile(name: string): Promise<string | null> {
   return source.read(`grading-toolkit/${name}`);
 }
 
-/** Which assignments the curriculum has answer keys for, in one module. */
+/**
+ * Every directory at the top of `answer-keys/`.
+ *
+ * These used to be the course's module list, because a module tag *was* an answer-keys
+ * directory. Now that modules are rows an instructor names, the two are separate questions
+ * and this answers the second: which directories the curriculum holds solutions under, so
+ * the authoring form can offer them rather than have one typed. One request.
+ */
+export async function listAnswerKeyDirs(): Promise<string[]> {
+  const source = await assetSource();
+  const entries = await source.list(answerKeyPathIn(""));
+  if (entries === null) return [];
+  return entries
+    .filter((entry) => entry.type === "dir")
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/** Which assignments the curriculum has answer keys for, in one directory. */
 export async function listAssignmentDirs(moduleTag: string): Promise<string[]> {
   const source = await assetSource();
   const entries = await source.list(answerKeyPathIn(moduleTag));

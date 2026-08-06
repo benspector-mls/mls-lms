@@ -32,7 +32,13 @@ const assignmentFields = {
   id: true,
   kind: true,
   title: true,
-  moduleTag: true,
+  /*
+    The module as a row, not a tag. `moduleTag` is deliberately absent: it now means only
+    which answer-keys directory the reference solutions live in, which is nothing a course
+    page or a student needs and nothing a student should be told.
+  */
+  moduleId: true,
+  module: { select: { id: true, name: true, position: true } },
   pointValue: true,
   completionThreshold: true,
   dueAt: true,
@@ -121,6 +127,7 @@ function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssi
   return {
     kind: spec.kind,
     title: spec.title,
+    moduleId: spec.moduleId,
     moduleTag: spec.moduleTag,
     pointValue,
     completionThreshold: spec.completionThreshold,
@@ -261,7 +268,9 @@ export const assignmentsRouter = createTRPCRouter({
             },
           },
         },
-        orderBy: [{ moduleTag: 'asc' }, { assignmentRepoName: 'asc' }],
+        // Module order, then title. `assignmentRepoName` used to be the tie-break and only
+        // REPO assignments have one, so a course mixing kinds sorted the rest arbitrarily.
+        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
       });
 
       /*
@@ -553,10 +562,18 @@ export const assignmentsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
 
-      const [course, rubrics, siblings] = await Promise.all([
+      const [course, modules, rubrics, siblings] = await Promise.all([
         ctx.db.course.findUnique({
           where: { id: input.courseId },
-          select: { id: true, name: true, cohortTerm: true, moduleStructure: true },
+          select: { id: true, name: true, cohortTerm: true },
+        }),
+        // The course's own modules, which are the only ones an assignment may be filed
+        // under. Empty is a real state and the form has to say so rather than offering an
+        // empty select: a course with no modules cannot hold an assignment yet.
+        ctx.db.module.findMany({
+          where: { courseId: input.courseId },
+          orderBy: [{ position: 'asc' }, { name: 'asc' }],
+          select: { id: true, name: true, position: true },
         }),
         ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
         ctx.db.assignment.findMany({
@@ -584,11 +601,7 @@ export const assignmentsRouter = createTRPCRouter({
           id: course.id,
           name: course.name,
           cohortTerm: course.cohortTerm,
-          moduleStructure: Array.isArray(course.moduleStructure)
-            ? (course.moduleStructure as unknown[]).filter(
-                (tag): tag is string => typeof tag === 'string',
-              )
-            : [],
+          modules,
         },
         rubrics,
         defaultGithubOrg,
@@ -613,6 +626,7 @@ export const assignmentsRouter = createTRPCRouter({
           courseId: true,
           kind: true,
           title: true,
+          moduleId: true,
           moduleTag: true,
           pointValue: true,
           completionThreshold: true,
@@ -672,6 +686,22 @@ export const assignmentsRouter = createTRPCRouter({
     }),
 
   /** Which assignments the curriculum contains for a module, and which are already added. */
+  /**
+   * Which directories the answer-keys repository holds solutions under.
+   *
+   * A separate question from "what are this course's modules" now that a module is a row an
+   * instructor named. The form asks both: which module the assignment belongs to, and where
+   * its reference solutions live. Conflating them is what tied a cohort's module list to a
+   * repository's directory names.
+   */
+  answerKeyDirs: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeaches(ctx, input.courseId);
+      const { listAnswerKeyDirs } = await import('@/lib/grade/assets');
+      return { dirs: await listAnswerKeyDirs() };
+    }),
+
   catalogue: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), moduleTag: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
@@ -869,6 +899,8 @@ export const assignmentsRouter = createTRPCRouter({
           acceptedFileTypes: true,
           submissionInstructions: true,
           sections: true,
+          moduleId: true,
+          module: { select: { name: true } },
         },
       });
       if (!source) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
@@ -877,9 +909,34 @@ export const assignmentsRouter = createTRPCRouter({
       await assertTeaches(ctx, source.courseId);
       await assertTeaches(ctx, input.targetCourseId);
 
+      /*
+        A module belongs to one course, so copying into a *different* course cannot reuse the
+        source's module. Matched by name, which is the only thing the two courses can agree
+        about, and refused when the target has no module of that name rather than guessing —
+        filing a copied assignment under whichever module happened to be first would be a
+        wrong answer that looks like a right one.
+      */
+      const targetModule =
+        input.targetCourseId === source.courseId
+          ? { id: source.moduleId }
+          : await ctx.db.module.findFirst({
+              where: { courseId: input.targetCourseId, name: source.module.name },
+              select: { id: true },
+            });
+
+      if (!targetModule) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            `The target course has no module called "${source.module.name}". Create it there ` +
+            `first, so the copy has somewhere to go.`,
+        });
+      }
+
       const draft = {
         kind: source.kind,
         title: source.title,
+        moduleId: targetModule.id,
         moduleTag: source.moduleTag,
         completionThreshold: source.completionThreshold,
         dueAt: input.dueAt ?? null,

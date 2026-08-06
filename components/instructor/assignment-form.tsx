@@ -33,7 +33,6 @@ import {
   UPLOAD_FILE_TYPES,
   type UploadFileTypeKey,
 } from '@/lib/uploads/file-types';
-import { moduleLabel } from '@/lib/status';
 import { useTRPC } from '@/trpc/client';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -81,7 +80,9 @@ type Kind = AssignmentKind;
 type FormState = {
   kind: Kind;
   title: string;
-  moduleTag: string;
+  moduleId: string;
+  /** Only a REPO assignment has one; null for every other kind. */
+  moduleTag: string | null;
   completionThreshold: number;
   dueAt: Date | null;
   templateRepo: string;
@@ -133,7 +134,7 @@ function isRepoKind(kind: Kind): boolean {
 function toDraft(state: FormState): unknown {
   const shared = {
     title: state.title,
-    moduleTag: state.moduleTag,
+    moduleId: state.moduleId,
     completionThreshold: state.completionThreshold,
     dueAt: state.dueAt,
     sections: state.sections,
@@ -146,6 +147,8 @@ function toDraft(state: FormState): unknown {
     return {
       ...shared,
       kind: 'REPO',
+      // Where the reference solutions are, which only this kind has.
+      moduleTag: state.moduleTag,
       templateRepo: state.templateRepo,
       assignmentRepoName: state.assignmentRepoName,
       githubOrg: state.githubOrg,
@@ -239,9 +242,17 @@ function Editor({
 }) {
   const trpc = useTRPC();
 
-  const [moduleTag, setModuleTag] = React.useState<string>(
-    existing?.moduleTag ?? context.course.moduleStructure[0] ?? '',
+  /*
+    Two questions that used to be one. `moduleId` is which module of the course this belongs
+    to — a row an instructor named. `answerKeyDir` is which directory in the answer-keys
+    repository holds the reference solutions, which only a repository assignment has. One
+    string used to do both, which is why a cohort's module list could not be changed without
+    moving where grading looked for answer keys.
+  */
+  const [moduleId, setModuleId] = React.useState<string>(
+    existing?.moduleId ?? context.course.modules[0]?.id ?? '',
   );
+  const [answerKeyDir, setAnswerKeyDir] = React.useState<string>(existing?.moduleTag ?? '');
 
   // Held outside `state` because it is asked before there is a draft: for a repository
   // assignment nothing exists until one is chosen from the catalogue, and the kind is what
@@ -256,11 +267,18 @@ function Editor({
     return () => clearTimeout(timer);
   }, [state]);
 
+  // Listed from the repository rather than derived from the course, because the course's
+  // modules are no longer its directory names.
+  const answerKeyDirs = useQuery({
+    ...trpc.assignments.answerKeyDirs.queryOptions({ courseId }),
+    enabled: isRepoKind(kind),
+  });
+
   const catalogue = useQuery({
-    ...trpc.assignments.catalogue.queryOptions({ courseId, moduleTag }),
+    ...trpc.assignments.catalogue.queryOptions({ courseId, moduleTag: answerKeyDir }),
     // Only the repository kind has one. Asking anyway would spend a GitHub call listing
     // answer-key directories for an assignment that will never have any.
-    enabled: moduleTag.length > 0 && isRepoKind(kind),
+    enabled: answerKeyDir.length > 0 && isRepoKind(kind),
   });
 
   const answerKeys = useQuery({
@@ -445,7 +463,7 @@ function Editor({
                   setState(
                     next === 'REPO'
                       ? null
-                      : blankNonRepoDraft({ kind: next, moduleTag, existingState: state }),
+                      : blankNonRepoDraft({ kind: next, moduleId, existingState: state }),
                   );
                 }}
                 // Without this the trigger shows the raw enum value — `FILE_UPLOAD` — while the
@@ -471,34 +489,85 @@ function Editor({
             )}
           </Field>
 
-          <Field label="Module" findings={fieldFindings('moduleTag')}>
-            <Select
-              value={moduleTag}
-              onValueChange={(value) => {
-                // Base UI reports null when a select is cleared; there is no cleared state
-                // here, so an empty string keeps the rest of the form's types honest.
-                const tag = value ?? '';
-                setModuleTag(tag);
-                setState((prev) => (prev ? { ...prev, moduleTag: tag } : prev));
-              }}
-              // The trigger would otherwise show the raw tag — `mod-1-js-fundamentals` — while
-              // the list showed "Module 1 · JS Fundamentals".
-              items={Object.fromEntries(
-                context.course.moduleStructure.map((tag) => [tag, moduleLabel(tag)]),
-              )}
+          {/*
+            A course with no modules cannot hold an assignment, and the foreign key says so.
+            Stated rather than shown as an empty select, which would read as a loading failure.
+          */}
+          {context.course.modules.length === 0 ? (
+            <Field label="Module" findings={fieldFindings('moduleId')}>
+              <Alert>
+                <AlertTriangle />
+                <AlertTitle>This course has no modules yet</AlertTitle>
+                <AlertDescription>
+                  An assignment belongs to a module, so there has to be one first. Create them
+                  on the course page&apos;s Modules tab, then come back.
+                </AlertDescription>
+              </Alert>
+            </Field>
+          ) : (
+            <Field label="Module" findings={fieldFindings('moduleId')}>
+              <Select
+                value={moduleId}
+                onValueChange={(value) => {
+                  // Base UI reports null when a select is cleared; there is no cleared state
+                  // here, so an empty string keeps the rest of the form's types honest.
+                  const next = value ?? '';
+                  setModuleId(next);
+                  setState((prev) => (prev ? { ...prev, moduleId: next } : prev));
+                }}
+                // The trigger renders the value, which is a uuid. Without this it would show one.
+                items={Object.fromEntries(
+                  context.course.modules.map((row) => [row.id, row.name]),
+                )}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a module" />
+                </SelectTrigger>
+                <SelectContent>
+                  {context.course.modules.map((row) => (
+                    <SelectItem key={row.id} value={row.id}>
+                      {row.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+
+          {/*
+            A second question, and only a repository assignment has it. This used to be the same
+            field as the module above, which is what tied a cohort's module list to the
+            answer-keys repository's directory names — renaming a module moved where grading
+            looked for solutions. Superseded once an assignment names its own answer-key
+            repository, at which point this becomes a URL.
+          */}
+          {isRepoKind(kind) && (
+            <Field
+              label="Reference solutions live under"
+              findings={fieldFindings('moduleTag')}
+              hint="Which directory of the answer-keys repository holds this assignment's solutions. Separate from the module above, which is what this course calls it."
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a module" />
-              </SelectTrigger>
-              <SelectContent>
-                {context.course.moduleStructure.map((tag) => (
-                  <SelectItem key={tag} value={tag}>
-                    {moduleLabel(tag)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+              <Select
+                value={answerKeyDir}
+                onValueChange={(value) => {
+                  const next = value ?? '';
+                  setAnswerKeyDir(next);
+                  setState((prev) => (prev ? { ...prev, moduleTag: next } : prev));
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a directory" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(answerKeyDirs.data?.dirs ?? []).map((dir) => (
+                    <SelectItem key={dir} value={dir}>
+                      {dir}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
 
           {/*
             No catalogue for the kinds with no repository, deliberately rather than for now. The
@@ -550,7 +619,8 @@ function Editor({
                 <Skeleton className="h-9 w-full" />
               ) : (catalogue.data?.assignments.length ?? 0) === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  The answer-keys repository holds nothing for {moduleLabel(moduleTag)}.
+                  The answer-keys repository holds nothing under{' '}
+                  <code>{answerKeyDir || '(no directory chosen)'}</code>.
                 </p>
               ) : (
                 <Select
@@ -559,7 +629,8 @@ function Editor({
                     setState(
                       blankDraft({
                         name: value ?? '',
-                        moduleTag,
+                        moduleId,
+                        moduleTag: answerKeyDir,
                         githubOrg: context.defaultGithubOrg ?? '',
                         rubrics: context.rubrics,
                       }),
@@ -977,11 +1048,13 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
  */
 function blankDraft({
   name,
+  moduleId,
   moduleTag,
   githubOrg,
   rubrics,
 }: {
   name: string;
+  moduleId: string;
   moduleTag: string;
   githubOrg: string;
   rubrics: { id: string; name: string }[];
@@ -989,6 +1062,7 @@ function blankDraft({
   return {
     kind: 'REPO',
     title: name,
+    moduleId,
     moduleTag,
     completionThreshold: 0.75,
     dueAt: null,
@@ -1014,17 +1088,19 @@ function blankDraft({
  */
 function blankNonRepoDraft({
   kind,
-  moduleTag,
+  moduleId,
   existingState,
 }: {
   kind: Kind;
-  moduleTag: string;
+  moduleId: string;
   existingState: FormState | null;
 }): FormState {
   return {
     kind,
     title: existingState?.title ?? '',
-    moduleTag,
+    moduleId,
+    // No repository, so no answer-keys directory.
+    moduleTag: null,
     completionThreshold: existingState?.completionThreshold ?? 0.75,
     dueAt: existingState?.dueAt ?? null,
     templateRepo: '',
@@ -1051,6 +1127,7 @@ function fromDraft(draft: Draft): FormState {
   return {
     kind: draft.kind as Kind,
     title: draft.title,
+    moduleId: draft.moduleId,
     moduleTag: draft.moduleTag,
     completionThreshold: draft.completionThreshold,
     dueAt: draft.dueAt,

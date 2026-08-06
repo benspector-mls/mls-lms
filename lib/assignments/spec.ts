@@ -12,7 +12,7 @@ import { UPLOAD_FILE_TYPE_KEYS, type UploadFileTypeKey } from "../uploads/file-t
  * network, so it is safe in the browser and can be checked as a pure function.
  *
  * The rule this module exists to hold: **an assignment's shape is validated where it
- * is written, not where it is graded.** A wrong `moduleTag` or a mistyped answer key
+ * is written, not where it is graded.** A wrong module or a mistyped answer key
  * path does not throw at grading time — it produces a confident wrong grade, or a
  * manual-review reason whose cause is not obvious hours later.
  *
@@ -430,10 +430,15 @@ const shared = {
    * segment inside the answer-keys repository. Checked against the course by the
    * procedure — this schema cannot see the database.
    */
-  moduleTag: z
-    .string()
-    .min(1)
-    .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, numbers, and hyphens"),
+  /**
+   * Which module of the course this belongs to.
+   *
+   * An id rather than a name, so renaming a module does not touch its assignments, and
+   * a foreign key rather than a validation rule, so an assignment cannot belong to a
+   * module that does not exist. The procedure checks it is a module of *this* course,
+   * which this schema cannot see.
+   */
+  moduleId: z.string().uuid(),
   dueAt: z.date().nullable().default(null),
   completionThreshold: z.number().gt(0).lte(1).default(0.75),
   sections: sectionsSchema,
@@ -453,6 +458,8 @@ const shared = {
  */
 const noRepository = {
   templateRepo: z.null().default(null),
+  /** No repository means no answer-keys directory. */
+  moduleTag: z.null().default(null),
   assignmentRepoName: z.null().default(null),
   githubOrg: z.null().default(null),
   templateRef: z.null().default(null),
@@ -542,6 +549,20 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
        * archives a finished cohort so re-grading years later reproduces the original.
        */
       templateRef: z.string().min(7).nullable().default(null),
+      /**
+       * Which directory in the answer-keys repository holds this assignment's reference
+       * solutions: `answer-keys/{moduleTag}/{assignmentRepoName}/`.
+       *
+       * Named `moduleTag` because that is the column, and because the curriculum's
+       * directories happen to be named after modules — but it is no longer the course's
+       * module, which is `moduleId`. One string was doing both jobs and a free-text module
+       * name cannot address a directory, so they separated. It is superseded once an
+       * assignment names its own answer-key repository.
+       */
+      moduleTag: z
+        .string()
+        .min(1)
+        .regex(/^[a-z0-9][a-z0-9-]*$/, "lowercase letters, numbers, and hyphens"),
       /** Checked against `lib/sandbox/presets.ts` below, not just required to be non-empty. */
       runnerPreset: z.string().min(1).default("none"),
       runnerConfig: z.record(z.string(), z.unknown()).nullable().default(null),

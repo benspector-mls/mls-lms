@@ -26,7 +26,7 @@ import {
  *
  * Why validate at all, when the schema already describes the shape: an assignment's
  * `sections` array decides which rubric applies, which answer keys are loaded, and which
- * tests count as evidence. A mistyped answer key path or a wrong `moduleTag` does not
+ * tests count as evidence. A mistyped answer key path or a module from another course does not
  * throw at grading time — it produces a confident wrong grade, or a manual-review reason
  * whose cause is not obvious hours later. Every field below has something real to check
  * against, which is what makes refusing to save cheaper than discovering it afterwards.
@@ -93,10 +93,10 @@ export async function validateAssignmentDraft(
   const spec = parsed.data;
   const pointValue = sectionsPointTotal(spec.sections);
 
-  // ---- The course, which decides what module tags are legitimate ----
+  // ---- The course, and whether the module belongs to it ----
   const course = await db.course.findUnique({
     where: { id: input.courseId },
-    select: { id: true, moduleStructure: true },
+    select: { id: true },
   });
 
   if (!course) {
@@ -104,21 +104,22 @@ export async function validateAssignmentDraft(
     return { findings, pointValue, spec };
   }
 
-  const moduleStructure = Array.isArray(course.moduleStructure)
-    ? (course.moduleStructure as unknown[]).filter((tag): tag is string => typeof tag === "string")
-    : [];
-
   /*
-    A module tag outside the course's own structure is refused rather than warned about. It
-    is the first path segment inside the answer-keys repository, so a wrong one means every
-    answer key path built from it is wrong too — and it decides where the assignment sorts
-    in the course, so a typo produces an assignment that appears in no module.
+    A module of a *different* course is the failure this catches, and it is the reason the
+    check reads the row rather than trusting the id. The foreign key guarantees the module
+    exists; nothing at the database level says it belongs to the course the assignment is
+    being created in, so without this an instructor could file an assignment under another
+    cohort's module and it would appear in neither course's list.
   */
-  if (moduleStructure.length > 0 && !moduleStructure.includes(spec.moduleTag)) {
-    error(
-      "moduleTag",
-      `"${spec.moduleTag}" is not one of this course's modules (${moduleStructure.join(", ")}).`,
-    );
+  const assignedModule = await db.module.findUnique({
+    where: { id: spec.moduleId },
+    select: { id: true, courseId: true, name: true },
+  });
+
+  if (!assignedModule) {
+    error("moduleId", "That module does not exist. Create it before adding assignments to it.");
+  } else if (assignedModule.courseId !== input.courseId) {
+    error("moduleId", "That module belongs to a different course.");
   }
 
   // ---- Names must not collide with another assignment in the same course ----
@@ -203,7 +204,7 @@ export async function validateAssignmentDraft(
     has gone has been renamed or retired upstream, which is a curriculum change worth seeing
     on the authoring screen rather than as a grading failure weeks later.
   */
-  if (spec.assignmentRepoName) {
+  if (spec.assignmentRepoName && spec.moduleTag) {
     try {
       const known = await listAssignmentDirs(spec.moduleTag);
       if (known.length > 0 && !known.includes(spec.assignmentRepoName)) {
