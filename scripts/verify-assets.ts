@@ -69,6 +69,54 @@ async function main() {
     check(`parses ${JSON.stringify(input)}`, got === expected, `got ${JSON.stringify(got)}`);
   }
 
+  /*
+    The directory a pasted address pointed at.
+
+    This is what lets an instructor paste the folder they already have open instead of naming
+    the repository and then navigating back to the same place. It decides where a listing
+    starts and nothing else — the repository is what gets stored, since answer key paths are
+    full repository paths either way.
+  */
+  const KEYS = "https://github.com/The-Marcy-Lab-School/swe-assignment-grading-guides";
+  const paths: [string, string][] = [
+    // A folder, which is the case this exists for.
+    [`${KEYS}/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals`,
+      "answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals"],
+    // A file: the useful reading is the directory it is in, not the file itself, which is not
+    // a directory and would make the listing report that nothing is there.
+    [`${KEYS}/blob/main/answer-keys/mod-1-js-fundamentals/swe-1-4-loops/from-scratch.js`,
+      "answer-keys/mod-1-js-fundamentals/swe-1-4-loops"],
+    // A commit SHA reads the same as a branch name.
+    [`${KEYS}/tree/480841f56b90e12f5301a9b8cb561bb24d0903ae/answer-keys`, "answer-keys"],
+    // No path is the root, which is the right answer for a repository holding one
+    // assignment's solutions and nothing else.
+    [KEYS, ""],
+    ["The-Marcy-Lab-School/swe-assignment-grading-guides", ""],
+    // A traversal is dropped rather than cleaned, so a hand-edited URL cannot seed a listing
+    // that reads somewhere else in the repository.
+    [`${KEYS}/tree/main/answer-keys/../../etc`, ""],
+  ];
+  for (const [input, expected] of paths) {
+    const got = parseRepoRef(input)?.path ?? null;
+    check(`reads the directory out of ${JSON.stringify(input.replace(KEYS, "…"))}`,
+      got === expected, `got ${JSON.stringify(got)}`);
+  }
+
+  // The deep address still stores the repository and nothing more, which is what keeps the
+  // column a repository identity rather than a location.
+  check("a deep address still stores just the repository",
+    parseRepoRef(`${KEYS}/tree/main/answer-keys/mod-1-js-fundamentals`)?.fullName ===
+      "The-Marcy-Lab-School/swe-assignment-grading-guides");
+
+  // And the directory it names is real, listed through the same code the form uses.
+  const pastedDir = parseRepoRef(
+    `${KEYS}/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals`,
+  )!;
+  const pastedKeys = await listAnswerKeys(pastedDir.fullName, pastedDir.path);
+  check("the keys under a pasted directory are found without any navigating",
+    pastedKeys.length > 0 && pastedKeys.every((p) => p.startsWith(`${pastedDir.path}/`)),
+    `${pastedKeys.length} found`);
+
   // ---- Browsing the repository an assignment names --------------------------
   //
   // The root listing is checked because it failed silently once: the path builder normalises

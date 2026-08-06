@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { normalizeRepoRef, repoNameFromRef } from '@/lib/assignments/repo-ref';
+import { parseRepoRef, repoNameFromRef, repoPathFromRef } from '@/lib/assignments/repo-ref';
 import { RUBRIC_NAME_BY_SECTION_TYPE } from '@/lib/assignments/spec';
 import type { AssignmentKind } from '@/lib/generated/prisma/enums';
 import { NO_RUNNER, RUNNER_PRESETS } from '@/lib/sandbox/presets';
@@ -322,7 +322,28 @@ function Editor({
     enabled: !existing && Boolean(settled?.templateRepo),
   });
 
-  const applied = React.useRef<{ keys?: string; runner?: string }>({});
+  const applied = React.useRef<{ keys?: string; runner?: string; dir?: string }>({});
+
+  /*
+    A pasted address that pointed inside the repository opens there.
+
+    `https://github.com/org/guides/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-…` says
+    both which repository and which directory, so there is nothing left to search for — the
+    keys under it are then ticked by the effect below without a single click. A root URL
+    carries no path and lands at the root, which is the right answer for a repository holding
+    one assignment's solutions.
+
+    Guarded on the exact string that was pasted, so this fires once per paste. An instructor
+    who then navigates somewhere else keeps that place rather than being pulled back on the
+    next keystroke elsewhere in the form.
+  */
+  React.useEffect(() => {
+    const pasted = settled?.answerKeyRepo;
+    if (!pasted || applied.current.dir === pasted) return;
+    applied.current.dir = pasted;
+    const within = repoPathFromRef(pasted);
+    if (within) setAnswerKeyDir(within);
+  }, [settled?.answerKeyRepo]);
 
   React.useEffect(() => {
     const paths = answerKeys.data?.paths;
@@ -623,7 +644,7 @@ function Editor({
                 <Field
                   label="Answer key repository"
                   findings={fieldFindings('answerKeyRepo')}
-                  hint="Paste its URL. Private, and in an organization the GitHub App is installed on — this holds the reference solutions, so it must not be readable by students."
+                  hint="Paste its URL — including the path to the folder holding this assignment's solutions, if you have it open. Private, and in an organization the GitHub App is installed on: this holds the reference solutions, so it must not be readable by students."
                 >
                   <Input
                     value={state.answerKeyRepo}
@@ -632,7 +653,7 @@ function Editor({
                       setState({ ...state, answerKeyRepo: event.target.value })
                     }
                   />
-                  <NormalizedAs value={state.answerKeyRepo} />
+                  <NormalizedAs value={state.answerKeyRepo} showPath />
                 </Field>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1011,20 +1032,29 @@ function Findings({
 }
 
 /**
- * What a pasted repository reference will actually be stored as.
+ * What a pasted repository reference will actually be stored as, and where it pointed.
  *
  * Shown rather than rewriting the field as it is typed. Rewriting a URL to `owner/repo`
  * mid-paste moves the caret and reads as the form fighting the person; saying what it means
  * underneath answers the same question — did it understand what I pasted — without touching
  * what they typed. Absent when the field already is `owner/repo`, since repeating it back
  * would be noise.
+ *
+ * The directory is reported separately because it is a separate fact: the repository is what
+ * gets stored, and the path is only where the listing below starts. `showPath` is off for the
+ * template, where an address copied from a subdirectory means nothing.
  */
-function NormalizedAs({ value }: { value: string }) {
-  const normalized = normalizeRepoRef(value);
-  if (!normalized || normalized === value.trim()) return null;
+function NormalizedAs({ value, showPath = false }: { value: string; showPath?: boolean }) {
+  const parsed = parseRepoRef(value);
+  if (!parsed || parsed.fullName === value.trim()) return null;
   return (
     <p className="text-xs text-muted-foreground">
-      Stored as <code>{normalized}</code>
+      Stored as <code>{parsed.fullName}</code>
+      {showPath && parsed.path !== '' && (
+        <>
+          , opening at <code>{parsed.path}</code>
+        </>
+      )}
     </p>
   );
 }
@@ -1057,7 +1087,7 @@ function AnswerKeyBrowser({
   loading: boolean;
 }) {
   const trpc = useTRPC();
-  const normalized = normalizeRepoRef(answerKeyRepo);
+  const normalized = parseRepoRef(answerKeyRepo)?.fullName ?? null;
 
   const listing = useQuery({
     ...trpc.assignments.browseAnswerKeys.queryOptions({

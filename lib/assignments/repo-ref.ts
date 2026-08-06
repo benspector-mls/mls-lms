@@ -26,6 +26,21 @@ export type RepoRef = {
   repo: string;
   /** The stored form, and the only thing any column holds. */
   fullName: string;
+  /**
+   * The directory the URL pointed *inside* the repository, or "" for its root.
+   *
+   * A GitHub address copied while looking at a folder carries the path with it, and that path
+   * is almost always the answer to the next question the form would ask — which directory the
+   * answer keys are in. So it is kept rather than discarded: pasting
+   * `…/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals` says both
+   * which repository and where in it, and there is nothing left to search for.
+   *
+   * **Not part of the repository's identity.** `fullName` is what a column stores; this only
+   * decides where a listing starts, because `sections[].answerKeyPaths` already holds full
+   * repository paths. A root URL carrying no path is not a lesser answer — it is the right one
+   * for a repository that holds a single assignment's solutions and nothing else.
+   */
+  path: string;
 };
 
 /**
@@ -80,12 +95,54 @@ export function parseRepoRef(input: string): RepoRef | null {
   // traversal into a column every later request interpolates into a URL.
   if (repo === "." || repo === ".." || owner === "." || owner === "..") return null;
 
-  return { owner, repo, fullName: `${owner}/${repo}` };
+  return {
+    owner,
+    repo,
+    fullName: `${owner}/${repo}`,
+    path: pathWithin(segments.slice(2)),
+  };
+}
+
+/**
+ * The directory part of a GitHub address, from the segments after `owner/repo`.
+ *
+ * GitHub writes `/tree/{ref}/{path}` for a directory and `/blob/{ref}/{path}` for a file. A
+ * file's own path is not a directory, so `blob` drops the last segment and returns the folder
+ * it is in — pasting a link to `from-scratch.js` means "the directory that is in", which is the
+ * only reading that is useful.
+ *
+ * **The ref is dropped, deliberately.** Answer keys are read at the repository's default
+ * branch, so opening a listing at a pasted branch would show files grading would not read —
+ * a listing that is confidently wrong is worse than one that starts somewhere else.
+ *
+ * One ambiguity, stated because it cannot be resolved here: a branch whose name contains a
+ * slash makes `/tree/feature/x/dir` indistinguishable from a ref `feature` and a path `x/dir`
+ * without asking GitHub. The single-segment reading is taken, which covers `main`, `master`,
+ * and every commit SHA. Getting it wrong costs a listing that reports the directory is not
+ * there, which is visible and one click from corrected.
+ */
+function pathWithin(rest: string[]): string {
+  if (rest.length < 3) return "";
+
+  const [kind, , ...parts] = rest;
+  if (kind !== "tree" && kind !== "blob") return "";
+
+  const directory = kind === "blob" ? parts.slice(0, -1) : parts;
+  // Anything that could climb out of the repository is refused rather than cleaned, so a
+  // hand-edited URL cannot seed a listing that reads somewhere else.
+  if (directory.some((segment) => segment === "." || segment === "..")) return "";
+
+  return directory.join("/");
 }
 
 /** The stored form of what was pasted, or null. */
 export function normalizeRepoRef(input: string): string | null {
   return parseRepoRef(input)?.fullName ?? null;
+}
+
+/** The directory a pasted address pointed at, or "" for the repository root. */
+export function repoPathFromRef(input: string): string {
+  return parseRepoRef(input)?.path ?? "";
 }
 
 /**
