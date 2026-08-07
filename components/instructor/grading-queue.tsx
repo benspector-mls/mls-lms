@@ -147,7 +147,7 @@ export function GradingQueue({
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {tab.label} <br></br> ({tab.count})
+                  {tab.label}<br />({tab.count})
                 </button>
               ))}
             </div>

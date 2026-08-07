@@ -6,7 +6,7 @@ import * as React from 'react';
 import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from 'lucide-react';
 
 import { GradingReview } from '@/components/instructor/grading-review';
-import { SubmissionRow, initials } from '@/components/instructor/submission-row';
+import { SubmissionRow } from '@/components/instructor/submission-row';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -118,7 +118,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {tab.label}<br></br>({tab.count})
+                  {tab.label}<br />({tab.count})
                 </button>
               ))}
             </div>
@@ -327,4 +327,14 @@ function NotStartedRow({ row }: { row: Row }) {
       </div>
     </li>
   );
+}
+
+function initials(name: string | null): string {
+  return (name ?? '?')
+    .split(' ')
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
 }
