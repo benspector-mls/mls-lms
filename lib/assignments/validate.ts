@@ -150,15 +150,21 @@ export async function validateAssignmentDraft(
     /*
       Whether the generated name leaves room for a GitHub login.
 
-      A repository is `{cohortSlug}-{assignmentRepoName}-{github login}` and GitHub allows 100
-      characters. A login can be 39, so a slug and an assignment name that together run past 60
-      would refuse a student with a long username — at the moment they press Accept, which is
-      both the worst place to find out and the hardest to attribute.
+      A repository is `{cohortSlug}-{assignmentRepoName}-{github login}`. GitHub allows 100
+      characters in a repository name and 39 in a login, so the slug and the assignment name have
+      to fit inside 59 between them or some student's Accept fails — at the moment they press it,
+      which is both the worst place to find out and the hardest to attribute.
 
-      A warning rather than an error, because the limit depends on who enrols: 60 is the point
-      past which *some* login fails, not the point where the name is wrong. `validateAssignmentDraft`
-      is the only place that knows both halves, which is why it lives here rather than in the
-      slug's own rules.
+      **Not reachable with this curriculum, and left in deliberately.** The longest assignment
+      name in the program is 28 characters (`swe-checkpoint-summative-1-4`) and `MAX_COHORT_SLUG`
+      is 24, so the worst case available today is 52 — leaving 46 for a login where 39 is the
+      most GitHub permits. It would take an assignment named 36 characters or more, paired with a
+      long slug, to trip. Which is to say this is insurance against a curriculum that grows
+      longer names rather than something an instructor will meet.
+
+      A warning rather than an error, because the threshold depends on who enrols: 59 is the point
+      past which *some* login fails, not the point where the name is wrong. And here rather than
+      in the slug's own rules, because only this knows both halves.
     */
     const prefixed = `${course.cohortSlug}-${spec.assignmentRepoName}`;
     const longestLogin = 100 - prefixed.length - 1;

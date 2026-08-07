@@ -320,7 +320,9 @@ What that trades away is an allowlist, so the controls are after the fact: `rege
 
 Unique across every course, archived ones included, because their repositories still exist. Two cohorts whose terms slugify the same way is a real situation and a named refusal rather than a constraint error.
 
-**Two guards remain around the collision the prefix prevents.** `accept` looks for the claimed repository before touching GitHub and refuses naming the course that holds it — near-unreachable now, and cheap insurance against a repository claimed some other way. And authoring warns when a slug and an assignment name together leave fewer than 39 characters for a login, which is GitHub's limit on one; only that check knows both halves.
+**Two guards remain around the collision the prefix prevents**, both near-unreachable and both cheap. `accept` looks for the claimed repository before touching GitHub and refuses naming the course that holds it. And authoring warns when the slug and the assignment name leave fewer than 39 characters for a login — GitHub allows 100 in a repository name and 39 in a login, so the two have to fit inside 59 between them.
+
+That second one cannot fire on this curriculum, which is worth writing down so nobody recomputes it: the longest assignment name is 28 characters and the slug is capped at 24, so the worst case available is 52, leaving 46 where 39 is the most a login can be. It would take an assignment named 36 characters or more to trip. It stays as insurance against names growing, not as a live concern.
 
 **An `Enrollment` row is created *by* somebody joining**, so `studentId` is `NOT NULL` and there is no "invited" state: `@@unique([courseId, studentId])` is what makes redeeming a link twice return the enrollment that exists rather than adding another. A removed student redeeming again is refused, and that is the one place idempotence would be wrong — if the link let them back in, removal would not stick while they still held it, so coming back is `enrollments.restore`, which the instructor calls.
 

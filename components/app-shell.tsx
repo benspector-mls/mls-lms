@@ -178,7 +178,7 @@ function CourseSelector({
         because `Select.Value` has no other way to know what the selected item was labelled.
         Any select whose value is not also its label needs it.
       */
-      items={Object.fromEntries(courses.map((c) => [c.id, c.name]))}
+      items={Object.fromEntries(courses.map((c) => [c.id, `${c.name} · ${c.cohortTerm}`]))}
     >
       <SelectTrigger className="w-full" aria-label="Select course">
         <BookOpen className="size-4 text-muted-foreground" />
@@ -187,9 +187,18 @@ function CourseSelector({
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
+          {/*
+            The cohort as well as the name, because a program runs every term under the same
+            name: two rows both reading "Software Engineering Fellowship" are a switcher that
+            cannot be used. The term is what tells them apart, so it belongs on the row and on
+            the trigger — which is why it is in `items` above too.
+          */}
           {courses.map((c) => (
             <SelectItem key={c.id} value={c.id}>
-              {c.name}
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{c.name}</span>
+                <span className="truncate text-xs text-muted-foreground">{c.cohortTerm}</span>
+              </span>
             </SelectItem>
           ))}
         </SelectGroup>
