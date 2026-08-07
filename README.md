@@ -15,6 +15,14 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
 - [Standing decisions](#standing-decisions)
 - [Request path](#request-path)
 - [Data model](#data-model)
+  - [Why the folder rather than a list of files](#why-the-folder-rather-than-a-list-of-files)
+  - [Getting students into a course](#getting-students-into-a-course)
+  - [The cohort is in every repository name](#the-cohort-is-in-every-repository-name)
+  - [`assertCourseMember` and `assertActiveStudent` are two different questions](#assertcoursemember-and-assertactivestudent-are-two-different-questions)
+  - [Who may teach, and who may decide that](#who-may-teach-and-who-may-decide-that)
+  - [Co-teaching one cohort](#co-teaching-one-cohort)
+  - [One student, or one assignment: the same screen from two sides](#one-student-or-one-assignment-the-same-screen-from-two-sides)
+  - [A removed student's work](#a-removed-students-work)
   - [Migrations are authored with `migrate diff`, never `migrate dev`](#migrations-are-authored-with-migrate-diff-never-migrate-dev)
 - [GitHub integration](#github-integration)
 - [Test execution](#test-execution)
@@ -26,17 +34,21 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
   - [The sandbox run](#the-sandbox-run)
   - [Parsers and storage](#parsers-and-storage)
 - [Report generation](#report-generation)
+  - [What a student commits, and what reaches the model](#what-a-student-commits-and-what-reaches-the-model)
   - [One section, one call, one report](#one-section-one-call-one-report)
   - [Flags, and why a section has no tests](#flags-and-why-a-section-has-no-tests)
   - [What the cross-check may and may not assert](#what-the-cross-check-may-and-may-not-assert)
   - [Provider isolation](#provider-isolation)
   - [What a report costs](#what-a-report-costs)
   - [Grading assets](#grading-assets)
+    - [Two asset sources](#two-asset-sources)
 - [Review, approval, and delivery](#review-approval-and-delivery)
+  - [Handing in a file](#handing-in-a-file)
   - [Grading by hand](#grading-by-hand)
   - [Resubmission](#resubmission)
   - [Triage](#triage)
 - [Interface](#interface)
+  - [A cohort's six views are six addresses](#a-cohorts-six-views-are-six-addresses)
 - [What is verified, and how](#what-is-verified-and-how)
 - [Deploying](#deploying)
 
@@ -107,18 +119,18 @@ Neither script creates accounts. Identity belongs to Supabase Auth, so both the 
 
 Copy `.env.example` to `.env.local`; it documents every variable and the traps behind several of them. In brief:
 
-| Variable                                                                                         | Purpose                                                        |
-| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`                               | browser client                                                 |
-| `SUPABASE_SERVICE_ROLE_KEY`                                                                      | server-side admin operations                                   |
-| `DATABASE_URL`, `DIRECT_URL`                                                                     | pooled connection for the app, direct for migrations           |
-| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALLATION_ID` | the App that provisions repositories and receives webhooks     |
-| `GITHUB_WEBHOOK_PROXY_URL`                                                                       | development only: the smee.io channel `dev:webhook` listens on |
-| `E2B_API_KEY`                                                                                    | sandbox                                                        |
-| `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GRADING_LLM_EFFORT`                | report generation                                              |
+| Variable                                                                                         | Purpose                                                                      |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`                               | browser client                                                               |
+| `SUPABASE_SERVICE_ROLE_KEY`                                                                      | server-side admin operations                                                 |
+| `DATABASE_URL`, `DIRECT_URL`                                                                     | pooled connection for the app, direct for migrations                         |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALLATION_ID` | the App that provisions repositories and receives webhooks                   |
+| `GITHUB_WEBHOOK_PROXY_URL`                                                                       | development only: the smee.io channel `dev:webhook` listens on               |
+| `E2B_API_KEY`                                                                                    | sandbox                                                                      |
+| `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GRADING_LLM_EFFORT`                | report generation                                                            |
 | `GRADING_ASSETS_REPO`                                                                            | the repository holding `rubric.md`, `agent-rules.md`, and the sample reports |
-| `GRADING_ASSETS_INSTALLATION_ID`                                                                 | optional: overrides which installation reads that repository |
-| `GRADING_ASSETS_REF`                                                                             | optional: a branch to read the guides from instead of the default |
+| `GRADING_ASSETS_INSTALLATION_ID`                                                                 | optional: overrides which installation reads that repository                 |
+| `GRADING_ASSETS_REF`                                                                             | optional: a branch to read the guides from instead of the default            |
 
 `SUPABASE_SERVICE_ROLE_KEY` does double duty: server-side admin operations, and the private bucket uploaded submissions live in. Nothing else can reach that bucket — see [handing in a file](#handing-in-a-file).
 
@@ -138,26 +150,26 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. The first two need neither a model nor a network; the next four drive the real procedures against the development database inside a transaction that is rolled back.
 
-| Script                        | What it does                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run verify:sandbox`      | Sandbox logic with no sandbox: path matching, tamper reporting, the `package.json` merge, the restore script, all three parsers |
-| `npm run verify:grade`        | Grading logic with no model call: classification, rubric extraction, every cross-check rule, arithmetic                         |
+| Script                        | What it does                                                                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run verify:sandbox`      | Sandbox logic with no sandbox: path matching, tamper reporting, the `package.json` merge, the restore script, all three parsers   |
+| `npm run verify:grade`        | Grading logic with no model call: classification, rubric extraction, every cross-check rule, arithmetic                           |
 | `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers |
 | `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
-| `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                             |
-| `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                     |
-| `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                    |
-| `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                        |
-| `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                    |
-| `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points        |
-| `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                    |
-| `npm run verify:resubmission` | The resubmission and re-approval loop end to end; `--post` also posts a real comment                                            |
-| `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                      |
-| `npm run grade`               | Generates one real report from the terminal                                                                                     |
-| `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                              |
-| `npm run approve`             | Approves a draft from the terminal                                                                                              |
-| `npm run accept`              | Runs the accept flow from the terminal                                                                                          |
-| `npm run db:diff`             | Generates a migration — see [Data model](#data-model), and never `migrate dev`                                                  |
+| `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                              |
+| `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                       |
+| `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                      |
+| `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                          |
+| `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                      |
+| `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points          |
+| `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                      |
+| `npm run verify:resubmission` | The resubmission and re-approval loop end to end; `--post` also posts a real comment                                              |
+| `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                        |
+| `npm run grade`               | Generates one real report from the terminal                                                                                       |
+| `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                |
+| `npm run approve`             | Approves a draft from the terminal                                                                                                |
+| `npm run accept`              | Runs the accept flow from the terminal                                                                                            |
+| `npm run db:diff`             | Generates a migration — see [Data model](#data-model), and never `migrate dev`                                                    |
 
 ---
 
@@ -279,12 +291,12 @@ What that costs, stated rather than discovered: **drift is now possible.** An as
 
 **`kind` is what a student turns in**, and it decides how an assignment is distributed, what a submission consists of, and how feedback is delivered. `AssignmentKind` names four, and **all four can be created, published, submitted, and graded**:
 
-| Kind | Distributed as | Collected as | Graded by |
-| ---- | -------------- | ------------ | --------- |
-| `REPO` | a repository generated from a template | a pull request | the pipeline |
-| `GOOGLE_DOC` | a link to Google's own copy prompt | a link to the student's copy | an instructor |
-| `FILE_UPLOAD` | nothing — there is no Accept | [a file in private storage](#handing-in-a-file) | an instructor |
-| `EXTERNAL_URL` | nothing — there is no Accept | a link to work made elsewhere | an instructor |
+| Kind           | Distributed as                         | Collected as                                    | Graded by     |
+| -------------- | -------------------------------------- | ----------------------------------------------- | ------------- |
+| `REPO`         | a repository generated from a template | a pull request                                  | the pipeline  |
+| `GOOGLE_DOC`   | a link to Google's own copy prompt     | a link to the student's copy                    | an instructor |
+| `FILE_UPLOAD`  | nothing — there is no Accept           | [a file in private storage](#handing-in-a-file) | an instructor |
+| `EXTERNAL_URL` | nothing — there is no Accept           | a link to work made elsewhere                   | an instructor |
 
 What differs is how far the pipeline reaches, not whether a kind works. Reading a Google Doc's contents or an uploaded file and generating a report from it is a separate feature and needs instructor-authored rubrics.
 
@@ -343,11 +355,11 @@ That second one cannot fire on this curriculum, which is worth writing down so n
 
 Because [removing and archiving never take work back](#standing-decisions), "is this person in this course" has two right answers:
 
-| | Admits | Governs |
-| - | - | - |
-| `assertCourseMember` | active students, **removed students**, instructors, admins | a course's screens, an assignment's page, released feedback |
-| `assertActiveStudent` | active students only | `accept`, `submitWork`, the upload route |
-| `adminProcedure` | admins only | everything on `/admin` — invitations, and who is an admin |
+|                       | Admits                                                     | Governs                                                     |
+| --------------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
+| `assertCourseMember`  | active students, **removed students**, instructors, admins | a course's screens, an assignment's page, released feedback |
+| `assertActiveStudent` | active students only                                       | `accept`, `submitWork`, the upload route                    |
+| `adminProcedure`      | admins only                                                | everything on `/admin` — invitations, and who is an admin   |
 
 They live side by side in `lib/courses/membership.ts` because the two `where` clauses differ by one enum value in code that otherwise reads identically. Written out at each call site, the failure is not spotting a difference — it is not noticing there was a decision to make.
 
@@ -405,10 +417,10 @@ Stopping the enrollment did nothing to the submissions, so a student who had lef
 
 **The same two questions, asked about a cohort's work rather than about the caller**, and they sit in `membership.ts` beside the pair above for the same reason. Every instructor-facing read of a course's submissions is a **list of work waiting**, which a departed student contributes nothing to, or a **record of what happened**, which they are part of.
 
-| | Used by | Effect |
-| - | - | - |
-| `activeStudentWork(courseId)` | `submissions.triage` and its approved count | a removed student's work is not in the pile |
-| `removedStudentIds(db, courseId)` | `submissions.listForAssignment` | partitions one query into the queue's list and the rest |
+|                                   | Used by                                     | Effect                                                  |
+| --------------------------------- | ------------------------------------------- | ------------------------------------------------------- |
+| `activeStudentWork(courseId)`     | `submissions.triage` and its approved count | a removed student's work is not in the pile             |
+| `removedStudentIds(db, courseId)` | `submissions.listForAssignment`             | partitions one query into the queue's list and the rest |
 
 **The counts were the second half of the job.** Fixing triage alone would have left the gradebook and the assignments list claiming work was waiting while triage showed nothing to do — with nothing on any of the three screens to reconcile them. `courses.gradebook` returns `cells` narrowed to active students and `removedCells` beside it; `courses.assignmentsOverview` computes its "to grade" column from the same set. Both are right by construction rather than by remembering to filter, and a check asserts that all three readers return the same figure — which matters more since the counting moved to the server, because a derived count cannot drift from its source and a separately computed one can.
 
@@ -633,11 +645,11 @@ An assignment with two gradable sections produces two model calls and two report
 
 Test evidence gets four outcomes rather than two, because "this assignment has no suite" and "this assignment has a suite and none of it ran" are opposite situations:
 
-| Flag                 | Meaning                                                 |          |
-| -------------------- | ------------------------------------------------------- | -------- |
-| `TEST_EVIDENCE`      | Claims were checked against a real run                  | ordinary |
-| `NO_TESTS_EXPECTED`  | The section declares no `evidence: "tests"`             | ordinary |
-| `TEST_RUN_MISSING`   | Tests expected, no completed run at this commit         | a fault  |
+| Flag                 | Meaning                                                                                                                   |          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `TEST_EVIDENCE`      | Claims were checked against a real run                                                                                    | ordinary |
+| `NO_TESTS_EXPECTED`  | The section declares no `evidence: "tests"`                                                                               | ordinary |
+| `TEST_RUN_MISSING`   | Tests expected, no completed run at this commit                                                                           | a fault  |
 | `TEST_MATCH_MISSING` | Tests ran, the section's `testNamePattern` matched none — shown as "No matching tests", since nothing is missing a *file* | a fault  |
 
 **Every pill explains itself on hover.** `FLAG_META` and `CONFIDENCE_META` each carry a description and the badge components render it through one wrapper, so a code an instructor has not met before says what it means without a legend to look up. The seven writing and technical flags all open with "Points came off…", because that is the thing the labels never said: each one records why the student *lost* points and a section at full marks carries none.
@@ -705,10 +717,10 @@ Output is roughly 60 percent of the cost, because thinking is billed as output. 
 
 Everything a section is graded against is read over the GitHub API, from two repositories addressed differently:
 
-| | Where it comes from | Why there |
-| - | - | - |
-| `rubric.md`, `agent-rules.md`, sample reports | the repository `GRADING_ASSETS_REPO` names | Program-wide prompt code. Every assignment in every course is graded against the same rubric and the same tone rules; one with its own would be a different program. |
-| reference solutions | the repository the assignment's `answerKeyRepo` names, at the paths its sections name | Per assignment. A cohort keeps its solutions wherever it likes, and the curriculum's directory layout stops being a constraint on the application. |
+|                                               | Where it comes from                                                                   | Why there                                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rubric.md`, `agent-rules.md`, sample reports | the repository `GRADING_ASSETS_REPO` names                                            | Program-wide prompt code. Every assignment in every course is graded against the same rubric and the same tone rules; one with its own would be a different program. |
+| reference solutions                           | the repository the assignment's `answerKeyRepo` names, at the paths its sections name | Per assignment. A cohort keeps its solutions wherever it likes, and the curriculum's directory layout stops being a constraint on the application.                   |
 
 Both go through one function that decides the repository, the installation, and the commit, so there is no second implementation of a read to keep in step. **Both commits are recorded** on the draft and shown on the review screen — a report traces back to the exact rubric *and* the exact reference solutions it was written against, and the rubric's commit cannot answer the second question.
 
@@ -808,15 +820,15 @@ Together they produce information neither gives alone: a submission with newer c
 
 `lib/grade/triage.ts` holds one function that derives a bucket from the submission status, its draft, whether that draft is stale, and whether an approval failed to deliver. Triage, the queue filter, and the gradebook cells all call it, so the three cannot disagree about what is outstanding.
 
-| Bucket                | Meaning                                                                     |
-| --------------------- | --------------------------------------------------------------------------- |
-| `needs_report`        | Submitted, and no report has been generated                                 |
-| `needs_manual_grade`  | Submitted on an assignment the pipeline cannot grade; waiting on a person    |
-| `draft_ready`         | A report is waiting to be reviewed                                          |
-| `needs_manual_review` | The cross-check found something that gates approval                         |
-| `grading_failed`      | The run failed before producing a report — infrastructure, not a zero       |
-| `comment_not_posted`  | Approved, there is a pull request, and the comment never reached it          |
-| `generating`          | A run is in flight; not counted as outstanding                              |
+| Bucket                | Meaning                                                                   |
+| --------------------- | ------------------------------------------------------------------------- |
+| `needs_report`        | Submitted, and no report has been generated                               |
+| `needs_manual_grade`  | Submitted on an assignment the pipeline cannot grade; waiting on a person |
+| `draft_ready`         | A report is waiting to be reviewed                                        |
+| `needs_manual_review` | The cross-check found something that gates approval                       |
+| `grading_failed`      | The run failed before producing a report — infrastructure, not a zero     |
+| `comment_not_posted`  | Approved, there is a pull request, and the comment never reached it       |
+| `generating`          | A run is in flight; not counted as outstanding                            |
 
 The last two are the pair that has to be kept apart from their neighbours. `needs_manual_grade` is not `needs_report` because the action differs and only one of them exists — `needs_report` offers a button that must not appear on an assignment nothing can generate a report for — and it is not `needs_manual_review`, which is a report that exists and cannot be trusted. And `comment_not_posted` requires a pull request to have existed: without that condition every finished hand-graded submission sits there permanently, in triage, the queue, and the gradebook alike, with nothing an instructor can do to clear it.
 
@@ -828,24 +840,24 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 
 `app/(shell)/` holds the signed-in application; `app/auth/` holds the Supabase auth screens.
 
-| Route                                                        | Screen                                                                |
-| ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `/courses`                                                   | A student's courses                                                   |
-| `/courses/[courseId]`                                        | Assignments, status, and feedback for one course                      |
-| `/instructor`                                                | Nothing: picks the most recent cohort the caller teaches and redirects |
-| `/instructor/courses/[courseId]`                             | Nothing: redirects to that cohort's settings                          |
-| `/instructor/courses/[courseId]/triage`                      | What is waiting on the instructor in this cohort                      |
-| `/instructor/courses/[courseId]/assignments`                 | Every assignment in the cohort, and where new ones are made           |
-| `/instructor/courses/[courseId]/gradebook`                   | Assignments × roster, each cell carrying its triage bucket            |
-| `/instructor/courses/[courseId]/roster`                      | Who is in the cohort, and the join link                               |
-| `/instructor/courses/[courseId]/modules`                     | The order the cohort is taught in                                     |
-| `/instructor/courses/[courseId]/settings`                    | The cohort itself: short name, instructors, archiving                 |
-| `/instructor/courses/[courseId]/assignments/[assignmentId]`  | The grading queue and the review surface, `?submission=` to open one   |
-| `/instructor/courses/[courseId]/students/[studentId]`         | One student's whole record in this cohort — the queue's other axis     |
-| `/instructor/assignments/[assignmentId]`                     | The queue's old address: looks up the course and redirects            |
-| `/admin`                                                     | Staff: who may teach, and who may decide that. Admins only            |
-| `/invite/[token]`                                            | Where an instructor invitation lands                                  |
-| `/co-teach/[token]`                                          | Where a cohort's co-teaching link lands                               |
+| Route                                                       | Screen                                                                 |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `/courses`                                                  | A student's courses                                                    |
+| `/courses/[courseId]`                                       | Assignments, status, and feedback for one course                       |
+| `/instructor`                                               | Nothing: picks the most recent cohort the caller teaches and redirects |
+| `/instructor/courses/[courseId]`                            | Nothing: redirects to that cohort's settings                           |
+| `/instructor/courses/[courseId]/triage`                     | What is waiting on the instructor in this cohort                       |
+| `/instructor/courses/[courseId]/assignments`                | Every assignment in the cohort, and where new ones are made            |
+| `/instructor/courses/[courseId]/gradebook`                  | Assignments × roster, each cell carrying its triage bucket             |
+| `/instructor/courses/[courseId]/roster`                     | Who is in the cohort, and the join link                                |
+| `/instructor/courses/[courseId]/modules`                    | The order the cohort is taught in                                      |
+| `/instructor/courses/[courseId]/settings`                   | The cohort itself: short name, instructors, archiving                  |
+| `/instructor/courses/[courseId]/assignments/[assignmentId]` | The grading queue and the review surface, `?submission=` to open one   |
+| `/instructor/courses/[courseId]/students/[studentId]`       | One student's whole record in this cohort — the queue's other axis     |
+| `/instructor/assignments/[assignmentId]`                    | The queue's old address: looks up the course and redirects             |
+| `/admin`                                                    | Staff: who may teach, and who may decide that. Admins only             |
+| `/invite/[token]`                                           | Where an instructor invitation lands                                   |
+| `/co-teach/[token]`                                         | Where a cohort's co-teaching link lands                                |
 
 ### A cohort's six views are six addresses
 

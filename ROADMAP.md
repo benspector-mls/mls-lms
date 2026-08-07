@@ -54,6 +54,8 @@ How the built system works is in [README.md](README.md). This file is only what 
 - [Course switching — done](#course-switching--done)
   - [The claim this document had wrong](#the-claim-this-document-had-wrong)
 - [A student's record — done](#a-students-record--done)
+- [A cohort's views became the sidebar — done](#a-cohorts-views-became-the-sidebar--done)
+  - [Co-teaching, which the settings screen needed and nothing had](#co-teaching-which-the-settings-screen-needed-and-nothing-had)
 - [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
 - [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
 - [An admin view for approving instructors — done](#an-admin-view-for-approving-instructors--done)
