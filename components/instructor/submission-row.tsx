@@ -56,9 +56,6 @@ export function SubmissionRow({
         )}
       >
         <div className="flex items-center gap-2.5">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-            {initials(primary)}
-          </span>
           <div className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-sm font-medium">{primary}</span>
             <span className="truncate text-xs text-muted-foreground">
@@ -71,34 +68,7 @@ export function SubmissionRow({
             gone out is shown here — a superseded score belongs to a report nobody reads
             anymore.
           */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <SubmissionStatusBadge status={row.status} />
-            {/*
-              The draft's own state, where it says anything the submission's does not —
-              generating a report does not move the submission, only approving does. The rule
-              lives in `draftStatusAddsSomething` so this screen and the review header cannot
-              disagree about it.
-            */}
-            {draft && draftStatusAddsSomething(draft.status) && (
-              <DraftStatusBadge status={draft.status} />
-            )}
-            {row.draftIsStale && (
-              <Badge
-                variant="outline"
-                className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-              >
-                Report out of date
-              </Badge>
-            )}
-            {row.bucket === 'comment_not_posted' && (
-              <Badge
-                variant="outline"
-                className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-              >
-                Not delivered
-              </Badge>
-            )}
-          </div>
+
           {row.status === 'GRADED' && row.finalScore != null && (
             <span
               className={cn(
@@ -111,6 +81,34 @@ export function SubmissionRow({
               {row.finalScore}
               <span className="font-normal text-muted-foreground">/{row.finalScorePossible}</span>
             </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <SubmissionStatusBadge status={row.status} />
+          {/*
+              The draft's own state, where it says anything the submission's does not —
+              generating a report does not move the submission, only approving does. The rule
+              lives in `draftStatusAddsSomething` so this screen and the review header cannot
+              disagree about it.
+            */}
+          {draft && draftStatusAddsSomething(draft.status) && (
+            <DraftStatusBadge status={draft.status} />
+          )}
+          {row.draftIsStale && (
+            <Badge
+              variant="outline"
+              className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+            >
+              Report out of date
+            </Badge>
+          )}
+          {row.bucket === 'comment_not_posted' && (
+            <Badge
+              variant="outline"
+              className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+            >
+              Not delivered
+            </Badge>
           )}
         </div>
       </button>

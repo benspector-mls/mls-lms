@@ -315,9 +315,6 @@ function NotStartedRow({ row }: { row: Row }) {
   return (
     <li>
       <div className="flex items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 opacity-60">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-xs text-muted-foreground">
-          —
-        </span>
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-sm">{row.assignment.title}</span>
           <span className="truncate text-xs text-muted-foreground">
