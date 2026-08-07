@@ -78,8 +78,7 @@ export function SubmissionRow({
                 completionMeta(row.isComplete)?.className,
               )}
             >
-              {row.finalScore}
-              <span className="font-normal text-muted-foreground">/{row.finalScorePossible}</span>
+              {row.finalScore}/{row.finalScorePossible}
             </span>
           )}
         </div>
