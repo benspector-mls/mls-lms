@@ -615,7 +615,7 @@ async function procedures() {
   });
 
   if (!seeded) {
-    console.log("\nskip the procedure checks — swe-1-3-node-modules is not seeded");
+    skip("the procedure checks — swe-1-3-node-modules is not seeded");
     return;
   }
 
@@ -623,12 +623,20 @@ async function procedures() {
     where: { courseId: seeded.courseId },
     select: { userId: true },
   });
+  /*
+    Any status. Every check below that acts as a student is a refusal — a student cannot author —
+    or a read of the published list, and both admit a removed student by design.
+
+    It used to require ACTIVE, which meant removing a student in the running application silently
+    stopped this entire group of checks while the script went on reporting a pass.
+  */
   const student = await db.enrollment.findFirst({
-    where: { courseId: seeded.courseId, status: "ACTIVE" },
+    where: { courseId: seeded.courseId },
+    orderBy: { createdAt: "asc" },
     select: { studentId: true },
   });
   if (!instructor || !student) {
-    console.log("\nskip the procedure checks — the seeded course has no instructor or student");
+    skip("the procedure checks — the seeded course has no instructor or student");
     return;
   }
 
@@ -1133,11 +1141,26 @@ async function procedures() {
     await db.course.count({ where: { name: { contains: "(verify:authoring)" } } }), 0);
 }
 
+/**
+ * Groups of checks that did not run, and why.
+ *
+ * **A partial run must not read as a pass.** This script depends on seeded data, and the day that
+ * data changes shape — a student removed in the running application was enough — a whole group can
+ * stop running while the output still says everything is fine. Reported, and non-zero.
+ */
+const skips: string[] = [];
+function skip(reason: string) {
+  skips.push(reason);
+  console.log(`\nSKIPPED — ${reason}`);
+}
+
 // Not top-level await: tsx compiles this to CommonJS, which rejects it.
 procedures()
   .then(() => {
-    console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-    process.exit(failures === 0 ? 0 : 1);
+    if (failures > 0) console.log(`\n${failures} FAILED`);
+    else if (skips.length === 0) console.log("\nAll checks passed.");
+    else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+    process.exit(failures > 0 || skips.length > 0 ? 1 : 0);
   })
   .catch((err) => {
     console.error("\n", err);

@@ -236,8 +236,25 @@ async function main() {
   await handGradedLifecycle(db);
 
   await db.$disconnect();
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
+
+  if (failures > 0) console.log(`\n${failures} FAILED`);
+  else if (skips.length === 0) console.log("\nAll checks passed.");
+  else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+
+  process.exit(failures > 0 || skips.length > 0 ? 1 : 0);
+}
+
+/**
+ * Groups of checks that did not run, and why.
+ *
+ * **A partial run must not read as a pass.** This script depends on seeded data, and the day that
+ * data changes shape — a student removed in the running application was enough — a whole group can
+ * stop running while the output still says everything is fine. Reported, and non-zero.
+ */
+const skips: string[] = [];
+function skip(reason: string) {
+  skips.push(reason);
+  console.log(`\nSKIPPED — ${reason}`);
 }
 
 /**
@@ -266,10 +283,17 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
         select: { userId: true },
       })
     : null;
+  /*
+    Any status. This lifecycle hands work in, which needs an *active* student — so the enrollment is
+    restored inside the transaction below rather than required to be active here. Requiring it meant
+    removing a student in the running application silently stopped this whole group, while the
+    script went on reporting a pass.
+  */
   const student = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE" },
-        select: { studentId: true },
+        where: { courseId: course.id },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, studentId: true, status: true },
       })
     : null;
 
@@ -285,7 +309,7 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
   const moduleId = firstModule?.id;
 
   if (!course || !instructor || !student || !moduleId) {
-    console.log("\nskip the hand-graded lifecycle — no seeded course with an instructor, a student, and a module");
+    skip("the hand-graded lifecycle — no seeded course with an instructor, a student, and a module");
     return;
   }
 
@@ -295,6 +319,12 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
     await db.$transaction(async (tx) => {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: student.studentId } } as never);
+
+      // Inside the transaction, so it is undone with everything else. Accepting and submitting
+      // need an active student, and the seeded one may have been removed in the application.
+      if (student.status !== "ACTIVE") {
+        await asInstructor.enrollments.restore({ enrollmentId: student.id });
+      }
 
       // --- authored, published, accepted, submitted ------------------------
       const { assignment } = await asInstructor.assignments.create({

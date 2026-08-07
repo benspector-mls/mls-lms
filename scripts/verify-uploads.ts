@@ -253,12 +253,20 @@ async function main() {
         select: { userId: true },
       })
     : null;
-  // `studentId` is nullable until a student's first GitHub login binds it, so an enrollment
-  // that nobody has claimed yet cannot stand in for a student here.
+  /*
+    `studentId` is nullable until a student's first GitHub login binds it, so an enrollment that
+    nobody has claimed yet cannot stand in for a student here.
+
+    Any status, though. Handing work in needs an *active* student, and this lifecycle does hand work
+    in — so the enrollment is restored inside the transaction below rather than required to be
+    active here. Requiring it meant that removing a student in the running application silently
+    stopped this whole group of checks, while the script went on reporting a pass.
+  */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE" },
-        select: { studentId: true },
+        where: { courseId: course.id },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, studentId: true, status: true },
       })
     : null;
   const studentId = enrollment?.studentId ?? null;
@@ -274,7 +282,7 @@ async function main() {
   const moduleId = firstModule?.id;
 
   if (!course || !instructor || !studentId || !moduleId) {
-    console.log("\nskip the lifecycle — no seeded course with an instructor, a bound student, and a module");
+    skip("the lifecycle — no seeded course with an instructor, a bound student, and a module");
     return report();
   }
 
@@ -286,6 +294,12 @@ async function main() {
     await db.$transaction(async (tx) => {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
+
+      // Inside the transaction, so it is undone with everything else. Handing work in needs an
+      // active student, and the seeded one may have been removed in the running application.
+      if (enrollment!.status !== "ACTIVE") {
+        await asInstructor.enrollments.restore({ enrollmentId: enrollment!.id });
+      }
 
       const { assignment } = await asInstructor.assignments.create({
         courseId: course.id,
@@ -474,9 +488,25 @@ async function main() {
   return report();
 }
 
+/**
+ * Groups of checks that did not run, and why.
+ *
+ * **A partial run must not read as a pass.** This script depends on seeded data, and the day that
+ * data changes shape — a student removed in the running application was enough — a whole group can
+ * stop running while the output still says everything is fine. Reported, and non-zero.
+ */
+const skips: string[] = [];
+function skip(reason: string) {
+  skips.push(reason);
+  console.log(`\nSKIPPED — ${reason}`);
+}
+
 function report() {
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  if (failures > 0) process.exitCode = 1;
+  if (failures > 0) console.log(`\n${failures} FAILED`);
+  else if (skips.length === 0) console.log("\nAll checks passed.");
+  else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+
+  if (failures > 0 || skips.length > 0) process.exitCode = 1;
 }
 
 main().catch((err) => {

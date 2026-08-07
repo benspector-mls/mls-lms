@@ -77,16 +77,23 @@ async function main() {
         select: { userId: true },
       })
     : null;
+  /*
+    Any status. This needs somebody to *be*, not somebody enrolled: every check below that acts as
+    a student is a read or a refusal, and both admit a removed student by design.
+
+    It used to require ACTIVE, which meant removing a student in the running application silently
+    stopped this whole script — while it went on printing that all checks passed.
+  */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE" },
+        where: { courseId: course.id },
+        orderBy: { createdAt: "asc" },
         select: { studentId: true },
       })
     : null;
 
   if (!course || !instructor || !enrollment) {
-    console.log("skip — no seeded course with an instructor and a bound student");
-    return report();
+    return skip("no seeded course with an instructor and a bound student");
   }
 
   const studentId = enrollment.studentId;
@@ -349,9 +356,25 @@ async function main() {
   return report();
 }
 
+/**
+ * Groups of checks that did not run, and why.
+ *
+ * **A partial run must not read as a pass.** These scripts depend on seeded data, and the day that
+ * data changes shape — a student removed in the running application was enough — a whole group can
+ * stop running while the output still says everything is fine. Reported, and non-zero.
+ */
+const skips: string[] = [];
+function skip(reason: string) {
+  skips.push(reason);
+  console.log(`\nSKIPPED — ${reason}`);
+}
+
 function report() {
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  if (failures > 0) process.exitCode = 1;
+  if (failures > 0) console.log(`\n${failures} FAILED`);
+  else if (skips.length === 0) console.log("\nAll checks passed.");
+  else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+
+  if (failures > 0 || skips.length > 0) process.exitCode = 1;
 }
 
 main()
