@@ -723,12 +723,23 @@ async function main() {
       check("...and they are listed as removed",
         book.removedEnrollments.some((row) => row.student.id === studentId), true);
       /*
-        Which is what makes the course heading's "N submissions waiting on you" agree with triage.
-        It counts `cells`, so the two are the same claim rather than two counts that have to be
-        kept in step by hand — they disagreed before, and nothing on either screen said so.
+        Three readers, one claim, and they have to agree.
+
+        "How much is outstanding in this cohort" is answered by grading triage, by the gradebook's
+        own cells, and by the per-assignment "to grade" column — and the third is the one that can
+        now drift, because its counts are computed in `assignmentsOverview` rather than derived in
+        the browser from the gradebook's payload. Two counts kept in step by hand is exactly how
+        the heading and triage disagreed before, with nothing on either screen to reconcile them.
+
+        A removed student is what makes this worth asserting rather than tautological: every one
+        of the three has to leave their work out, and each does it in a different place.
       */
-      check("...so the course heading's outstanding count matches triage",
+      check("...so the gradebook's outstanding count matches triage",
         book.cells.filter((cell) => cell.bucket !== null && cell.bucket !== "generating").length,
+        afterRemoval.submissions.length);
+      check("...and so does the assignments list, which counts them server-side",
+        (await asInstructor.courses.assignmentsOverview({ courseId: course.id }))
+          .assignments.reduce((total, row) => total + row.counts.outstanding, 0),
         afterRemoval.submissions.length);
 
       // A removed student redeeming the link again is refused: if it let them back in, removal

@@ -72,7 +72,9 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 The sequence, most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail.
 
-**Instructor approval is first because it is the last thing standing between this and a second person running a cohort on it.** A course can now be created, copied, filled from a join link, and retired; what still needs the database is deciding who may teach. It comes before measurement and before a review of code that already works, for the same reason the other two did.
+**Nothing about running a cohort needs the database any more**, which is what moved measurement to the front. A course can be created, copied, filled from a join link, co-taught, and retired; somebody can be made staff by an admin and added to a cohort by whoever runs it. The first admin of a deployment is still a hand-edited row, necessarily, because there is nobody to grant it — `npm run grant:admin` is that base case as a tool.
+
+So what is left at the top of this list is measurement and a review of code that already works, in that order: measuring first, because a real cohort produces figures rather than estimates, and reviewing after, because the shape of the application only became clear once the whole loop worked.
 
 1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
 2. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
@@ -370,7 +372,7 @@ This is what makes authoring safe: an assignment can be built over several sitti
 ### Step 5. Screens — done
 
 - `/instructor/courses/[courseId]/assignments/new` and `.../[assignmentId]/edit` — one client form component, `components/instructor/assignment-form.tsx`, with a `section-editor.tsx` sub-form. Validation findings render inline; save is disabled while any check fails.
-- Entry points on `components/instructor/course-detail.tsx`: a "New assignment" action in the header, and "Edit", "Duplicate", and "Remove" per row in the assignments tab.
+- Entry points on `components/instructor/assignments-list.tsx`: a "New assignment" action in the header, and "Edit", "Duplicate", and "Remove" per row.
 - **The first question the form asks is the kind**, which decides which fields appear at all — a Google Doc or file-upload assignment never shows `githubOrg` or a runner preset, rather than showing them disabled. For `REPO`, an instructor pastes the two repository URLs; the repository name follows the template's own name until they change it, the runner follows what the template's `package.json` says, `githubOrg` and the answer-key repository default to what the course's other assignments use, and the rubric follows from the section type. Answer key paths are ticked from a listing of the named repository. What is left to enter is what genuinely needs a person: the title, point values per section, the due date, and the test evidence pattern.
 - **Nothing an instructor can select is typed by hand.** The runner preset is a select populated from `RUNNER_PRESETS`, not a text field — a typo'd preset is a grading failure weeks later, and the cheapest fix is an interface where the wrong value cannot be expressed. The same applies to the section type and the rubric. `lib/sandbox/presets.ts` carries no `server-only` import and neither does its one dependency, so the form imports the list directly rather than needing a procedure to enumerate it.
 
@@ -399,7 +401,7 @@ Nothing in this phase is outstanding.
 
 ### Phase 7 verification
 
-**Done, and re-runnable.** `npm run verify:uploads` is 73 checks over the file-upload and link-submitted paths, including a real store, sign, fetch, and remove — described in [the README](README.md#what-is-verified-and-how). `npm run verify:authoring` is 114 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
+**Done, and re-runnable.** `npm run verify:uploads` is 73 checks over the file-upload and link-submitted paths, including a real store, sign, fetch, and remove — described in [the README](README.md#what-is-verified-and-how). `npm run verify:authoring` is 134 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
 
 **The one thing a script cannot do is also done.** On localhost: a Google Doc assignment was authored, a student saw nothing until it was published, accepting landed on Google's copy prompt, the link came back, it was graded by hand and released. Every part of that sequence was already checked through the callers; what the walkthrough adds is that the screens carry it, which no rolled-back transaction can tell you.
 
@@ -470,7 +472,7 @@ model Module {
 | 6        | Mod 6 - Databases                                 |
 | 7        | Mod 7 - React                                     |
 
-**Built**, and described in [the README](README.md#data-model). `modules` with `position` and `@@unique([courseId, name])`, `assignments.moduleId` as a `RESTRICT` foreign key, the four procedures in `trpc/routers/modules.ts`, and a Modules screen beside Assignments. `npm run verify:modules` is 22 checks through the callers.
+**Built**, and described in [the README](README.md#data-model). `modules` with `position` and `@@unique([courseId, name])`, `assignments.moduleId` as a `RESTRICT` foreign key, the four procedures in `trpc/routers/modules.ts`, and a Modules screen beside Assignments. `npm run verify:modules` is 29 checks through the callers.
 
 **The migration went in one step rather than two, and could.** The plan called for a nullable `module_id` so the mapping could be checked before committing to it. In the event the backfill derives its modules from the union of the tags in use *and* the tags each course declared, so every assignment matches one by construction — which means `SET NOT NULL` in the same migration is safe, and it succeeding is itself the proof that nothing was orphaned. Hand-written rather than what `migrate diff` produced, because Prisma emits `ADD COLUMN module_id UUID NOT NULL`, which fails outright on a populated table.
 
@@ -574,7 +576,7 @@ What they are genuinely good at should not be thrown away: each one is a narrati
 
 It also widens the feature past what those columns cover. Managing assignment *and* assignment submission objects means an authored assignment has a counterpart record in Salesforce, which is a second thing to create, key, and keep in step — and `assignments` has no Salesforce columns at all today. Two consequences worth carrying into the conversation:
 
-- **The ordering is forced.** A submission record presumably cannot exist without its assignment record, so authoring an assignment has to create the Salesforce side before any grade for it can sync. That makes this feature depend on [assignment authoring](#phase-7-assignment-authoring) rather than merely following it.
+- **The ordering is forced.** A submission record presumably cannot exist without its assignment record, so authoring an assignment has to create the Salesforce side before any grade for it can sync. That makes this feature depend on [assignment authoring](#phase-7-assignment-authoring--done) rather than merely following it.
 - **`assignments` and `courses` both need the same three columns** `submissions` already has. Correct assumption: only `submissions` has them, because it was the only table whose sync was being thought about when they were added. A course is presumably a cohort or program record on their end and an assignment hangs off it, so all three levels need to hold their Salesforce id and sync state. One small migration once the objects' shapes are known — deliberately not written until then, on the same reasoning that left the field mapping un-guessed.
 
 ### Questions I need answered
@@ -747,7 +749,7 @@ Removing somebody stopped their enrollment and did nothing to their submissions,
 
 Where each lands: **out of** grading triage and its approved count, out of the grading queue's list, out of the gradebook grid, out of the course heading's "N submissions waiting on you", out of the per-assignment "to grade" column. **Into** a Removed students table in the gradebook and another in the roster.
 
-**The counts were the real second half.** The course heading and the assignments tab both count `cells`, and fixing only triage would have left the heading claiming work was waiting while triage showed nothing to do, with nothing on either screen to reconcile them. `courses.gradebook` now returns `cells` narrowed to active students and `removedCells` beside it, so those readers are right by construction rather than by remembering to filter.
+**The counts were the real second half.** Fixing only triage would have left the gradebook and the assignments list claiming work was waiting while triage showed nothing to do, with nothing on any of the three screens to reconcile them. `courses.gradebook` returns `cells` narrowed to active students and `removedCells` beside it, and `courses.assignmentsOverview` computes its "to grade" column from the same set, so those readers are right by construction rather than by remembering to filter.
 
 **The queue keeps a removed student openable without listing them.** `listForAssignment` returns `submissions` and `removedSubmissions`; the pile is the cohort, and asking for one submission by name still answers, with a banner saying who has left. The gradebook's Removed table links straight into it, and a link into a screen that will not show what it points at is worse than no link. Same distinction as an archived course: triage is a list of work, the queue is how work is read.
 
@@ -926,7 +928,7 @@ Through the tRPC callers inside a rolled-back transaction, which is what `verify
 
 ## AI grading for non-coding assignments
 
-Short response is already graded and calibrated against an instructor's own marking, so this means the work that has no repository: a Google Doc, an uploaded PDF, a presentation. It depends on [assignment authoring](#phase-7-assignment-authoring) supporting those kinds first, because the pipeline's inputs change shape — there is no pull request diff, no changed-file list, and no test evidence, so "the student's work" has to be fetched from Drive or from storage instead.
+Short response is already graded and calibrated against an instructor's own marking, so this means the work that has no repository: a Google Doc, an uploaded PDF, a presentation. It depends on [assignment authoring](#phase-7-assignment-authoring--done) supporting those kinds first, because the pipeline's inputs change shape — there is no pull request diff, no changed-file list, and no test evidence, so "the student's work" has to be fetched from Drive or from storage instead.
 
 ### Instructor-authored rubrics are a prerequisite, not a companion
 
