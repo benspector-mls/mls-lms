@@ -58,6 +58,19 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Co-teaching, which the settings screen needed and nothing had](#co-teaching-which-the-settings-screen-needed-and-nothing-had)
 - [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
 - [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
+- [Course ownership](#course-ownership)
+- [Archived courses need a way back, and a way out](#archived-courses-need-a-way-back-and-a-way-out)
+- [Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)
+- [More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)
+- [Dividing grading between co-teachers](#dividing-grading-between-co-teachers)
+- [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
+- [The Modules screen shows the course the way a student meets it — done](#the-modules-screen-shows-the-course-the-way-a-student-meets-it--done)
+  - [Two check scripts were reporting a hole that was not there](#two-check-scripts-were-reporting-a-hole-that-was-not-there)
+- [Content that is not an assignment](#content-that-is-not-an-assignment)
+  - [Ordering, which is settled and needs no new column](#ordering-which-is-settled-and-needs-no-new-column)
+  - [A Resources page, and a course-level list](#a-resources-page-and-a-course-level-list)
+  - [The three kinds](#the-three-kinds)
+- [Small things](#small-things)
 - [An admin view for approving instructors — done](#an-admin-view-for-approving-instructors--done)
   - [The constraint this must not violate](#the-constraint-this-must-not-violate)
   - [What the build decided that the design did not](#what-the-build-decided-that-the-design-did-not)
@@ -65,6 +78,7 @@ How the built system works is in [README.md](README.md). This file is only what 
 - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
   - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
 - [Open thinking: where rubrics, answer keys, and sample reports live](#open-thinking-where-rubrics-answer-keys-and-sample-reports-live)
+- [Scaling: what a hundred students costs, and where it breaks](#scaling-what-a-hundred-students-costs-and-where-it-breaks)
 - [Deferred, with the schema left open](#deferred-with-the-schema-left-open)
 - [Open items](#open-items)
 
@@ -76,30 +90,29 @@ The sequence, most immediate first. A feature's own section says what is known a
 
 **Nothing about running a cohort needs the database any more**, which is what moved measurement to the front. A course can be created, copied, filled from a join link, co-taught, and retired; somebody can be made staff by an admin and added to a cohort by whoever runs it. The first admin of a deployment is still a hand-edited row, necessarily, because there is nobody to grant it — `npm run grant:admin` is that base case as a tool.
 
-**Two things ahead of that turned out to be gaps rather than features**, and they lead because of it. A cohort can be archived and then cannot be reached from anywhere in the interface, which contradicts what archiving is supposed to mean. And a course's creator can be removed from it by anybody who teaches alongside them, which is the one permission in the application that nothing guards.
+**Two things ahead of that turned out to be gaps rather than features**, and both are now closed. A cohort could be archived and then reached from nowhere in the interface, which contradicted what archiving is supposed to mean; and a course's creator could be removed from it by anybody who taught alongside them, which was the one permission in the application that nothing guarded. What is left of that pair is the destructive half — deleting an archived cohort — which is a feature rather than a gap and is ordered as one.
 
-After those, the ordering principle is: correctness gaps, then the cheap things, then measurement, then a review of code that already works, then the three features that add real surface area. Measurement before the review because a real cohort produces figures rather than estimates; the review before the large features because every one of them adds readers to the parts it would touch.
+The ordering principle is: correctness gaps, then the cheap things, then measurement, then a review of code that already works, then the features that add real surface area. Measurement before the review because a real cohort produces figures rather than estimates; the review before the large features because every one of them adds readers to the parts it would touch.
 
-1. **[Course ownership](#course-ownership)** — the creator cannot be removed by a co-teacher, can hand the course to somebody else, and is the only one who can archive it. A permissions gap, small, and it composes with deleting a course below.
-2. **[Archived courses need a way back, and a way out](#archived-courses-need-a-way-back-and-a-way-out)** — `listMine` filters them with no toggle, so a finished cohort is readable by URL and by nothing else. Deleting one is the second half.
-3. **[Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)** — the procedure already does this; what is missing is a course picker. The smallest item on this list.
-4. **[More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)** — Jupyter notebooks and spreadsheets are a few lines each. Google Slides is not a file type at all, which is the part worth reading.
-5. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
-6. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-7. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-8. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-9. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
-10. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
-11. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-12. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-13. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-14. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Deleting an archived cohort](#archived-courses-need-a-way-back-and-a-way-out--the-way-back-is-done)** — the second half of archiving, and the destructive one. It has [ownership](#course-ownership--done) to gate on now, which is what it was waiting for.
+2. **[Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)** — the procedure already does this; what is missing is a course picker. The smallest item on this list.
+3. **[More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)** — Jupyter notebooks and spreadsheets are a few lines each. Google Slides is not a file type at all, which is the part worth reading.
+4. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
+5. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+6. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+7. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+8. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
+9. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
+10. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+11. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+12. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+13. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1 through 5 and 8 through 10 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 and 2 come before the rest: both are the application failing to do what it already claims.
+Items 1 through 4 and 7 through 9 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 comes before the rest: it is the last piece of a pair whose other half was the application failing to do what it already claimed.
 
-[Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that item 6 produces anyway.
+[Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that [token management](#token-management) produces anyway.
 
-**Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, and retired.
+**Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, co-taught, retired, and found again afterwards — and [who owns it](#course-ownership--done) decides which of its instructors can do the last two.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -878,40 +891,63 @@ A new capability rather than a screen, and it needs a data-model decision. Today
 
 ---
 
-## Course ownership
+## Course ownership — done
 
-`CourseInstructor.isPrimary` already marks whoever created the cohort, and today it means almost nothing: `removeInstructor` refuses only the *last* instructor, so anybody who teaches a course can remove its creator, and `setArchived` is teach-gated rather than owner-gated, so any co-teacher can retire a cohort somebody else runs. Neither is malice waiting to happen so much as a permission nothing guards, which became worth guarding the moment a course could have a second instructor.
+**Built**, and described in [the README](README.md#who-owns-a-cohort). `CourseInstructor.isPrimary` marked whoever created the cohort and meant almost nothing: `removeInstructor` refused only the *last* instructor, so anybody who taught a course could remove its creator, and `setArchived` was teach-gated rather than owner-gated, so any co-teacher could retire a cohort somebody else ran. Neither was malice waiting to happen so much as a permission nothing guarded, which became worth guarding the moment a course could have a second instructor.
 
 Three changes, and they are one feature rather than three:
 
 - **The owner cannot be removed by anybody else.** A check comparing the caller against the row, not just against the count.
 - **The owner can transfer the course**, which is what makes the first rule livable. Without it, "the owner cannot be removed" reads as "the person who set this up runs it forever", and somebody who leaves the program leaves a cohort nobody can take responsibility for. Transfer moves `isPrimary` to another existing instructor of the course; leaving afterwards is then the ordinary `removeInstructor` they already have.
-- **Only the owner archives.** Retiring a cohort changes what every student in it sees, which is the one action here with reach beyond the instructor performing it.
+- **Only the owner archives, and only the owner reopens.** Retiring a cohort changes what every student in it sees, which is the one action here with reach beyond the instructor performing it. Reopening is the same gate because it is the same mutation with a boolean, and the consequence is worth stating rather than discovering: a co-teacher can find an archived cohort in their course list, read all of it, and not bring it back. That is the right side to err on — an archived cohort somebody else retired is not theirs to un-retire.
 
-**This reverses something the README currently states.** It says the primary instructor is removable on purpose, so that "who created this" does not outrank "who runs it now" — which was right when the only alternative was permanence, and stops being right once transfer exists. Transfer is what answers that objection, so the two have to ship together; the README passage under [co-teaching one cohort](README.md#co-teaching-one-cohort) changes with them.
+**This reversed something the README stated.** It said the primary instructor was removable on purpose, so that "who created this" does not outrank "who runs it now" — which was right when the only alternative was permanence, and stopped being right once transfer existed. Transfer is what answers that objection, which is why the two had to ship together.
 
-Three things to decide rather than assume:
+**An admin is above all of it.** `assertTeachesCourse` already lets an admin act on any course, and ownership does not narrow that: an admin can remove an owner, archive anybody's cohort, and hand one on. Deliberate rather than a leftover of a guard written for something else — an admin is the recovery path for an owner who left the program without transferring, and without it every rule above is a way for a cohort to end up with nobody who can administer it.
 
-- **Where an admin sits.** `assertTeachesCourse` lets an admin do anything to any course, so an admin can already remove an owner and archive anybody's cohort. Probably correct — an admin is the recovery path when an owner leaves without transferring — but it should be a decision rather than a consequence of a guard written for something else.
-- **What happens when the owner's account is deleted.** `CourseInstructor` cascades on the profile, so deleting an owner leaves a course with instructors and no `isPrimary` row. Every rule above then has no subject. The cheapest answer is that ownership falls to the longest-serving remaining instructor, computed rather than stored; the alternative is refusing to delete a profile that owns a course, which pushes the problem onto a screen that does not exist.
-- **Whether `isPrimary` stays a boolean.** It is a boolean with a uniqueness rule nothing enforces — two rows could both be primary and the schema would allow it. If ownership becomes load-bearing, that constraint should be real.
+**Ownership is derived rather than only stored.** The owner is whoever holds `isPrimary`; when no row does, it is the longest-serving instructor on the course — earliest `createdAt` — and a course with no instructors has no owner. One function answers the question and every reader calls it, so the badge on the settings screen and the guard inside the procedure cannot come to different conclusions about who the owner is.
 
-`verify:enrollment` covers `removeInstructor` already, and its existing checks keep passing under these rules: the co-teacher it removes is not the primary. What has to be added is the pair — an owner refused, and the same call allowed after a transfer — because either half alone looks correct.
+The fallback is what makes a deleted account safe. `CourseInstructor` cascades on the profile, so deleting an owner's account takes the `isPrimary` row with it, and every rule above then has no subject: a cohort left with instructors, none of whom can archive it or remove anybody. Nothing in the application deletes a profile — that is a database action somebody takes by hand — so this is an integrity rule rather than a feature path, and it has to hold with nobody there to invoke it. Writing the row to an admin instead is worse: an admin's reach comes from the role rather than from a `CourseInstructor` row, so inserting one would put every orphaned cohort into that admin's own course list as a course they teach.
+
+**One primary per course is a database constraint.** `is_primary` is a boolean carrying a uniqueness rule the schema does not state, so two rows on one course are representable — and transfer is the operation that would produce them, since it clears one row and sets another. Two owners is two people who can each archive the cohort and neither of whom can be removed, and it fails quietly: the join preview takes the first row it finds and looks entirely normal. A partial unique index says it instead:
+
+```sql
+CREATE UNIQUE INDEX "course_instructors_one_primary_per_course"
+  ON "course_instructors" ("course_id") WHERE "is_primary";
+```
+
+Prisma cannot express a partial index, so it lives in the migration and not in `schema.prisma`. That would normally mean the next schema change proposes dropping it; it does not, because `migrate diff` cannot see it either, which is checked rather than assumed. Being checked per statement, transfer clears the old owner before setting the new one, inside a transaction.
+
+### What checking it found
+
+`verify:enrollment` is 161 checks, and the ownership group is written in pairs — the owner allowed and the co-teacher refused at the same call — because a one-sided check passes against a guard that refuses everybody. Three things came out of writing it, and all three are about the *script* rather than the feature.
+
+**The group was measuring the admin bypass and calling it ownership.** The seeded cohort's creator is the deployment's admin, and `assertOwnsCourse` lets an admin through, so every "the owner may" check passed for a reason unrelated to owning anything — and would have kept passing with ownership removed entirely. It now demotes that account to `INSTRUCTOR` for the duration of the group and restores the role afterwards, which is also what makes the admin bypass checkable on purpose at the end rather than by accident throughout. The check that caught it was the one expecting a refusal *after* a transfer: the old owner archived the cohort anyway.
+
+**The script was choosing its instructor by whichever row came back first.** `courseInstructor.findFirst` with no ordering was fine while a course had one instructor and stopped being fine the moment it could have two, because archiving is now owner-gated — a run that picked the co-teacher would report a working guard as a broken feature, and one that picked the owner would pass by luck. It asks for the owner now. Same family as [the two scripts choosing an outsider by a proxy](#two-check-scripts-were-reporting-a-hole-that-was-not-there), which is the second time this shape has appeared.
+
+**Postgres resolves `now()` to the transaction's start time**, and the whole script is one transaction — so two `CourseInstructor` rows written minutes apart in code share a `createdAt` to the microsecond. The fallback check would have been measuring its tie-break rather than the longest-service rule it claims to be about. One row is backdated so the ordering is real.
+
+The constraint itself is read out of `pg_indexes` rather than provoked. Writing a second primary row would prove the same thing and abort the transaction every other check runs inside — and reading it is what makes this notice a deployment where the migration has not been run, which is the failure mode a rule living in the database rather than in a procedure actually has.
 
 ---
 
-## Archived courses need a way back, and a way out
+## Archived courses need a way back, and a way out — the way back is done
 
-**Archiving currently loses the cohort.** `courses.listMine` filters `archivedAt: null` with no way to ask for the rest, so once a cohort is archived there is no link to it from anywhere in the interface. Every procedure still admits its members — `courses.get`, the gradebook, an assignment's queue, a student's released feedback — so the work is all there and reachable by a URL somebody happens to still have. The README says an archived cohort "stays readable to the people who were in it", and that is true of the procedures and false of the navigation. This is the gap, and it is why this item leads rather than reads as a nice-to-have.
+**Archiving used to lose the cohort.** `courses.listMine` filtered `archivedAt: null` with no way to ask for the rest, so once a cohort was archived there was no link to it from anywhere in the interface. Every procedure still admitted its members — `courses.get`, the gradebook, an assignment's queue, a student's released feedback — so the work was all there and reachable by a URL somebody happened to still have. The README said an archived cohort "stays readable to the people who were in it", which was true of the procedures and false of the navigation.
 
-The fix is small: a way to include archived courses in the list, labelled, in the way `listMine` already labels a course a student was removed from. The course list is the right home for it because it is the one screen that is not scoped to a cohort. Whether that is a toggle, a second section beneath the active ones, or a filter is a presentation question; what matters is that an archived cohort stops being an address you have to have kept.
+**`listMine` returns them now, labelled**, in the way it already labels a course a student was removed from, and each reader decides what to do with them. The course list puts them in a section of their own beneath the running ones, with a line saying what an archived cohort still is; the course switcher lists them last and names them, which also fixes a switcher that printed a bare uuid whenever the address was an archived cohort's; and the two readers that want the cohort somebody is in the middle of — the `/instructor` landing redirect, and the copy-from picker on a new course — filter on `archivedAt` themselves.
+
+**The copy-from picker is the one that gets better rather than merely correct.** A cohort is normally copied the term after it finished, which is exactly when the source has been archived — so the list that used to be filtered was empty at the moment it was most wanted.
+
+Two checks replaced the two that asserted the old behaviour: an archived cohort is in the list and carries the label, and — from the other side — a student whose cohort has been archived still has it on their own list while its work is out of triage. That second one is the half a reader is most likely to get wrong, because "archived" reads as "gone".
 
 **Deleting an archived course is the second half, and it is the destructive one.** Removal is permanent by decision — there is no soft delete anywhere in the application — and a course cascades to its modules, assignments, submissions, grading drafts, sections, and test runs. So it needs the same shape as `assignments.remove`, which is the closest precedent and got this right: a `removalImpact` read that counts what would go, a typed confirmation enforced **in the procedure** rather than in the dialog, and a report afterwards of what was destroyed. Student repositories on GitHub are left alone, for the same reason removing an assignment leaves them: losing a student's work because somebody tidied a list is the worse failure.
 
 Two constraints worth writing down now:
 
 - **Archived first.** Deleting a live cohort should not be reachable, because archiving is reversible and deletion is not — making it the only path means the destructive action always has a survivable step in front of it.
-- **Owner only**, which is why this sits beside [course ownership](#course-ownership). If any co-teacher can archive and then delete, the ownership rules above buy nothing.
+- **Owner only**, which [ownership](#course-ownership--done) now makes expressible: `assertOwnsCourse` is the gate, the same one archiving uses. If any co-teacher could archive and then delete, those rules would buy nothing.
 
 Worth being honest that the database's own backups are the only way back from a mistaken deletion, which is already true of removing an assignment and is worth restating on a screen that can destroy a whole cohort.
 

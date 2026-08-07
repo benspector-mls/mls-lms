@@ -42,11 +42,12 @@ import { useTRPC } from '@/trpc/client';
 export function NewCourseDialog({
   courses,
 }: {
-  /** Courses the caller can copy from — the ones they teach. */
+  /** Courses the caller can copy from — the ones they teach, archived ones included. */
   courses: {
     id: string;
     name: string;
     cohortTerm: string;
+    archivedAt: Date | null;
     teaches: boolean;
     _count: { assignments: number };
   }[];
@@ -85,8 +86,21 @@ export function NewCourseDialog({
   const effectiveSlug = slugEdited ? slug : slugifyCohort(cohortTerm);
   const slugProblem = effectiveSlug === '' ? null : cohortSlugProblem(effectiveSlug);
 
+  /*
+    Every course the caller teaches, archived ones included, and that is the interesting half.
+
+    A cohort is normally copied the term after it finished, which is exactly when the source
+    has been archived — so excluding them would leave this list empty at the moment it is most
+    wanted. They are labelled rather than hidden, because a term nobody is teaching is a
+    reasonable thing to copy and a confusing thing to copy by accident.
+  */
   const copyable = courses.filter((course) => course.teaches);
   const source = copyable.find((course) => course.id === copyFrom) ?? null;
+
+  const sourceLabel = (course: (typeof courses)[number]) =>
+    course.archivedAt != null
+      ? `${course.name} · ${course.cohortTerm} · Archived`
+      : `${course.name} · ${course.cohortTerm}`;
 
   /** Whether the form is filled in enough to be worth reviewing. */
   const ready =
@@ -284,9 +298,7 @@ export function NewCourseDialog({
             onValueChange={(value) => setCopyFrom(value ?? '')}
             items={{
               '': 'Start empty',
-              ...Object.fromEntries(
-                copyable.map((course) => [course.id, `${course.name} · ${course.cohortTerm}`]),
-              ),
+              ...Object.fromEntries(copyable.map((course) => [course.id, sourceLabel(course)])),
             }}
           >
             <SelectTrigger>
@@ -296,7 +308,7 @@ export function NewCourseDialog({
               <SelectItem value="">Start empty</SelectItem>
               {copyable.map((course) => (
                 <SelectItem key={course.id} value={course.id}>
-                  {course.name} · {course.cohortTerm}
+                  {sourceLabel(course)}
                 </SelectItem>
               ))}
             </SelectContent>

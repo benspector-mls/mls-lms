@@ -33,9 +33,11 @@ function Fallback() {
 async function PickACourse() {
   const courses = await getQueryClient().fetchQuery(trpc.courses.listMine.queryOptions());
 
-  // `listMine` is newest first and already excludes archived cohorts, so the first one the
-  // caller teaches is the term they are most likely in the middle of.
-  const teaching = courses.find((course) => course.teaches);
+  // Newest first, and archived cohorts skipped: this address is a guess at the term somebody
+  // is in the middle of, and a finished one is never that. `listMine` returns them now — it
+  // has to, or an archived cohort is reachable from nowhere — so the filter is here, where
+  // the question is which cohort to open rather than which cohorts exist.
+  const teaching = courses.find((course) => course.teaches && course.archivedAt === null);
 
   // Returned rather than called bare so the inferred type stays `never`: a component whose
   // body falls off the end is typed as rendering `void`, which is not a React node.

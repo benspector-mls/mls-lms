@@ -207,7 +207,7 @@ function CourseSelector({
   courses,
 }: {
   role: Role
-  courses: { id: string; name: string; cohortTerm: string }[]
+  courses: { id: string; name: string; cohortTerm: string; archivedAt: Date | null }[]
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -238,11 +238,26 @@ function CourseSelector({
   }
 
   /*
-    Only a course this switcher can actually label. An id it has no row for — an archived
-    cohort, which `listMine` leaves out — would otherwise reach `Select.Value`, which falls
-    back to printing the raw value, and the trigger would read as a bare uuid.
+    Only a course this switcher can actually label. An id it has no row for would otherwise
+    reach `Select.Value`, which falls back to printing the raw value, and the trigger would
+    read as a bare uuid. That used to happen on every archived cohort, because `listMine` left
+    them out and their screens stayed reachable.
   */
   const selected = courses.some((c) => c.id === activeCourseId) ? activeCourseId : null
+
+  /*
+    Archived cohorts last, and labelled, rather than mixed in by date.
+
+    They belong in here — it is how somebody gets back into a finished term — but a switcher
+    is a list of places to work, and the ones still running are what it should open on.
+  */
+  const ordered = [
+    ...courses.filter((c) => c.archivedAt == null),
+    ...courses.filter((c) => c.archivedAt != null),
+  ]
+
+  const label = (c: (typeof courses)[number]) =>
+    c.archivedAt != null ? `${c.name} · ${c.cohortTerm} · Archived` : `${c.name} · ${c.cohortTerm}`
 
   return (
     <Select
@@ -262,7 +277,7 @@ function CourseSelector({
         because `Select.Value` has no other way to know what the selected item was labelled.
         Any select whose value is not also its label needs it.
       */
-      items={Object.fromEntries(courses.map((c) => [c.id, `${c.name} · ${c.cohortTerm}`]))}
+      items={Object.fromEntries(ordered.map((c) => [c.id, label(c)]))}
     >
       <SelectTrigger className="w-full" aria-label="Select course">
         <BookOpen className="size-4 text-muted-foreground" />
@@ -277,11 +292,13 @@ function CourseSelector({
             cannot be used. The term is what tells them apart, so it belongs on the row and on
             the trigger — which is why it is in `items` above too.
           */}
-          {courses.map((c) => (
+          {ordered.map((c) => (
             <SelectItem key={c.id} value={c.id}>
               <span className="flex min-w-0 flex-col">
                 <span className="truncate">{c.name}</span>
-                <span className="truncate text-xs text-muted-foreground">{c.cohortTerm}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {c.archivedAt != null ? `${c.cohortTerm} · Archived` : c.cohortTerm}
+                </span>
               </span>
             </SelectItem>
           ))}

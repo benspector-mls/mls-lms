@@ -9,13 +9,20 @@
  * check that only holds when the function is called some other way is not a check on what an
  * instructor uses.
  *
- * **Two groups are worth reading.** A removed student keeps reading the feedback they were given
+ * **Three groups are worth reading.** A removed student keeps reading the feedback they were given
  * and cannot hand anything else in, and those two facts are one `where` clause apart in code that
  * otherwise reads identically — every check there asserts both halves, because getting one right
- * and the other wrong is the failure that design can actually produce. And the co-teaching group
- * at the end takes one account, has it refused while it is a student, promotes it, and has it
+ * and the other wrong is the failure that design can actually produce. The co-teaching group
+ * takes one account, has it refused while it is a student, promotes it, and has it
  * admitted: the link grants a course and never a role, and one account doing both halves is what
  * makes that a comparison rather than two unrelated facts about two people.
+ *
+ * And the ownership group after it is written in pairs for the same reason — the owner is allowed
+ * and the co-teacher is refused at the same call, because a one-sided check passes against a
+ * guard that refuses everybody. It ends by clearing `isPrimary` off a course directly, which is
+ * the only way to reach the state a deleted owner's account would leave behind, and by reading
+ * the partial unique index out of the catalog, which is the one rule here that lives in the
+ * database rather than in a procedure.
  */
 import { config as loadEnv } from "dotenv";
 
@@ -76,6 +83,7 @@ async function main() {
   const links = await import("../lib/links");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
+  const { ownerOf } = await import("../lib/courses/ownership");
 
   /*
     A course with work already in it, which several checks below depend on rather than assume.
@@ -91,11 +99,22 @@ async function main() {
     orderBy: { createdAt: 'asc' },
     select: { id: true, name: true },
   });
+  /*
+    The cohort's **owner**, not whichever instructor row comes back first.
+
+    `findFirst` with no ordering was fine while a course had one instructor and stopped being
+    fine the day it could have two: archiving is owner-gated, so a script that picked the
+    co-teacher would report a working guard as a broken feature — or, worse, pick the owner by
+    luck on one run and not the next. Same defect as choosing an outsider by "an instructor who
+    is not this one", which two scripts had and which passed by accident.
+  */
   const instructor = course
-    ? await db.courseInstructor.findFirst({
-        where: { courseId: course.id },
-        select: { userId: true },
-      })
+    ? ownerOf(
+        await db.courseInstructor.findMany({
+          where: { courseId: course.id },
+          select: { userId: true, isPrimary: true, createdAt: true },
+        }),
+      )
     : null;
   /*
     Any status, and restored inside the transaction if it is not active.
@@ -473,11 +492,29 @@ async function main() {
       check("an archived cohort refuses new students",
         await refusal(() => asStudent.enrollments.join({ token: archivedToken })),
         "PRECONDITION_FAILED");
-      check("...and leaves the active course list",
-        (await asInstructor.courses.listMine()).some((row) => row.id === copy.course.id), false);
+
+      /*
+        ---- An archived cohort stays reachable, labelled ------------------------
+
+        `listMine` used to filter `archivedAt: null`, which meant archiving a cohort was also
+        the only way to make one unreachable: every procedure still admitted its members, so the
+        work was all there and openable by a URL somebody happened to have kept and by nothing
+        else. The pair below is the whole fix — it is in the list, and the list says which it is.
+
+        Both halves matter. Returning the row without the label would put a finished term in
+        among the running ones with nothing to tell them apart, which is the same mistake as an
+        unlabelled course a student was removed from.
+      */
+      const archivedRow = (await asInstructor.courses.listMine())
+        .find((row) => row.id === copy.course.id);
+      check("an archived cohort stays in the course list", archivedRow !== undefined, true);
+      check("...labelled as archived", archivedRow?.archivedAt !== null, true);
+
       await asInstructor.courses.setArchived({ courseId: copy.course.id, archived: false });
-      check("reopening puts it back",
-        (await asInstructor.courses.listMine()).some((row) => row.id === copy.course.id), true);
+      check("reopening clears the label",
+        (await asInstructor.courses.listMine())
+          .find((row) => row.id === copy.course.id)?.archivedAt,
+        null);
 
       check("a student cannot archive a course",
         await refusal(() =>
@@ -509,6 +546,15 @@ async function main() {
       await asInstructor.courses.setArchived({ courseId: course.id, archived: true });
       check("an archived cohort's submissions leave triage",
         (await asInstructor.submissions.triage({ courseId: course.id })).submissions.length, 0);
+      /*
+        The student's own list, while the cohort they are in is archived. Off the list of work
+        and not off the list of courses — this is the half a reader is most likely to get wrong,
+        because "archived" reads as "gone" and the whole point is that it is not.
+      */
+      check("...while the students in it keep the cohort on their own list",
+        (await asStudent.courses.listMine())
+          .find((row) => row.id === course.id)?.archivedAt !== null,
+        true);
       await asInstructor.courses.setArchived({ courseId: course.id, archived: false });
       check("...and come back when it is reopened",
         (await asInstructor.submissions.triage({ courseId: course.id })).submissions.length,
@@ -945,6 +991,290 @@ async function main() {
         (await asNewInstructor.courses.settings({ courseId: coTaught.course.id }))
           .course.instructors.length,
         2);
+
+      /*
+        ---- Who owns the cohort ------------------------------------------------
+
+        Two instructors on one course, which is what makes any of this checkable: the creator
+        owns it and the one who redeemed the link does not, and every check here is a pair —
+        the owner is allowed and the co-teacher is refused at the same call. A single-sided
+        check would pass against a guard that refused everybody.
+
+        The rule this exists for is the second one. Before it, anybody who taught a course could
+        remove the person who set it up, which is the one permission in the application that
+        nothing guarded.
+      */
+
+      /*
+        The owner is demoted to INSTRUCTOR for this group, and put back at the end of it.
+
+        Not a detail. `assertOwnsCourse` lets an admin through, and the seeded cohort's creator
+        is the deployment's admin — so run as it stands, every check below saying "the owner
+        may" would be passing on the admin bypass while claiming to measure ownership, and
+        would keep passing if ownership were removed entirely. The first version of this group
+        did exactly that, and the check that caught it is the one at the end that expects the
+        bypass on purpose.
+      */
+      const ownerRole = (await tx.profile.findUnique({
+        where: { id: instructor.userId },
+        select: { role: true },
+      }))!.role;
+      await tx.profile.update({
+        where: { id: instructor.userId },
+        data: { role: "INSTRUCTOR" },
+      });
+
+      const ownerView = await asInstructor.courses.settings({ courseId: coTaught.course.id });
+      check("the creator owns the cohort", ownerView.ownerId, instructor.userId);
+      check("...and is told they may act as owner", ownerView.callerActsAsOwner, true);
+
+      const coTeacherView = await asNewInstructor.courses.settings({
+        courseId: coTaught.course.id,
+      });
+      check("...while the co-teacher sees the same owner", coTeacherView.ownerId,
+        instructor.userId);
+      check("...and is told they may not", coTeacherView.callerActsAsOwner, false);
+
+      // Archiving is the one action a single instructor takes that changes what every student
+      // in the cohort sees, which is why it is owner-gated rather than teach-gated.
+      check("a co-teacher cannot archive the cohort",
+        await refusal(() =>
+          asNewInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: true })),
+        "FORBIDDEN");
+      check("...and the refusal names who can",
+        (await refusalMessage(() =>
+          asNewInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: true })))
+          .includes("because they own it"),
+        true);
+      check("...while the owner may",
+        (await asInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: true }))
+          .archivedAt !== null,
+        true);
+      // Reopening is the same gate, because it is the same mutation with a boolean. A
+      // co-teacher can read an archived cohort in full and cannot bring it back.
+      check("...and a co-teacher cannot reopen it either",
+        await refusal(() =>
+          asNewInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: false })),
+        "FORBIDDEN");
+      await asInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: false });
+
+      check("a co-teacher cannot remove the owner",
+        await refusal(() => asNewInstructor.courses.removeInstructor({
+          courseId: coTaught.course.id,
+          userId: instructor.userId,
+        })),
+        "FORBIDDEN");
+      check("...and nothing was removed",
+        await tx.courseInstructor.count({ where: { courseId: coTaught.course.id } }), 2);
+
+      check("a co-teacher cannot hand the cohort to themselves",
+        await refusal(() => asNewInstructor.courses.transferOwnership({
+          courseId: coTaught.course.id,
+          userId: studentId,
+        })),
+        "FORBIDDEN");
+
+      /*
+        Somebody chosen by the property this check needs — holding no instructor row on this
+        course — rather than by a proxy for it like "a profile that is not the one I promoted".
+        A fixture picked by a proxy eventually picks the wrong one, and it fails silently in the
+        direction that matters, which two scripts here have already demonstrated.
+      */
+      const notAnInstructorHere = await tx.profile.findFirst({
+        where: { instructorOf: { none: { courseId: coTaught.course.id } } },
+        select: { id: true },
+      });
+      check("the owner cannot hand it to somebody who does not teach it",
+        notAnInstructorHere
+          ? await refusal(() => asInstructor.courses.transferOwnership({
+              courseId: coTaught.course.id,
+              userId: notAnInstructorHere.id,
+            }))
+          : "no outsider to try it with",
+        "NOT_FOUND");
+      check("...nor to whoever already owns it",
+        await refusal(() => asInstructor.courses.transferOwnership({
+          courseId: coTaught.course.id,
+          userId: instructor.userId,
+        })),
+        "PRECONDITION_FAILED");
+
+      /*
+        The transfer itself, and the four facts it has to leave behind. `isPrimary` is checked
+        directly against the table rather than only through `settings`, because the failure this
+        is guarding against is two rows holding it — which reads as entirely normal through
+        every procedure, since each takes the first row it finds.
+      */
+      check("the owner can hand the cohort on",
+        (await asInstructor.courses.transferOwnership({
+          courseId: coTaught.course.id,
+          userId: studentId,
+        })).ownerId,
+        studentId);
+      check("...and exactly one row is primary afterwards",
+        await tx.courseInstructor.count({
+          where: { courseId: coTaught.course.id, isPrimary: true },
+        }),
+        1);
+      check("...which is the new owner's",
+        (await asNewInstructor.courses.settings({ courseId: coTaught.course.id })).ownerId,
+        studentId);
+      check("...the new owner can now archive it",
+        (await asNewInstructor.courses.setArchived({
+          courseId: coTaught.course.id,
+          archived: true,
+        })).archivedAt !== null,
+        true);
+      await asNewInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: false });
+      check("...and the old owner cannot",
+        await refusal(() =>
+          asInstructor.courses.setArchived({ courseId: coTaught.course.id, archived: true })),
+        "FORBIDDEN");
+
+      // Handed back, so the checks after this group see the cohort they were written against.
+      // The assertion is that it moves in both directions rather than only away from whoever
+      // created the course.
+      check("...and it can be handed back",
+        (await asNewInstructor.courses.transferOwnership({
+          courseId: coTaught.course.id,
+          userId: instructor.userId,
+        })).ownerId,
+        instructor.userId);
+      check("...leaving one primary row again",
+        await tx.courseInstructor.count({
+          where: { courseId: coTaught.course.id, isPrimary: true },
+        }),
+        1);
+
+      /*
+        The constraint itself, read from the catalog rather than provoked.
+
+        Every check above passes against a course that happens to have one primary row. What
+        makes two of them impossible is a partial unique index, which Prisma cannot express and
+        which therefore exists only in a migration — so asking the database is how this notices
+        a deployment where that migration has not been run.
+
+        Read rather than tried. Writing a second primary row would prove the same thing and
+        abort the transaction every other check here is running inside.
+      */
+      const primaryIndex = await tx.$queryRaw<{ indexdef: string }[]>`
+        SELECT indexdef FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND indexname = 'course_instructors_one_primary_per_course'
+      `;
+      check("one primary per course is a database constraint", primaryIndex.length, 1);
+      check("...unique, and only over the primary rows",
+        /CREATE UNIQUE INDEX/.test(primaryIndex[0]?.indexdef ?? "") &&
+          /WHERE is_primary/.test(primaryIndex[0]?.indexdef ?? ""),
+        true);
+
+      /*
+        ---- Ownership when no row holds it -------------------------------------
+
+        `CourseInstructor` cascades on the profile, so deleting an owner's account takes the
+        `isPrimary` row with it and leaves a course with instructors and nobody who can archive
+        it. Nothing in the application deletes a profile — that is a database edit somebody
+        makes by hand — which is exactly why the fallback has to hold with nobody there to
+        invoke it, and why it is checked by clearing the column directly rather than through a
+        procedure. The longest-serving instructor left inherits.
+      */
+      const derived = await asInstructor.courses.create({
+        name: "Verify Derived Ownership",
+        cohortTerm: "Cohort Verify G",
+      });
+      const derivedToken = (await tx.course.findUnique({
+        where: { id: derived.course.id },
+        select: { coTeachToken: true },
+      }))!.coTeachToken;
+      await asNewInstructor.courses.acceptCoTeach({ token: derivedToken });
+      await tx.courseInstructor.updateMany({
+        where: { courseId: derived.course.id },
+        data: { isPrimary: false },
+      });
+      /*
+        Backdated so that "longest-serving" is a real ordering here.
+
+        Both rows were written inside this transaction, and Postgres resolves `now()` to the
+        transaction's start time — so they share a `createdAt` to the microsecond and the
+        fallback would be decided by its tie-break rather than by the rule it claims to be
+        about. A day apart is what the difference looks like in a cohort somebody is running.
+      */
+      await tx.courseInstructor.updateMany({
+        where: { courseId: derived.course.id, userId: instructor.userId },
+        data: { createdAt: new Date(Date.now() - 86_400_000) },
+      });
+      check("a course with no primary row still has an owner",
+        (await asInstructor.courses.settings({ courseId: derived.course.id })).ownerId,
+        instructor.userId);
+      check("...and it is the longest-serving instructor, who can still archive it",
+        (await asInstructor.courses.setArchived({
+          courseId: derived.course.id,
+          archived: true,
+        })).archivedAt !== null,
+        true);
+      check("...while the one who joined later still cannot",
+        await refusal(() =>
+          asNewInstructor.courses.setArchived({ courseId: derived.course.id, archived: false })),
+        "FORBIDDEN");
+      await asInstructor.courses.setArchived({ courseId: derived.course.id, archived: false });
+
+      /*
+        An owner who leaves without handing the cohort on gives it to the longest-serving
+        instructor left, by the same rule. Said back by the procedure rather than left to be
+        noticed, because it is the right default and not one anybody would guess.
+      */
+      const leaving = await asInstructor.courses.removeInstructor({
+        courseId: derived.course.id,
+        userId: instructor.userId,
+      });
+      check("an owner who leaves says who inherits", leaving.newOwnerName !== null, true);
+      check("...and that is who owns it now",
+        (await asNewInstructor.courses.settings({ courseId: derived.course.id })).ownerId,
+        studentId);
+      check("...who can now archive it",
+        (await asNewInstructor.courses.setArchived({
+          courseId: derived.course.id,
+          archived: true,
+        })).archivedAt !== null,
+        true);
+
+      /*
+        ---- An admin acts as owner on every course -----------------------------
+
+        A decision rather than a consequence of a guard written for something else. An admin is
+        the recovery path for an owner who has left the program without handing the cohort on,
+        and without one every rule above is a way for a course to end up with nobody who can
+        administer it.
+
+        Checked against `derived`, which this account now neither owns nor teaches — being an
+        admin is the whole of what admits them. Which is also why the role goes back up here and
+        not a line earlier: every check above had to run without it.
+      */
+      await tx.profile.update({ where: { id: instructor.userId }, data: { role: "ADMIN" } });
+
+      check("an admin does not teach this cohort",
+        await tx.courseInstructor.count({
+          where: { courseId: derived.course.id, userId: instructor.userId },
+        }),
+        0);
+      check("...and reopens it anyway",
+        (await asInstructor.courses.setArchived({
+          courseId: derived.course.id,
+          archived: false,
+        })).archivedAt,
+        null);
+
+      // Added back as an ordinary co-teacher, so that removing the owner below is a course with
+      // two instructors rather than the last-one refusal wearing an ownership costume.
+      await asInstructor.courses.acceptCoTeach({ token: derivedToken });
+      check("...and can remove an owner who is not them",
+        (await asInstructor.courses.removeInstructor({
+          courseId: derived.course.id,
+          userId: studentId,
+        })).instructorName.length > 0,
+        true);
+
+      await tx.profile.update({ where: { id: instructor.userId }, data: { role: ownerRole } });
 
       // ---- Removing an instructor ----
       //

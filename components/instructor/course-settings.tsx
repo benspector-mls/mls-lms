@@ -8,6 +8,7 @@ import {
   Check,
   Copy,
   GitBranch,
+  KeyRound,
   RotateCcw,
   ShieldCheck,
   UserMinus,
@@ -70,9 +71,22 @@ export function CourseSettings({ data }: { data: Data }) {
 
       <RepositoryNamingCard data={data} />
       <CoTeachingCard data={data} />
-      <ArchiveCard courseId={data.course.id} archived={archived} name={data.course.name} />
+      <ArchiveCard
+        courseId={data.course.id}
+        archived={archived}
+        name={data.course.name}
+        canArchive={data.callerActsAsOwner}
+        ownerName={ownerNameIn(data)}
+      />
     </div>
   );
+}
+
+/** Whoever the cohort belongs to, for the sentences that have to name them. */
+function ownerNameIn(data: Data): string {
+  const owner = data.course.instructors.find((row) => row.user.id === data.ownerId);
+  if (!owner) return 'its owner';
+  return owner.user.displayName ?? owner.user.githubUsername ?? owner.user.email ?? 'its owner';
 }
 
 /**
@@ -162,7 +176,7 @@ function RepositoryNamingCard({ data }: { data: Data }) {
 }
 
 /**
- * Who else teaches this cohort, and the link that adds somebody.
+ * Who else teaches this cohort, who owns it, and the link that adds somebody.
  *
  * **The link grants a course, never a role.** Only an account that is already an instructor or
  * an admin can redeem it; a student opening it is refused and told an admin has to send them an
@@ -173,6 +187,12 @@ function RepositoryNamingCard({ data }: { data: Data }) {
  * Reusable rather than single use, unlike an instructor invitation, because a cohort gains
  * co-teachers one at a time over a term. What bounds it is the role check rather than the token
  * being spent, and replacing it is the control over a link that reached the wrong person.
+ *
+ * **Everybody here can do the same work; the owner decides two more things.** Every instructor
+ * authors, reads every student's work, and approves grades. The owner additionally archives the
+ * cohort and says who else teaches it — the two actions with reach beyond the person performing
+ * them. Before that distinction existed, anybody who taught a course could remove the person
+ * who set it up.
  */
 function CoTeachingCard({ data }: { data: Data }) {
   const trpc = useTRPC();
@@ -206,13 +226,32 @@ function CoTeachingCard({ data }: { data: Data }) {
     trpc.courses.removeInstructor.mutationOptions({
       ...settled,
       onSuccess: (result) => {
-        toast.success(`${result.instructorName} no longer teaches this cohort.`);
+        /*
+          Who owns it now, when that changed. An owner who leaves without handing the cohort on
+          gives it to the longest-serving instructor left — the right default, and not a thing
+          anybody would guess, so it is said rather than left to be noticed.
+        */
+        toast.success(
+          result.newOwnerName
+            ? `${result.instructorName} no longer teaches this cohort. ${result.newOwnerName} owns it now.`
+            : `${result.instructorName} no longer teaches this cohort.`,
+        );
         router.refresh();
       },
     }),
   );
 
-  const busy = regenerate.isPending || removeInstructor.isPending;
+  const transfer = useMutation(
+    trpc.courses.transferOwnership.mutationOptions({
+      ...settled,
+      onSuccess: (result) => {
+        toast.success(`${result.ownerName} owns this cohort now.`);
+        router.refresh();
+      },
+    }),
+  );
+
+  const busy = regenerate.isPending || removeInstructor.isPending || transfer.isPending;
   const onlyOne = data.course.instructors.length <= 1;
 
   return (
@@ -240,6 +279,17 @@ function CoTeachingCard({ data }: { data: Data }) {
               const name =
                 row.user.displayName ?? row.user.githubUsername ?? row.user.email ?? 'Unnamed';
               const isCaller = row.user.id === data.callerId;
+              const isOwner = row.user.id === data.ownerId;
+
+              /*
+                The owner can leave, and nobody else can remove them.
+
+                Leaving is a decision about your own work; removing the person who runs a
+                cohort is a decision about theirs. The procedure refuses either way — this only
+                decides whether the button is offered, and offering one that always fails is
+                worse than not offering it.
+              */
+              const mayRemove = isOwner ? isCaller || data.callerActsAsOwner : true;
 
               return (
                 <TableRow key={row.id}>
@@ -253,11 +303,12 @@ function CoTeachingCard({ data }: { data: Data }) {
                       <div className="flex min-w-0 flex-col">
                         <span className="flex items-center gap-2 truncate font-medium">
                           {name}
-                          {/* Who set the cohort up. A fact about how it came to exist rather
-                              than a rank — the primary instructor is removable like anyone. */}
-                          {row.isPrimary && (
+                          {/* Whose cohort this is. Read from `ownerId`, which the server
+                              derived — `isPrimary` is only half the rule, and a row can hold
+                              none of it while the course still has an owner. */}
+                          {isOwner && (
                             <Badge variant="secondary" className="font-normal">
-                              Created it
+                              Owner
                             </Badge>
                           )}
                           {isCaller && (
@@ -284,26 +335,48 @@ function CoTeachingCard({ data }: { data: Data }) {
                     {formatDate(row.createdAt)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      /*
-                        Not offered when it is the last one, and the procedure refuses it
-                        regardless — a course with no instructors cannot be authored in or
-                        graded, and only a database edit would bring it back.
-                      */
-                      disabled={busy || onlyOne}
-                      onClick={() =>
-                        removeInstructor.mutate({
-                          courseId: data.course.id,
-                          userId: row.user.id,
-                        })
-                      }
-                    >
-                      <UserMinus data-icon="inline-start" />
-                      {isCaller ? 'Leave' : 'Remove'}
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      {/*
+                        Handing the cohort on, offered only by whoever currently holds it.
+                        This is what makes "the owner cannot be removed" livable: without it
+                        that rule reads as "whoever set this up runs it forever".
+                      */}
+                      {data.callerActsAsOwner && !isOwner && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            transfer.mutate({ courseId: data.course.id, userId: row.user.id })
+                          }
+                        >
+                          <KeyRound data-icon="inline-start" />
+                          Make owner
+                        </Button>
+                      )}
+                      {mayRemove && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          /*
+                            Not offered when it is the last one, and the procedure refuses it
+                            regardless — a course with no instructors cannot be authored in or
+                            graded, and only a database edit would bring it back.
+                          */
+                          disabled={busy || onlyOne}
+                          onClick={() =>
+                            removeInstructor.mutate({
+                              courseId: data.course.id,
+                              userId: row.user.id,
+                            })
+                          }
+                        >
+                          <UserMinus data-icon="inline-start" />
+                          {isCaller ? 'Leave' : 'Remove'}
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -312,9 +385,20 @@ function CoTeachingCard({ data }: { data: Data }) {
         </Table>
       </div>
 
-      {onlyOne && (
+      {onlyOne ? (
         <p className="text-xs text-muted-foreground">
           The only instructor on this cohort cannot be removed. Add another one first.
+        </p>
+      ) : (
+        /*
+          The rule, said once beside the table rather than discovered by a refusal. The second
+          sentence is the one nobody would guess: an owner who leaves without handing the
+          cohort on does not leave it ownerless.
+        */
+        <p className="text-xs text-muted-foreground">
+          The owner archives this cohort and decides who else teaches it. Only they can leave it
+          — anybody else here can be removed by anyone. If the owner leaves without handing it
+          on, the cohort goes to the longest-serving instructor left.
         </p>
       )}
 
@@ -405,15 +489,26 @@ function CoTeachingCard({ data }: { data: Data }) {
  * Two clicks to archive and one to unarchive, deliberately asymmetric. Archiving is the one that
  * changes what a whole cohort of students sees, so it says what it will do first; unarchiving
  * only undoes it, and a confirmation on an undo is a confirmation nobody reads.
+ *
+ * **The owner's, in both directions.** This is the one action a single instructor takes that
+ * changes what every student in the cohort sees. Reopening is the same gate because it is the
+ * same mutation with a boolean, and the consequence is worth stating on the screen: a
+ * co-teacher can read an archived cohort in full and cannot bring it back. A cohort somebody
+ * else retired is not theirs to un-retire.
  */
 function ArchiveCard({
   courseId,
   archived,
   name,
+  canArchive,
+  ownerName,
 }: {
   courseId: string;
   archived: boolean;
   name: string;
+  /** Whether this caller owns the cohort, or is an admin, which acts as owner everywhere. */
+  canArchive: boolean;
+  ownerName: string;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -445,7 +540,17 @@ function ArchiveCard({
         </p>
       </div>
 
-      {archived ? (
+      {!canArchive ? (
+        /*
+          Said rather than shown as a disabled button. A control that cannot be used is a
+          question — is it broken, am I doing it wrong — and the answer here is a fact about
+          who to ask.
+        */
+        <p className="text-xs text-muted-foreground">
+          Only {ownerName} can {archived ? 'reopen' : 'archive'} this cohort, because they own
+          it. Everything else on this screen is yours as much as theirs.
+        </p>
+      ) : archived ? (
         <Button
           size="sm"
           variant="outline"

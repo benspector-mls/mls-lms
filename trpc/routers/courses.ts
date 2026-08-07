@@ -9,6 +9,7 @@ import {
 } from '@/lib/courses/cohort-slug';
 import { newJoinToken } from '@/lib/courses/join-token';
 import { removedStudentIds } from '@/lib/courses/membership';
+import { assertOwnsCourse, ownerOf } from '@/lib/courses/ownership';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
 
@@ -18,6 +19,18 @@ export const coursesRouter = createTRPCRouter({
   /**
    * Courses the caller belongs to, either enrolled as a student or listed as an
    * instructor. Admins see every course.
+   *
+   * **Archived cohorts are returned, labelled, rather than filtered out.** They used to be
+   * filtered, which meant a cohort somebody archived could be reached from nowhere in the
+   * interface — every procedure still admitted its members, so the work was all there and
+   * openable only by a URL somebody happened to have kept. Archiving is supposed to take a
+   * cohort off the active list, not lose it.
+   *
+   * Each reader decides what to do with them, the same way each reader decides what to do
+   * with a course a student was removed from. The course list puts them in a section of
+   * their own, the switcher can name one rather than printing a bare id, and the two readers
+   * that want the cohort somebody is in the middle of — `/instructor`, and copying a new
+   * course from an old one — filter on `archivedAt` themselves.
    */
   listMine: profileProcedure.query(async ({ ctx }) => {
     const isAdmin = ctx.profile.role === 'ADMIN';
@@ -33,9 +46,8 @@ export const coursesRouter = createTRPCRouter({
     */
     const courses = await ctx.db.course.findMany({
       where: isAdmin
-        ? { archivedAt: null }
+        ? {}
         : {
-            archivedAt: null,
             OR: [
               { enrollments: { some: { studentId: ctx.profile.id } } },
               { instructors: { some: { userId: ctx.profile.id } } },
@@ -358,12 +370,35 @@ export const coursesRouter = createTRPCRouter({
         where: { assignment: { courseId: course.id }, repoFullName: { not: null } },
       });
 
+      /*
+        Derived by the same function the guards use, rather than read off `isPrimary` here.
+
+        The owner is `isPrimary` **or** the longest-serving instructor when no row holds it, and
+        a screen that knew only the first half would show a cohort with no owner and offer an
+        Archive button that the procedure then refuses. Null only for a course with no
+        instructors at all, which `removeInstructor` refuses to create.
+      */
+      const ownerId =
+        ownerOf(course.instructors.map((row) => ({ ...row, userId: row.user.id })))?.userId ?? null;
+
       return {
         course,
         githubOrgs: orgRows.map((row) => row.githubOrg).filter((org): org is string => org !== null),
         acceptedCount,
         /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
         callerId: ctx.profile.id,
+        /** Which of them owns it. */
+        ownerId,
+        /**
+         * Whether this caller may do the things ownership gates — archive, reopen, hand the
+         * cohort on, remove the owner.
+         *
+         * Not `ownerId === callerId` in the browser, because an admin acts as owner on every
+         * course and holds no `CourseInstructor` row on any of them. A screen deriving it that
+         * way would hide the Archive button from the one reader who is the recovery path when
+         * an owner has left.
+         */
+        callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === 'ADMIN',
       };
     }),
 
@@ -690,11 +725,19 @@ export const coursesRouter = createTRPCRouter({
    * nothing new can be submitted, and its submissions leave triage and the grading queue.
    * Reversible on purpose — a tidying action that cannot be undone gets avoided rather than
    * used, and an instructor who archives the wrong cohort should not need the database.
+   *
+   * **Owner only, in both directions.** This is the one action a single instructor takes that
+   * changes what every student in the cohort sees, which is why it is not merely teach-gated
+   * like everything else on the settings screen. Reopening is the same gate because it is the
+   * same mutation with a boolean, and the consequence is worth knowing rather than
+   * discovering: a co-teacher finds an archived cohort in their course list, reads all of it,
+   * and cannot bring it back. That is the right side to err on — a cohort somebody else
+   * retired is not theirs to un-retire.
    */
   setArchived: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), archived: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertOwnsCourse(ctx, input.courseId, input.archived ? 'archive' : 'reopen');
 
       return ctx.db.course.update({
         where: { id: input.courseId },
@@ -931,9 +974,12 @@ export const coursesRouter = createTRPCRouter({
    * authoring procedure, all of which check `CourseInstructor` rather than the role, and the
    * only way back is a database edit. The check is cheap and the failure is not.
    *
-   * The primary instructor is removable, deliberately — somebody who set a cohort up and then
-   * left the program should not be permanent, and refusing would make "who created this"
-   * outrank "who runs it now". What is refused is emptying the list.
+   * **The owner cannot be removed by anybody else**, which is the permission this whole area
+   * exists for: before it, anybody who taught a course could remove the person who set it up.
+   * They can still remove *themselves* — somebody who leaves the program should not be
+   * permanent, and refusing would make "who created this" outrank "who runs it now" — and
+   * ownership then falls to the longest-serving instructor left. `transferOwnership` is how
+   * they choose who instead of letting the rule choose.
    *
    * Nothing is taken back on GitHub. An instructor removed here stays a collaborator on every
    * repository generated while they taught, because `accept` adds collaborators at the moment
@@ -945,13 +991,24 @@ export const coursesRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await assertTeachesCourse(ctx, input.courseId);
 
-      const row = await ctx.db.courseInstructor.findUnique({
-        where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
+      /*
+        Every instructor on the course in one read, rather than the target row and a count.
+        Three of the four things decided below — who the target is, whether this would empty
+        the list, and who owns the cohort — are questions about the same set, and asking
+        separately is how two of them come to be answered about different sets.
+      */
+      const instructors = await ctx.db.courseInstructor.findMany({
+        where: { courseId: input.courseId },
         select: {
           id: true,
+          userId: true,
+          isPrimary: true,
+          createdAt: true,
           user: { select: { displayName: true, email: true, githubUsername: true } },
         },
       });
+
+      const row = instructors.find((instructor) => instructor.userId === input.userId);
 
       if (!row) {
         throw new TRPCError({
@@ -960,8 +1017,7 @@ export const coursesRouter = createTRPCRouter({
         });
       }
 
-      const total = await ctx.db.courseInstructor.count({ where: { courseId: input.courseId } });
-      if (total <= 1) {
+      if (instructors.length <= 1) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message:
@@ -971,15 +1027,125 @@ export const coursesRouter = createTRPCRouter({
         });
       }
 
+      /*
+        The owner is removable by the owner and by an admin, and by nobody else.
+
+        Leaving on your own account is a decision about your own work; removing the person who
+        runs a cohort is a decision about theirs. An admin passes because an admin is the
+        recovery path when an owner has left the program without handing the course on.
+      */
+      const owner = ownerOf(instructors);
+      const callerIsOwner = owner?.userId === ctx.profile.id;
+
+      if (
+        owner &&
+        owner.userId === input.userId &&
+        !callerIsOwner &&
+        ctx.profile.role !== 'ADMIN'
+      ) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message:
+            `${displayNameOf(row.user)} owns this cohort, so only they can leave it. If they ` +
+            `should hand it on, they can transfer it to somebody else first.`,
+        });
+      }
+
       await ctx.db.courseInstructor.delete({ where: { id: row.id } });
+
+      /*
+        Who owns it now, said back rather than left to be noticed.
+
+        An owner who leaves without transferring hands the cohort to the longest-serving
+        instructor left, by the same rule that covers a deleted account. It is the right
+        default and it is not a thing anybody would guess, so the screen says whose it is now.
+      */
+      const remaining = instructors.filter((instructor) => instructor.id !== row.id);
+      const successor =
+        owner?.userId === input.userId ? ownerOf(remaining) : null;
 
       return {
         courseId: input.courseId,
-        instructorName:
-          row.user.displayName ?? row.user.githubUsername ?? row.user.email ?? 'that instructor',
+        instructorName: displayNameOf(row.user),
+        /** Who inherited the cohort, or null when the person removed did not own it. */
+        newOwnerName: successor ? displayNameOf(successor.user) : null,
+      };
+    }),
+
+  /**
+   * Hands the cohort to another of its instructors.
+   *
+   * **What makes "the owner cannot be removed" livable.** Without it that rule reads as "the
+   * person who set this up runs it forever", and somebody leaving the program leaves behind a
+   * cohort nobody else can take responsibility for. Leaving afterwards is then the ordinary
+   * `removeInstructor` they already have.
+   *
+   * The target has to teach the course already. Ownership decides which of a cohort's
+   * instructors can archive it and remove people, so handing it to somebody who is not one of
+   * them would be adding an instructor by a second path — and the co-teaching link is the one
+   * place that decision is made and explained.
+   *
+   * Cleared and then set, inside a transaction, because a partial unique index on
+   * `course_instructors` allows exactly one primary row per course and is checked per
+   * statement. Setting first would collide with the row being replaced.
+   */
+  transferOwnership: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), userId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwnsCourse(ctx, input.courseId, 'hand on');
+
+      const target = await ctx.db.courseInstructor.findUnique({
+        where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
+        select: {
+          id: true,
+          isPrimary: true,
+          user: { select: { displayName: true, email: true, githubUsername: true } },
+        },
+      });
+
+      if (!target) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message:
+            'That person does not teach this course, so they cannot own it. Send them the ' +
+            'co-teaching link first.',
+        });
+      }
+
+      if (target.isPrimary) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `${displayNameOf(target.user)} already owns this cohort.`,
+        });
+      }
+
+      await ctx.db.$transaction(async (tx) => {
+        await tx.courseInstructor.updateMany({
+          where: { courseId: input.courseId, isPrimary: true },
+          data: { isPrimary: false },
+        });
+        await tx.courseInstructor.update({
+          where: { id: target.id },
+          data: { isPrimary: true },
+        });
+      });
+
+      return {
+        courseId: input.courseId,
+        ownerId: input.userId,
+        ownerName: displayNameOf(target.user),
       };
     }),
 });
+
+/** Whatever this person is best called, for a message somebody has to act on. */
+function displayNameOf(user: {
+  displayName: string | null;
+  email: string | null;
+  githubUsername: string | null;
+}): string {
+  return user.displayName ?? user.githubUsername ?? user.email ?? 'that instructor';
+}
 
 /**
  * Every submission in a course, each carrying the triage bucket it falls into.
