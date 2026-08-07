@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { isManualOnly } from '@/lib/assignments/spec';
+import { Prisma } from '@/lib/generated/prisma/client';
 import { activeStudentWork, removedStudentIds } from '@/lib/courses/membership';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
@@ -9,6 +10,93 @@ import { signedDownloadUrl } from '@/lib/uploads/storage';
 import { assertCanHandIn } from '@/lib/uploads/submit';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+
+/**
+ * Everything the review surface needs from a submission, in one place.
+ *
+ * Shared by the two procedures that feed it — `listForAssignment` reads one assignment across
+ * students, `listForStudent` reads one student across assignments — because both render the same
+ * `GradingReview` component. Spelled out twice, a field added for one screen would be missing on
+ * the other, and the failure is a crash in the review pane rather than a visible difference.
+ */
+const reviewableSubmissionSelect = {
+  id: true,
+  status: true,
+  repoFullName: true,
+  repoUrl: true,
+  prUrl: true,
+  prNumber: true,
+  headSha: true,
+  // What the instructor opens when there is no pull request: the document the student
+  // submitted, or the file they uploaded. Hand grading needs somewhere to read the
+  // work from. The path is deliberately not selected — a download is a signed URL from
+  // `uploadUrl`, minted per request, and sending the path to the browser would suggest
+  // otherwise.
+  submittedUrl: true,
+  uploadFilename: true,
+  uploadSizeBytes: true,
+  submittedAt: true,
+  isLate: true,
+  lastActivityAt: true,
+  // The grade, and the commit it describes. `headSha !== gradedHeadSha` is how
+  // the queue shows that a student has pushed since being graded — two columns,
+  // no API call, true the instant the push lands.
+  finalScore: true,
+  finalScorePossible: true,
+  isComplete: true,
+  gradedAt: true,
+  gradedHeadSha: true,
+  student: { select: { id: true, displayName: true, email: true, githubUsername: true } },
+  // Enough of the most recent draft to label a row. The review pane loads the draft in full
+  // when a row is selected; a list of forty students does not need forty reports in it.
+  gradingDrafts: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true, status: true, headSha: true, approvedAt: true },
+  },
+} as const;
+
+/**
+ * A row as selected above, derived from the select rather than described again.
+ *
+ * Written by hand this widened the draft's `status` to `string`, which `triageBucket` refuses —
+ * and would have been a silent loss of the enum everywhere else. Prisma's own payload type cannot
+ * drift from the select it is built from.
+ */
+type ReviewableSubmission = Prisma.SubmissionGetPayload<{
+  select: typeof reviewableSubmissionSelect;
+}>;
+
+/**
+ * Attaches the three derived fields every submission list carries.
+ *
+ * `bucket` is the same value triage sorts on, computed by the same function, so a submission
+ * cannot be outstanding work on one screen and finished on another. `draftIsStale` is two columns
+ * compared rather than a query. `activeDraft` is the most recent run, flattened off the relation
+ * so the browser never has to know it was an array of one.
+ */
+function decorateSubmission<T extends ReviewableSubmission>(
+  submission: T,
+  options: { manualOnly: boolean; undeliveredIds: Set<string> },
+) {
+  const { gradingDrafts, ...rest } = submission;
+  const draft = gradingDrafts[0] ?? null;
+  const draftIsStale =
+    draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
+
+  return {
+    ...rest,
+    bucket: triageBucket(
+      rest.status,
+      draft,
+      draftIsStale,
+      options.undeliveredIds.has(rest.id),
+      options.manualOnly,
+    ),
+    draftIsStale,
+    activeDraft: draft,
+  };
+}
 
 export const submissionsRouter = createTRPCRouter({
   /** Every submission belonging to the caller, newest activity first. */
@@ -459,9 +547,14 @@ export const submissionsRouter = createTRPCRouter({
   /**
    * Every submission for one assignment. Instructors only.
    *
-   * This is the one procedure that deliberately reads across students, which is
-   * why it is gated on the caller teaching the course rather than on
-   * `instructorProcedure` alone.
+   * One of two procedures that read a grid of submissions along one axis: this one is a fixed
+   * assignment across many students, and `listForStudent` below is a fixed student across many
+   * assignments. They share `reviewableSubmissionSelect` and `decorateSubmission` rather than
+   * each spelling the shape out, because the review surface is the same component either way and
+   * a field present on one screen and missing on the other is a crash rather than a difference.
+   *
+   * Gated on the caller teaching the course rather than on `instructorProcedure` alone, because
+   * this deliberately reads across students.
    *
    * Each row carries the same `bucket` the triage screen sorts on, computed the same
    * way. The grading queue's "needs review" filter is then the same question triage
@@ -504,43 +597,7 @@ export const submissionsRouter = createTRPCRouter({
       const submissions = await ctx.db.submission.findMany({
         where: { assignmentId: assignment.id },
         orderBy: [{ status: 'asc' }, { submittedAt: 'asc' }],
-        select: {
-          id: true,
-          status: true,
-          repoFullName: true,
-          repoUrl: true,
-          prUrl: true,
-          prNumber: true,
-          headSha: true,
-          // What the instructor opens when there is no pull request: the document the student
-          // submitted, or the file they uploaded. Hand grading needs somewhere to read the
-          // work from. The path is deliberately not selected — a download is a signed URL from
-          // `uploadUrl`, minted per request, and sending the path to the browser would suggest
-          // otherwise.
-          submittedUrl: true,
-          uploadFilename: true,
-          uploadSizeBytes: true,
-          submittedAt: true,
-          isLate: true,
-          lastActivityAt: true,
-          // The grade, and the commit it describes. `headSha !== gradedHeadSha` is how
-          // the queue shows that a student has pushed since being graded — two columns,
-          // no API call, true the instant the push lands.
-          finalScore: true,
-          finalScorePossible: true,
-          isComplete: true,
-          gradedAt: true,
-          gradedHeadSha: true,
-          student: { select: { id: true, displayName: true, email: true, githubUsername: true } },
-          // Enough of the most recent draft to label a queue row. The review pane loads
-          // the draft in full when a row is selected; a list of forty students does not
-          // need forty reports in it.
-          gradingDrafts: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { id: true, status: true, headSha: true, approvedAt: true },
-          },
-        },
+        select: reviewableSubmissionSelect,
       });
 
       const undelivered = await ctx.db.gradingDraft.findMany({
@@ -551,25 +608,8 @@ export const submissionsRouter = createTRPCRouter({
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
       const removed = await removedStudentIds(ctx.db, assignment.courseId);
 
-      const decorate = (submission: (typeof submissions)[number]) => {
-        const { gradingDrafts, ...rest } = submission;
-        const draft = gradingDrafts[0] ?? null;
-        const draftIsStale =
-          draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
-
-        return {
-          ...rest,
-          bucket: triageBucket(
-            rest.status,
-            draft,
-            draftIsStale,
-            undeliveredIds.has(rest.id),
-            manualOnly,
-          ),
-          draftIsStale,
-          activeDraft: draft,
-        };
-      };
+      const decorate = (submission: (typeof submissions)[number]) =>
+        decorateSubmission(submission, { manualOnly, undeliveredIds });
 
       return {
         // Spelled out rather than spread, so `sections` does not travel to the browser as a
@@ -603,6 +643,150 @@ export const submissionsRouter = createTRPCRouter({
         removedSubmissions: submissions
           .filter((row) => removed.has(row.student.id))
           .map(decorate),
+      };
+    }),
+
+  /**
+   * One student's submissions in one course. Instructors only.
+   *
+   * The other axis of `listForAssignment`: a fixed student across many assignments rather than a
+   * fixed assignment across many students. The same rows, the same `bucket`, the same review
+   * surface — which is why both go through `reviewableSubmissionSelect` and `decorateSubmission`
+   * rather than describing the shape twice.
+   *
+   * **Every assignment, not every submission.** A row is returned for an assignment the student
+   * has not started, with `submission: null`, because "has not begun this" is a fact about the
+   * student worth reading and a list of only what exists cannot say it. That is the difference
+   * between this and the grading queue, where a student who never accepted is deliberately absent:
+   * there the question is what is left to grade, here it is how somebody is doing.
+   *
+   * Unpublished assignments are included. An instructor reading a student's record is entitled to
+   * see the ones the cohort cannot: leaving them out would make the list disagree with the
+   * gradebook beside it for no reason a reader could work out.
+   *
+   * Any enrollment status. A removed student's record is exactly what this screen is for.
+   */
+  listForStudent: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), studentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const teaches =
+        ctx.profile.role === 'ADMIN' ||
+        (await ctx.db.courseInstructor.findFirst({
+          where: { courseId: input.courseId, userId: ctx.profile.id },
+          select: { id: true },
+        })) !== null;
+
+      if (!teaches) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not teach this course.',
+        });
+      }
+
+      /*
+        The enrollment is what proves the student belongs to this course, so it is the access
+        check as well as a fact for the header. Without it, any student id plus a course the
+        caller teaches would return an empty list rather than a refusal — which reads as "this
+        student has done nothing" instead of "this student is not in this cohort".
+      */
+      const enrollment = await ctx.db.enrollment.findFirst({
+        where: { courseId: input.courseId, studentId: input.studentId },
+        select: {
+          status: true,
+          student: {
+            select: { id: true, displayName: true, email: true, githubUsername: true },
+          },
+          course: { select: { id: true, name: true, cohortTerm: true, archivedAt: true } },
+        },
+      });
+
+      if (!enrollment) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'That student is not in this course.',
+        });
+      }
+
+      const assignments = await ctx.db.assignment.findMany({
+        where: { courseId: input.courseId },
+        // Course order — the sequence the instructor set — because reading a student's record is
+        // reading it in the order they met the work.
+        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+        select: {
+          id: true,
+          title: true,
+          kind: true,
+          dueAt: true,
+          pointValue: true,
+          completionThreshold: true,
+          distributedAt: true,
+          module: { select: { id: true, name: true, position: true } },
+          // Read for the grading mode and not returned whole: `manualOnly` is the answer the
+          // review pane needs, and `sections` is a large object a screen has no use for.
+          sections: true,
+          // Scoped to this one student, so the relation is their submission or nothing.
+          submissions: {
+            where: { studentId: input.studentId },
+            select: reviewableSubmissionSelect,
+            take: 1,
+          },
+        },
+      });
+
+      const submissionIds = assignments.flatMap((row) => row.submissions.map((sub) => sub.id));
+
+      const undelivered = await ctx.db.gradingDraft.findMany({
+        where: undeliveredApprovalWhere({ id: { in: submissionIds } }),
+        select: { submissionId: true },
+        distinct: ['submissionId'],
+      });
+      const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+
+      /*
+        Which cohorts this student is in that the caller also teaches, so the screen can offer to
+        look at the same person in another course.
+
+        Asked here rather than by a second procedure, because it is one query and the screen is
+        useless without it: a student repeating a module has two sets of submissions, and a page
+        that could only show the one in its own URL would make finding the other a guess. Scoped
+        by what the caller teaches, so it does not report the existence of cohorts they cannot open.
+      */
+      const otherEnrollments = await ctx.db.enrollment.findMany({
+        where: {
+          studentId: input.studentId,
+          ...(ctx.profile.role === 'ADMIN'
+            ? {}
+            : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        },
+        orderBy: { course: { createdAt: 'desc' } },
+        select: {
+          status: true,
+          course: { select: { id: true, name: true, cohortTerm: true } },
+        },
+      });
+
+      return {
+        student: enrollment.student,
+        course: enrollment.course,
+        /** So the screen can say they have left, the way every other reader of this does. */
+        enrollmentStatus: enrollment.status,
+        /** Includes the course being read, so the selector holds the full set rather than the rest. */
+        courses: otherEnrollments.map((row) => ({ ...row.course, enrolledAs: row.status })),
+        rows: assignments.map(({ sections, submissions, ...assignment }) => {
+          const manualOnly = isManualOnly(sections);
+          const submission = submissions[0] ?? null;
+
+          return {
+            assignment: {
+              ...assignment,
+              /** Whether it is graded by hand, which decides what the review pane offers. */
+              manualOnly,
+            },
+            submission: submission
+              ? decorateSubmission(submission, { manualOnly, undeliveredIds })
+              : null,
+          };
+        }),
       };
     }),
 });

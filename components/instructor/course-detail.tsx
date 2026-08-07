@@ -61,7 +61,7 @@ import {
 import { ModulesTab } from '@/components/instructor/modules-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { EnrollmentStatus } from '@/lib/generated/prisma/enums';
-import { gradingQueueHref, triageHref } from '@/lib/links';
+import { gradingQueueHref, studentHref, triageHref } from '@/lib/links';
 import { useTRPC } from '@/trpc/client';
 import { ASSIGNMENT_KIND_META, formatDate } from '@/lib/status';
 import { cn } from '@/lib/utils';
@@ -1184,6 +1184,7 @@ function RosterTab({
         <>
           {active.length > 0 && (
             <RosterTable
+              courseId={courseId}
               enrollments={active}
               busy={busy}
               onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
@@ -1209,6 +1210,7 @@ function RosterTab({
                 </p>
               </div>
               <RosterTable
+                courseId={courseId}
                 enrollments={removed}
                 busy={busy}
                 onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
@@ -1327,11 +1329,13 @@ function JoinLinkCard({
 }
 
 function RosterTable({
+  courseId,
   enrollments,
   busy,
   onRemove,
   onRestore,
 }: {
+  courseId: string;
   enrollments: Data['enrollments'];
   busy: boolean;
   onRemove: (enrollmentId: string) => void;
@@ -1373,7 +1377,14 @@ function RosterTable({
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">{name}</span>
+                      {/* Into their record for this cohort: every submission, every grade, and
+                          the email and GitHub username a repository name is checked against. */}
+                      <Link
+                        href={studentHref(courseId, enrollment.student.id)}
+                        className="truncate font-medium hover:underline"
+                      >
+                        {name}
+                      </Link>
                       <span className="truncate text-xs text-muted-foreground">
                         {enrollment.student.email ?? '—'}
                       </span>

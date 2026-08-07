@@ -169,6 +169,18 @@ async function main() {
 
   const createCaller = createCallerFactory(appRouter);
 
+  /*
+    Measured, not assumed to be zero.
+
+    This asserted the invitations table was empty after the rollback, which is only true before
+    anybody has used the feature — the first real invitation an admin generated and redeemed made
+    this script report a failure. The claim worth making is that *this run* left nothing behind, so
+    the ids it creates are collected and checked, and the total is compared against what was there
+    to begin with.
+  */
+  const invitesBefore = await db.instructorInvite.count();
+  const createdHere: string[] = [];
+
   try {
     await db.$transaction(async (tx) => {
       const asAdmin = createCaller({ db: tx, user: { id: admin.id } } as never);
@@ -176,6 +188,7 @@ async function main() {
 
       // ---- Generating and redeeming ---------------------------------------
       const created = await asAdmin.staff.createInvite();
+      createdHere.push(created.id);
       check("an invitation is generated", created.token.length >= 32, true);
       check("...and it is open", (await asAdmin.staff.invites())
         .find((row) => row.id === created.id)?.state, "open");
@@ -217,6 +230,7 @@ async function main() {
       // Checked through the procedure as well as the pure function, because this is the sequence
       // that actually happens: an admin generates a link and clicks it to see what it does.
       const forAdmin = await asAdmin.staff.createInvite();
+      createdHere.push(forAdmin.id);
       check("an admin redeeming an invitation stays an admin",
         (await asAdmin.staff.redeemInvite({ token: forAdmin.token })).role, "ADMIN");
       check("...and their row still says so",
@@ -228,6 +242,7 @@ async function main() {
 
       // ---- Expiry ---------------------------------------------------------
       const stale = await asAdmin.staff.createInvite();
+      createdHere.push(stale.id);
       await tx.instructorInvite.update({
         where: { id: stale.id },
         data: { expiresAt: past },
@@ -240,6 +255,7 @@ async function main() {
 
       // ---- Deleting one ---------------------------------------------------
       const spare = await asAdmin.staff.createInvite();
+      createdHere.push(spare.id);
       await asAdmin.staff.revokeInvite({ inviteId: spare.id });
       check("a deleted invitation stops working",
         await refusal(() => asStudent.staff.redeemInvite({ token: spare.token })), "NOT_FOUND");
@@ -350,8 +366,12 @@ async function main() {
   check("the student's role is unchanged",
     (await db.profile.findUnique({ where: { id: student.id }, select: { role: true } }))?.role,
     "STUDENT");
-  check("no invitations survived the rollback",
-    await db.instructorInvite.count(), 0);
+  check("none of the invitations this run created survived the rollback",
+    await db.instructorInvite.count({ where: { id: { in: createdHere } } }), 0);
+  check("...and the table holds exactly what it did before",
+    await db.instructorInvite.count(), invitesBefore);
+  // Reported so a run that created nothing cannot look like a run that cleaned up after itself.
+  check("this run did create some to begin with", createdHere.length > 0, true);
 
   // Reported rather than asserted: an existing instructor is legitimate, and this only says
   // whether the run had one to work with.

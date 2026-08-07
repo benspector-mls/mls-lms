@@ -23,6 +23,18 @@ export function gradebookHref(courseId: string): string {
   return `/instructor/courses/${courseId}/gradebook`
 }
 
+/**
+ * One student's record within one cohort.
+ *
+ * The course is in it because a student's work only means anything inside one — the same student
+ * repeating a module has two sets of submissions, and a page that named only the student would
+ * have to pick one and be wrong half the time.
+ */
+export function studentHref(courseId: string, studentId: string, submissionId?: string): string {
+  const base = `/instructor/courses/${courseId}/students/${studentId}`
+  return submissionId ? `${base}?submission=${submissionId}` : base
+}
+
 export function courseHref(courseId: string): string {
   return `/instructor/courses/${courseId}`
 }

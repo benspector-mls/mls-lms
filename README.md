@@ -368,6 +368,20 @@ They live side by side in `lib/courses/membership.ts` because the two `where` cl
 
 **The guarantee that is not in any procedure**: migration `20260730024911_tighten_profiles_grants` means `anon` and `authenticated` may UPDATE exactly `display_name` and `avatar_url` on `profiles`, and `instructor_invites` has no browser privileges at all. `verify:staff` asserts both, because every procedure here could be perfect and a slipped grant would still let a student promote themselves from browser JavaScript — which is why that migration exists.
 
+### One student, or one assignment: the same screen from two sides
+
+`submissions.listForAssignment` reads one assignment across many students. `submissions.listForStudent` reads one student across many assignments. **They are the same screen**, and share `reviewableSubmissionSelect`, `decorateSubmission`, `SubmissionRow`, and `GradingReview` rather than each having their own — a field selected for one and missed by the other is a crash in the review pane, not a visible difference, and two copies of a row that shows a status badge, a stale-report flag and a score would drift into disagreeing about the same submission.
+
+Only the label differs, so only the label is a prop: the caller says who or what a row is about, and the row says what state it is in.
+
+**Three differences, each with a reason.** A student's record has a row for *every* assignment, including ones they never started, because "has not begun this" is a fact about a student that a list of only their submissions cannot state — where the grading queue deliberately omits a student who never accepted, since that screen asks what is left to grade rather than how somebody is doing. It has no search box, because filtering one student by name is nothing. And a row's second line is the module rather than a relative time, since forty rows all reading "3 days ago" order nothing.
+
+`completionThreshold` moves from a page-level prop to a per-row one, because every row on this screen is a different assignment and the threshold is what decides whether a score passes.
+
+**Reachable from the three places a name appears**: the roster, the gradebook's sticky first column, and the student's name in the review header — which is where "what else has this person done" gets asked, and where until now there was no answer. The review header takes `studentHref` as an optional prop and renders plain text without it, so the student's own record does not link to the page it is already on.
+
+The page carries its own cohort selector, listing only courses this student is in *and* the caller teaches. The sidebar's switcher knows nothing about the student and would offer cohorts they are not in; a student repeating a module has two records, and this is how you get from one to the other.
+
 ### A removed student's work
 
 Stopping the enrollment did nothing to the submissions, so a student who had left the program stayed in grading triage indefinitely — work nobody was going to do, that could not be cleared, inside the count that says whether an instructor is caught up.
@@ -806,6 +820,7 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 | `/instructor/courses/[courseId]/triage`                      | What is waiting on the instructor in this cohort                      |
 | `/instructor/courses/[courseId]/gradebook`                   | Assignments × roster, each cell carrying its triage bucket            |
 | `/instructor/courses/[courseId]/assignments/[assignmentId]`  | The grading queue and the review surface, `?submission=` to open one   |
+| `/instructor/courses/[courseId]/students/[studentId]`         | One student's whole record in this cohort — the queue's other axis     |
 | `/instructor/assignments/[assignmentId]`                     | The queue's old address: looks up the course and redirects            |
 | `/admin`                                                     | Staff: who may teach, and who may decide that. Admins only            |
 | `/invite/[token]`                                            | Where an instructor invitation lands                                  |

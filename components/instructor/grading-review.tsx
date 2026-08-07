@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -116,6 +117,7 @@ export function GradingReview({
   assignmentTitle,
   assignmentKind,
   completionThreshold,
+  studentHref,
   now,
 }: {
   submission: QueueSubmission;
@@ -127,6 +129,14 @@ export function GradingReview({
    */
   assignmentKind: AssignmentKind;
   completionThreshold: number;
+  /**
+   * Where this student's own record lives, if there is somewhere to go.
+   *
+   * Absent on the student overview, because that *is* their record — a name linking to the page it
+   * is already on is a dead control. Present in the grading queue, where "what else has this person
+   * done" is the question a report prompts and there was previously no way to answer it.
+   */
+  studentHref?: string;
   now: Date;
 }) {
   const trpc = useTRPC();
@@ -180,7 +190,12 @@ export function GradingReview({
 
   return (
     <div className="flex h-full flex-col">
-      <ReviewHeader submission={submission} draft={draft} actionsRef={setActionsSlot} />
+      <ReviewHeader
+        submission={submission}
+        draft={draft}
+        studentHref={studentHref}
+        actionsRef={setActionsSlot}
+      />
 
       <HeaderActionsSlot.Provider value={actionsSlot}>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
@@ -248,10 +263,12 @@ export function GradingReview({
 function ReviewHeader({
   submission,
   draft,
+  studentHref,
   actionsRef,
 }: {
   submission: QueueSubmission;
   draft: Draft | null;
+  studentHref?: string;
   /** Filled by whatever is being reviewed — see `HeaderActionsSlot`. */
   actionsRef: (node: HTMLDivElement | null) => void;
 }) {
@@ -261,7 +278,13 @@ function ReviewHeader({
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">
-              {submission.student.displayName ?? submission.student.email ?? 'Unknown student'}
+              {studentHref ? (
+                <Link href={studentHref} className="hover:underline">
+                  {submission.student.displayName ?? submission.student.email ?? 'Unknown student'}
+                </Link>
+              ) : (
+                submission.student.displayName ?? submission.student.email ?? 'Unknown student'
+              )}
             </h2>
             {submission.student.githubUsername && (
               <span className="text-sm text-muted-foreground">

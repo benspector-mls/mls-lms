@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { gradingQueueHref } from '@/lib/links';
+import { gradingQueueHref, studentHref } from '@/lib/links';
 import { scoreLabel, scorePercent } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
@@ -152,7 +152,14 @@ function Grid({
           {students.map((student) => (
             <TableRow key={student.id}>
               <TableCell className="sticky left-0 z-10 bg-card font-medium">
-                {student.displayName ?? student.email ?? student.githubUsername}
+                {/* Into their record for this cohort. A row of scores prompts "what happened
+                    with this person", and the name is where a reader already points. */}
+                <Link
+                  href={studentHref(courseId, student.id)}
+                  className="hover:underline"
+                >
+                  {student.displayName ?? student.email ?? student.githubUsername}
+                </Link>
               </TableCell>
 
               {assignments.map((assignment) => {

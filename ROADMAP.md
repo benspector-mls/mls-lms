@@ -781,6 +781,22 @@ The banner also said an archived cohort's submissions leave *the grading queue*,
 
 ---
 
+## A student's record — done
+
+**Built**: `submissions.listForStudent`, `components/instructor/student-overview.tsx`, `components/instructor/submission-row.tsx` shared with the grading queue, and `/instructor/courses/[courseId]/students/[studentId]`, reachable from the roster, the gradebook, and the review header.
+
+Not on this list before, and it should have been. Nothing in the application answered "how is this person doing" — the gradebook gave a row of numbers with no feedback behind them, and the grading queue could only be entered one assignment at a time. An instructor asked about a student had to open every assignment they had submitted to.
+
+**It is the grading queue's other axis, and deliberately the same screen.** The queue is one assignment across many students; this is one student across many assignments. The row and the review surface are shared rather than reimplemented, which is the whole design decision: reading a student's work looks and behaves exactly like grading it, because it is the same act approached from the other side. Two copies would drift, and the drift would read as one screen being wrong about the same submission.
+
+**A row for every assignment, not for every submission.** "Has not begun this" is a fact about a student that a list of their submissions cannot state, and it is the sharpest difference from the queue — where a student who never accepted is deliberately absent, because that screen asks what is left to grade. Unpublished assignments are included too: an instructor is entitled to see the ones the cohort cannot, and leaving them out would make this list disagree with the gradebook beside it for no reason a reader could work out.
+
+**The cohort selector is the page's own.** It lists only courses this student is in and the caller teaches. The sidebar's switcher knows nothing about the student and would offer cohorts they are not in — and a student repeating a module has two records, which is exactly when this is needed.
+
+Refusing a student who is not in the cohort with `NOT_FOUND` rather than returning an empty list, because an empty list reads as "this person has done nothing", which is a different and false statement.
+
+---
+
 ## Seeing a course as a student sees it
 
 An instructor should be able to look at what they have published the way a student meets it — the assignment list, the accept button, the submission instructions, the feedback screen. It is the cheapest way to catch an assignment whose instructions make no sense or whose kind hands out the wrong thing, and there is currently no way to do it.

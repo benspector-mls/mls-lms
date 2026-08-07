@@ -5,10 +5,9 @@ import * as React from 'react';
 import { Inbox, Search, UserMinus } from 'lucide-react';
 
 import { GradingReview } from '@/components/instructor/grading-review';
-import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
-import { Badge } from '@/components/ui/badge';
+import { SubmissionRow } from '@/components/instructor/submission-row';
+import { studentHref } from '@/lib/links';
 import { Input } from '@/components/ui/input';
-import { completionMeta, draftStatusAddsSomething, formatRelative } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
@@ -166,9 +165,15 @@ export function GradingQueue({
             ) : (
               <ul className="flex flex-col gap-1">
                 {filtered.map((row) => (
-                  <QueueRow
+                  <SubmissionRow
                     key={row.id}
                     row={row}
+                    primary={
+                      row.student.displayName ??
+                      row.student.githubUsername ??
+                      row.student.email ??
+                      'Unknown student'
+                    }
                     active={selected?.id === row.id}
                     onSelect={() => select(row.id)}
                     now={now}
@@ -214,6 +219,9 @@ export function GradingQueue({
                 key={selected.id}
                 submission={selected}
                 assignmentTitle={data.assignment.title}
+                // "What else has this person done" is the question a report prompts, and until
+                // now there was nowhere in the application to answer it.
+                studentHref={studentHref(data.assignment.courseId, selected.student.id)}
                 // Read here rather than by the review pane, which would have to wait on its
                 // own request to find out whether this assignment can have tests at all.
                 assignmentKind={data.assignment.kind}
@@ -236,102 +244,3 @@ export function GradingQueue({
   );
 }
 
-function QueueRow({
-  row,
-  active,
-  onSelect,
-  now,
-}: {
-  row: Row;
-  active: boolean;
-  onSelect: () => void;
-  now: Date;
-}) {
-  const draft = row.activeDraft;
-
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onSelect}
-        className={cn(
-          'flex w-full flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-colors',
-          active
-            ? 'border-primary/40 bg-primary/5'
-            : 'border-transparent hover:border-border hover:bg-muted/50',
-        )}
-      >
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-            {initials(row.student.displayName ?? row.student.email)}
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-sm font-medium">
-              {row.student.displayName ?? row.student.githubUsername ?? row.student.email ?? 'Unknown student'}
-            </span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {formatRelative(row.lastActivityAt ?? row.submittedAt, now)}
-            </span>
-          </div>
-          {/*
-            The released grade, right-aligned so the column of scores can be read straight
-            down the list without opening each submission. Only a grade that has actually
-            gone out is shown here — a superseded score belongs to a report nobody reads
-            anymore.
-          */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <SubmissionStatusBadge status={row.status} />
-            {/*
-              The draft's own state, where it says anything the submission's does not —
-              generating a report does not move the submission, only approving does. The rule
-              lives in `draftStatusAddsSomething` so this screen and the review header cannot
-              disagree about it.
-            */}
-            {draft && draftStatusAddsSomething(draft.status) && (
-              <DraftStatusBadge status={draft.status} />
-            )}
-            {row.draftIsStale && (
-              <Badge
-                variant="outline"
-                className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-              >
-                Report out of date
-              </Badge>
-            )}
-            {row.bucket === 'comment_not_posted' && (
-              <Badge
-                variant="outline"
-                className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-              >
-                Not delivered
-              </Badge>
-            )}
-          </div>
-          {row.status === 'GRADED' && row.finalScore != null && (
-            <span
-              className={cn(
-                'shrink-0 text-sm font-semibold tabular-nums',
-                // From `completionMeta`, so this screen, the review pane, and the student's own
-                // page cannot disagree about what green means or which shade of it.
-                completionMeta(row.isComplete)?.className,
-              )}
-            >
-              {row.finalScore}
-              <span className="font-normal text-muted-foreground">/{row.finalScorePossible}</span>
-            </span>
-          )}
-        </div>
-      </button>
-    </li>
-  );
-}
-
-function initials(name: string | null): string {
-  return (name ?? '?')
-    .split(' ')
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}

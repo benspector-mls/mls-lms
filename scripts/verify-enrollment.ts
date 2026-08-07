@@ -184,6 +184,19 @@ async function main() {
         links.gradingQueueHref(alpha, someAssignment, "sub-1"),
         `/instructor/courses/${alpha}/assignments/${someAssignment}?submission=sub-1`);
 
+      /*
+        A student's record is course-scoped for the same reason everything else is: the same person
+        repeating a module has two sets of submissions, and an address naming only the student would
+        have to pick one. The optional submission carries over so the gradebook and the review
+        header can open a particular piece of work rather than the top of the list.
+      */
+      check("a student's record names its cohort",
+        links.studentHref(alpha, "stu-1"),
+        `/instructor/courses/${alpha}/students/stu-1`);
+      check("...and can open one of their submissions",
+        links.studentHref(alpha, "stu-1", "sub-1"),
+        `/instructor/courses/${alpha}/students/stu-1?submission=sub-1`);
+
       // ---- Creating a cohort ------------------------------------------------
       // Distinct terms, because a slug is unique across every course and the term is what
       // suggests it. Two cohorts called the same thing is a real situation and a real refusal —
@@ -501,6 +514,92 @@ async function main() {
       check("a student cannot read a cohort's triage",
         await refusal(() => asStudent.submissions.triage({ courseId: course.id })),
         "FORBIDDEN");
+
+      /*
+        ---- One student's record, which is the grading queue's other axis -----------
+
+        `listForAssignment` is one assignment across many students; `listForStudent` is one student
+        across many assignments. They share the select and the row decoration, so the checks worth
+        making here are the ones about the *difference*: what the rows cover, and who may read them.
+      */
+      const record = await asInstructor.submissions.listForStudent({
+        courseId: course.id,
+        studentId,
+      });
+      check("a student's record names them, with the fields the header shows",
+        {
+          id: record.student.id,
+          hasEmail: record.student.email !== null,
+          hasGithub: record.student.githubUsername !== null,
+        },
+        { id: studentId, hasEmail: true, hasGithub: true });
+      check("...and the cohort it is scoped to", record.course.id, course.id);
+
+      /*
+        **A row per assignment, not per submission.** "Has not begun this" is a fact about a student
+        that a list of only their submissions cannot state, and it is the difference from the queue —
+        where a student who never accepted is deliberately absent, because that screen asks what is
+        left to grade rather than how somebody is doing.
+      */
+      const courseAssignments = await tx.assignment.count({ where: { courseId: course.id } });
+      check("there is a row for every assignment in the cohort",
+        record.rows.length, courseAssignments);
+      check("...including ones with nothing handed in",
+        record.rows.some((row) => row.submission === null), true);
+      check("...and at least one with something",
+        record.rows.some((row) => row.submission !== null), true);
+
+      // Every row carries what the review pane needs, which is per-assignment here where the queue
+      // reads it once for the page. A missing threshold would silently mark work incomplete.
+      check("every row carries its own assignment's grading settings",
+        record.rows.every((row) =>
+          typeof row.assignment.completionThreshold === "number" &&
+          typeof row.assignment.manualOnly === "boolean" &&
+          row.assignment.module !== null),
+        true);
+
+      // Scoped to this student and nobody else. The relation is filtered by `studentId`, and a
+      // mistake there would quietly show one student another's work on a screen titled with their
+      // name — which is the worst failure this procedure has available.
+      const foreign = await tx.submission.findFirst({
+        where: { assignment: { courseId: course.id }, studentId: { not: studentId } },
+        select: { id: true },
+      });
+      check("no other student's submission appears in it",
+        record.rows.every((row) => row.submission === null || row.submission.student.id === studentId),
+        true);
+      if (foreign) {
+        check("...checked against a submission that really belongs to somebody else",
+          record.rows.some((row) => row.submission?.id === foreign.id), false);
+      }
+
+      check("the cohorts offered include the one being read",
+        record.courses.some((row) => row.id === course.id), true);
+
+      check("a student cannot read their own record through this",
+        await refusal(() =>
+          asStudent.submissions.listForStudent({ courseId: course.id, studentId })),
+        "FORBIDDEN");
+
+      /*
+        A student who is not in this cohort is NOT_FOUND rather than an empty list. An empty list
+        reads as "this person has done nothing", which is a different and false statement.
+      */
+      const outsider = await tx.profile.findFirst({
+        where: { id: { not: studentId }, enrollments: { none: { courseId: course.id } } },
+        select: { id: true },
+      });
+      if (outsider) {
+        check("a student who is not in the cohort is refused rather than shown as idle",
+          await refusal(() =>
+            asInstructor.submissions.listForStudent({
+              courseId: course.id,
+              studentId: outsider.id,
+            })),
+          "NOT_FOUND");
+      } else {
+        check("no account outside the cohort to check against", "skipped", "skipped");
+      }
 
       // ---- Removing, and the pair that must not come apart ------------------
       //
