@@ -621,7 +621,9 @@ One rule they all share, decided once here rather than three times below.
 
 ### Removing and archiving make lists go quiet; they never take work back
 
-A student removed from a cohort keeps reading the feedback they were given. An archived course stays readable to the people who were in it. What both do is stop appearing: off the active course list, out of the roster, out of the gradebook, out of grading triage, and out of every count on a course card. Not out of an assignment's own grading queue, which is how its submissions are read rather than a list of work outstanding — emptying that would take the feedback back.
+A student removed from a cohort keeps reading the feedback they were given. An archived course stays readable to the people who were in it. What both do is stop appearing in the lists of work outstanding: out of grading triage, out of the queue an instructor works down, and out of every count that says whether they are caught up.
+
+**What "out of the gradebook" means is narrower than it sounds, and the difference is the whole feature.** A removed student is out of the *cohort's* figures and into a Removed students table below them — same grid, same columns, their own rows. Their history is the reason the row was kept rather than deleted: how somebody did before they left the program is worth being able to read afterwards. Same in the roster, so an instructor can see who was here and put them back. And an assignment's own grading queue still opens their work when a link names it, because that is how a submission is read rather than a list of what is waiting.
 
 The reason is that the alternative takes something back. A student who was shown a grade and then removed would find the grade gone, and there is no version of that which is not worse than a course they can still open. Cohorts also end for the ordinary reason that they finished, which is not an event that should retract anything.
 
@@ -721,6 +723,42 @@ Four widen, three stay. `courses.gradebook` and `submissions.triage` are not on 
 
 ---
 
+## A removed student's work — done
+
+Removing somebody stopped their enrollment and did nothing to their submissions, so a student who had left the program stayed in grading triage indefinitely: work nobody was ever going to do, that could not be cleared, inside the count that says whether an instructor is caught up.
+
+**The rule is one sentence, applied in six places.** A removed student's work is not the cohort's outstanding work, and it is not deleted. So every instructor-facing read of a course's submissions is one of two kinds and has to know which: a **list of work waiting**, which a departed student contributes nothing to, or a **record of what happened**, which they are part of. `lib/courses/membership.ts` holds both halves next to each other — `activeStudentWork` for the lists, `removedStudentIds` for the reads that return both sets — for the same reason `assertCourseMember` and `assertActiveStudent` already live there: the two differ by one enum value in code that otherwise reads identically, and the failure is not spotting a difference, it is not noticing there was a decision to make.
+
+Where each lands: **out of** grading triage and its approved count, out of the grading queue's list, out of the gradebook grid, out of the course heading's "N submissions waiting on you", out of the per-assignment "to grade" column. **Into** a Removed students table in the gradebook and another in the roster.
+
+**The counts were the real second half.** The course heading and the assignments tab both count `cells`, and fixing only triage would have left the heading claiming work was waiting while triage showed nothing to do, with nothing on either screen to reconcile them. `courses.gradebook` now returns `cells` narrowed to active students and `removedCells` beside it, so those readers are right by construction rather than by remembering to filter.
+
+**The queue keeps a removed student openable without listing them.** `listForAssignment` returns `submissions` and `removedSubmissions`; the pile is the cohort, and asking for one submission by name still answers, with a banner saying who has left. The gradebook's Removed table links straight into it, and a link into a screen that will not show what it points at is worse than no link. Same distinction as an archived course: triage is a list of work, the queue is how work is read.
+
+**An ungraded submission in the Removed table says "Not graded", not "waiting on you".** The difference is whose action is outstanding, and nobody's is. Nothing is closed or rewritten on removal, which is what makes Restore put the work straight back — the filters read live enrollment status.
+
+**Every partition is a set and its complement**, not two named statuses. `REMOVED` is the only non-active value today, and a pair of filters naming both would silently drop an `AUDITING` student from the roster and the gradebook alike — an absence nothing reports.
+
+### The short name stopped being editable
+
+Not cosmetic, and not really about removed students until it was. `setCohortSlug` is gone; the cohort's short name is settled when the course is created and never again.
+
+It was editable until the first Accept, which made "has anybody accepted yet" a question the gradebook had to answer — `frozen={data.cells.length > 0}` — and that was the **one reader of `cells` that needed every submission rather than the active students'.** Narrowing `cells` under it would have reported a cohort's name as free to change while repositories were already named after it, and renaming it then orphans every one of them. Removing the mutation removed the reader.
+
+What it bought was correcting a typo, in a window measured in hours against a nine-month cohort, at the cost of a rule every reader has to learn and a screen that has to explain which state it is in. A typo caught afterwards is fixed by creating the course again, or by a one-line database update, which is safe for exactly as long as the course has no submissions.
+
+**Creating a course now has a review step** for the same reason: the short name cannot be taken back, and copying can bring a term's worth of assignments into the wrong cohort. The form's primary button says Review rather than Create, because it is not the button that creates anything. The review names the course, the cohort, the repository pattern the short name produces, and what copying will bring across.
+
+**And the course screens no longer show the short name at all.** The review step is where it is read, while it is being decided; afterwards it is legible from any repository name the cohort generated. A read-only card restating it spent a panel on the roster for a fact nothing can act on, so `courses.gradebook` stopped returning it too.
+
+### The check scripts were reporting passes they had not earned
+
+Found while verifying the above, and worth more than the feature. Five scripts required an **active** enrollment on the seeded course to run their database checks, and printed "All checks passed" when they could not find one. Removing a student in the running application — which is what this whole item is about — was enough to silently stop 4 of the 8 suites: `verify:modules` ran nothing at all, and `authoring`, `approve`, and `uploads` each dropped a whole group, all while reporting success.
+
+Two fixes, and the second is the one that matters. Each script now picks a student **regardless of enrollment status**, because what it needs is somebody to *be*: the checks that act as a student are reads and refusals, both of which admit a removed student by design. The two whose lifecycle genuinely hands work in restore the enrollment inside their existing rolled-back transaction. And **a skip is now reported and exits non-zero** — a run that checked nothing is not a run that passed, and the failure mode here was a green result that meant nothing.
+
+---
+
 ## Course switching — done
 
 Not a planned item. It is what the first second course found: three separate defects that could not exist while there was one cohort, and one wrong claim in this document.
@@ -796,7 +834,11 @@ Through the tRPC callers inside a rolled-back transaction, which is what `verify
 
 - **A created course has its creator as primary instructor**, and that instructor can immediately author an assignment in it. The second half is the real check: a course whose `CourseInstructor` row was not written looks fine until somebody tries to use it.
 - **A copy reproduces every module and every assignment**, unpublished, with `dueAt` cleared and both repositories and the answer key folder intact — and copying into a course whose modules do not exist yet is refused rather than half-applied.
-- **A copied cohort generates different repository names from the one it came from**, built through the same function `accept` calls rather than reassembled in the check. A duplicate short name is refused, an illegal one is refused, a term with nothing usable in it is refused rather than guessed at, and the name is frozen once a student has accepted.
+- **A copied cohort generates different repository names from the one it came from**, built through the same function `accept` calls rather than reassembled in the check. A duplicate short name is refused, an illegal one is refused, a term with nothing usable in it is refused rather than guessed at, and nothing can change it after the course exists — asserted against the router rather than against a screen, because "the button is not rendered" is a different claim.
+- **A removed student's work leaves triage and the grading queue and stays in the gradebook.** Both halves, plus the two that make them meaningful: nobody *else's* work leaves with it, and the student is asserted to have work in triage before anything removes them — every other assertion here is that a list does not contain something, which a student with nothing outstanding would satisfy while measuring nothing.
+- **The queue's two lists together are every submission for the assignment**, counted against the table. Written as one query partitioned in two, because a filter and its complement written separately can each miss a row and nothing would report it.
+- **The course heading's outstanding count equals what triage shows.** The two are the same claim on two screens, and they disagreed once already.
+- **Restoring a student puts their outstanding work back.** Nothing was closed or rewritten on removal, which is what makes it reversible.
 - **A student cannot create a course**, and an instructor cannot archive a course they do not teach.
 - **Redeeming a join link twice yields one enrollment.** Redeeming a rotated link is refused. Redeeming as a removed student is refused.
 - **A removed student can still read the course and their released feedback, and cannot accept, submit, or upload.** Both halves, in the same check, because the pair is the whole point — and because the four widened read checks and the three untouched write checks are the same `where` clause in the same files.

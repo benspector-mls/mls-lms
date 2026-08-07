@@ -24,20 +24,21 @@ import type { RouterOutputs } from '@/trpc/types';
  * submission that exists but is not graded gets a dot. Never having started is not the
  * same as having scored nothing, and a gradebook that blurs the two misreports the
  * cohort.
+ *
+ * **Two tables, because removing a student does not delete their work.** The cohort's figures are
+ * the students in it; a departed student's record is kept and read separately. One table holding
+ * both would make every count above it wrong, and dropping them altogether would take back the
+ * thing removal is supposed to preserve.
  */
 
 type Gradebook = RouterOutputs['courses']['gradebook'];
+type Assignment = Gradebook['assignments'][number];
+type Cell = Gradebook['cells'][number];
+type Student = Gradebook['enrollments'][number]['student'];
 
 export function Gradebook({ data }: { data: Gradebook }) {
-  /*
-    Only students who are actually in the cohort — `activeEnrollments` rather than
-    `enrollments`, which carries removed students too for the Roster tab.
-
-    A departed student's work is not destroyed and does not belong in a figure about the
-    cohort's current state: left in, they would read as somebody with unfinished assignments
-    for as long as the course exists.
-  */
-  const roster = data.activeEnrollments.map((enrollment) => enrollment.student);
+  const active = data.activeEnrollments.map((enrollment) => enrollment.student);
+  const removed = data.removedEnrollments.map((enrollment) => enrollment.student);
 
   const assignments = [...data.assignments].sort((a, b) => {
     // Course order, which is `module.position` — the sequence an instructor set, not
@@ -47,7 +48,7 @@ export function Gradebook({ data }: { data: Gradebook }) {
     return byModule !== 0 ? byModule : a.title.localeCompare(b.title);
   });
 
-  if (roster.length === 0 || assignments.length === 0) {
+  if ((active.length === 0 && removed.length === 0) || assignments.length === 0) {
     return (
       <EmptyState
         icon={<BarChart3 />}
@@ -57,9 +58,69 @@ export function Gradebook({ data }: { data: Gradebook }) {
     );
   }
 
+  return (
+    <div className="flex flex-col gap-6">
+      {active.length > 0 && (
+        <Grid
+          courseId={data.course.id}
+          assignments={assignments}
+          students={active}
+          cells={data.cells}
+          pending="waiting"
+        />
+      )}
+
+      {removed.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <div className="flex flex-col gap-0.5">
+            <h3 className="text-sm font-medium">Removed students</h3>
+            <p className="text-xs text-muted-foreground">
+              No longer in the cohort, and not counted in any figure above. Their work and the
+              feedback they were given stay readable — to them, and here.
+            </p>
+          </div>
+          <Grid
+            courseId={data.course.id}
+            assignments={assignments}
+            students={removed}
+            cells={data.removedCells}
+            /*
+              The one thing the two tables differ by. An ungraded submission from a student who
+              has left is not waiting on anybody: it is out of triage and out of the queue, so
+              nobody is going to grade it. The amber "waiting on you" dot here would claim an
+              outstanding task that does not exist and cannot be cleared.
+            */
+            pending="not-graded"
+          />
+        </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One table of students against assignments.
+ *
+ * `pending` is the whole of what the two callers differ by: whether a submission with no score
+ * yet is work outstanding or simply something that never got graded. Everything else is
+ * identical, which is why this is one component and not two.
+ */
+function Grid({
+  courseId,
+  assignments,
+  students,
+  cells,
+  pending,
+}: {
+  courseId: string;
+  assignments: Assignment[];
+  students: Student[];
+  cells: Cell[];
+  pending: 'waiting' | 'not-graded';
+}) {
   // Keyed lookup rather than a scan per cell: a cohort of twenty against fifty
   // assignments is a thousand cells, and a linear search in each is a million comparisons.
-  const cells = new Map(data.cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell]));
+  const byKey = new Map(cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell]));
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
@@ -77,7 +138,7 @@ export function Gradebook({ data }: { data: Gradebook }) {
                   a column total would be the same number said twice.
                 */}
                 <Link
-                  href={gradingQueueHref(data.course.id, assignment.id)}
+                  href={gradingQueueHref(courseId, assignment.id)}
                   className="mx-auto block max-w-28 truncate hover:underline"
                   title={assignment.title}
                 >
@@ -88,14 +149,14 @@ export function Gradebook({ data }: { data: Gradebook }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {roster.map((student) => (
+          {students.map((student) => (
             <TableRow key={student.id}>
               <TableCell className="sticky left-0 z-10 bg-card font-medium">
                 {student.displayName ?? student.email ?? student.githubUsername}
               </TableCell>
 
               {assignments.map((assignment) => {
-                const cell = cells.get(`${assignment.id}:${student.id}`);
+                const cell = byKey.get(`${assignment.id}:${student.id}`);
 
                 if (!cell) {
                   return (
@@ -111,7 +172,7 @@ export function Gradebook({ data }: { data: Gradebook }) {
                 return (
                   <TableCell key={assignment.id} className="p-0 text-center">
                     <Link
-                      href={gradingQueueHref(data.course.id, assignment.id, cell.id)}
+                      href={gradingQueueHref(courseId, assignment.id, cell.id)}
                       className="flex h-11 items-center justify-center px-3 transition-colors hover:bg-muted/60"
                     >
                       {graded ? (
@@ -127,6 +188,11 @@ export function Gradebook({ data }: { data: Gradebook }) {
                         >
                           {scoreLabel(cell.finalScore, cell.finalScorePossible)}
                         </span>
+                      ) : pending === 'not-graded' ? (
+                        // In words rather than as a dot. A dot needs a legend, and the one
+                        // thing worth knowing about a removed student's ungraded work is
+                        // exactly that: it was never graded.
+                        <span className="text-xs text-muted-foreground">Not graded</span>
                       ) : (
                         // Accepted or submitted but not graded. A dot rather than a
                         // number, because there is no number yet.

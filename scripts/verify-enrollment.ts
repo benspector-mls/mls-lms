@@ -50,7 +50,19 @@ async function refusalMessage(work: () => Promise<unknown>): Promise<string> {
   }
 }
 
-function report() {
+/**
+ * A run that checked nothing is not a run that passed.
+ *
+ * This script needs a seeded course to work against, and it used to print "All checks passed"
+ * when it could not find one — so the day the seed changed shape, every check here would have
+ * stopped running and the output would have said everything was fine. Exiting non-zero on a skip
+ * is the only version of this that cannot be read as a green result.
+ */
+function report(skipped?: string) {
+  if (skipped) {
+    console.log(`\nNOTHING CHECKED — ${skipped}`);
+    process.exit(1);
+  }
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
   process.exit(failures === 0 ? 0 : 1);
 }
@@ -82,18 +94,27 @@ async function main() {
         select: { userId: true },
       })
     : null;
+  /*
+    Any status, and restored inside the transaction if it is not active.
+
+    `status: "ACTIVE"` here meant the script skipped the moment somebody removed the seeded
+    student in the running application — which is a thing instructors do, and the state the removal
+    checks below are *about*. Skipping was worse than it looks: it printed a pass. So the enrollment
+    is picked regardless of status and put back to ACTIVE as the first thing inside the rollback,
+    which makes the starting point the same either way and changes nothing outside it.
+  */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE" },
-        select: { id: true, studentId: true },
+        where: { courseId: course.id },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, studentId: true, status: true },
       })
     : null;
 
   if (!course || !instructor || !enrollment) {
-    console.log(
-      "skip — needs a course with an instructor, an active student, and at least one submission",
+    return report(
+      "needs a seeded course with an instructor, a student, and at least one submission",
     );
-    return report();
   }
 
   const studentId = enrollment.studentId;
@@ -103,6 +124,11 @@ async function main() {
     await db.$transaction(async (tx) => {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
+
+      // Inside the transaction, so it is undone with everything else.
+      if (enrollment.status !== "ACTIVE") {
+        await asInstructor.enrollments.restore({ enrollmentId: enrollment.id });
+      }
 
       // ---- Deriving a short name from a term ---------------------------------
       //
@@ -349,30 +375,13 @@ async function main() {
           asInstructor.courses.create({ name: "Verify Blank", cohortTerm: "!!!" })),
         "BAD_REQUEST");
 
-      check("the short name can be changed before anybody accepts",
-        (await asInstructor.courses.setCohortSlug({
-          courseId: empty.course.id,
-          cohortSlug: "verify-renamed",
-        })).cohortSlug,
-        "verify-renamed");
-
-      check("a student cannot change it",
-        await refusal(() =>
-          asStudent.courses.setCohortSlug({ courseId: empty.course.id, cohortSlug: "nope" })),
-        "FORBIDDEN");
-
       /*
-        And it is frozen once anything has been accepted, because those repositories are already
-        named after it and renaming here would not rename theirs. The seeded course has real
-        submissions, which is what makes this checkable without creating any.
+        And once set it cannot be changed, by anybody, ever — there is no procedure that changes
+        it. Asserted against the router rather than against a screen, because "the button is not
+        rendered" is a different claim: the check that matters is that no caller can reach it.
       */
-      check("the short name is frozen once a student has accepted",
-        await refusal(() =>
-          asInstructor.courses.setCohortSlug({
-            courseId: course.id,
-            cohortSlug: "verify-too-late",
-          })),
-        "PRECONDITION_FAILED");
+      check("nothing can change a short name after creation",
+        "setCohortSlug" in asInstructor.courses, false);
 
       // ---- The join link ----------------------------------------------------
       const token = created!.joinToken;
@@ -503,6 +512,22 @@ async function main() {
         select: { id: true },
       });
 
+      /*
+        What this student had waiting before they were removed, measured rather than assumed.
+
+        Every check below asserts something is *absent* from a list, and a student with nothing
+        outstanding would satisfy all of them while measuring nothing at all. So the pile is read
+        first, and asserted to contain their work.
+      */
+      const theirsBefore = outstanding.submissions.filter(
+        (row) => row.student.id === studentId,
+      );
+      const othersBefore = outstanding.submissions.filter(
+        (row) => row.student.id !== studentId,
+      );
+      check("this student has work in triage before being removed",
+        theirsBefore.length > 0, true);
+
       const removed = await asInstructor.enrollments.remove({ enrollmentId: enrollment.id });
       check("removing sets the status", removed.status, "REMOVED");
 
@@ -539,6 +564,55 @@ async function main() {
           .enrollments.some((row) => row.student.id === studentId),
         true);
 
+      /*
+        ---- Out of the work lists, into the record --------------------------------
+
+        The pair that is the whole point of removing rather than deleting. Nobody is going to grade
+        a submission from somebody who has left the program, so it must not sit in a list of work
+        outstanding — and it must not vanish either, because how a student did before they left is
+        the reason for keeping the row.
+
+        Both halves in the same group, because each is one filter away from the other.
+      */
+      const afterRemoval = await asInstructor.submissions.triage({ courseId: course.id });
+      check("a removed student's work leaves triage",
+        afterRemoval.submissions.some((row) => row.student.id === studentId), false);
+      // And only theirs. A filter that emptied the whole pile would pass the check above.
+      check("...and nobody else's does",
+        afterRemoval.submissions.length, othersBefore.length);
+
+      const queue = await asInstructor.submissions.listForAssignment({
+        assignmentId: theirsBefore[0]!.assignment.id,
+      });
+      check("...and leaves the assignment's queue",
+        queue.submissions.some((row) => row.student.id === studentId), false);
+      check("...while staying openable from the gradebook",
+        queue.removedSubmissions.some((row) => row.student.id === studentId), true);
+      /*
+        The two arrays are the whole of it. Written as one query partitioned in two rather than as
+        a filter and its complement, because two queries can each miss a row and nothing says so —
+        a submission in neither list is unreachable and unreported.
+      */
+      check("...and the two lists together are every submission",
+        queue.submissions.length + queue.removedSubmissions.length,
+        await tx.submission.count({ where: { assignmentId: theirsBefore[0]!.assignment.id } }));
+
+      const book = await asInstructor.courses.gradebook({ courseId: course.id });
+      check("their grades move to the removed table",
+        book.removedCells.some((cell) => cell.studentId === studentId), true);
+      check("...and out of the cohort's own",
+        book.cells.some((cell) => cell.studentId === studentId), false);
+      check("...and they are listed as removed",
+        book.removedEnrollments.some((row) => row.student.id === studentId), true);
+      /*
+        Which is what makes the course heading's "N submissions waiting on you" agree with triage.
+        It counts `cells`, so the two are the same claim rather than two counts that have to be
+        kept in step by hand — they disagreed before, and nothing on either screen said so.
+      */
+      check("...so the course heading's outstanding count matches triage",
+        book.cells.filter((cell) => cell.bucket !== null && cell.bucket !== "generating").length,
+        afterRemoval.submissions.length);
+
       // A removed student redeeming the link again is refused: if it let them back in, removal
       // would not stick while they still held the link.
       const rejoinToken = (await tx.course.findUnique({
@@ -554,6 +628,15 @@ async function main() {
         (await asInstructor.courses.gradebook({ courseId: course.id }))
           .activeEnrollments.some((row) => row.student.id === studentId),
         true);
+      /*
+        And their work comes back with them, unchanged. Nothing was closed or rewritten on removal,
+        which is what makes this reversible: the filter reads live enrollment status, so restoring
+        somebody is the whole of putting their unfinished work back on the pile.
+      */
+      check("...and their outstanding work is back in triage",
+        (await asInstructor.submissions.triage({ courseId: course.id }))
+          .submissions.filter((row) => row.student.id === studentId).length,
+        theirsBefore.length);
 
       check("a student cannot remove anybody",
         await refusal(() =>
@@ -589,12 +672,16 @@ async function main() {
   }
 
   // ---- Nothing survived --------------------------------------------------
-  check("the seeded student is still active",
+  //
+  // Whatever the status was before, not "ACTIVE". The script removes and restores this student and
+  // may have had to restore them to begin with, so the claim worth making is that the row came out
+  // exactly as it went in — hardcoding a value would report a real removal as a failure.
+  check("the seeded student's enrollment is unchanged",
     (await db.enrollment.findUnique({
       where: { id: enrollment.id },
       select: { status: true },
     }))?.status,
-    "ACTIVE");
+    enrollment.status);
   check("no courses this script created survived the rollback",
     await db.course.count({ where: { cohortTerm: { startsWith: "Cohort Verify" } } }), 0);
 

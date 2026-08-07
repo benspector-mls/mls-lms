@@ -121,3 +121,59 @@ export async function assertActiveStudent(ctx: Ctx, courseId: string): Promise<v
       : "You are not enrolled in the course this assignment belongs to.",
   });
 }
+
+// =======================================================================================
+// The same two questions, asked about a cohort's work rather than about the caller
+//
+// A removed student's submissions are not deleted and are not the cohort's outstanding work.
+// So every instructor-facing read of a course's submissions is one of two kinds, and it has to
+// know which: a **list of work waiting to be done**, which a departed student contributes
+// nothing to, or a **record of what happened**, which they are part of.
+//
+// Getting it wrong in the first direction leaves a removed student in grading triage forever —
+// work nobody will ever do, that cannot be cleared, sitting in the count that says whether an
+// instructor is caught up. Getting it wrong in the second direction deletes their history from
+// the gradebook, which is the thing that must not happen.
+//
+// Two helpers rather than one, for the same reason as the pair above: a new reader picks one,
+// and the names say what picking means.
+// =======================================================================================
+
+/**
+ * A `where` fragment on `Submission` restricting it to students currently in the cohort.
+ *
+ * For the work lists — grading triage, and the counts that have to agree with it. Spread into an
+ * existing `where`; it composes with anything because it only constrains the student.
+ *
+ * Scoped to *this* course on purpose. Enrollment status is per cohort, so asking "is this student
+ * active" without naming the course would let a student's enrollment in some other cohort keep
+ * their work in this one's triage.
+ */
+export function activeStudentWork(courseId: string) {
+  return { student: { enrollments: { some: { courseId, status: "ACTIVE" as const } } } };
+}
+
+/**
+ * Which students in this cohort have been removed, for the reads that return both sets.
+ *
+ * For the reads that return both sets and have to tell them apart — the grading queue, which
+ * keeps a removed student out of the pile while still opening one by link. Partitioning one
+ * result is what makes the two sets exhaustive: a filter and its complement written as separate
+ * queries can each miss a row and nothing would say so.
+ *
+ * `courses.gradebook` reads the same fact off the roster it already fetched rather than calling
+ * this, because it needs every enrollment's status anyway for the Roster tab.
+ */
+export async function removedStudentIds(
+  db: Ctx["db"],
+  courseId: string,
+): Promise<Set<string>> {
+  const removed = await db.enrollment.findMany({
+    // Not active, rather than `REMOVED`. This has to be the exact complement of
+    // `activeStudentWork` above, or a status that is neither would fall out of both sets — out
+    // of the pile and out of the record, which is an absence nothing reports.
+    where: { courseId, status: { not: "ACTIVE" } },
+    select: { studentId: true },
+  });
+  return new Set(removed.map((row) => row.studentId));
+}

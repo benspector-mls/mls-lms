@@ -60,7 +60,6 @@ import {
 } from '@/components/ui/table';
 import { ModulesTab } from '@/components/instructor/modules-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cohortSlugProblem, MAX_COHORT_SLUG } from '@/lib/courses/cohort-slug';
 import type { EnrollmentStatus } from '@/lib/generated/prisma/enums';
 import { gradingQueueHref, triageHref } from '@/lib/links';
 import { useTRPC } from '@/trpc/client';
@@ -167,10 +166,6 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
             courseId={data.course.id}
             enrollments={data.enrollments}
             joinToken={data.course.joinToken}
-            cohortSlug={data.course.cohortSlug}
-            // Any submission means at least one repository is already named after the slug,
-            // which is what freezes it.
-            frozen={data.cells.length > 0}
           />
         </TabsContent>
         <TabsContent value="gradebook" className="mt-4">
@@ -1114,20 +1109,19 @@ function ArchiveCourseButton({
  * **Removed students are shown, not filtered out.** This is the instructor's own list and the
  * one screen where a departed student has to be visible — they are who Restore acts on, and a
  * roster that silently omitted them would make removal look like deletion.
+ *
+ * In their own table below the cohort, though, rather than dimmed among it. One list mixing the
+ * two made "who is in this cohort" a question you answered by reading opacity, and put the
+ * Restore button in the same column as Remove — two rows apart, opposite in effect.
  */
 function RosterTab({
   courseId,
   enrollments,
   joinToken,
-  cohortSlug,
-  frozen,
 }: {
   courseId: string;
   enrollments: Data['enrollments'];
   joinToken: string;
-  cohortSlug: string;
-  /** True once anything has been accepted, which is when the short name stops being editable. */
-  frozen: boolean;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -1166,20 +1160,16 @@ function RosterTab({
   );
 
   const busy = remove.isPending || restore.isPending || regenerate.isPending;
-  const active = enrollments.filter((enrollment) => enrollment.status === 'ACTIVE').length;
+  // Complements, so every enrollment lands in exactly one table. See the same reasoning in
+  // `courses.gradebook`: filters naming both statuses would lose a third one from both lists.
+  const active = enrollments.filter((enrollment) => enrollment.status === 'ACTIVE');
+  const removed = enrollments.filter((enrollment) => enrollment.status !== 'ACTIVE');
 
   return (
     <div className="flex flex-col gap-4">
-      {/*
-        Both are things to settle before students arrive, which is why they sit together on the
-        screen an instructor opens first with a new cohort. The short name is above the link
-        deliberately: it is the one with a deadline, since the first Accept freezes it.
-      */}
-      <CohortSlugCard courseId={courseId} cohortSlug={cohortSlug} frozen={frozen} />
-
       <JoinLinkCard
         joinToken={joinToken}
-        active={active}
+        active={active.length}
         busy={busy}
         onRegenerate={() => regenerate.mutate({ courseId })}
       />
@@ -1191,111 +1181,54 @@ function RosterTab({
           description="Send the link above. Students appear here as they use it."
         />
       ) : (
-        <RosterTable
-          enrollments={enrollments}
-          busy={busy}
-          onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
-          onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * The cohort's short name, which prefixes every repository it generates.
- *
- * Shown whether or not it can still be changed, because it explains the repository names an
- * instructor is looking at either way. When it is frozen the field is replaced by the reason
- * rather than disabled: a disabled input invites a click and explains nothing.
- */
-function CohortSlugCard({
-  courseId,
-  cohortSlug,
-  frozen,
-}: {
-  courseId: string;
-  cohortSlug: string;
-  frozen: boolean;
-}) {
-  const trpc = useTRPC();
-  const router = useRouter();
-  const [value, setValue] = React.useState(cohortSlug);
-  const [editing, setEditing] = React.useState(false);
-
-  const save = useMutation(
-    trpc.courses.setCohortSlug.mutationOptions({
-      onSuccess: (result) => {
-        toast.success(`Repositories will be named ${result.cohortSlug}-assignment-githubname.`);
-        setEditing(false);
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
-  const problem = value === '' ? null : cohortSlugProblem(value);
-
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4">
-      <span className="text-sm font-medium">Short name</span>
-
-      {editing ? (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (problem || value === '') return;
-            save.mutate({ courseId, cohortSlug: value });
-          }}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={value}
-              autoFocus
-              maxLength={MAX_COHORT_SLUG}
-              className="max-w-40 font-mono"
-              onChange={(event) => setValue(event.target.value.toLowerCase())}
+        <>
+          {active.length > 0 && (
+            <RosterTable
+              enrollments={active}
+              busy={busy}
+              onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
+              onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
             />
-            <Button type="submit" size="sm" disabled={save.isPending || problem !== null || value === ''}>
-              Save
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setValue(cohortSlug);
-                setEditing(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {problem && <span className="text-xs text-destructive">{problem}</span>}
-        </form>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <code className="rounded-md border border-border bg-background px-2 py-1 text-xs">
-            {cohortSlug}-assignment-githubname
-          </code>
-          {!frozen && (
-            <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-              <Pencil data-icon="inline-start" />
-              Change
-            </Button>
           )}
-        </div>
-      )}
 
-      <span className="text-xs text-muted-foreground">
-        {frozen
-          ? 'Students have already accepted work, and their repositories are named after this. Changing it here would not rename theirs.'
-          : 'Every repository this cohort generates starts with it. Editable until the first student accepts something.'}
-      </span>
+          {/*
+            Below the cohort and labelled, not mixed into it. What an instructor needs from this
+            list is that these people were here and can be put back — and that they are not part
+            of any count on the screen above.
+          */}
+          {removed.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <div className="flex flex-col gap-0.5">
+                <h3 className="text-sm font-medium">
+                  Removed students · {removed.length}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Out of the cohort&apos;s counts, out of grading triage, and out of the grading
+                  queue. Everything they submitted stays readable, to them and in the gradebook.
+                  Restore puts them back where they were.
+                </p>
+              </div>
+              <RosterTable
+                enrollments={removed}
+                busy={busy}
+                onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
+                onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
+              />
+            </section>
+          )}
+        </>
+      )}
     </div>
   );
 }
+
+/*
+  There is deliberately no card showing the cohort's short name.
+
+  It is fixed at creation, the review step on the new-course form is where it gets read, and it is
+  legible from any repository name the cohort has generated. A read-only card restating it earned a
+  panel on the roster screen for a fact nothing can act on.
+*/
 
 /**
  * The one link that enrolls a student, and the only control over it.
@@ -1425,10 +1358,13 @@ function RosterTable({
               enrollment.student.githubUsername ??
               enrollment.student.email ??
               'Unnamed';
-            const removed = enrollment.status === 'REMOVED';
+            const removed = enrollment.status !== 'ACTIVE';
 
+            // No dimming any more. It was how one mixed list said "this person has left", and
+            // the two tables say it in words now — dimming on top of a heading that already
+            // says so only makes the names harder to read.
             return (
-              <TableRow key={enrollment.id} className={removed ? 'opacity-60' : undefined}>
+              <TableRow key={enrollment.id}>
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <Avatar className="size-8">

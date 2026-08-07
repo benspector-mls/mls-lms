@@ -2,7 +2,7 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { useTRPC } from '@/trpc/client';
 
 /**
@@ -42,7 +43,13 @@ export function NewCourseDialog({
   courses,
 }: {
   /** Courses the caller can copy from — the ones they teach. */
-  courses: { id: string; name: string; cohortTerm: string; teaches: boolean }[];
+  courses: {
+    id: string;
+    name: string;
+    cohortTerm: string;
+    teaches: boolean;
+    _count: { assignments: number };
+  }[];
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -51,6 +58,19 @@ export function NewCourseDialog({
   const [name, setName] = React.useState('');
   const [cohortTerm, setCohortTerm] = React.useState('');
   const [copyFrom, setCopyFrom] = React.useState('');
+
+  /*
+    Two steps, because one of these fields cannot be taken back.
+
+    The short name is settled here and never again — every repository the cohort generates is
+    named after it, so a typo is forty repositories with a typo in them and no way to rename
+    them from this application. Copying is the other reason: it can bring a term's worth of
+    assignments into the wrong course, and undoing that means deleting them one at a time.
+
+    A review step rather than a warning beside the button, because a warning next to the thing
+    you are already committed to pressing is read after the fact.
+  */
+  const [step, setStep] = React.useState<'form' | 'confirm'>('form');
 
   /*
     The slug follows the cohort term until somebody edits it, and then stops.
@@ -66,6 +86,16 @@ export function NewCourseDialog({
   const slugProblem = effectiveSlug === '' ? null : cohortSlugProblem(effectiveSlug);
 
   const copyable = courses.filter((course) => course.teaches);
+  const source = copyable.find((course) => course.id === copyFrom) ?? null;
+
+  /** Whether the form is filled in enough to be worth reviewing. */
+  const ready =
+    name.trim() !== '' && cohortTerm.trim() !== '' && effectiveSlug !== '' && slugProblem === null;
+
+  const close = () => {
+    setOpen(false);
+    setStep('form');
+  };
 
   const create = useMutation(
     trpc.courses.create.mutationOptions({
@@ -88,10 +118,12 @@ export function NewCourseDialog({
           toast.success(`Created ${result.course.name}.`);
         }
 
-        setOpen(false);
+        close();
         setName('');
         setCohortTerm('');
         setCopyFrom('');
+        setSlug('');
+        setSlugEdited(false);
         router.push(`/instructor/courses/${result.course.id}`);
       },
       onError: (error) => toast.error(error.message),
@@ -107,18 +139,80 @@ export function NewCourseDialog({
     );
   }
 
+  if (step === 'confirm') {
+    return (
+      <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:min-w-96">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">Create this course?</span>
+          <span className="text-xs text-muted-foreground">
+            The short name is set here and cannot be changed afterwards.
+          </span>
+        </div>
+
+        <dl className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+          <Detail label="Course" value={name.trim()} />
+          <Detail label="Cohort" value={cohortTerm.trim()} />
+          {/*
+            The pattern rather than the bare slug, because the slug on its own does not show what
+            it is for. This is the string students read for the next nine months.
+          */}
+          <Detail
+            label="Repositories"
+            value={`${effectiveSlug}-assignment-githubname`}
+            mono
+            emphasis
+          />
+          <Detail
+            label="Copying"
+            value={
+              source
+                ? `${source.name} · ${source.cohortTerm} — its modules and ` +
+                  `${source._count.assignments} ` +
+                  `${source._count.assignments === 1 ? 'assignment' : 'assignments'}, ` +
+                  `unpublished, with due dates cleared`
+                : 'Nothing. Modules and assignments are added afterwards.'
+            }
+          />
+        </dl>
+
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            disabled={create.isPending}
+            onClick={() =>
+              create.mutate({
+                name: name.trim(),
+                cohortTerm: cohortTerm.trim(),
+                cohortSlug: effectiveSlug,
+                copyFromCourseId: copyFrom || undefined,
+              })
+            }
+          >
+            {create.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
+            Create course
+          </Button>
+          {/* Back rather than Cancel: every field is still filled in, and this is a review. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={create.isPending}
+            onClick={() => setStep('form')}
+          >
+            <ArrowLeft data-icon="inline-start" />
+            Back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form
       className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:min-w-96"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!name.trim() || !cohortTerm.trim()) return;
-        create.mutate({
-          name: name.trim(),
-          cohortTerm: cohortTerm.trim(),
-          cohortSlug: effectiveSlug,
-          copyFromCourseId: copyFrom || undefined,
-        });
+        if (!ready) return;
+        setStep('confirm');
       }}
     >
       <div className="flex flex-col gap-1.5">
@@ -153,8 +247,8 @@ export function NewCourseDialog({
 
         Suggested rather than asked for, because typing one per cohort is a chore and "Fall 2026"
         already implies it. Editable in the same breath, because `f26` is what somebody reading
-        forty repository names actually wants, and this is the only moment it is free to change:
-        after the first student accepts, their repositories are named after it.
+        forty repository names actually wants — and this is the only moment it is editable at all,
+        which is what the review step exists to make sure gets read.
       */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium" htmlFor="course-slug">
@@ -177,7 +271,7 @@ export function NewCourseDialog({
           <p className="text-xs text-muted-foreground">
             Every repository this cohort generates is named{' '}
             <code>{effectiveSlug || 'short-name'}-assignment-githubname</code>. It cannot be
-            changed once a student has accepted anything.
+            changed after the course is created.
           </p>
         )}
       </div>
@@ -216,24 +310,42 @@ export function NewCourseDialog({
       )}
 
       <div className="flex gap-2">
-        <Button
-          type="submit"
-          size="sm"
-          disabled={
-            create.isPending ||
-            !name.trim() ||
-            !cohortTerm.trim() ||
-            effectiveSlug === '' ||
-            slugProblem !== null
-          }
-        >
-          {create.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
-          Create
+        {/* "Review" and not "Create", because it is not the button that creates anything. */}
+        <Button type="submit" size="sm" disabled={!ready}>
+          Review
         </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+        <Button type="button" size="sm" variant="ghost" onClick={close}>
           Cancel
         </Button>
       </div>
     </form>
+  );
+}
+
+/** One labelled fact on the review step, in a column that lines its labels up. */
+function Detail({
+  label,
+  value,
+  mono = false,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+      <dt className="shrink-0 text-xs text-muted-foreground sm:w-24 sm:pt-0.5">{label}</dt>
+      <dd
+        className={cn(
+          'min-w-0 break-words text-sm',
+          mono && 'font-mono text-xs',
+          emphasis ? 'font-medium text-foreground' : 'text-muted-foreground',
+        )}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }

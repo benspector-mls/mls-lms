@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { isManualOnly } from '@/lib/assignments/spec';
+import { activeStudentWork, removedStudentIds } from '@/lib/courses/membership';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
 import { signedDownloadUrl } from '@/lib/uploads/storage';
@@ -320,6 +321,15 @@ export const submissionsRouter = createTRPCRouter({
       const submissions = await ctx.db.submission.findMany({
         where: {
           assignment: { courseId: input.courseId },
+          /*
+            Students currently in the cohort. A removed student's unfinished work is not
+            waiting on anybody — nobody is going to grade a submission from somebody who has
+            left the program — and left in, it sits here permanently, in a count that is
+            supposed to answer whether the instructor is caught up. It is not deleted: the
+            gradebook shows it, in its own table, which is where a departed student's record
+            belongs. Restoring them puts it straight back, because this reads live status.
+          */
+          ...activeStudentWork(input.courseId),
           OR: [
             // Open work, whether or not a run has happened yet.
             { status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
@@ -380,8 +390,14 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       // Counted rather than fetched. The screen shows how many are done, not which.
+      // Same restriction as the pile above, so the two halves of "3 left, 12 approved"
+      // describe the same set of students.
       const gradedCount = await ctx.db.submission.count({
-        where: { assignment: { courseId: input.courseId }, status: 'GRADED' },
+        where: {
+          assignment: { courseId: input.courseId },
+          ...activeStudentWork(input.courseId),
+          status: 'GRADED',
+        },
       });
 
       /*
@@ -533,6 +549,27 @@ export const submissionsRouter = createTRPCRouter({
         distinct: ['submissionId'],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+      const removed = await removedStudentIds(ctx.db, assignment.courseId);
+
+      const decorate = (submission: (typeof submissions)[number]) => {
+        const { gradingDrafts, ...rest } = submission;
+        const draft = gradingDrafts[0] ?? null;
+        const draftIsStale =
+          draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
+
+        return {
+          ...rest,
+          bucket: triageBucket(
+            rest.status,
+            draft,
+            draftIsStale,
+            undeliveredIds.has(rest.id),
+            manualOnly,
+          ),
+          draftIsStale,
+          activeDraft: draft,
+        };
+      };
 
       return {
         // Spelled out rather than spread, so `sections` does not travel to the browser as a
@@ -545,24 +582,27 @@ export const submissionsRouter = createTRPCRouter({
           kind: assignment.kind,
           manualOnly,
         },
-        submissions: submissions.map(({ gradingDrafts, ...submission }) => {
-          const draft = gradingDrafts[0] ?? null;
-          const draftIsStale =
-            draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
-
-          return {
-            ...submission,
-            bucket: triageBucket(
-              submission.status,
-              draft,
-              draftIsStale,
-              undeliveredIds.has(submission.id),
-              manualOnly,
-            ),
-            draftIsStale,
-            activeDraft: draft,
-          };
-        }),
+        /**
+         * The queue itself: students currently in the cohort.
+         *
+         * A removed student is not work to be done, so they are not in the pile an instructor
+         * works down — the same reason they are out of grading triage.
+         */
+        submissions: submissions.filter((row) => !removed.has(row.student.id)).map(decorate),
+        /**
+         * A removed student's work for this assignment, kept out of the list and still openable.
+         *
+         * Two arrays rather than a flag on every row, because the two are read differently: the
+         * queue never lists these, and the review pane opens one when a link names it. The
+         * gradebook's Removed table links straight here, and a link into a screen that refuses
+         * to show what it points at is worse than no link.
+         *
+         * Partitioned from one query so the two are exhaustive. A filter and its complement
+         * written as separate queries can each miss a row and nothing would say so.
+         */
+        removedSubmissions: submissions
+          .filter((row) => removed.has(row.student.id))
+          .map(decorate),
       };
     }),
 });

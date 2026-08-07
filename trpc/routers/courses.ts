@@ -173,7 +173,8 @@ export const coursesRouter = createTRPCRouter({
           id: true,
           name: true,
           cohortTerm: true,
-          cohortSlug: true,
+          // No `cohortSlug`. It is fixed at creation, nothing on these screens acts on it, and it
+          // is legible from any repository name the cohort has generated.
           archivedAt: true,
           /*
             The join link. Safe here and nowhere a student can reach: this procedure is
@@ -266,13 +267,36 @@ export const coursesRouter = createTRPCRouter({
       const manualOnlyByAssignment = new Map(
         assignments.map((assignment) => [assignment.id, isManualOnly(assignment.sections)]),
       );
+      // Everybody not currently active, for the same reason as the two lists below: the set and
+      // its complement have to cover the roster.
+      const removed = new Set(
+        enrollments
+          .filter((enrollment) => enrollment.status !== 'ACTIVE')
+          .map((enrollment) => enrollment.student.id),
+      );
+
+      const cells = submissions.map(({ gradingDrafts, ...submission }) => {
+        const draft = gradingDrafts[0] ?? null;
+        const draftIsStale =
+          draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
+
+        return {
+          ...submission,
+          bucket: triageBucket(
+            submission.status,
+            draft,
+            draftIsStale,
+            undeliveredIds.has(submission.id),
+            manualOnlyByAssignment.get(submission.assignmentId) ?? false,
+          ),
+        };
+      });
 
       return {
         course: {
           id: course.id,
           name: course.name,
           cohortTerm: course.cohortTerm,
-          cohortSlug: course.cohortSlug,
           archivedAt: course.archivedAt,
           joinToken: course.joinToken,
           modules: course.modules,
@@ -285,34 +309,44 @@ export const coursesRouter = createTRPCRouter({
         /**
          * Every enrollment, with its status, for the Roster tab.
          *
-         * The gradebook uses `activeEnrollments` instead. Two lists rather than one filtered in
-         * the interface, because "who is in this cohort" and "whose figures make up this cohort"
-         * are different questions, and a component that had to remember which one it was asking
-         * would eventually get it wrong.
+         * Three lists rather than one filtered in the interface, because "who is in this cohort",
+         * "whose figures make up this cohort", and "who has left it" are different questions, and
+         * a component that had to remember which one it was asking would eventually get it wrong.
          */
         enrollments,
+        /*
+          Active, and everything else — not "active" and "removed". The two are complements, so
+          every enrollment is in exactly one of them and nobody can go missing from both. That
+          matters the day a third status exists: `REMOVED` is the only non-active value today, and
+          a pair of filters naming both values would silently drop an `AUDITING` student from the
+          roster and the gradebook alike, which is the kind of absence nothing reports.
+        */
         activeEnrollments: enrollments.filter((enrollment) => enrollment.status === 'ACTIVE'),
+        removedEnrollments: enrollments.filter((enrollment) => enrollment.status !== 'ACTIVE'),
         /**
-         * One entry per submission that exists. A student who has not accepted an
-         * assignment has no row, and the grid renders that gap as a gap rather than as a
-         * zero — never having started is not the same as having scored nothing.
+         * One entry per submission by a student **currently in the cohort**.
+         *
+         * A student who has not accepted an assignment has no row, and the grid renders that gap
+         * as a gap rather than as a zero — never having started is not the same as having scored
+         * nothing.
+         *
+         * Active only, because every reader of this list is asking about the cohort's present
+         * state: the gradebook grid, the "N submissions waiting on you" in the course heading, and
+         * the per-assignment "to grade" column. All three have to agree with grading triage, and
+         * that is the set triage works from. Getting this wrong is quiet — the heading claims work
+         * is waiting and triage shows nothing to do, with no way to reconcile them.
          */
-        cells: submissions.map(({ gradingDrafts, ...submission }) => {
-          const draft = gradingDrafts[0] ?? null;
-          const draftIsStale =
-            draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
-
-          return {
-            ...submission,
-            bucket: triageBucket(
-              submission.status,
-              draft,
-              draftIsStale,
-              undeliveredIds.has(submission.id),
-              manualOnlyByAssignment.get(submission.assignmentId) ?? false,
-            ),
-          };
-        }),
+        cells: cells.filter((cell) => !removed.has(cell.studentId)),
+        /**
+         * The same, for students who have been removed — their record, not the cohort's state.
+         *
+         * A departed student's work is kept and shown in its own table. This is the point of
+         * removing rather than deleting: how somebody did before they left the program is worth
+         * being able to read afterwards, and the alternative takes it back.
+         *
+         * Partitioned from one query rather than fetched separately, so the two are exhaustive.
+         */
+        removedCells: cells.filter((cell) => removed.has(cell.studentId)),
       };
     }),
 
@@ -524,59 +558,25 @@ export const coursesRouter = createTRPCRouter({
       });
     }),
 
-  /**
-   * Changes the cohort's short name, while that is still free.
-   *
-   * **Refused once anybody in the course has accepted anything.** Their repositories are already
-   * named `{cohortSlug}-{assignmentRepoName}-{login}`, and renaming here would not rename theirs
-   * — every later lookup uses the `repoFullName` recorded on the submission, so the rows would go
-   * on working while the name in the interface described nothing. The same rule and the same
-   * reason as `assignments.update` refusing a repository-name change.
-   *
-   * Which makes the window small and worth saying so: this is editable between creating a course
-   * and the first student pressing Accept.
-   */
-  setCohortSlug: instructorProcedure
-    .input(z.object({
-      courseId: z.string().uuid(),
-      cohortSlug: z.string().trim().toLowerCase().max(MAX_COHORT_SLUG),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+  /*
+    There is deliberately no `setCohortSlug`.
 
-      const problem = cohortSlugProblem(input.cohortSlug);
-      if (problem) throw new TRPCError({ code: 'BAD_REQUEST', message: problem });
+    The short name is settled when the course is created and never again. It prefixes every
+    repository the cohort generates, so the only window in which changing it means anything is
+    before the first Accept — and a mutation that is legal for a few hours and refused forever
+    after is a rule every reader has to learn, a check to keep correct, and a screen that has to
+    explain which state it is in. What it buys is correcting a typo, in a window measured against
+    a nine-month cohort.
 
-      const accepted = await ctx.db.submission.count({
-        where: { assignment: { courseId: input.courseId } },
-      });
+    It also cost more than that. "Editable until somebody accepts" made "has anybody ever accepted"
+    a question the gradebook had to answer, which is the one reader that needed *every* submission
+    rather than the active students' — so filtering removed students out of the gradebook would
+    have quietly reported a cohort's name as free to change while repositories were already named
+    after it. Removing the mutation removed that reader.
 
-      if (accepted > 0) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            `${accepted} ${accepted === 1 ? 'student has' : 'students have'} already started ` +
-            `work in this course, and their repositories are named after the current short ` +
-            `name. Renaming it here would not rename theirs.`,
-        });
-      }
-
-      try {
-        return await ctx.db.course.update({
-          where: { id: input.courseId },
-          data: { cohortSlug: input.cohortSlug },
-          select: { id: true, name: true, cohortSlug: true },
-        });
-      } catch (err) {
-        if ((err as { code?: string }).code === 'P2002') {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: `Another course already uses "${input.cohortSlug}" as its short name.`,
-          });
-        }
-        throw err;
-      }
-    }),
+    A typo caught after creating a course is fixed by creating it again, or by a one-line database
+    update, which is safe for exactly as long as the course has no submissions.
+  */
 
   /**
    * Replaces the join link, invalidating the old one.

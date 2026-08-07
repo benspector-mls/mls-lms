@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
-import { Inbox, Search } from 'lucide-react';
+import { Inbox, Search, UserMinus } from 'lucide-react';
 
 import { GradingReview } from '@/components/instructor/grading-review';
 import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
@@ -81,10 +81,25 @@ export function GradingQueue({
         (row.student.email ?? '').toLowerCase().includes(term),
     );
 
-  // The selection survives a filter that no longer contains it, so switching tabs does
-  // not quietly swap the student being read.
+  /*
+    The selection survives a filter that no longer contains it, so switching tabs does not
+    quietly swap the student being read.
+
+    `removedSubmissions` is searched too, and only here. A removed student is never in the list —
+    nobody is going to grade work from somebody who has left, which is why they are out of triage
+    as well — but the gradebook's Removed table links straight to one of these, and a link into a
+    screen that will not show what it points at is worse than no link at all. So the pile is the
+    cohort, and asking for one submission by name still answers.
+  */
   const selected =
-    submissions.find((row) => row.id === selectedId) ?? filtered[0] ?? null;
+    submissions.find((row) => row.id === selectedId) ??
+    data.removedSubmissions.find((row) => row.id === selectedId) ??
+    filtered[0] ??
+    null;
+
+  /** Whether the open submission belongs to somebody no longer in the cohort. */
+  const selectedIsRemoved =
+    selected !== null && data.removedSubmissions.some((row) => row.id === selected.id);
 
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -164,29 +179,57 @@ export function GradingQueue({
           </div>
         </aside>
 
-        <section className="min-h-0 overflow-hidden bg-muted/20">
-          {selected ? (
-            // Keyed on the submission so switching students resets the editor rather
-            // than carrying one student's unsaved edits onto another's report.
-            <GradingReview
-              key={selected.id}
-              submission={selected}
-              assignmentTitle={data.assignment.title}
-              // Read here rather than by the review pane, which would have to wait on its
-              // own request to find out whether this assignment can have tests at all.
-              assignmentKind={data.assignment.kind}
-              completionThreshold={completionThreshold}
-              now={now}
-            />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-              <Inbox className="size-10 text-muted-foreground" />
-              <p className="text-base font-medium">Pick a student</p>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Their report, test results, and repository open here.
+        <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
+          {/*
+            Said before the work rather than left to be noticed. This submission is not in the
+            list beside it, and an instructor who read a report and approved it without knowing
+            the student had left the cohort would be grading somebody who is not there.
+          */}
+          {selectedIsRemoved && selected && (
+            <div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/60 px-4 py-2.5 text-sm">
+              <UserMinus className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {selected.student.displayName ??
+                    selected.student.githubUsername ??
+                    selected.student.email ??
+                    'This student'}
+                </span>{' '}
+                has been removed from this cohort, so this is not in the queue beside it. Their
+                work stays readable here and in the gradebook.
               </p>
             </div>
           )}
+
+          {/*
+            `min-h-0 flex-1` because the review pane sizes itself with `h-full` and scrolls
+            inside. Without it, the banner above would push the bottom of the pane — the approve
+            button among it — off the screen.
+          */}
+          <div className="min-h-0 flex-1">
+            {selected ? (
+              // Keyed on the submission so switching students resets the editor rather
+              // than carrying one student's unsaved edits onto another's report.
+              <GradingReview
+                key={selected.id}
+                submission={selected}
+                assignmentTitle={data.assignment.title}
+                // Read here rather than by the review pane, which would have to wait on its
+                // own request to find out whether this assignment can have tests at all.
+                assignmentKind={data.assignment.kind}
+                completionThreshold={completionThreshold}
+                now={now}
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+                <Inbox className="size-10 text-muted-foreground" />
+                <p className="text-base font-medium">Pick a student</p>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Their report, test results, and repository open here.
+                </p>
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </div>

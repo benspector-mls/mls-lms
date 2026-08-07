@@ -173,7 +173,7 @@ These are settled and do not need revisiting.
 - **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
 - **Completion is judged at 75 percent**, matching the Complete/Incomplete policy in `working-with-assignments.md`. Stored per assignment as `completionThreshold`.
 - **Students join a course through one link per course.** An instructor copies it and sends it however they already talk to their students; opening it and signing in with GitHub creates the enrollment. This application holds no email credentials and sends nothing. See [getting students into a course](#getting-students-into-a-course).
-- **Removing a student and archiving a course make lists go quiet; they never take work back.** A removed student keeps reading the feedback they were given, and an archived cohort stays readable to the people who were in it. Neither can hand anything new in.
+- **Removing a student and archiving a course make lists go quiet; they never take work back.** A removed student keeps reading the feedback they were given, and an archived cohort stays readable to the people who were in it. Neither can hand anything new in. A removed student's work leaves grading triage and the grading queue's list and moves to a Removed students table in the gradebook — see [a removed student's work](#a-removed-students-work).
 - **GitHub's numeric user ID is the durable identity key**, because usernames are mutable.
 - **An uploaded submission is readable only through a signed URL a procedure minted.** The bucket is private and carries no policies, so the browser cannot reach it at all.
 - **The sandbox never holds a GitHub token.**
@@ -314,7 +314,11 @@ What that trades away is an allowlist, so the controls are after the fact: `rege
 
 **Without it, two cohorts of the same program collide.** The name would carry no course, so a student in both — one repeating a module, or an instructor testing a copied cohort — would want the repository their other cohort already holds. `@@unique([courseId, assignmentRepoName])` does not catch that: it is per course, and the collision domain is the organization.
 
-**Suggested from the cohort term, then editable.** "Fall 2026" offers `fall-2026`; an instructor who would rather read `f26` across forty repository names says so. The form follows the term until somebody edits the slug and then stops — tracked as "have they touched it" rather than by comparing the two, because typing `fall-2026` by hand is still taking it over.
+**Suggested from the cohort term, then editable — once.** "Fall 2026" offers `fall-2026`; an instructor who would rather read `f26` across forty repository names says so. The form follows the term until somebody edits the slug and then stops — tracked as "have they touched it" rather than by comparing the two, because typing `fall-2026` by hand is still taking it over.
+
+**Settled when the course is created and never again.** There is no `setCohortSlug`, which is why creating a course has a review step: the only window in which changing the name means anything is before the first Accept, and a mutation that is legal for a few hours and refused forever after is a rule every reader has to learn, a check to keep correct, and a screen that has to explain which state it is in. It cost more than that, too — "has anybody accepted yet" made the gradebook the one reader that needed *every* submission rather than the active students', which is exactly the reader that broke when removed students moved to their own table. A typo caught afterwards is fixed by creating the course again, or by a one-line database update, which is safe for as long as the course has no submissions.
+
+The course screens do not show it. It is read on the review step when it is being decided, and it is legible from any repository name the cohort has generated; a read-only card restating it spent a panel on the roster screen for a fact nothing can act on. `courses.gradebook` does not return it either.
 
 **Frozen once anybody in the course has accepted anything**, the same rule and reason as an assignment's repository name: those repositories are already named after it, and renaming here would not rename theirs. That makes the editable window "between creating the course and the first Accept", which the screen says out loud.
 
@@ -342,6 +346,25 @@ They live side by side in `lib/courses/membership.ts` because the two `where` cl
 **The write paths were already right, and the read paths were the work**, which is the opposite of how it looks. `accept` and `assertCanHandIn` each checked `ACTIVE` themselves — a mutation must not assume which query preceded it — so a removed student was already refused. What had to widen was the four read checks, which filtered on `ACTIVE` too and would otherwise deny a removed student the course they are meant to keep.
 
 `courses.listMine` is the one where admitting them is not the whole answer: it returns `enrolledAs`, so the card can say *no longer enrolled*. A course that silently reappeared, indistinguishable from the cohorts they are still in, would be telling a student something false.
+
+### A removed student's work
+
+Stopping the enrollment did nothing to the submissions, so a student who had left the program stayed in grading triage indefinitely — work nobody was going to do, that could not be cleared, inside the count that says whether an instructor is caught up.
+
+**The same two questions, asked about a cohort's work rather than about the caller**, and they sit in `membership.ts` beside the pair above for the same reason. Every instructor-facing read of a course's submissions is a **list of work waiting**, which a departed student contributes nothing to, or a **record of what happened**, which they are part of.
+
+| | Used by | Effect |
+| - | - | - |
+| `activeStudentWork(courseId)` | `submissions.triage` and its approved count | a removed student's work is not in the pile |
+| `removedStudentIds(db, courseId)` | `submissions.listForAssignment` | partitions one query into the queue's list and the rest |
+
+**The counts were the second half of the job.** The course heading's "N submissions waiting on you" and the assignments tab's "to grade" column both count `cells`, so fixing triage alone would have left the heading claiming work was waiting while triage showed nothing to do — with nothing on either screen to reconcile them. `courses.gradebook` returns `cells` narrowed to active students and `removedCells` beside it, so those readers are right by construction rather than by remembering to filter. A check asserts the heading's count equals what triage returns.
+
+**`listForAssignment` returns two arrays**, `submissions` and `removedSubmissions`. The queue lists only the first; the review pane opens a row from either, with a banner naming the student who has left. The gradebook's Removed table links straight there, and a link into a screen that will not show what it points at is worse than no link. Same distinction as an archived course: triage is a list of work, an assignment's queue is how work is read.
+
+**An ungraded submission in the Removed table says "Not graded"**, not the amber "waiting on you" dot. The difference is whose action is outstanding, and nobody's is. Nothing is closed or rewritten on removal, so `enrollments.restore` puts the work straight back — every filter reads live enrollment status.
+
+**Every partition is a set and its complement**, never two named statuses. `REMOVED` is the only non-active value today, and filters naming both would silently drop an `AUDITING` student from the roster and the gradebook alike, which is an absence nothing reports.
 
 **A gradebook and a roster want opposite things from the same payload.** `courses.gradebook` returns `enrollments` — every status, so the Roster tab can show a departed student and offer to restore them — and `activeEnrollments`, which is what the grid and every count read. Two lists rather than one filtered in the interface, because a component that had to remember which question it was asking would eventually get it wrong.
 
