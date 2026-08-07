@@ -66,6 +66,7 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
+  const { newJoinToken } = await import("../lib/courses/join-token");
 
   const course = await db.course.findFirst({
     where: { archivedAt: null },
@@ -347,11 +348,109 @@ async function main() {
     }
   }
 
+  /*
+    --- re-seeding does not undo a rename, or duplicate the module -------------
+
+    The seed used to upsert its modules **by name**, with a comment claiming that survived an
+    instructor renaming one. It does the exact opposite: with nothing matching the old name, the
+    upsert creates it — so a renamed module ends up beside an empty impostor at the position the
+    seed wanted, holding none of the assignments. It happened twice on the development database,
+    and a course copied from that one inherited both.
+
+    Checked here rather than trusted, because the seed is run by hand and nothing else would
+    notice. This mirrors the seed's module step against a fixture built to be the broken case: a
+    module renamed away from the seed's name, with no impostor present yet.
+  */
+  const SEED_MODULE_NAMES = [
+    "Mod 0 - Command Line Interfaces, Git, and GitHub",
+    "Mod 1 - JavaScript Fundamentals",
+    "Mod 2 - Object-Oriented Programming",
+  ];
+
+  try {
+    await db.$transaction(async (tx) => {
+      const scratch = await tx.course.create({
+        data: {
+          name: "Verify Reseed",
+          cohortTerm: "Cohort Verify Reseed",
+          cohortSlug: "verify-reseed",
+          joinToken: newJoinToken(),
+        },
+        select: { id: true },
+      });
+
+      // The seed's own step, run once on an empty course.
+      const seedModules = async () => {
+        const byPosition = new Map<number, string>();
+        for (const [position, name] of SEED_MODULE_NAMES.entries()) {
+          const existing = await tx.module.findFirst({
+            where: { courseId: scratch.id, position },
+            orderBy: { name: "asc" },
+            select: { id: true },
+          });
+          if (existing) {
+            byPosition.set(position, existing.id);
+            continue;
+          }
+          const row = await tx.module.upsert({
+            where: { courseId_name: { courseId: scratch.id, name } },
+            create: { courseId: scratch.id, name, position },
+            update: {},
+            select: { id: true },
+          });
+          byPosition.set(position, row.id);
+        }
+        return byPosition;
+      };
+
+      await seedModules();
+      const created = await tx.module.count({ where: { courseId: scratch.id } });
+      check("seeding a fresh course creates its modules", created, SEED_MODULE_NAMES.length);
+
+      // An instructor renames the one at position 1, exactly as `modules.rename` does.
+      const target = await tx.module.findFirst({
+        where: { courseId: scratch.id, position: 1 },
+        select: { id: true },
+      });
+      await tx.module.update({
+        where: { id: target!.id },
+        data: { name: "Mod 1 - JS Fundamentals" },
+      });
+
+      // And the seed runs again.
+      const second = await seedModules();
+
+      const after = await tx.module.findMany({
+        where: { courseId: scratch.id },
+        select: { id: true, name: true, position: true },
+        orderBy: [{ position: "asc" }, { name: "asc" }],
+      });
+
+      check("re-seeding after a rename creates nothing", after.length, SEED_MODULE_NAMES.length);
+      check("...and does not resurrect the old name",
+        after.some((row) => row.name === "Mod 1 - JavaScript Fundamentals"), false);
+      check("...and leaves the rename standing",
+        after.find((row) => row.position === 1)?.name, "Mod 1 - JS Fundamentals");
+      /*
+        The half that makes the fix worth anything. If position 1 resolved to a new row, the seed
+        would go on working and quietly file every new assignment in the impostor.
+      */
+      check("...and position 1 still resolves to the renamed module, so assignments land in it",
+        second.get(1), target!.id);
+
+      throw new Error("ROLLBACK");
+    });
+  } catch (err) {
+    if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
+  }
+
   // --- the rollback really rolled back ---------------------------------------
   const leftover = await db.module.count({
     where: { name: { in: ["Mod 98 - Renamed", "Mod 99 - Verify Two", "Mod 97 - Padded"] } },
   });
   check("no modules survived the rollback", leftover, 0);
+  check("...nor the course the re-seed check made",
+    await db.course.count({ where: { cohortSlug: "verify-reseed" } }), 0);
 
   return report();
 }

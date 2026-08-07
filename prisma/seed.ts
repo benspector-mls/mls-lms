@@ -436,8 +436,17 @@ async function main() {
     the point of modules being rows: what a cohort takes is a cohort decision, not a fact
     about how a repository is laid out.
 
-    Upserted by name, so re-seeding a database whose modules were renamed by hand does not
-    create duplicates and does not undo the rename.
+    **Identified by position, not by name**, which is the only reason re-seeding is safe.
+
+    This upserted by name and the comment here claimed that survived a rename. It does the
+    opposite: rename "Mod 1 - JavaScript Fundamentals" to "Mod 1 - JS Fundamentals" and the next
+    seed run finds nothing by the old name and *creates* it — so the course ends up with the
+    renamed module holding all the assignments and an empty impostor beside it, at the position
+    the seed wanted. It happened, twice, and the copy of that course inherited both.
+
+    A name is what an instructor changes; a position is what the seed is actually asserting —
+    "this course has eight modules in this order". So a module already at position N *is* this
+    module, whatever it has since been called, and the seed leaves its name alone.
   */
   const MODULE_NAMES = [
     "Mod 0 - Command Line Interfaces, Git, and GitHub",
@@ -450,15 +459,38 @@ async function main() {
     "Mod 7 - React",
   ];
 
-  const modulesByName = new Map<string, string>();
+  /** Module id by position, because position is what survives an instructor renaming one. */
+  const moduleIdByPosition = new Map<number, string>();
   for (const [position, name] of MODULE_NAMES.entries()) {
+    /*
+      `findFirst` rather than a unique lookup: `position` is deliberately not unique, so that
+      `reorder` can rewrite the whole sequence in one statement. The name tie-break matches
+      `modules.listForCourse`, so "the module at position 1" means the same row here as on screen.
+    */
+    const existing = await prisma.module.findFirst({
+      where: { courseId: course.id, position },
+      orderBy: { name: "asc" },
+      select: { id: true },
+    });
+
+    if (existing) {
+      moduleIdByPosition.set(position, existing.id);
+      continue;
+    }
+
+    /*
+      Nothing at this position, so create it — but by name, and tolerating one that already
+      exists. A module carrying this name somewhere else is this module after a reorder, and
+      claiming the name again would be refused by `@@unique([courseId, name])` anyway.
+    */
     const row = await prisma.module.upsert({
       where: { courseId_name: { courseId: course.id, name } },
       create: { courseId: course.id, name, position },
-      update: { position },
-      select: { id: true, name: true },
+      // Deliberately empty. A module an instructor moved stays where they put it.
+      update: {},
+      select: { id: true },
     });
-    modulesByName.set(row.name, row.id);
+    moduleIdByPosition.set(position, row.id);
   }
   console.log(`Modules: ${MODULE_NAMES.length}`);
 
@@ -469,20 +501,25 @@ async function main() {
    * what `SEED_ASSIGNMENTS` already carries. The two are no longer the same thing, so the
    * mapping has to be written down rather than derived — which is exactly the freedom the
    * change bought, and exactly the cost of it.
+   *
+   * The value is a **position** in `MODULE_NAMES`, not a name, for the same reason as above: a
+   * name is what an instructor renames, and a mapping that went through the name would stop
+   * resolving the moment they did. Only new assignments are placed by it — an existing one keeps
+   * whatever module it is in.
    */
-  const MODULE_FOR_KEY_DIR: Record<string, string> = {
-    "answer-keys/mod-1-js-fundamentals": "Mod 1 - JavaScript Fundamentals",
-    "answer-keys/mod-2-oop": "Mod 2 - Object-Oriented Programming",
-    "answer-keys/mod-3-html-css": "Mod 3 - HTML & CSS",
-    "answer-keys/mod-4-dom": "Mod 4 - Interactive & Data-Driven User Interfaces",
-    "answer-keys/mod-5-servers": "Mod 5 - Server-Side Development",
-    "answer-keys/mod-6-databases": "Mod 6 - Databases",
-    "answer-keys/mod-7-react": "Mod 7 - React",
+  const MODULE_FOR_KEY_DIR: Record<string, number> = {
+    "answer-keys/mod-1-js-fundamentals": 1,
+    "answer-keys/mod-2-oop": 2,
+    "answer-keys/mod-3-html-css": 3,
+    "answer-keys/mod-4-dom": 4,
+    "answer-keys/mod-5-servers": 5,
+    "answer-keys/mod-6-databases": 6,
+    "answer-keys/mod-7-react": 7,
   };
 
   function moduleIdFor(keyDir: string): string {
-    const name = MODULE_FOR_KEY_DIR[keyDir];
-    const id = name ? modulesByName.get(name) : undefined;
+    const position = MODULE_FOR_KEY_DIR[keyDir];
+    const id = position === undefined ? undefined : moduleIdByPosition.get(position);
     if (!id) {
       throw new Error(
         `No module for answer key directory "${keyDir}". Add it to MODULE_FOR_KEY_DIR, or to ` +
