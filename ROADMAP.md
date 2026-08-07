@@ -76,14 +76,28 @@ The sequence, most immediate first. A feature's own section says what is known a
 
 **Nothing about running a cohort needs the database any more**, which is what moved measurement to the front. A course can be created, copied, filled from a join link, co-taught, and retired; somebody can be made staff by an admin and added to a cohort by whoever runs it. The first admin of a deployment is still a hand-edited row, necessarily, because there is nobody to grant it — `npm run grant:admin` is that base case as a tool.
 
-So what is left at the top of this list is measurement and a review of code that already works, in that order: measuring first, because a real cohort produces figures rather than estimates, and reviewing after, because the shape of the application only became clear once the whole loop worked.
+**Two things ahead of that turned out to be gaps rather than features**, and they lead because of it. A cohort can be archived and then cannot be reached from anywhere in the interface, which contradicts what archiving is supposed to mean. And a course's creator can be removed from it by anybody who teaches alongside them, which is the one permission in the application that nothing guards.
 
-1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-2. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-3. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-4. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-5. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-6. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+After those, the ordering principle is: correctness gaps, then the cheap things, then measurement, then a review of code that already works, then the three features that add real surface area. Measurement before the review because a real cohort produces figures rather than estimates; the review before the large features because every one of them adds readers to the parts it would touch.
+
+1. **[Course ownership](#course-ownership)** — the creator cannot be removed by a co-teacher, can hand the course to somebody else, and is the only one who can archive it. A permissions gap, small, and it composes with deleting a course below.
+2. **[Archived courses need a way back, and a way out](#archived-courses-need-a-way-back-and-a-way-out)** — `listMine` filters them with no toggle, so a finished cohort is readable by URL and by nothing else. Deleting one is the second half.
+3. **[Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)** — the procedure already does this; what is missing is a course picker. The smallest item on this list.
+4. **[More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)** — Jupyter notebooks and spreadsheets are a few lines each. Google Slides is not a file type at all, which is the part worth reading.
+5. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
+6. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+7. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+8. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+9. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
+10. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
+11. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+12. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+13. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+14. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+
+Items 1 through 5 and 8 through 10 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 and 2 come before the rest: both are the application failing to do what it already claims.
+
+[Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that item 6 produces anyway.
 
 **Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, and retired.
 
@@ -864,6 +878,141 @@ A new capability rather than a screen, and it needs a data-model decision. Today
 
 ---
 
+## Course ownership
+
+`CourseInstructor.isPrimary` already marks whoever created the cohort, and today it means almost nothing: `removeInstructor` refuses only the *last* instructor, so anybody who teaches a course can remove its creator, and `setArchived` is teach-gated rather than owner-gated, so any co-teacher can retire a cohort somebody else runs. Neither is malice waiting to happen so much as a permission nothing guards, which became worth guarding the moment a course could have a second instructor.
+
+Three changes, and they are one feature rather than three:
+
+- **The owner cannot be removed by anybody else.** A check comparing the caller against the row, not just against the count.
+- **The owner can transfer the course**, which is what makes the first rule livable. Without it, "the owner cannot be removed" reads as "the person who set this up runs it forever", and somebody who leaves the program leaves a cohort nobody can take responsibility for. Transfer moves `isPrimary` to another existing instructor of the course; leaving afterwards is then the ordinary `removeInstructor` they already have.
+- **Only the owner archives.** Retiring a cohort changes what every student in it sees, which is the one action here with reach beyond the instructor performing it.
+
+**This reverses something the README currently states.** It says the primary instructor is removable on purpose, so that "who created this" does not outrank "who runs it now" — which was right when the only alternative was permanence, and stops being right once transfer exists. Transfer is what answers that objection, so the two have to ship together; the README passage under [co-teaching one cohort](README.md#co-teaching-one-cohort) changes with them.
+
+Three things to decide rather than assume:
+
+- **Where an admin sits.** `assertTeachesCourse` lets an admin do anything to any course, so an admin can already remove an owner and archive anybody's cohort. Probably correct — an admin is the recovery path when an owner leaves without transferring — but it should be a decision rather than a consequence of a guard written for something else.
+- **What happens when the owner's account is deleted.** `CourseInstructor` cascades on the profile, so deleting an owner leaves a course with instructors and no `isPrimary` row. Every rule above then has no subject. The cheapest answer is that ownership falls to the longest-serving remaining instructor, computed rather than stored; the alternative is refusing to delete a profile that owns a course, which pushes the problem onto a screen that does not exist.
+- **Whether `isPrimary` stays a boolean.** It is a boolean with a uniqueness rule nothing enforces — two rows could both be primary and the schema would allow it. If ownership becomes load-bearing, that constraint should be real.
+
+`verify:enrollment` covers `removeInstructor` already, and its existing checks keep passing under these rules: the co-teacher it removes is not the primary. What has to be added is the pair — an owner refused, and the same call allowed after a transfer — because either half alone looks correct.
+
+---
+
+## Archived courses need a way back, and a way out
+
+**Archiving currently loses the cohort.** `courses.listMine` filters `archivedAt: null` with no way to ask for the rest, so once a cohort is archived there is no link to it from anywhere in the interface. Every procedure still admits its members — `courses.get`, the gradebook, an assignment's queue, a student's released feedback — so the work is all there and reachable by a URL somebody happens to still have. The README says an archived cohort "stays readable to the people who were in it", and that is true of the procedures and false of the navigation. This is the gap, and it is why this item leads rather than reads as a nice-to-have.
+
+The fix is small: a way to include archived courses in the list, labelled, in the way `listMine` already labels a course a student was removed from. The course list is the right home for it because it is the one screen that is not scoped to a cohort. Whether that is a toggle, a second section beneath the active ones, or a filter is a presentation question; what matters is that an archived cohort stops being an address you have to have kept.
+
+**Deleting an archived course is the second half, and it is the destructive one.** Removal is permanent by decision — there is no soft delete anywhere in the application — and a course cascades to its modules, assignments, submissions, grading drafts, sections, and test runs. So it needs the same shape as `assignments.remove`, which is the closest precedent and got this right: a `removalImpact` read that counts what would go, a typed confirmation enforced **in the procedure** rather than in the dialog, and a report afterwards of what was destroyed. Student repositories on GitHub are left alone, for the same reason removing an assignment leaves them: losing a student's work because somebody tidied a list is the worse failure.
+
+Two constraints worth writing down now:
+
+- **Archived first.** Deleting a live cohort should not be reachable, because archiving is reversible and deletion is not — making it the only path means the destructive action always has a survivable step in front of it.
+- **Owner only**, which is why this sits beside [course ownership](#course-ownership). If any co-teacher can archive and then delete, the ownership rules above buy nothing.
+
+Worth being honest that the database's own backups are the only way back from a mistaken deletion, which is already true of removing an assignment and is worth restating on a screen that can destroy a whole cohort.
+
+---
+
+## Copying an assignment into another cohort
+
+**Most of this exists.** `assignments.duplicate` already takes a `targetCourseId`, teach-gates *both* courses so an instructor cannot read a cohort they do not teach, and copies through `copyAssignmentInto`, which carries both repositories, the answer key folder, the runner, the sections, the point values, and the submission instructions — and no submissions, because it writes a new row rather than moving one. Copies arrive unpublished. Course creation already loops over it to copy a whole term.
+
+What is missing is a course picker. The menu on the assignments list hardcodes the current course and says "Duplicate here", so the cross-cohort case the procedure was written for is unreachable from the interface.
+
+The one real design question is **the module**. `copyAssignmentInto` matches the source's module across courses **by name** and refuses when the target has none, rather than filing the assignment under whichever module happened to be first — the right refusal, and it means copying into a cohort whose modules are named differently fails on every assignment. So the picker needs to either name the target module as well, or offer to create it, or say plainly which module is missing. The last is the cheapest and is what the procedure's message already does; the first is what somebody actually wants when the two cohorts diverged.
+
+Also worth deciding: whether the copy keeps `assignmentRepoName`. It is per course by constraint — `@@unique([courseId, assignmentRepoName])` — so a copy into another cohort can and should keep it, and the repositories still differ because [the cohort's short name prefixes every one of them](README.md#the-cohort-is-in-every-repository-name). Copying *within* a course is the case that has to rename, which the current button already handles.
+
+---
+
+## More kinds of thing a student can hand in
+
+Two of these three are a few lines. The third is not what it looks like.
+
+**Jupyter notebooks and spreadsheets are entries in `UPLOAD_FILE_TYPES`.** That map is a closed vocabulary on purpose — an instructor ticks named types and the extensions follow, because a typo'd MIME type is a student being told their correct file is the wrong kind on the due date. Adding `notebook` for `.ipynb` and `spreadsheet` for `.xlsx`, `.xls`, and `.csv` is a label, a list of extensions, and a list of MIME types.
+
+Two consequences that are not code:
+
+- **The bucket has its own allow-list, built from the same map by `npm run setup:storage`.** So adding a type means re-running that script against every environment, and forgetting to leaves the route accepting a file the bucket then refuses — a failure that appears only on a real upload, and only in the environment nobody re-ran.
+- **Neither previews.** `previewKindOf` returns `pdf` or `image` and everything else downloads, which is the honest answer for a spreadsheet and a poor one for a notebook. A notebook is the most-read of these three and the one where the download-and-open-elsewhere loop that [embedding a PDF exists to remove](README.md#handing-in-a-file) costs the most. Rendering one is a real dependency and its own decision; worth knowing that adding the type is small and making it *pleasant to grade* is not.
+
+**Google Slides is not a file type.** It is the same shape as `GOOGLE_DOC`: handed out as a copy link, handed in as a link to the student's own copy, graded by hand. The `/copy` substitution that makes that work is a property of how Google editor URLs are built, and it holds for Slides and Sheets exactly as it does for Docs — `/presentation/d/<id>/copy` and `/spreadsheets/d/<id>/copy`. So the choice is a fifth `AssignmentKind`, or widening `GOOGLE_DOC` to any Google editor URL.
+
+Widening is probably right and is not free: `assignmentSpecSchema` checks the link's *shape* deliberately, because a link the substitution does not match is one that sends every student to the instructor's own document to edit in place. Widening the check means widening it to a known set of Google editor paths, not to any Google URL. A fifth kind avoids that but pays the price the [kind axis](#step-0-the-kind-axis--done) was built to make cheap — which, on the evidence of `EXTERNAL_URL`, is an afternoon rather than a rewrite. Either way the deciding question is whether "a slide deck" and "a document" are different things to an instructor authoring an assignment, or the same thing with a different link.
+
+An Excel spreadsheet has the same fork: a `.xlsx` upload and a Google Sheet link are different assignments, and which one is meant should be settled before either is built.
+
+---
+
+## Dividing grading between co-teachers
+
+A cohort can have more than one instructor now, and nothing says who grades what. Two people working the same triage list either duplicate each other or quietly assume the other is doing it, and both failures are invisible until a student is waiting.
+
+Nothing exists for this — there is no grader column anywhere — so the whole thing is a design question. What has to be settled:
+
+- **The grain.** Per assignment ("you take the loops exercise") is the coarsest and matches how the work is actually divided; per student ("you take these twelve") is how a cohort is usually split for feedback continuity; per submission is the finest and the only one that lets two people share one large assignment. They are not exclusive and the first two are probably both wanted, which is an argument for storing the assignment rather than deriving it.
+- **Advisory or enforced.** Whether a submission assigned to somebody else is hidden, dimmed, or merely labelled. Enforcement is the wrong instinct here: co-teachers cover for each other, and a screen that refuses to let one of them approve a draft at the moment they have time is worse than one that says whose it is.
+- **What the counts mean.** "N waiting on you" currently means "waiting on anybody who teaches this cohort", and three readers were just made to agree on that one figure. A per-grader figure is a **fourth question**, not a filter over the third — and the honest version shows both, because "nothing assigned to me" and "this cohort is caught up" are different facts and only one of them means an instructor can stop.
+- **What happens when the assigned grader leaves.** `removeInstructor` would otherwise leave submissions assigned to somebody who cannot open them, which is worse than unassigned because it reads as covered.
+
+This is worth doing after [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), because both add an axis to the same screen and the other one is smaller and has no schema.
+
+---
+
+## Working a pile by what it is, not only by what it needs
+
+"Grade all the resubmissions at one sitting" is a real way to work, and triage cannot express it — **for a reason worth knowing before building anything.** `triageBucket` is a vocabulary of *what action is outstanding*: no report yet, to grade by hand, draft ready, held for review, failed, never delivered. It is deliberately not a vocabulary of what a submission *is*. A resubmission with no report and a first submission with no report are both `needs_report`, because the action is identical, and that is what makes the buckets exhaustive and the counts trustworthy.
+
+So this is a **second axis over the same pile**, not a seventh bucket. Adding `resubmission` to the enum would break the property every count on three screens rests on — that the buckets partition the outstanding work — because a submission would then belong to two.
+
+What the axis is made of is already on the row: `submission.status` distinguishes `SUBMITTED` from `RESUBMITTED`, `isLate` is computed at submission, and "revised since grading" is `headSha !== gradedHeadSha` and needs no query. So the filter is presentation over data that exists, which is what makes this small.
+
+Two things it needs beyond a filter control:
+
+- **It has to work across assignments**, which is the whole point — triage is already cohort-wide, so this belongs there rather than on one assignment's queue, and the queue's own filter should probably learn the same axis for consistency.
+- **A way to work the filtered set in order.** Grading twenty resubmissions means opening one, approving it, and wanting the next one without going back to a list. The review surface has no next-and-previous today, and a filter that hands somebody twenty items and no way to walk them is half the feature. That is shared with [dividing grading](#dividing-grading-between-co-teachers), which produces exactly the same need.
+
+---
+
+## Content that is not an assignment
+
+Readings and external links, open-ended rich text, and embedded video. The largest of these items, and the reason is not the editor — it is that a module currently has exactly one kind of child.
+
+**`assignments.moduleId` is a foreign key and assignments are a module's only children.** A student's course page renders a section per module and fills it from the assignment list; the gradebook's columns are assignments; triage counts submissions against assignments. Putting a second kind of thing under a module means every one of those readers has to decide what it does about a thing with no submission, no score, no due date, and no gradebook column.
+
+That is the same shape as the problem [the kind axis](#step-0-the-kind-axis--done) solved, and the lesson from it applies directly: **name the axis in the schema before building any screen**, and let the compiler enumerate the readers rather than a search hoping to find them. That is what made adding a fourth `AssignmentKind` an afternoon.
+
+The model decision, which should be made before anything else:
+
+- **A sibling table under `Module`** — `ModuleContent` or similar, with its own `kind` — keeps assignments exactly as they are and costs every reader that wants "everything in this module in order" a merge of two lists.
+- **A shared parent** — a module item that is either an assignment or content — is the tidier model and a much larger migration, since `Assignment` is referenced by submissions, drafts, and test runs.
+
+The first is almost certainly right for the same reason the modules table was: the cheap version that does not touch what already works.
+
+**Ordering is the concrete gap either way.** Assignments within a module are ordered by title today — `orderBy: [{ module: { position } }, { title }]` — and there is no per-item position. Content interleaved with assignments ("read this, then do that") needs one, so this feature is also where assignments finally get an explicit order within their module. That is worth knowing because it sounds like a separate change and is not.
+
+The three kinds themselves, briefly:
+
+- **A link with a title and a description** is the whole of the readings case, and it is the one to build first because it needs no editor at all.
+- **Rich text** should be markdown, because `submissionInstructions` already is and the report markdown a student reads already renders through this application's own renderer. A second content format would mean a second renderer and a second set of rules about what is allowed in it.
+- **Embedded video** is a URL plus an iframe, and the only real decision is whether arbitrary embed HTML is ever accepted — it should not be, for the same reason the upload check is a closed vocabulary. Store the video id, build the embed, and refuse anything that is not a URL shape the application recognises.
+
+Nothing here is graded, nothing is submitted, and nothing appears in the gradebook. Saying that plainly is most of the design: the value is that a student's course page becomes the whole of the course rather than only the parts that are marked.
+
+---
+
+## Small things
+
+Individually not worth their own section, and kept here so they are not lost. Each one is small enough to do whenever something else is open in the same file.
+
+- **The breadcrumb should read "Course Name (cohort)".** It names the cohort as plain text and gives only the name, so two terms of the same program produce identical trails — which is the fact the course switcher spends a whole control on. The data is already there and needs no new fetch: `ShellBreadcrumb` reads `courses.listMine`, which selects `cohortTerm`, and `useBreadcrumbs` simply types its parameter as `{ id, name }[]` and ignores the rest.
+
+---
+
 ## An admin view for approving instructors — done
 
 **Built**: `trpc/routers/staff.ts`, `lib/staff/invite.ts`, `adminProcedure` in `trpc/init.ts`, the `instructor_invites` table, `/admin` with People and Invitations tabs, `/invite/[token]`, and `npm run grant:admin` for the base case. Checked by `npm run verify:staff`.
@@ -964,6 +1113,26 @@ Three things to work out before it is worth doing, each of which is a real cost 
 - **It is a second Drive integration, and that is an argument for timing rather than against.** Reading a student's Google Doc submission needs Drive access anyway. Doing both at once — assets from Drive, submissions from Drive — costs one authentication story instead of two, which suggests this belongs with [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments) rather than as its own project.
 
 Also unresolved, and cheap to note now: an instructor uploading a rubric to a folder is not the same as an instructor *authoring* one in the application. The first is a file whose structure nothing validates; the second is rows with bands and descriptions the prompt can be built from. A rubric the model has to be handed as an opaque document is a weaker input than one with a scale it can be told to score against, so "instructors upload rubrics to Drive" and "instructors author rubrics in the application" are different features that happen to serve the same person.
+
+---
+
+## Scaling: what a hundred students costs, and where it breaks
+
+**Questions to hold rather than work to schedule.** Nothing here is a known problem — the largest thing this has run against is one cohort — and most of what would answer it is measurement [token management](#token-management) produces anyway. It is written down because the answers change what [triggering and orchestration](#phase-4-triggering-and-orchestration) should be, and that decision is already waiting.
+
+**What is already measured**, from [what a report costs](README.md#what-a-report-costs) and the sandbox durations in `test_runs.duration_ms`: a report is roughly $0.09 to $0.15 at `high` effort, output is about 60 percent of it because thinking is billed as output, a sandbox run is 30 to 40 seconds, and a single submission end to end is about two minutes at the worst measured case. So a hundred students on one frontend assignment is on the order of $15 and, if run one after another, over three hours of wall clock. Neither figure is alarming; both are worth knowing before a batch button exists.
+
+**Concurrency is the question Phase 4 already frames.** Its requirement 4 — that a batch must not be bound by one function invocation's limit — is answered by fanning out one invocation per submission, because two minutes sits comfortably inside 300 seconds. What a hundred students changes is not that arithmetic but what happens when a hundred of those invocations run at once, which is where every vendor limit below actually bites.
+
+**Anthropic.** Rate limits are per organization and counted in requests and tokens per minute, so the ceiling on a batch is not the money, it is how many reports can be in flight before requests start being refused. Two things follow: whatever runs the batch needs to handle a rate-limit response by waiting rather than by failing a submission, and [prompt caching's five-minute window](README.md#what-a-report-costs) means a burst is meaningfully cheaper than the same work spread across an evening — which argues for the grading-session model rather than against it. Worth separating from developer tooling: the grading spend is the Anthropic API, and Claude Code is a different line item that scales with how much is built rather than with how many students there are.
+
+**E2B.** Concurrent sandbox count is the limit that matters, not total minutes, and a sandbox bills until its own timeout expires — which is why `sandbox.kill()` is in a `finally` block. A hundred concurrent runs is the first time a leak would be expensive rather than merely untidy. The other thing a hundred students changes is that 6 to 17 seconds of dependency installation per run stops being a detail: [building custom templates with dependencies already present](README.md#the-sandbox-run) is the largest speed improvement available and it gets more valuable linearly.
+
+**Supabase.** The application connects through the pooled `DATABASE_URL` and migrations use `DIRECT_URL`, which is the arrangement that survives many concurrent functions — a serverless fan-out against a direct connection is how a connection pool gets exhausted. Two other limits to know: the storage bucket for uploaded submissions grows without bound, since a re-upload writes a new object and [the previous one is deliberately left in place](README.md#handing-in-a-file), and a hundred students' resumes at up to 25MB is a real number. Nothing prunes it today.
+
+**Vercel.** The 300-second function limit is the one already reasoned about. Beyond it: a fan-out of a hundred invocations is a hundred invocations' worth of Active CPU billing, and the webhook path is unaffected because it does one database write.
+
+**The one that is not a vendor limit.** A hundred students produce a hundred drafts an instructor has to read, and no amount of concurrency helps with that. Triage, [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), and [dividing grading between co-teachers](#dividing-grading-between-co-teachers) are the parts of this list that actually address a cohort of a hundred, which is worth noticing given they are the three cheapest items on it.
 
 ---
 
