@@ -716,6 +716,7 @@ async function procedures() {
       cohortTerm: "Cohort Other",
       cohortSlug: "verify-authoring",
       joinToken: `verify-authoring-${ELSEWHERE_COURSE_ID}`,
+      coTeachToken: `verify-authoring-ct-${ELSEWHERE_COURSE_ID}`,
     },
     update: {},
     select: { id: true },

@@ -5,13 +5,18 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import {
+  BarChart3,
+  BookOpen,
+  ChevronsUpDown,
+  ClipboardList,
   GraduationCap,
+  Layers,
   LayoutDashboard,
   ListChecks,
   LogOut,
+  Settings,
   ShieldCheck,
-  BookOpen,
-  ChevronsUpDown,
+  Users,
 } from "lucide-react"
 
 import {
@@ -57,7 +62,16 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { courseHref, gradingQueueHref, sameViewInCourse, triageHref } from "@/lib/links"
+import {
+  courseAssignmentsHref,
+  courseSettingsHref,
+  gradebookHref,
+  gradingQueueHref,
+  modulesHref,
+  rosterHref,
+  sameViewInCourse,
+  triageHref,
+} from "@/lib/links"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { useTRPC } from "@/trpc/client"
@@ -137,23 +151,41 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
 
   if (inCourse) {
     const courseId = segments[2]
-    // The cohort first on every instructor screen, because it is what every one of them is
-    // scoped to now — and a trail that did not start there would leave the same question
-    // the sidebar used to answer wrongly: which course is this.
-    const crumbs: Crumb[] = [{ label: courseName(courseId), href: courseHref(courseId) }]
+    /*
+      The cohort first on every instructor screen, because it is what every one of them is
+      scoped to — and a trail that did not start there would leave the same question the
+      sidebar used to answer wrongly: which course is this.
+
+      Plain text rather than a link. There is no course home any more; the address it would
+      point at redirects to Settings, and a breadcrumb whose first step lands somewhere the
+      reader did not name is worse than one that only says where they are.
+    */
+    const crumbs: Crumb[] = [{ label: courseName(courseId) }]
 
     if (rest[0] === "triage") crumbs.push({ label: "Grading triage" })
     else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" })
+    else if (rest[0] === "roster") crumbs.push({ label: "Roster" })
+    else if (rest[0] === "modules") crumbs.push({ label: "Modules" })
+    else if (rest[0] === "settings") crumbs.push({ label: "Settings" })
     else if (rest[0] === "assignments") {
+      // The list is a screen of its own now, so it is a step on the trail rather than a
+      // heading the deeper screens skip past.
+      const listCrumb: Crumb = {
+        label: "Assignments",
+        href: rest.length > 1 ? courseAssignmentsHref(courseId) : undefined,
+      }
+      crumbs.push(listCrumb)
+
       if (rest[1] === "new") crumbs.push({ label: "New assignment" })
-      else {
+      else if (rest[1]) {
         crumbs.push({
           label: assignment.data ? `Grading · ${assignment.data.title}` : "Grading queue",
           href: rest[2] === "edit" ? gradingQueueHref(courseId, rest[1]) : undefined,
         })
         if (rest[2] === "edit") crumbs.push({ label: "Edit" })
       }
-    }
+    } else if (rest[0] === "students") crumbs.push({ label: "Student record" })
+
     return crumbs
   }
 
@@ -259,129 +291,172 @@ function CourseSelector({
   )
 }
 
+/**
+ * The six views a cohort has, in the order they are offered.
+ *
+ * They were tabs on one course page until the page had a header, a triage button, a tab bar,
+ * and a row of counts competing for the same band of screen. As sidebar items each one is an
+ * address, which is what lets the switcher keep the view across a change of cohort and what
+ * lets a link name a screen rather than a page-plus-a-tab nobody can bookmark.
+ *
+ * Triage leads, because "what is waiting on me" is the question an instructor opens this
+ * application to ask.
+ */
+const COURSE_VIEWS = [
+  { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
+  { title: "Assignments", href: courseAssignmentsHref, icon: ClipboardList, segment: "assignments" },
+  { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
+  { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
+  { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },
+  { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
+] as const
+
 function MainNav({ role, isAdmin }: { role: Role; isAdmin: boolean }) {
   const pathname = usePathname()
   const activeCourseId = useActiveCourseId()
 
-  const studentItems = [
-    {
-      title: "My courses",
-      href: "/courses",
-      icon: LayoutDashboard,
-      active: pathname === "/courses" || pathname.startsWith("/courses/"),
-    },
-  ]
-
-  /*
-    Both course-scoped links point at the cohort in the address, so navigating never
-    changes which course you are in. They used to be a fixed `/instructor` and the *first*
-    course in the list, which meant grading one cohort's queue and then clicking "Course"
-    took you into a different cohort entirely.
-
-    Only from an instructor address, though. `/courses/[courseId]` names a course too, and
-    an instructor is sometimes reading one they do not teach — a colleague's cohort they are
-    enrolled in — where both links would lead somewhere that refuses them. The switcher
-    above is unaffected: switching *out* of such a course is exactly what it is for.
-
-    With no course to scope them to, Triage stays and points at the bare `/instructor`,
-    which resolves to a real cohort's triage rather than an all-courses pile. "Course" is
-    dropped, because there is no answer to which one, and offering an arbitrary one is how
-    this went wrong in the first place.
-  */
-  const navCourseId = pathname.startsWith("/instructor/") ? activeCourseId : null
-
-  const instructorItems = navCourseId
-    ? [
-        {
-          title: "Triage",
-          href: triageHref(navCourseId),
-          icon: ListChecks,
-          active: pathname.endsWith("/triage"),
-        },
-        {
-          title: "Course",
-          href: courseHref(navCourseId),
-          icon: BookOpen,
-          // The course overview itself and everything filed under it except triage, which
-          // has its own row above.
-          active:
-            pathname === courseHref(navCourseId) ||
-            (pathname.startsWith(`${courseHref(navCourseId)}/`) &&
-              !pathname.endsWith("/triage")),
-        },
-        {
-          title: "All courses",
-          href: "/courses",
-          icon: GraduationCap,
-          active: false,
-        },
-      ]
-    : [
-        {
-          title: "Triage",
-          href: "/instructor",
-          icon: ListChecks,
-          active: pathname === "/instructor",
-        },
-        {
-          title: "All courses",
-          href: "/courses",
-          icon: GraduationCap,
-          active: pathname === "/courses",
-        },
-      ]
-
-  const items = role === "student" ? studentItems : instructorItems
-
-  return (
-    <>
-      <SidebarGroup>
-        <SidebarGroupLabel>
-          {role === "student" ? "Student" : "Instructor"}
-        </SidebarGroupLabel>
-        <SidebarMenu>
-          {items.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton
-                isActive={item.active}
-                tooltip={item.title}
-                render={<Link href={item.href} />}
-              >
-                <item.icon />
-                <span>{item.title}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarGroup>
-
-      {/*
-        Its own group rather than a fourth row above, because it is a different kind of capability:
-        everything above is scoped to a cohort, and this decides who may teach at all.
-
-        Hidden from an instructor, and that is presentation only — `/admin` reads through
-        `adminProcedure`, so an instructor who types the URL is refused by the procedures rather
-        than by this component having declined to draw a link. Offering a link that leads to a
-        refusal is the thing worth avoiding here; the refusal itself is not this file's job.
-      */}
-      {isAdmin && (
+  if (role === "student") {
+    return (
+      <>
         <SidebarGroup>
-          <SidebarGroupLabel>Admin</SidebarGroupLabel>
+          <SidebarGroupLabel>Student</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={pathname === "/admin"}
-                tooltip="Staff"
-                render={<Link href="/admin" />}
+                isActive={pathname === "/courses" || pathname.startsWith("/courses/")}
+                tooltip="My courses"
+                render={<Link href="/courses" />}
               >
-                <ShieldCheck />
-                <span>Staff</span>
+                <LayoutDashboard />
+                <span>My courses</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
+        <AdminGroup isAdmin={isAdmin} pathname={pathname} />
+      </>
+    )
+  }
+
+  /*
+    Every course-scoped item points at the cohort in the address, so navigating never changes
+    which course you are in. They used to be a fixed `/instructor` and the *first* course in the
+    list, which meant grading one cohort's queue and then clicking "Course" took you into a
+    different cohort entirely.
+
+    Only from an instructor address, though. `/courses/[courseId]` names a course too, and an
+    instructor is sometimes reading one they do not teach — a colleague's cohort they are
+    enrolled in — where every one of these would lead somewhere that refuses them. The switcher
+    above is unaffected: switching *out* of such a course is exactly what it is for.
+
+    With no course to scope them to the whole group is dropped rather than pointed at a guess,
+    which is how this went wrong in the first place. "All courses" is always there, and the bare
+    `/instructor` still resolves to a real cohort's triage for anybody who types it.
+  */
+  const navCourseId = pathname.startsWith("/instructor/") ? activeCourseId : null
+
+  return (
+    <>
+      {/*
+        Its own group, above the cohort and separated from it. Everything below is scoped to one
+        course; this is the way out of all of them, and grouping it among them made it read as a
+        seventh view of the cohort you were already in.
+      */}
+      <SidebarGroup>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/courses"}
+              tooltip="All courses"
+              render={<Link href="/courses" />}
+            >
+              <GraduationCap />
+              <span>All courses</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
+
+      {navCourseId && (
+        <SidebarGroup>
+          <SidebarSeparator className="mx-0 mb-2" />
+          {/*
+            No label. The switcher directly above names the cohort, and a heading reading
+            "Course" over six items that are all this course would be a second, vaguer answer to
+            a question already answered.
+          */}
+          <SidebarMenu>
+            {COURSE_VIEWS.map((view) => (
+              <SidebarMenuItem key={view.segment}>
+                <SidebarMenuButton
+                  isActive={isActiveView(pathname, navCourseId, view.segment)}
+                  tooltip={view.title}
+                  render={<Link href={view.href(navCourseId)} />}
+                >
+                  <view.icon />
+                  <span>{view.title}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
       )}
+
+      <AdminGroup isAdmin={isAdmin} pathname={pathname} />
     </>
+  )
+}
+
+/**
+ * Which sidebar item the current address belongs to.
+ *
+ * Two segments need more than a prefix test. **Assignments** covers its own list *and* every
+ * screen filed under it — one assignment's grading queue, its edit form, the new-assignment
+ * form — because those are reached from it and highlighting nothing while you grade would make
+ * the sidebar go blank exactly where an instructor spends the most time. **Settings** owns the
+ * bare course address, which redirects to it, so the item is lit before the redirect resolves
+ * rather than flickering off and on.
+ *
+ * A student's record under `/students/[studentId]` deliberately matches nothing. It is reached
+ * from three different places and belongs to none of them.
+ */
+function isActiveView(pathname: string, courseId: string, segment: string): boolean {
+  const base = `/instructor/courses/${courseId}`
+
+  if (segment === "settings" && pathname === base) return true
+
+  return pathname === `${base}/${segment}` || pathname.startsWith(`${base}/${segment}/`)
+}
+
+/**
+ * Who may teach at all, which is a different kind of capability from everything above it:
+ * those are scoped to a cohort, and this decides who gets one.
+ *
+ * Hidden from an instructor, and that is presentation only — `/admin` reads through
+ * `adminProcedure`, so an instructor who types the URL is refused by the procedures rather than
+ * by this component having declined to draw a link. Offering a link that leads to a refusal is
+ * the thing worth avoiding here; the refusal itself is not this file's job.
+ */
+function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string }) {
+  if (!isAdmin) return null
+
+  return (
+    <SidebarGroup>
+      <SidebarSeparator className="mx-0 mb-2" />
+      <SidebarGroupLabel>Admin</SidebarGroupLabel>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname === "/admin"}
+            tooltip="Staff"
+            render={<Link href="/admin" />}
+          >
+            <ShieldCheck />
+            <span>Staff</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarGroup>
   )
 }
 

@@ -39,10 +39,27 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Questions I need answered](#questions-i-need-answered)
   - [What may need to be built on the Salesforce end](#what-may-need-to-be-built-on-the-salesforce-end)
   - [The shape of the work here, once those are answered](#the-shape-of-the-work-here-once-those-are-answered)
-- [Course creation](#course-creation)
-- [Student enrollment](#student-enrollment)
-  - [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
-- [An admin view for approving instructors](#an-admin-view-for-approving-instructors)
+- [Getting a cohort into the application](#getting-a-cohort-into-the-application)
+  - [Removing and archiving make lists go quiet; they never take work back](#removing-and-archiving-make-lists-go-quiet-they-never-take-work-back)
+- [Course creation — done](#course-creation--done)
+  - [Copying, and the order it has to happen in](#copying-and-the-order-it-has-to-happen-in)
+  - [Archiving](#archiving)
+- [Student enrollment — done](#student-enrollment--done)
+  - [What the schema loses](#what-the-schema-loses)
+  - [The seven readers](#the-seven-readers)
+  - [Not in this design](#not-in-this-design)
+- [A removed student's work — done](#a-removed-students-work--done)
+  - [The short name stopped being editable](#the-short-name-stopped-being-editable)
+  - [The check scripts were reporting passes they had not earned](#the-check-scripts-were-reporting-passes-they-had-not-earned)
+- [Course switching — done](#course-switching--done)
+  - [The claim this document had wrong](#the-claim-this-document-had-wrong)
+- [A student's record — done](#a-students-record--done)
+- [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
+- [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
+- [An admin view for approving instructors — done](#an-admin-view-for-approving-instructors--done)
+  - [The constraint this must not violate](#the-constraint-this-must-not-violate)
+  - [What the build decided that the design did not](#what-the-build-decided-that-the-design-did-not)
+- [What to verify for all three](#what-to-verify-for-all-three)
 - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
   - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
 - [Open thinking: where rubrics, answer keys, and sample reports live](#open-thinking-where-rubrics-answer-keys-and-sample-reports-live)
@@ -57,13 +74,12 @@ The sequence, most immediate first. A feature's own section says what is known a
 
 **Instructor approval is first because it is the last thing standing between this and a second person running a cohort on it.** A course can now be created, copied, filled from a join link, and retired; what still needs the database is deciding who may teach. It comes before measurement and before a review of code that already works, for the same reason the other two did.
 
-1. **[An admin view for approving instructors](#an-admin-view-for-approving-instructors)** — `Profile.role` is set by hand in the database today. Designed; the last of the three, and the smallest.
-2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-5. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-6. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-7. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+2. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+3. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+4. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+5. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+6. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
 **Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, and retired.
 
@@ -281,15 +297,15 @@ An assignment's `sections` array decides which rubric applies, which answer keys
 
 So validate at authoring time against the real sources, using the machinery grading already uses. The form refuses to save a mapping that would fail at grading time. Every field has something real to check against, which is what makes this tractable:
 
-| Field                       | Checked against                                                                | Existing code                                 |
-| --------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
-| `templateRepo`              | readable by the installation that generates from it, and a template repository | `getRepo` — `lib/github/repos.ts`             |
-| `answerKeyRepo`             | readable, and private                                                          | `getRepo`, `installationIdForOwner`           |
-| `answerKeyDir`              | a folder in `answerKeyRepo` holding at least one reference file | `checkAnswerKeyDir` — `lib/grade/assets.ts` |
-| `runnerPreset`              | a known preset that resolves                                                   | `resolveRunner` — `lib/sandbox/presets.ts`    |
-| `sections[].type`           | one of the four with a rubric heading                                          | `SECTION_ASSETS` — `lib/grade/assets.ts`      |
-| `sections[].rubricId`       | the four seeded `Rubric` rows                                                  | database                                      |
-| `moduleId`                  | a module of *this* course                                                      | database, plus a foreign key                  |
+| Field                 | Checked against                                                                | Existing code                               |
+| --------------------- | ------------------------------------------------------------------------------ | ------------------------------------------- |
+| `templateRepo`        | readable by the installation that generates from it, and a template repository | `getRepo` — `lib/github/repos.ts`           |
+| `answerKeyRepo`       | readable, and private                                                          | `getRepo`, `installationIdForOwner`         |
+| `answerKeyDir`        | a folder in `answerKeyRepo` holding at least one reference file                | `checkAnswerKeyDir` — `lib/grade/assets.ts` |
+| `runnerPreset`        | a known preset that resolves                                                   | `resolveRunner` — `lib/sandbox/presets.ts`  |
+| `sections[].type`     | one of the four with a rubric heading                                          | `SECTION_ASSETS` — `lib/grade/assets.ts`    |
+| `sections[].rubricId` | the four seeded `Rubric` rows                                                  | database                                    |
+| `moduleId`            | a module of *this* course                                                      | database, plus a foreign key                |
 
 ### Step 1. A catalogue per kind
 
@@ -347,7 +363,7 @@ No migration: it already meant this and was read by nothing.
 
 - **Done.** `assignments.listForCourse` filters to `distributedAt != null` unless the caller teaches the course.
 - **Done.** `publish` and `unpublish`. Unpublishing is allowed even after students have accepted, deliberately — the reason to unpublish is usually that something is wrong, which is exactly when it should stop being handed out. Existing submissions and grades are untouched; this controls the listing, not the work.
-- Still to build: the badge on the instructor course page, which is Step 5.
+- Still to build: the badge on the assignments list, which is Step 5.
 
 This is what makes authoring safe: an assignment can be built over several sittings without a student seeing a half-finished one, and a mapping can be corrected before anyone is graded against it.
 
@@ -361,7 +377,7 @@ This is what makes authoring safe: an assignment can be built over several sitti
   The schema check stays regardless. A select is a convenience and the procedure is what refuses — the same division as the approval guards and the typed removal confirmation, for the same reason: the request that arrives can carry anything the browser did not send.
 - Removal uses a dialog showing the counts from `removalImpact` and requiring the title to be typed — `components/instructor/remove-assignment-dialog.tsx`.
 
-**Built.** Two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, `assignment-form.tsx`, `section-editor.tsx`, `remove-assignment-dialog.tsx`, and entry points on the course page: a "New assignment" action, a Draft badge on any unpublished row, and a per-row menu with Edit, Publish or Hide, Duplicate, and Remove.
+**Built.** Two pages under `app/(shell)/instructor/courses/[courseId]/assignments/`, `assignment-form.tsx`, `section-editor.tsx`, `remove-assignment-dialog.tsx`, and entry points on the assignments list: a "New assignment" action, a Draft badge on any unpublished row, and a per-row menu with Edit, Publish or Hide, Duplicate, and Remove.
 
 The kind is the form's first question and is fixed once an assignment exists — changing it would change what its existing submissions are, and there is no migration from a pull request to a document. Choosing a non-repository kind hides the repositories card, the runner, and the answer-key browser entirely rather than disabling them, since those are questions that do not apply rather than settings left at a default. Only one of the two "add a section" buttons is ever offered, because [an assignment has one grading mode](#what-manual-grading-meant-for-the-machinery--done) and a button that builds a refused draft is worse than no button.
 
@@ -454,7 +470,7 @@ model Module {
 | 6        | Mod 6 - Databases                                 |
 | 7        | Mod 7 - React                                     |
 
-**Built**, and described in [the README](README.md#data-model). `modules` with `position` and `@@unique([courseId, name])`, `assignments.moduleId` as a `RESTRICT` foreign key, the four procedures in `trpc/routers/modules.ts`, and a Modules tab beside Assignments. `npm run verify:modules` is 22 checks through the callers.
+**Built**, and described in [the README](README.md#data-model). `modules` with `position` and `@@unique([courseId, name])`, `assignments.moduleId` as a `RESTRICT` foreign key, the four procedures in `trpc/routers/modules.ts`, and a Modules screen beside Assignments. `npm run verify:modules` is 22 checks through the callers.
 
 **The migration went in one step rather than two, and could.** The plan called for a nullable `module_id` so the mapping could be checked before committing to it. In the event the backfill derives its modules from the union of the tags in use *and* the tags each course declared, so every assignment matches one by construction — which means `SET NOT NULL` in the same migration is safe, and it succeeding is itself the proof that nothing was orphaned. Hand-written rather than what `migrate diff` produced, because Prisma emits `ADD COLUMN module_id UUID NOT NULL`, which fails outright on a populated table.
 
@@ -477,7 +493,7 @@ model Module {
 
 The six in Mod 1 stay there, including "Upload a Resume" and "Story Prep Worksheet" — confirmed, and easy to move later in the interface if they read oddly once a real cohort is in.
 
-**Where it lives:** a fourth tab on the instructor course page beside Assignments, Roster, and Gradebook, which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
+**Where it lives:** its own sidebar item beside Assignments, Roster, and Gradebook, which is where assignments already group by module. Up and down buttons rather than drag-and-drop: no new dependency, it works from the keyboard, and eight modules is not a list that needs dragging.
 
 ### Phase 2: an assignment names its own repositories — done
 
@@ -629,7 +645,7 @@ The reason is that the alternative takes something back. A student who was shown
 
 **This splits membership into two questions**, and that is the load-bearing consequence:
 
-- **May read** — an active student, a removed student, an instructor of the course, an admin. The course page, an assignment's own page, released feedback, a submission's own history.
+- **May read** — an active student, a removed student, an instructor of the course, an admin. A course's screens, an assignment's own page, released feedback, a submission's own history.
 - **Is an active participant** — an active student only. `accept`, `submitWork`, the upload route, and anything that creates or changes a submission.
 
 **The write paths are already right, and the read paths are the work.** That is the opposite of what it looks like from the outside, so it is worth being exact. `accept` and `assertCanHandIn` each check `status: 'ACTIVE'` themselves, deliberately — a mutation must not assume which query preceded it — so a removed student is already refused by both and neither changes. What has to widen is every read check, because they all filter on `ACTIVE` too and therefore refuse a removed student the course they are supposed to keep.
@@ -674,7 +690,7 @@ An archived course is readable by its members and accepts nothing new — the sa
 
 ## Student enrollment — done
 
-**Built**: `trpc/routers/enrollments.ts` with `preview`, `join`, `remove`, and `restore`; `/join/[token]`; and a Roster tab that shows the link and who has used it.
+**Built**: `trpc/routers/enrollments.ts` with `preview`, `join`, `remove`, and `restore`; `/join/[token]`; and a Roster screen that shows the link and who has used it.
 
 **One join link per course.** The instructor copies it and sends it however they already talk to their students; opening it and signing in with GitHub enrolls you. There is no email infrastructure in this application and this design does not add any — no provider, no sending domain, no delivery states to chase.
 
@@ -699,15 +715,15 @@ That leaves `status` as `ACTIVE | REMOVED`, which could be a boolean and stays a
 
 Every place in application code that asks for `status: 'ACTIVE'`, and which of the three questions from [the shared rule](#removing-and-archiving-make-lists-go-quiet-they-never-take-work-back) it is really asking:
 
-| Where | Question | Changes? |
-| --- | --- | --- |
-| `assignments.ts` — `assertCourseMember` | may read | **yes** — admit `REMOVED` |
-| `courses.ts:95` — `get`'s membership check | may read | **yes** — admit `REMOVED` |
-| `modules.ts:90` — `listForCourse` membership | may read | **yes** — admit `REMOVED` |
-| `courses.ts:24` — `listMine` | may read | **yes** — admit `REMOVED`, and label the course |
-| `courses.ts:40` — `_count.enrollments` on a card | counts as a student | no |
-| `assignments.ts:341` — `accept` | active participant | no |
-| `lib/uploads/submit.ts` — `assertCanHandIn` | active participant | no |
+| Where                                            | Question            | Changes?                                        |
+| ------------------------------------------------ | ------------------- | ----------------------------------------------- |
+| `assignments.ts` — `assertCourseMember`          | may read            | **yes** — admit `REMOVED`                       |
+| `courses.ts:95` — `get`'s membership check       | may read            | **yes** — admit `REMOVED`                       |
+| `modules.ts:90` — `listForCourse` membership     | may read            | **yes** — admit `REMOVED`                       |
+| `courses.ts:24` — `listMine`                     | may read            | **yes** — admit `REMOVED`, and label the course |
+| `courses.ts:40` — `_count.enrollments` on a card | counts as a student | no                                              |
+| `assignments.ts:341` — `accept`                  | active participant  | no                                              |
+| `lib/uploads/submit.ts` — `assertCanHandIn`      | active participant  | no                                              |
 
 Four widen, three stay. `courses.gradebook` and `submissions.triage` are not on this list because they filter through the *submission* rather than the enrollment, which is a second thing to check rather than a third to change: a removed student's existing submissions would go on appearing in both, and both are lists of a cohort's current state.
 
@@ -749,7 +765,7 @@ What it bought was correcting a typo, in a window measured in hours against a ni
 
 **Creating a course now has a review step** for the same reason: the short name cannot be taken back, and copying can bring a term's worth of assignments into the wrong cohort. The form's primary button says Review rather than Create, because it is not the button that creates anything. The review names the course, the cohort, the repository pattern the short name produces, and what copying will bring across.
 
-**And the course screens no longer show the short name at all.** The review step is where it is read, while it is being decided; afterwards it is legible from any repository name the cohort generated. A read-only card restating it spent a panel on the roster for a fact nothing can act on, so `courses.gradebook` stopped returning it too.
+**The short name is read on two screens: the review step, and the cohort's settings.** The review step is where it is decided. Settings is where it is looked up afterwards, alongside an example of the repository name it produces, the count of repositories already named after it, and the reason there is no way to change it — see [a cohort's six views](README.md#a-cohorts-six-views-are-six-addresses). It is returned by `courses.settings` and by nothing else; the gradebook, the roster, and the assignments list all read a cohort without it.
 
 ### The check scripts were reporting passes they had not earned
 
@@ -767,7 +783,7 @@ Not a planned item. It is what the first second course found: three separate def
 
 **There is deliberately no remembered "current course".** The URL is the whole of the state. A remembered one disagrees with the page the moment somebody opens a link, and a sidebar naming a different cohort than the screen is worse than one naming none — so where the address names no course, the switcher shows a placeholder and the Course link is dropped rather than pointed at an arbitrary cohort. Guessing is exactly what went wrong.
 
-**Switching cohort keeps the view.** Triage becomes the other cohort's triage, the gradebook the other cohort's gradebook. Only for the screens every course has: an assignment belongs to one cohort, so its queue and its edit form land on the course page instead.
+**Switching cohort keeps the view.** Triage becomes the other cohort's triage, the gradebook the other cohort's gradebook. Only for the screens every course has: an assignment belongs to one cohort, so its queue and its edit form land on the cohort's settings instead.
 
 **Triage is one cohort's, and the course is required rather than optional.** Two terms' work interleaved has no state in which the screen is empty and no order in which to work it — "what do I do next" is not a question that can be answered across cohorts. Leaving an unscoped mode available is how the screen came to use one.
 
@@ -794,6 +810,30 @@ Not on this list before, and it should have been. Nothing in the application ans
 **The cohort selector is the page's own.** It lists only courses this student is in and the caller teaches. The sidebar's switcher knows nothing about the student and would offer cohorts they are not in — and a student repeating a module has two records, which is exactly when this is needed.
 
 Refusing a student who is not in the cohort with `NOT_FOUND` rather than returning an empty list, because an empty list reads as "this person has done nothing", which is a different and false statement.
+
+---
+
+## A cohort's views became the sidebar — done
+
+**Built**, and described in [the README](README.md#a-cohorts-six-views-are-six-addresses). Not a planned item; it came out of the course page having accumulated a heading, a cohort line, an outstanding count, a triage button, a four-tab bar, and a row of stat cards, none of which was the thing being read.
+
+Triage, assignments, the gradebook, the roster, the modules, and the settings are six sidebar items and six addresses. "All courses" sits above them in its own group, separated. The Course navigation item is gone, and so is the button on triage that pointed at it.
+
+**What the change was really about is that each view is now an address.** The switcher keeps the view across a change of cohort because there is a view to name; a link can point at the roster rather than at a page plus a tab; and each screen fetches what it needs. That last one is the part with teeth: `courses.gradebook` served all four tabs, so opening the roster fetched a term's worth of grading cells to list names, and the assignments tab derived its per-assignment counts by filtering those cells **inside a sort comparator** — once per comparison, per sort. It is four procedures now, and the counts are computed on the server from the same `triageBucket` the gradebook and triage use.
+
+**The bare course address redirects to settings.** With every view a sidebar item there was nothing left for it to render. Kept as a route rather than deleted so every link that names a course goes on working.
+
+**Three things that had no home went.** The heading with its "N submissions waiting on you" — triage answers that, which is now one click from anywhere. The Grading triage button, which was a link to a sidebar item. And the three stat cards: the assignment count and the active-student count are what the two lists beside them already were, and the organization moved to settings, where it sits with the short name because both are what a repository name is made of. The archived-cohort banner moved to settings too, beside the button that causes it.
+
+### Co-teaching, which the settings screen needed and nothing had
+
+The one part of this that was a feature rather than a rearrangement. Settings was meant to carry an invitation link for a colleague, and nothing in the application could add an instructor to an existing course: `CourseInstructor` rows were written in exactly one place, `courses.create`, for the creator.
+
+`courses.coTeachToken` is that link, and the design is one sentence — **it grants a course and never a role.** Only an account already holding `INSTRUCTOR` or `ADMIN` can redeem it; a student is refused and told an admin has to send them an instructor invitation first. Without that, any instructor could hand out staff access by forwarding a course link, with no admin involved and no record beyond a row, which is what `adminProcedure` exists to prevent. Everything else follows: a second column rather than a reuse of `joinToken`, since the two grant opposite things; a second address, since one screen reading both tokens would have to work out which link it was looking at before it could say anything true; reusable rather than single use, since the role check is what bounds it; and removing the last instructor refused, the same shape as revoking the last admin.
+
+**The limitation is stated on the screen rather than left to be discovered.** `accept` adds collaborators at the moment a student accepts, so an instructor added later is not on the repositories that already exist, and one removed stays on the ones generated while they taught. Nothing else in the application would explain why a student's code will not open.
+
+`npm run verify:enrollment` covers it — 27 checks whose centre is one account refused as a student, promoted, then admitted and able to call a teach-gated procedure, because a `CourseInstructor` row that exists but does not actually let somebody work in the cohort would look entirely correct in the database.
 
 ---
 

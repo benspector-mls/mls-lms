@@ -145,7 +145,7 @@ Verification scripts are re-runnable and are the fastest way to find out whether
 | `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers |
 | `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
 | `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                             |
-| `npm run verify:enrollment`   | Creating a cohort, copying one, the join link, and the removed-student pair — through the callers                                |
+| `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                     |
 | `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                    |
 | `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                        |
 | `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                    |
@@ -179,6 +179,7 @@ These are settled and do not need revisiting.
 - **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
 - **Completion is judged at 75 percent**, matching the Complete/Incomplete policy in `working-with-assignments.md`. Stored per assignment as `completionThreshold`.
 - **Students join a course through one link per course.** An instructor copies it and sends it however they already talk to their students; opening it and signing in with GitHub creates the enrollment. This application holds no email credentials and sends nothing. See [getting students into a course](#getting-students-into-a-course).
+- **A course link grants a course; only an admin grants a role.** The cohort's co-teaching link admits an account that is already staff to one cohort, and refuses one that is not rather than promoting it. Becoming staff at all stays with `instructor_invites` and `adminProcedure`. See [co-teaching one cohort](#co-teaching-one-cohort).
 - **Removing a student and archiving a course make lists go quiet; they never take work back.** A removed student keeps reading the feedback they were given, and an archived cohort stays readable to the people who were in it. Neither can hand anything new in. A removed student's work leaves grading triage and the grading queue's list and moves to a Removed students table in the gradebook — see [a removed student's work](#a-removed-students-work).
 - **GitHub's numeric user ID is the durable identity key**, because usernames are mutable.
 - **An uploaded submission is readable only through a signed URL a procedure minted.** The bucket is private and carries no policies, so the browser cannot reach it at all.
@@ -223,7 +224,7 @@ export default function Page({ params }: { params: Promise<{ courseId: string }>
 
 ## Data model
 
-`prisma/schema.prisma`, nineteen migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
+`prisma/schema.prisma`, twenty-six migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
 
 ```
 Profile ──1:1── auth.users
@@ -310,9 +311,9 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 
 ### Getting students into a course
 
-**`courses.joinToken`** is one unique token per course. An instructor copies the link, sends it however they already talk to their students, and anyone who opens it and signs in with GitHub is enrolled. It is per *course* rather than per student because distributing the link is a person's job either way, so twenty-five tokens would buy nothing — and because this application holds no email credentials and sends nothing.
+**`courses.joinToken`** is one unique token per course — the student one, with **`courses.coTeachToken`** beside it for [co-teaching](#co-teaching-one-cohort). An instructor copies the link, sends it however they already talk to their students, and anyone who opens it and signs in with GitHub is enrolled. It is per *course* rather than per student because distributing the link is a person's job either way, so twenty-five tokens would buy nothing — and because this application holds no email credentials and sends nothing.
 
-What that trades away is an allowlist, so the controls are after the fact: `regenerateJoinToken` replaces a link that reached the wrong person, and removing deals with whoever got in. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.gradebook`, which is instructor-only *and* teach-gated — and appears in nothing a student receives.
+What that trades away is an allowlist, so the controls are after the fact: `regenerateJoinToken` replaces a link that reached the wrong person, and removing deals with whoever got in. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.roster`, which is instructor-only *and* teach-gated — and appears in nothing a student receives. The co-teach token is behind the same pair, on `courses.settings`.
 
 ### The cohort is in every repository name
 
@@ -324,7 +325,7 @@ What that trades away is an allowlist, so the controls are after the fact: `rege
 
 **Settled when the course is created and never again.** There is no `setCohortSlug`, which is why creating a course has a review step: the only window in which changing the name means anything is before the first Accept, and a mutation that is legal for a few hours and refused forever after is a rule every reader has to learn, a check to keep correct, and a screen that has to explain which state it is in. It cost more than that, too — "has anybody accepted yet" made the gradebook the one reader that needed *every* submission rather than the active students', which is exactly the reader that broke when removed students moved to their own table. A typo caught afterwards is fixed by creating the course again, or by a one-line database update, which is safe for as long as the course has no submissions.
 
-The course screens do not show it. It is read on the review step when it is being decided, and it is legible from any repository name the cohort has generated; a read-only card restating it spent a panel on the roster screen for a fact nothing can act on. `courses.gradebook` does not return it either.
+**It is shown on one screen, which is the cohort's settings.** That is the screen for facts about the cohort itself, and it is where the example repository name is built — with `studentRepoName`, the same function `accept` calls, so what the screen promises and what GitHub receives cannot drift apart. It also says why there is no way to change it, and counts the repositories already named after it, because "you cannot edit this" is a better answer than a field that is not there. `courses.settings` is the only procedure that returns it; the gradebook, the roster, and the assignments list all read a cohort without it.
 
 **Frozen once anybody in the course has accepted anything**, the same rule and reason as an assignment's repository name: those repositories are already named after it, and renaming here would not rename theirs. That makes the editable window "between creating the course and the first Accept", which the screen says out loud.
 
@@ -344,7 +345,7 @@ Because [removing and archiving never take work back](#standing-decisions), "is 
 
 | | Admits | Governs |
 | - | - | - |
-| `assertCourseMember` | active students, **removed students**, instructors, admins | the course page, an assignment's page, released feedback |
+| `assertCourseMember` | active students, **removed students**, instructors, admins | a course's screens, an assignment's page, released feedback |
 | `assertActiveStudent` | active students only | `accept`, `submitWork`, the upload route |
 | `adminProcedure` | admins only | everything on `/admin` — invitations, and who is an admin |
 
@@ -356,7 +357,7 @@ They live side by side in `lib/courses/membership.ts` because the two `where` cl
 
 ### Who may teach, and who may decide that
 
-**Two mechanisms, because they answer two questions.** `staff.createInvite` is how somebody *becomes* staff and works before they have an account at all — the case that matters, since a new hire has no reason to sign in to a system they cannot yet use. `staff.setAdmin` is how an account that already exists gains more, which is what makes "an admin can let others invite people" reachable. Everything is `adminProcedure`: an instructor deciding who else becomes an instructor is the escalation that guard exists to prevent.
+**Three mechanisms, because they answer three questions.** `staff.createInvite` is how somebody *becomes* staff and works before they have an account at all — the case that matters, since a new hire has no reason to sign in to a system they cannot yet use. `staff.setAdmin` is how an account that already exists gains more, which is what makes "an admin can let others invite people" reachable. Both are `adminProcedure`: an instructor deciding who else becomes an instructor is the escalation that guard exists to prevent. The third is a cohort's own co-teaching link, below, which decides which courses an existing instructor works in and is the one an instructor may hand out themselves.
 
 **An invitation is single use and expires in seven days**, unlike a cohort's join link, which is reusable on purpose. The difference is what they grant — the course link admits a stranger to one cohort, this one admits them to authoring and to every student's grades in every course — so reuse buys nothing and a forwarded link costs much more. Single use is enforced by `updateMany` with `redeemedAt: null` in the `where`, not by reading the row and then writing it: that is what makes two simultaneous redemptions resolve to one winner.
 
@@ -367,6 +368,22 @@ They live side by side in `lib/courses/membership.ts` because the two `where` cl
 **Revoking the last admin is refused.** There is no procedure that grants the *first* admin — deliberately — so an application with no admins has no way back except a database edit. `npm run grant:admin -- you@example.com` is that base case as a tool; it cannot create an account, because identity belongs to Supabase Auth, and it has no reverse.
 
 **The guarantee that is not in any procedure**: migration `20260730024911_tighten_profiles_grants` means `anon` and `authenticated` may UPDATE exactly `display_name` and `avatar_url` on `profiles`, and `instructor_invites` has no browser privileges at all. `verify:staff` asserts both, because every procedure here could be perfect and a slipped grant would still let a student promote themselves from browser JavaScript — which is why that migration exists.
+
+### Co-teaching one cohort
+
+`courses.coTeachToken` is a second link per course, shown on its settings screen. An instructor sends it to a colleague; opening it and pressing the button writes a `CourseInstructor` row with `isPrimary: false`. Until it existed, `CourseInstructor` rows were written in exactly one place — `courses.create`, for the creator — so a second person teaching a cohort was a database edit.
+
+**It grants a course and never a role**, which is the whole of the design. Only an account already holding `INSTRUCTOR` or `ADMIN` can redeem it; a student is refused and told an admin has to send them an instructor invitation first, rather than being promoted. The refusal is stated on arrival as well as enforced by the procedure, because a screen that offers a button it knows will fail is worse than one that explains. Without that guard, any instructor could hand out staff access by forwarding a course link, with no admin involved and no record beyond a row — which is exactly what `adminProcedure` and `instructor_invites` exist to control.
+
+**A second column rather than a reuse of `joinToken`**, because the two links grant opposite things: one admits a stranger to a cohort as a student, the other admits them to authoring, the gradebook, and every grade in it. And a second address, `/co-teach/[token]`, rather than one route reading both tokens — a single screen would have to work out which link it was looking at before it could say anything true about it.
+
+**Reusable, unlike an instructor invitation.** That one is single use because staff arrive one at a time and a forwarded link costs a great deal; this one is bounded by the role check rather than by being spent, and a cohort gains co-teachers across a term. `regenerateCoTeachToken` is the control, the same as the join link.
+
+Two refusals are about the cohort rather than the account: an archived one takes no new instructors, and somebody enrolled as a student cannot also teach it — the mirror of `enrollments.join` refusing an instructor of the course, and for the same reason, since being both would put their own submissions in the queue they are meant to be working through.
+
+**Removing the last instructor is refused**, the same shape and reasoning as revoking the last admin: every authoring procedure gates on `CourseInstructor` rather than on the role, so a course with no rows there cannot be authored in or graded by anybody, and only a database edit brings it back. The primary instructor *is* removable, deliberately — somebody who set a cohort up and then left the program should not be permanent, and refusing would make "who created this" outrank "who runs it now". What is refused is emptying the list.
+
+**Nothing is taken back on GitHub, in either direction.** `accept` adds every `course_instructors` row as a collaborator at the moment a student accepts, so an instructor added later is not a collaborator on repositories that already exist, and one removed here stays a collaborator on the ones generated while they taught. The settings screen says the first out loud, because nothing else in the application would explain why a student's code will not open. The second is the same trade as leaving student repositories alone when an assignment is removed.
 
 ### One student, or one assignment: the same screen from two sides
 
@@ -401,7 +418,7 @@ Stopping the enrollment did nothing to the submissions, so a student who had lef
 
 **Every partition is a set and its complement**, never two named statuses. `REMOVED` is the only non-active value today, and filters naming both would silently drop an `AUDITING` student from the roster and the gradebook alike, which is an absence nothing reports.
 
-**A gradebook and a roster want opposite things from the same payload.** `courses.gradebook` returns `enrollments` — every status, so the Roster tab can show a departed student and offer to restore them — and `activeEnrollments`, which is what the grid and every count read. Two lists rather than one filtered in the interface, because a component that had to remember which question it was asking would eventually get it wrong.
+**A gradebook and a roster want opposite things, which is why they are two reads.** `courses.roster` returns every enrollment with its status, so the roster can show a departed student and offer to restore them. `courses.gradebook` returns `activeEnrollments` and `removedEnrollments` — complements rather than two named statuses, so nobody can go missing from both — and the grid draws them as two tables with only the active ones in any count. Separate lists rather than one filtered in the interface, because a component that had to remember which question it was asking would eventually get it wrong.
 
 ### Migrations are authored with `migrate diff`, never `migrate dev`
 
@@ -816,18 +833,37 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 | `/courses`                                                   | A student's courses                                                   |
 | `/courses/[courseId]`                                        | Assignments, status, and feedback for one course                      |
 | `/instructor`                                                | Nothing: picks the most recent cohort the caller teaches and redirects |
-| `/instructor/courses/[courseId]`                             | One course: assignments, modules, roster, gradebook                   |
+| `/instructor/courses/[courseId]`                             | Nothing: redirects to that cohort's settings                          |
 | `/instructor/courses/[courseId]/triage`                      | What is waiting on the instructor in this cohort                      |
+| `/instructor/courses/[courseId]/assignments`                 | Every assignment in the cohort, and where new ones are made           |
 | `/instructor/courses/[courseId]/gradebook`                   | Assignments × roster, each cell carrying its triage bucket            |
+| `/instructor/courses/[courseId]/roster`                      | Who is in the cohort, and the join link                               |
+| `/instructor/courses/[courseId]/modules`                     | The order the cohort is taught in                                     |
+| `/instructor/courses/[courseId]/settings`                    | The cohort itself: short name, instructors, archiving                 |
 | `/instructor/courses/[courseId]/assignments/[assignmentId]`  | The grading queue and the review surface, `?submission=` to open one   |
 | `/instructor/courses/[courseId]/students/[studentId]`         | One student's whole record in this cohort — the queue's other axis     |
 | `/instructor/assignments/[assignmentId]`                     | The queue's old address: looks up the course and redirects            |
 | `/admin`                                                     | Staff: who may teach, and who may decide that. Admins only            |
 | `/invite/[token]`                                            | Where an instructor invitation lands                                  |
+| `/co-teach/[token]`                                          | Where a cohort's co-teaching link lands                               |
 
-**Every instructor route names its course**, because the URL is the only record of which cohort you are in. There is no remembered "current course": a remembered one disagrees with the page the moment you open a link, and a sidebar naming a different cohort than the screen is worse than one naming none. So the switcher and the navigation read the address, and where the address names no course — `/courses` — the switcher shows a placeholder rather than a guess. It used to fall back to the first course in the list, which is ordered newest-first, and the result was a sidebar confidently naming last term's cohort while you graded this term's work.
+### A cohort's six views are six addresses
 
-Switching cohort keeps the view rather than returning to the course page: triage becomes the other cohort's triage. That only holds for the screens every course has, so an assignment's queue and its edit form land on the course instead — an assignment belongs to one cohort and cannot travel.
+Triage, assignments, the gradebook, the roster, the modules, and the settings are the sidebar, in that order. They were tabs on one course page until that page had a heading, a cohort line, an outstanding count, a triage button, a tab bar, and a row of stat cards all competing for the same band of the screen — and none of it was the thing being read.
+
+**Each one being an address is what buys the rest.** The course switcher can keep the view across a change of cohort, because there is a view to name. A link can point at the roster rather than at a page plus a tab nobody can bookmark. And each screen fetches its own data, which is why `courses.gradebook` split into four: opening the roster used to fetch a term's worth of grading cells to display a list of names, and the assignments list derived its per-assignment counts by filtering those cells *inside a sort comparator*, so the filtering ran again for every comparison of every sort. `courses.roster`, `courses.assignmentsOverview`, `courses.settings`, and a narrowed `courses.gradebook` each answer one screen. The counts moved to the server with them and still come from `triageBucket`, so the "to grade" column cannot disagree with the pile triage lists.
+
+**The bare course address is a redirect to settings.** With every view a sidebar item there was nothing left for it to render, and a reader who names a cohort and nothing more is asking about the cohort. It stays a route rather than being deleted so every link that names a course goes on working.
+
+**Two segments need more than a prefix test to highlight.** Assignments covers its own list *and* everything filed under it — one assignment's queue, its edit form, the new-assignment form — because those are reached from it, and a sidebar that went blank while you graded would be blank exactly where an instructor spends the most time. Settings owns the bare course address, so the item is lit before the redirect resolves rather than flickering. A student's record under `/students/[studentId]` deliberately matches nothing: it is reached from the roster, the gradebook, and the review header, and belongs to none of them.
+
+**Every instructor route names its course**, because the URL is the only record of which cohort you are in. There is no remembered "current course": a remembered one disagrees with the page the moment you open a link, and a sidebar naming a different cohort than the screen is worse than one naming none. So the switcher and the navigation read the address, and where the address names no course — `/courses`, `/admin` — the switcher shows a placeholder and the whole course group is dropped rather than pointed at a guess. It used to fall back to the first course in the list, which is ordered newest-first, and the result was a sidebar confidently naming last term's cohort while you graded this term's work.
+
+**All courses sits in its own group above them, separated by a rule.** Everything below is scoped to one cohort and this is the way out of all of them; among them it read as a seventh view of the cohort you were already in.
+
+Switching cohort keeps the view rather than returning to a front page: triage becomes the other cohort's triage, the roster the other cohort's roster. That only holds for the six views every course has, so an assignment's queue, its edit form, and a student's record land on settings instead — each belongs to one cohort and cannot travel. `sameViewInCourse` is where that is decided, and a view missing from it does not fail: it falls through to settings, so switching cohort from the roster would silently land on settings and read as the switcher losing your place. All six are checked by `verify:enrollment` for that reason.
+
+The breadcrumb names the cohort as plain text rather than as a link, because there is no course home for it to point at — the address it would use redirects, and a first step that lands somewhere the reader did not name is worse than one that only says where they are.
 
 `lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens, and `lib/instructor/course-scope.ts` redirects the two routes that name a course twice over — as a segment and through the assignment — when the two disagree.
 
@@ -843,7 +879,7 @@ Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[p
 
 **`EmptyState` takes its icon as an element, `icon={<Inbox />}`, not as a component.** A lucide icon is a `forwardRef` object rather than a plain function, and `EmptyState` is a client component, so passing the component itself from a server one fails at render with "Functions cannot be passed directly to Client Components". Nothing catches that at build time and it only fires when the empty state actually shows, so three screens carried it unnoticed until a cohort with no work outstanding made one appear. The prop is now typed `ReactNode`, which turns the old spelling into a compile error — the same shape `action` has always had.
 
-**Anything the instructor's course page renders comes from a server component**, fetched once and passed down as a prop — so a mutation there needs `router.refresh()` and not only `queryClient.invalidateQueries()`. Publishing an assignment left the row showing "Draft" until a manual reload, because the browser's query cache never held that data to invalidate. Both calls are made: `invalidateQueries` for the parts that genuinely are client queries, the Modules tab among them, and `refresh()` for the server-rendered rest.
+**Anything the instructor's course screens render comes from a server component**, fetched once and passed down as a prop — so a mutation there needs `router.refresh()` and not only `queryClient.invalidateQueries()`. Publishing an assignment left the row showing "Draft" until a manual reload, because the browser's query cache never held that data to invalidate. Both calls are made: `invalidateQueries` for the parts that genuinely are client queries, the Modules screen among them, and `refresh()` for the server-rendered rest.
 
 `lib/status.ts` is the single source of presentation truth** — status vocabulary, tone classes, flag copy, relative dates, module ordering. `formatRelative(date, now)` takes the reference instant as an argument rather than reading the clock, and dates render in a fixed school timezone.
 
@@ -903,6 +939,10 @@ The embedded preview is checked too — that an inline link serves the object as
 **A hand-graded assignment, end to end.** `verify:approve` authors a `GOOGLE_DOC` assignment through `create`, publishes it, accepts it as the student and gets the `/copy` link back with no repository created, submits a document link, finds the submission in the queue as `needs_manual_grade`, opens a blank draft, presses the button a second time and gets the same draft rather than a second one, is refused approval while the section is blank, writes a score and feedback, releases it, and then confirms the released submission is in **no** bucket — not in triage, not in the queue, not in the gradebook — with delivery reported as `not_applicable` and no error message, and that the student sees the grade. All of it through the tRPC callers inside a transaction that is rolled back.
 
 That last part is the check the whole delivery change exists for. It also required `approveDraft` to accept the caller's Prisma client: it read the module's own, so rows created inside a caller's transaction were invisible to it and the most consequential write in the application could only ever be tested up to the guards that refuse before writing.
+
+**Co-teaching, and moving between cohorts.** `verify:enrollment` covers both through the callers inside a rolled-back transaction. The co-teaching group takes **one account** and puts it through the rule: refused while it is a student, with the refusal naming an instructor invitation and no `CourseInstructor` row written; promoted inside the transaction; then eligible, admitted, and — the check the feature exists for — able to call a teach-gated procedure on the cohort, because a row that exists but does not actually let somebody work in the course would look entirely correct in the database. Redeeming twice adds nothing and leaves one row. An archived cohort and a cohort they are enrolled in as a student both refuse them. Replacing the link stops the old one and leaves the instructors already on the course untouched. Removing one of two is allowed and takes their access with it; removing the last is refused, with the count asserted to be one first, because a spare instructor lying around would make that refusal pass while measuring nothing.
+
+The switcher's arithmetic is checked as a pure function against **all six** sidebar views plus the five addresses that cannot travel between cohorts. That table is not a completeness gesture: a view missing from `sameViewInCourse` does not throw, it falls through to settings, so the failure it prevents is switching cohort from the roster and silently landing somewhere else.
 
 **Approval and resubmission.** Approving recorded 30/30, set `isComplete`, wrote `gradedHeadSha`, and posted a comment; approving the same draft twice is refused rather than posting again. A student calling instructor procedures is refused with `FORBIDDEN`, and cross-course access is refused for an instructor who does not teach the course. A real commit pushed after grading left the status at `GRADED` and moved `headSha` while `gradedHeadSha` stayed put, which is what marks a submission revised since grading. The student's declaration set `RESUBMITTED`, and a second approval posted a distinct second comment.
 

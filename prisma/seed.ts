@@ -469,6 +469,7 @@ async function main() {
         cohortTerm: "Cohort Test",
         cohortSlug: slugifyCohort("Cohort Test"),
         joinToken: newJoinToken(),
+        coTeachToken: newJoinToken(),
       },
     }));
   console.log(`Course: ${course.name} (${course.cohortTerm}) — ${course.id}`);

@@ -57,7 +57,6 @@ async function Triage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
     <TriageOverview
       triage={triage}
-      courseId={courseId}
       courseName={course.name}
       cohortTerm={course.cohortTerm}
       archived={course.archivedAt !== null}

@@ -34,7 +34,9 @@ import type { RouterOutputs } from '@/trpc/types';
 type Gradebook = RouterOutputs['courses']['gradebook'];
 type Assignment = Gradebook['assignments'][number];
 type Cell = Gradebook['cells'][number];
-type Student = Gradebook['enrollments'][number]['student'];
+// From the active list rather than a whole-roster one, which this payload no longer carries.
+// Either complement has the same shape, so which it is read off is a question of what exists.
+type Student = Gradebook['activeEnrollments'][number]['student'];
 
 export function Gradebook({ data }: { data: Gradebook }) {
   const active = data.activeEnrollments.map((enrollment) => enrollment.student);

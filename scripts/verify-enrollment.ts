@@ -9,10 +9,13 @@
  * check that only holds when the function is called some other way is not a check on what an
  * instructor uses.
  *
- * **The group worth reading is the last one.** A removed student keeps reading the feedback they
- * were given and cannot hand anything else in, and those two facts are one `where` clause apart
- * in code that otherwise reads identically. Every check there asserts both halves, because
- * getting one right and the other wrong is the failure this design can actually produce.
+ * **Two groups are worth reading.** A removed student keeps reading the feedback they were given
+ * and cannot hand anything else in, and those two facts are one `where` clause apart in code that
+ * otherwise reads identically — every check there asserts both halves, because getting one right
+ * and the other wrong is the failure that design can actually produce. And the co-teaching group
+ * at the end takes one account, has it refused while it is a student, promotes it, and has it
+ * admitted: the link grants a course and never a role, and one account doing both halves is what
+ * makes that a comparison rather than two unrelated facts about two people.
  */
 import { config as loadEnv } from "dotenv";
 
@@ -152,9 +155,14 @@ async function main() {
         ---- Moving between cohorts -------------------------------------------
 
         Pure too, and checked because it is the arithmetic the sidebar does. Switching cohort
-        keeps the view where the view exists in every course, and lands on the course page
-        where it does not — an assignment belongs to one cohort, so its queue cannot travel.
-        Getting that backwards sends an instructor to another cohort's assignment id.
+        keeps the view where the view exists in every course, and lands on settings where it does
+        not — an assignment belongs to one cohort, so its queue cannot travel. Getting that
+        backwards sends an instructor to another cohort's assignment id.
+
+        Every one of the six sidebar items is here, and that is the point of the table rather
+        than a completeness gesture: a view missing from `sameViewInCourse` does not fail, it
+        silently falls through to settings, so switching cohort from the roster would land on
+        settings and read as the switcher losing your place.
       */
       const [alpha, beta, someAssignment] = [
         "aaaaaaaa-0000-0000-0000-000000000001",
@@ -163,18 +171,26 @@ async function main() {
       ];
       const switches: [string, string, string][] = [
         ["triage", links.triageHref(alpha), links.triageHref(beta)],
+        ["the assignments list",
+          links.courseAssignmentsHref(alpha), links.courseAssignmentsHref(beta)],
         ["the gradebook", links.gradebookHref(alpha), links.gradebookHref(beta)],
-        ["the course page", links.courseHref(alpha), links.courseHref(beta)],
-        // The three that cannot carry across, each landing on the course rather than on
-        // another cohort's copy of an id it does not have.
+        ["the roster", links.rosterHref(alpha), links.rosterHref(beta)],
+        ["modules", links.modulesHref(alpha), links.modulesHref(beta)],
+        ["settings", links.courseSettingsHref(alpha), links.courseSettingsHref(beta)],
+        // The four that cannot carry across, each landing on settings rather than on another
+        // cohort's copy of an id it does not have.
         ["an assignment's queue",
-          links.gradingQueueHref(alpha, someAssignment), links.courseHref(beta)],
+          links.gradingQueueHref(alpha, someAssignment), links.courseSettingsHref(beta)],
         ["an assignment's edit form",
-          `${links.gradingQueueHref(alpha, someAssignment)}/edit`, links.courseHref(beta)],
+          links.editAssignmentHref(alpha, someAssignment), links.courseSettingsHref(beta)],
         ["the new-assignment form",
-          `/instructor/courses/${alpha}/assignments/new`, links.courseHref(beta)],
+          links.newAssignmentHref(alpha), links.courseSettingsHref(beta)],
+        ["a student's record",
+          links.studentHref(alpha, "stu-1"), links.courseSettingsHref(beta)],
+        // The bare course address, which is itself a redirect to settings.
+        ["the course address", links.courseHref(alpha), links.courseSettingsHref(beta)],
         // No course in the address at all, which is the course list.
-        ["the course list", "/courses", links.courseHref(beta)],
+        ["the course list", "/courses", links.courseSettingsHref(beta)],
       ];
       for (const [what, from, expected] of switches) {
         check(`switching cohort from ${what}`, links.sameViewInCourse(from, beta), expected);
@@ -658,8 +674,11 @@ async function main() {
         (await asInstructor.courses.gradebook({ courseId: course.id }))
           .activeEnrollments.some((row) => row.student.id === studentId),
         false);
+      // Through `courses.roster`, which is the screen that shows them. The gradebook stopped
+      // returning the whole enrollment list when the roster became its own read, and it is that
+      // read's job to keep a departed student visible.
       check("...and is still on the roster, so they can be put back",
-        (await asInstructor.courses.gradebook({ courseId: course.id }))
+        (await asInstructor.courses.roster({ courseId: course.id }))
           .enrollments.some((row) => row.student.id === studentId),
         true);
 
@@ -763,6 +782,189 @@ async function main() {
       check("an enrollment in a course you teach can be removed",
         (await asInstructor.enrollments.remove({ enrollmentId: foreignEnrollment!.id })).status,
         "REMOVED");
+
+      /*
+        ---- Co-teaching a cohort ----------------------------------------------
+
+        The second link, and the one whose refusals matter more than its successes. It admits
+        somebody to authoring and to every student's grade in a cohort, so the check that earns
+        its place is that it **grants a course and never a role**: the same account is refused
+        while it is a student and admitted once an admin has made it staff, which is the whole
+        of the design. If that guard were wrong, any instructor could hand out staff access by
+        forwarding a course link.
+
+        The promotion happens inside this transaction and is rolled back with everything else.
+        Using one account for both halves is deliberate — it is what makes the pair a comparison
+        rather than two unrelated facts about two people.
+      */
+      const coTaught = await asInstructor.courses.create({
+        name: "Verify Co-teaching",
+        cohortTerm: "Cohort Verify D",
+      });
+      const coTeachToken = (await tx.course.findUnique({
+        where: { id: coTaught.course.id },
+        select: { coTeachToken: true },
+      }))!.coTeachToken;
+
+      check("a new course gets a co-teach token", coTeachToken.length >= 32, true);
+      check("...which is not its join token",
+        coTeachToken === (await tx.course.findUnique({
+          where: { id: coTaught.course.id },
+          select: { joinToken: true },
+        }))!.joinToken,
+        false);
+
+      check("an unknown co-teach token previews as nothing",
+        await asStudent.courses.previewCoTeach({ token: "not-a-real-co-teach-token" }), null);
+
+      // ---- Refused while the account is a student ----
+      const asStudentPreview = await asStudent.courses.previewCoTeach({ token: coTeachToken });
+      check("a student is told they are not eligible", asStudentPreview?.eligible, false);
+      check("...and the preview still names the cohort", asStudentPreview?.name,
+        "Verify Co-teaching");
+
+      const studentRefusal = await refusalMessage(() =>
+        asStudent.courses.acceptCoTeach({ token: coTeachToken }));
+      check("a student cannot take up a co-teach link",
+        studentRefusal.includes("instructor invitation"), true);
+      check("...and no instructor row was written",
+        await tx.courseInstructor.count({
+          where: { courseId: coTaught.course.id, userId: studentId },
+        }),
+        0);
+
+      // ---- Made staff, and now admitted ----
+      //
+      // The promotion an admin performs, done directly here because `staff.setAdmin` and the
+      // invitation flow are `verify:staff`'s subject rather than this script's.
+      await tx.profile.update({ where: { id: studentId }, data: { role: "INSTRUCTOR" } });
+      const asNewInstructor = createCaller({ db: tx, user: { id: studentId } } as never);
+
+      // Before redeeming, so it is genuinely somebody outside the course. Holding the role says
+      // nothing about which cohorts, which is the distinction every teach gate rests on.
+      check("an instructor who does not teach it cannot replace its co-teach link",
+        await refusal(() =>
+          asNewInstructor.courses.regenerateCoTeachToken({ courseId: coTaught.course.id })),
+        "FORBIDDEN");
+      check("...and cannot read its settings either",
+        await refusal(() => asNewInstructor.courses.settings({ courseId: coTaught.course.id })),
+        "FORBIDDEN");
+
+      const eligiblePreview = await asNewInstructor.courses.previewCoTeach({
+        token: coTeachToken,
+      });
+      check("an instructor is eligible", eligiblePreview?.eligible, true);
+      check("...and does not teach it yet", eligiblePreview?.alreadyTeaches, false);
+
+      check("redeeming adds them",
+        (await asNewInstructor.courses.acceptCoTeach({ token: coTeachToken })).added, true);
+
+      /*
+        The check the whole feature is for. A `CourseInstructor` row that exists but does not
+        actually let somebody work in the cohort would look completely correct in the database —
+        every authoring procedure gates on this table, so the proof is calling one.
+      */
+      const theirSettings = await asNewInstructor.courses.settings({
+        courseId: coTaught.course.id,
+      });
+      check("...and they can now read the cohort they teach", theirSettings.course.id,
+        coTaught.course.id);
+      check("...and it lists both instructors", theirSettings.course.instructors.length, 2);
+      check("...with the creator marked as such",
+        theirSettings.course.instructors.filter((row) => row.isPrimary).length, 1);
+
+      /*
+        Idempotent, the same way `enrollments.join` is: `@@unique([courseId, userId])` means a
+        bookmarked link is not a case to handle. The row count is the half that matters — `added:
+        false` alone would pass while a second row was written by something else.
+      */
+      check("redeeming twice adds nothing",
+        (await asNewInstructor.courses.acceptCoTeach({ token: coTeachToken })).added, false);
+      check("...and there is still one row for them",
+        await tx.courseInstructor.count({
+          where: { courseId: coTaught.course.id, userId: studentId },
+        }),
+        1);
+
+      // ---- The refusals that are about the cohort rather than the account ----
+      const archivedCourse = await asInstructor.courses.create({
+        name: "Verify Co-teaching Archived",
+        cohortTerm: "Cohort Verify E",
+      });
+      await asInstructor.courses.setArchived({
+        courseId: archivedCourse.course.id,
+        archived: true,
+      });
+      const archivedCoTeachToken = (await tx.course.findUnique({
+        where: { id: archivedCourse.course.id },
+        select: { coTeachToken: true },
+      }))!.coTeachToken;
+      check("an archived cohort takes no new instructors",
+        await refusal(() => asNewInstructor.courses.acceptCoTeach({ token: archivedCoTeachToken })),
+        "PRECONDITION_FAILED");
+
+      /*
+        Enrolled as a student and teaching are mutually exclusive, the mirror of
+        `enrollments.join` refusing an instructor of the course. Being both would put their own
+        submissions in the queue they are meant to be working through.
+      */
+      const bothCourse = await asInstructor.courses.create({
+        name: "Verify Co-teaching Enrolled",
+        cohortTerm: "Cohort Verify F",
+      });
+      const bothTokens = (await tx.course.findUnique({
+        where: { id: bothCourse.course.id },
+        select: { joinToken: true, coTeachToken: true },
+      }))!;
+      await asNewInstructor.enrollments.join({ token: bothTokens.joinToken });
+      check("somebody enrolled as a student cannot also teach the cohort",
+        await refusal(() =>
+          asNewInstructor.courses.acceptCoTeach({ token: bothTokens.coTeachToken })),
+        "PRECONDITION_FAILED");
+
+      // ---- Replacing the link ----
+      const rotatedCoTeach = await asInstructor.courses.regenerateCoTeachToken({
+        courseId: coTaught.course.id,
+      });
+      check("replacing the co-teach link changes it", rotatedCoTeach.coTeachToken !== coTeachToken, true);
+      check("...and the old one stops working",
+        await refusal(() => asNewInstructor.courses.acceptCoTeach({ token: coTeachToken })),
+        "NOT_FOUND");
+      check("...while instructors already on the course keep it",
+        (await asNewInstructor.courses.settings({ courseId: coTaught.course.id }))
+          .course.instructors.length,
+        2);
+
+      // ---- Removing an instructor ----
+      //
+      // The last one is refused, the same shape and the same reasoning as revoking the last
+      // admin: a course with no instructors cannot be authored in or graded by anybody, and the
+      // only way back is a database edit. The count is asserted first, because a spare
+      // instructor lying around would make that refusal pass while testing nothing.
+      check("removing one of two instructors is allowed",
+        (await asInstructor.courses.removeInstructor({
+          courseId: coTaught.course.id,
+          userId: studentId,
+        })).courseId,
+        coTaught.course.id);
+      check("...and they lose access with it",
+        await refusal(() => asNewInstructor.courses.settings({ courseId: coTaught.course.id })),
+        "FORBIDDEN");
+      check("...leaving exactly one instructor",
+        await tx.courseInstructor.count({ where: { courseId: coTaught.course.id } }), 1);
+      check("...and the last one cannot be removed",
+        await refusal(() => asInstructor.courses.removeInstructor({
+          courseId: coTaught.course.id,
+          userId: instructor.userId,
+        })),
+        "PRECONDITION_FAILED");
+
+      check("removing somebody who does not teach the course is refused",
+        await refusal(() => asInstructor.courses.removeInstructor({
+          courseId: coTaught.course.id,
+          userId: studentId,
+        })),
+        "NOT_FOUND");
 
       throw new Error("ROLLBACK");
     }, { timeout: 120_000 });

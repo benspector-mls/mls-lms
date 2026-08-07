@@ -166,6 +166,22 @@ model Course {
   /// it, and the wrongly-enrolled student is removed from the roster. Random rather than
   /// derived from the id, because the id appears in URLs.
   joinToken  String    @unique @map("join_token")
+  /// The link that makes whoever opens it a co-instructor of this course.
+  ///
+  /// The counterpart to `joinToken`, and the reason it is a second column rather than a reuse:
+  /// the two grant opposite things. One admits somebody to a cohort as a student; this one
+  /// admits them to authoring, to the gradebook, and to every student's grades in it.
+  ///
+  /// **Redeeming it never raises a role.** Only an account that already holds INSTRUCTOR or
+  /// ADMIN can use it, and a student is refused rather than promoted — a course-level link that
+  /// granted staff access would be a second path to it with no admin involved, which is what
+  /// `InstructorInvite` and `adminProcedure` exist to control. So this grants a *course*, and
+  /// becoming staff at all stays where it was.
+  ///
+  /// Reusable, like the join link and unlike an `InstructorInvite`: a cohort gains co-teachers
+  /// one at a time over a term, and the role check is what bounds it rather than the token
+  /// being single use. Replacing it is the only control, the same as the join link.
+  coTeachToken String  @unique @map("co_teach_token")
   /// Set when a cohort finishes. The course leaves every active list and stays readable to
   /// the people who were in it; nothing new can be submitted. Reversible, because a tidying
   /// action that cannot be undone gets avoided instead of used.

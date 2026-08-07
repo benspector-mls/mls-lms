@@ -21,10 +21,9 @@ import { EmptyState } from '@/components/list-states';
 import { PageHeader } from '@/components/page-header';
 import { FlagBadge } from '@/components/status-badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { courseHref, gradingQueueHref } from '@/lib/links';
+import { gradingQueueHref } from '@/lib/links';
 import { flagMeta, formatRelative, scoreLabel } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
@@ -132,14 +131,18 @@ const BUCKET_META: Record<
 
 export function TriageOverview({
   triage,
-  courseId,
   courseName,
   cohortTerm,
   archived,
   now,
 }: {
   triage: Triage;
-  courseId: string;
+  /*
+    No `courseId`. Every link out of this screen goes to one submission, and each row already
+    carries its own assignment's course — which is the right source, because it comes from the
+    row rather than from the address the screen was opened at. The prop existed for the button
+    back to the course page, and went with it.
+  */
   courseName: string;
   cohortTerm: string;
   archived: boolean;
@@ -172,15 +175,12 @@ export function TriageOverview({
             : `${remaining} ${remaining === 1 ? 'submission' : 'submissions'} left to grade`,
           `${triage.gradedCount} approved`,
         ].join(' · ')}
-        actions={
-          <Link
-            href={courseHref(courseId)}
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-          >
-            {courseName}
-            <ArrowRight data-icon="inline-end" />
-          </Link>
-        }
+        /*
+          No action. There was a button back to the course page, which existed because the
+          cohort's other views were tabs on it and this screen was the one place outside. Every
+          one of them is a sidebar item now, so the button led to the one address that is not a
+          view at all.
+        */
       />
 
       {/*
@@ -193,7 +193,7 @@ export function TriageOverview({
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
             This cohort is archived, so nothing here is waiting on you. Its submissions and
-            feedback stay readable on the course page and in the gradebook.
+            feedback stay readable in the gradebook and in every assignment&apos;s own queue.
           </p>
         </div>
       )}

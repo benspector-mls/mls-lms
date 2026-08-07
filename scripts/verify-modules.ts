@@ -248,6 +248,7 @@ async function main() {
           cohortTerm: "Cohort Elsewhere",
           cohortSlug: `vm-${crypto.randomUUID().slice(0, 8)}`,
           joinToken: `verify-modules-${crypto.randomUUID()}`,
+          coTeachToken: `verify-modules-ct-${crypto.randomUUID()}`,
         },
         select: { id: true },
       });
@@ -375,6 +376,7 @@ async function main() {
           cohortTerm: "Cohort Verify Reseed",
           cohortSlug: "verify-reseed",
           joinToken: newJoinToken(),
+          coTeachToken: newJoinToken(),
         },
         select: { id: true },
       });

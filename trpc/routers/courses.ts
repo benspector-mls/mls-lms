@@ -8,6 +8,7 @@ import {
   slugifyCohort,
 } from '@/lib/courses/cohort-slug';
 import { newJoinToken } from '@/lib/courses/join-token';
+import { removedStudentIds } from '@/lib/courses/membership';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
 
@@ -138,6 +139,235 @@ export const coursesRouter = createTRPCRouter({
     }),
 
   /**
+   * The roster: everybody who has ever joined this cohort, and the link that lets them.
+   *
+   * Its own read rather than a slice of the gradebook, because the two screens want
+   * genuinely different rows. This one needs every enrollment and no submissions at all;
+   * the gradebook needs every submission and only the active enrollments. Serving both
+   * from one payload meant opening the roster fetched a term's worth of grading cells to
+   * display a list of names.
+   *
+   * **Every status, and deliberately not filtered here.** A removed student has to appear —
+   * they are who Restore acts on, and a roster that silently omitted them would make removal
+   * look like deletion. The screen splits them into their own table.
+   */
+  roster: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeachesCourse(ctx, input.courseId);
+
+      const course = await ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: {
+          id: true,
+          name: true,
+          cohortTerm: true,
+          archivedAt: true,
+          /*
+            The join link. Safe here and nowhere a student can reach: this procedure is
+            `instructorProcedure` *and* teach-gated above. It must never appear in `get` or
+            `assignments.listForCourse`, both of which answer to students — a link in a
+            payload is a link that has leaked.
+          */
+          joinToken: true,
+        },
+      });
+
+      if (!course) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+      }
+
+      const enrollments = await ctx.db.enrollment.findMany({
+        where: { courseId: course.id },
+        orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          status: true,
+          student: {
+            select: { id: true, displayName: true, email: true, githubUsername: true },
+          },
+        },
+      });
+
+      return { course, enrollments };
+    }),
+
+  /**
+   * Every assignment in the course, with how much of each is graded and how much is waiting.
+   *
+   * **The counts are computed here rather than in the browser**, which is the whole reason
+   * this is its own procedure. The screen used to derive them by filtering the gradebook's
+   * every-student-every-assignment cell list, so listing twelve assignments meant shipping
+   * three hundred grading cells to count them — and the counting happened inside a sort
+   * comparator, which ran it again for every comparison.
+   *
+   * They are the same figures the gradebook and grading triage show, from the same
+   * `triageBucket`, so the "to grade" column here cannot disagree with the pile that screen
+   * lists.
+   */
+  assignmentsOverview: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeachesCourse(ctx, input.courseId);
+
+      const course = await ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: {
+          id: true,
+          name: true,
+          cohortTerm: true,
+          archivedAt: true,
+          // For the filter menu, which offers the course's whole module list rather than only
+          // the modules that happen to hold an assignment — filtering to an empty module is a
+          // legitimate way to find out that it is empty.
+          modules: {
+            orderBy: [{ position: 'asc' }, { name: 'asc' }],
+            select: { id: true, name: true, position: true },
+          },
+        },
+      });
+
+      if (!course) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+      }
+
+      const assignments = await ctx.db.assignment.findMany({
+        where: { courseId: course.id },
+        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+        select: {
+          id: true,
+          title: true,
+          module: { select: { id: true, name: true, position: true } },
+          pointValue: true,
+          dueAt: true,
+          kind: true,
+          // Read for the grading mode and not returned. Each cell's bucket depends on whether
+          // the pipeline can grade this assignment at all.
+          sections: true,
+          // So the list can mark an unpublished assignment as a draft. A student cannot see it
+          // at all; an instructor needs to know why nobody has submitted.
+          distributedAt: true,
+        },
+      });
+
+      const cells = await courseCells(ctx.db, course.id, assignments);
+
+      /*
+        Active students only, the same set triage works from.
+
+        A departed student's work is not the cohort's outstanding work, so counting it here
+        would leave this column claiming there is grading to do while triage shows nothing —
+        with nothing on either screen to reconcile them.
+      */
+      const removed = await removedStudentIds(ctx.db, course.id);
+      const counts = new Map(
+        assignments.map((assignment) => [
+          assignment.id,
+          { graded: 0, submitted: 0, outstanding: 0 },
+        ]),
+      );
+
+      for (const cell of cells) {
+        if (removed.has(cell.studentId)) continue;
+        const entry = counts.get(cell.assignmentId);
+        if (!entry) continue;
+        if (cell.finalScore != null) entry.graded += 1;
+        // "Handed in": accepting an assignment is not submitting it.
+        if (cell.status !== 'NOT_STARTED' && cell.status !== 'ACCEPTED') entry.submitted += 1;
+        if (cell.bucket !== null && cell.bucket !== 'generating') entry.outstanding += 1;
+      }
+
+      return {
+        course,
+        assignments: assignments.map(({ sections, ...assignment }) => ({
+          ...assignment,
+          manualOnly: isManualOnly(sections),
+          counts: counts.get(assignment.id) ?? { graded: 0, submitted: 0, outstanding: 0 },
+        })),
+      };
+    }),
+
+  /**
+   * The cohort itself: what it is called, how its repositories are named, who teaches it,
+   * and how it is retired.
+   *
+   * Also where the bare course address lands, because once every tab became a sidebar item
+   * there was nothing else for `/instructor/courses/[courseId]` to be.
+   *
+   * **`cohortSlug` is returned here and nowhere else.** It used to be returned by nothing at
+   * all, on the reasoning that it is fixed at creation and legible from any repository name
+   * the cohort has generated — which is right about a screen that lists work and wrong about
+   * this one. A settings screen is where a fact you cannot act on legitimately belongs, and
+   * an instructor who has to derive their own cohort's short name by reading a student's
+   * repository name has been told to work it out rather than told.
+   */
+  settings: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeachesCourse(ctx, input.courseId);
+
+      const course = await ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: {
+          id: true,
+          name: true,
+          cohortTerm: true,
+          cohortSlug: true,
+          archivedAt: true,
+          createdAt: true,
+          /*
+            Same guard as the join link above, and a sharper edge: this one admits somebody to
+            authoring and to every student's grades in this cohort. It is behind
+            `instructorProcedure` and the teach gate, and appears in no other payload.
+          */
+          coTeachToken: true,
+          instructors: {
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              isPrimary: true,
+              createdAt: true,
+              user: {
+                select: { id: true, displayName: true, email: true, githubUsername: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!course) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+      }
+
+      /*
+        The organizations this cohort's repositories are created in, which is the other half of
+        what a repository name is made of. Distinct values rather than a row per assignment: the
+        question is which organizations are in play, and a course normally has one answer.
+      */
+      const orgRows = await ctx.db.assignment.findMany({
+        where: { courseId: course.id, githubOrg: { not: null } },
+        select: { githubOrg: true },
+        distinct: ['githubOrg'],
+        orderBy: { githubOrg: 'asc' },
+      });
+
+      // Whether the short name is still theoretically free, which it is not once a repository
+      // has been named after it. Stated on the screen rather than acted on — there is no
+      // mutation either way, and knowing why is the point.
+      const acceptedCount = await ctx.db.submission.count({
+        where: { assignment: { courseId: course.id }, repoFullName: { not: null } },
+      });
+
+      return {
+        course,
+        githubOrgs: orgRows.map((row) => row.githubOrg).filter((org): org is string => org !== null),
+        acceptedCount,
+        /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
+        callerId: ctx.profile.id,
+      };
+    }),
+
+  /**
    * A whole course at once: its assignments, its roster, and every cell where the two
    * meet. Instructors only.
    *
@@ -149,23 +379,15 @@ export const coursesRouter = createTRPCRouter({
    * Each cell carries the same `bucket` the triage screen and the grading queue sort on,
    * so the "still to grade" count against an assignment here is the same count that
    * screen shows.
+   *
+   * Narrowed to the grid once the roster, the assignments list, and settings became their
+   * own screens — no join link, and the two enrollment complements rather than the whole
+   * list. Everything still here is something the grid itself draws.
    */
   gradebook: instructorProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const teaches =
-        ctx.profile.role === 'ADMIN' ||
-        (await ctx.db.courseInstructor.findFirst({
-          where: { courseId: input.courseId, userId: ctx.profile.id },
-          select: { id: true },
-        })) !== null;
-
-      if (!teaches) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not teach this course.',
-        });
-      }
+      await assertTeachesCourse(ctx, input.courseId);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
@@ -173,20 +395,7 @@ export const coursesRouter = createTRPCRouter({
           id: true,
           name: true,
           cohortTerm: true,
-          // No `cohortSlug`. It is fixed at creation, nothing on these screens acts on it, and it
-          // is legible from any repository name the cohort has generated.
           archivedAt: true,
-          /*
-            The join link. Safe here and nowhere a student can reach: this procedure is
-            `instructorProcedure` *and* teach-gated above, which is the same pair that guards
-            the gradebook itself. It must never appear in `get` or `assignments.listForCourse`,
-            both of which answer to students — a link in a payload is a link that has leaked.
-          */
-          joinToken: true,
-          modules: {
-            orderBy: [{ position: 'asc' }, { name: 'asc' }],
-            select: { id: true, name: true, position: true },
-          },
         },
       });
 
@@ -204,25 +413,20 @@ export const coursesRouter = createTRPCRouter({
             module: { select: { id: true, name: true, position: true } },
             pointValue: true,
             dueAt: true,
-            githubOrg: true,
             kind: true,
             // Read for the grading mode below and not returned. Each cell's bucket depends
             // on whether the pipeline can grade this assignment at all, and asking the
             // assignment once is cheaper than carrying the answer on every cell.
             sections: true,
-            // So the course page can mark an unpublished assignment as a draft. A student
+            // So the grid can mark an unpublished assignment as a draft. A student
             // cannot see it at all; an instructor needs to know why.
             distributedAt: true,
           },
         }),
         /*
-          Every status, because this one payload feeds two screens with opposite needs.
-
-          The Roster tab has to *show* a removed student — they are who Restore acts on, and
-          omitting them would make removal look like deletion. The gradebook must not count
-          them, or a departed student reads as somebody with unfinished work forever. So the
-          filtering happens where the figures are computed rather than here, and `status` is
-          carried on every row so both screens can ask.
+          Every status, then split into complements below. The grid must not count a removed
+          student, or a departed student reads as somebody with unfinished work forever — but
+          it does show their rows in a table of their own, which needs them fetched.
         */
         ctx.db.enrollment.findMany({
           where: { courseId: course.id },
@@ -237,36 +441,8 @@ export const coursesRouter = createTRPCRouter({
         }),
       ]);
 
-      const submissions = await ctx.db.submission.findMany({
-        where: { assignment: { courseId: course.id } },
-        select: {
-          id: true,
-          assignmentId: true,
-          studentId: true,
-          status: true,
-          isLate: true,
-          headSha: true,
-          gradedHeadSha: true,
-          finalScore: true,
-          finalScorePossible: true,
-          isComplete: true,
-          gradingDrafts: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { status: true, headSha: true },
-          },
-        },
-      });
+      const cells = await courseCells(ctx.db, course.id, assignments);
 
-      const undelivered = await ctx.db.gradingDraft.findMany({
-        where: undeliveredApprovalWhere({ assignment: { courseId: course.id } }),
-        select: { submissionId: true },
-        distinct: ['submissionId'],
-      });
-      const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
-      const manualOnlyByAssignment = new Map(
-        assignments.map((assignment) => [assignment.id, isManualOnly(assignment.sections)]),
-      );
       // Everybody not currently active, for the same reason as the two lists below: the set and
       // its complement have to cover the roster.
       const removed = new Set(
@@ -275,45 +451,13 @@ export const coursesRouter = createTRPCRouter({
           .map((enrollment) => enrollment.student.id),
       );
 
-      const cells = submissions.map(({ gradingDrafts, ...submission }) => {
-        const draft = gradingDrafts[0] ?? null;
-        const draftIsStale =
-          draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
-
-        return {
-          ...submission,
-          bucket: triageBucket(
-            submission.status,
-            draft,
-            draftIsStale,
-            undeliveredIds.has(submission.id),
-            manualOnlyByAssignment.get(submission.assignmentId) ?? false,
-          ),
-        };
-      });
-
       return {
-        course: {
-          id: course.id,
-          name: course.name,
-          cohortTerm: course.cohortTerm,
-          archivedAt: course.archivedAt,
-          joinToken: course.joinToken,
-          modules: course.modules,
-        },
+        course,
         assignments: assignments.map(({ sections, ...assignment }) => ({
           ...assignment,
           /** Whether this assignment is graded by hand, which the header cell shows. */
           manualOnly: isManualOnly(sections),
         })),
-        /**
-         * Every enrollment, with its status, for the Roster tab.
-         *
-         * Three lists rather than one filtered in the interface, because "who is in this cohort",
-         * "whose figures make up this cohort", and "who has left it" are different questions, and
-         * a component that had to remember which one it was asking would eventually get it wrong.
-         */
-        enrollments,
         /*
           Active, and everything else — not "active" and "removed". The two are complements, so
           every enrollment is in exactly one of them and nobody can go missing from both. That
@@ -450,6 +594,7 @@ export const coursesRouter = createTRPCRouter({
               cohortTerm: input.cohortTerm,
               cohortSlug,
               joinToken: newJoinToken(),
+              coTeachToken: newJoinToken(),
               instructors: { create: { userId: ctx.profile.id, isPrimary: true } },
             },
             select: { id: true, name: true, cohortTerm: true, cohortSlug: true },
@@ -597,7 +742,314 @@ export const coursesRouter = createTRPCRouter({
         select: { id: true, joinToken: true },
       });
     }),
+
+  // =====================================================================================
+  // Co-teaching: who else may teach this cohort
+  //
+  // A second link, deliberately not the join link, because the two grant opposite things.
+  // The join link admits a stranger to one cohort as a student; this one admits them to
+  // authoring, to the gradebook, and to every student's grade in it.
+  //
+  // **It grants a course, never a role.** Only an account that already holds INSTRUCTOR or
+  // ADMIN can redeem it. A student opening it is refused and told what is actually needed,
+  // rather than promoted — a course-level link that made somebody staff would be a second
+  // path to staff access with no admin involved, which is exactly what `adminProcedure` and
+  // `InstructorInvite` exist to control. So becoming staff stays where it was, and this
+  // decides only which cohorts an existing instructor works in.
+  //
+  // Reusable rather than single use, unlike an instructor invitation. A cohort gains
+  // co-teachers one at a time across a term and the sender is the same person either way;
+  // what bounds this link is the role check rather than the token being spent, and
+  // `regenerateCoTeachToken` is the control over a link that reached the wrong person.
+  // =====================================================================================
+
+  /**
+   * What a co-teach link points at, before anybody redeems it.
+   *
+   * `profileProcedure`, because the caller is by definition not yet an instructor of this
+   * course — that is what they are here to change. Returns null on an unknown token so a
+   * replaced link reads as "this link no longer works" rather than as an error page.
+   *
+   * It reports `eligible` rather than refusing, so the screen can explain the one refusal
+   * that has an answer: a student account cannot be made staff from here, and saying so on
+   * arrival beats a failed button.
+   */
+  previewCoTeach: profileProcedure
+    .input(z.object({ token: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const course = await ctx.db.course.findUnique({
+        where: { coTeachToken: input.token },
+        select: {
+          id: true,
+          name: true,
+          cohortTerm: true,
+          archivedAt: true,
+          instructors: {
+            where: { isPrimary: true },
+            take: 1,
+            select: { user: { select: { displayName: true } } },
+          },
+        },
+      });
+
+      if (!course) return null;
+
+      const already = await ctx.db.courseInstructor.findUnique({
+        where: { courseId_userId: { courseId: course.id, userId: ctx.profile.id } },
+        select: { id: true },
+      });
+
+      return {
+        courseId: course.id,
+        name: course.name,
+        cohortTerm: course.cohortTerm,
+        archived: course.archivedAt !== null,
+        primaryInstructor: course.instructors[0]?.user.displayName ?? null,
+        /** Whether this account may hold the grant at all — staff only. */
+        eligible: ctx.profile.role === 'INSTRUCTOR' || ctx.profile.role === 'ADMIN',
+        /** So the screen says "you already teach this" rather than offering to join again. */
+        alreadyTeaches: already !== null,
+      };
+    }),
+
+  /**
+   * Redeems a co-teach link, adding the caller to the course as an instructor.
+   *
+   * **Idempotent**, the same way `enrollments.join` is and for the same reason:
+   * `@@unique([courseId, userId])` means a second redemption returns the row that exists
+   * rather than adding another, so a bookmarked link is not a case to handle.
+   *
+   * `isPrimary: false`, always. The primary instructor is whoever created the cohort, and
+   * that is a fact about how the course came to exist rather than a rank a link can confer.
+   */
+  acceptCoTeach: profileProcedure
+    .input(z.object({ token: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const course = await ctx.db.course.findUnique({
+        where: { coTeachToken: input.token },
+        select: { id: true, name: true, archivedAt: true },
+      });
+
+      /*
+        The same message whether the link was never real or has been replaced. From here they
+        are the same fact, and telling them apart would say something about a course the caller
+        has no connection to.
+      */
+      if (!course) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message:
+            'That co-teaching link does not work. It may have been replaced — ask whoever ' +
+            'sent it for the current one.',
+        });
+      }
+
+      /*
+        A student is refused rather than promoted, and told what would actually help.
+
+        This is the guard the whole design rests on. Raising a role here would mean any
+        instructor could hand out staff access to anybody by forwarding a course link, with no
+        admin involved and no record of it beyond a `CourseInstructor` row.
+      */
+      if (ctx.profile.role !== 'INSTRUCTOR' && ctx.profile.role !== 'ADMIN') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message:
+            `This link adds an instructor to ${course.name}, and your account is not an ` +
+            `instructor account. An admin has to send you an instructor invitation first — ` +
+            `once you have used that, this link will work.`,
+        });
+      }
+
+      if (course.archivedAt !== null) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `${course.name} is archived, so it is not taking new instructors.`,
+        });
+      }
+
+      /*
+        An enrolled student of this course is refused, the mirror of `enrollments.join`
+        refusing an instructor. Being both would put their own submissions in the queue they
+        are meant to be working through.
+      */
+      const enrolled = await ctx.db.enrollment.findUnique({
+        where: { courseId_studentId: { courseId: course.id, studentId: ctx.profile.id } },
+        select: { id: true },
+      });
+      if (enrolled) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            `You are enrolled as a student in ${course.name}, so you cannot also teach it. ` +
+            `Ask an instructor to remove your enrollment first.`,
+        });
+      }
+
+      const existing = await ctx.db.courseInstructor.findUnique({
+        where: { courseId_userId: { courseId: course.id, userId: ctx.profile.id } },
+        select: { id: true },
+      });
+
+      if (existing) {
+        return { courseId: course.id, name: course.name, added: false };
+      }
+
+      await ctx.db.courseInstructor.create({
+        data: { courseId: course.id, userId: ctx.profile.id, isPrimary: false },
+        select: { id: true },
+      });
+
+      return { courseId: course.id, name: course.name, added: true };
+    }),
+
+  /**
+   * Replaces the co-teach link, invalidating the old one.
+   *
+   * The only control over who can use it, exactly as with the join link: anybody holding it
+   * who is already staff is added immediately, so a link that reached the wrong person is
+   * dealt with by replacing it and removing whoever got in. Instructors already on the course
+   * are unaffected — the token is how you are added, not how you stay.
+   */
+  regenerateCoTeachToken: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertTeachesCourse(ctx, input.courseId);
+
+      return ctx.db.course.update({
+        where: { id: input.courseId },
+        data: { coTeachToken: newJoinToken() },
+        select: { id: true, coTeachToken: true },
+      });
+    }),
+
+  /**
+   * Removes an instructor from a course.
+   *
+   * **Refused if it would leave the course with none**, the same shape and the same reasoning
+   * as revoking the last admin: a course with no instructors is unreachable by every
+   * authoring procedure, all of which check `CourseInstructor` rather than the role, and the
+   * only way back is a database edit. The check is cheap and the failure is not.
+   *
+   * The primary instructor is removable, deliberately — somebody who set a cohort up and then
+   * left the program should not be permanent, and refusing would make "who created this"
+   * outrank "who runs it now". What is refused is emptying the list.
+   *
+   * Nothing is taken back on GitHub. An instructor removed here stays a collaborator on every
+   * repository generated while they taught, because `accept` adds collaborators at the moment
+   * a student accepts and those repositories hold real student work. Same reasoning as leaving
+   * student repositories alone when an assignment is removed.
+   */
+  removeInstructor: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), userId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertTeachesCourse(ctx, input.courseId);
+
+      const row = await ctx.db.courseInstructor.findUnique({
+        where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
+        select: {
+          id: true,
+          user: { select: { displayName: true, email: true, githubUsername: true } },
+        },
+      });
+
+      if (!row) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'That person does not teach this course.',
+        });
+      }
+
+      const total = await ctx.db.courseInstructor.count({ where: { courseId: input.courseId } });
+      if (total <= 1) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'This is the only instructor on the course. Add another one first — a course ' +
+            'with no instructors cannot be authored in or graded, and only a database edit ' +
+            'would bring it back.',
+        });
+      }
+
+      await ctx.db.courseInstructor.delete({ where: { id: row.id } });
+
+      return {
+        courseId: input.courseId,
+        instructorName:
+          row.user.displayName ?? row.user.githubUsername ?? row.user.email ?? 'that instructor',
+      };
+    }),
 });
+
+/**
+ * Every submission in a course, each carrying the triage bucket it falls into.
+ *
+ * Shared by the gradebook and the assignments list, which is the point: they are the same
+ * claim about the same work seen at two grains, and the day they were computed separately is
+ * the day one of them starts disagreeing with grading triage. `triageBucket` is the single
+ * authority, and this is the single place a whole course's worth of it is derived.
+ *
+ * The caller decides what to do about removed students, because the two want opposite things:
+ * the gradebook shows them in a table of their own, and the assignments list must not count
+ * them. Filtering here would take that decision away from both.
+ */
+async function courseCells(
+  db: typeof import('@/lib/prisma').db,
+  courseId: string,
+  assignments: { id: string; sections: unknown }[],
+) {
+  const submissions = await db.submission.findMany({
+    where: { assignment: { courseId } },
+    select: {
+      id: true,
+      assignmentId: true,
+      studentId: true,
+      status: true,
+      isLate: true,
+      headSha: true,
+      gradedHeadSha: true,
+      finalScore: true,
+      finalScorePossible: true,
+      isComplete: true,
+      gradingDrafts: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { status: true, headSha: true },
+      },
+    },
+  });
+
+  const undelivered = await db.gradingDraft.findMany({
+    where: undeliveredApprovalWhere({ assignment: { courseId } }),
+    select: { submissionId: true },
+    distinct: ['submissionId'],
+  });
+  const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+
+  // Asked once per assignment rather than once per cell. Whether the pipeline can grade an
+  // assignment at all is a property of the assignment, and a cohort of twenty-five turns that
+  // into twenty-five identical answers otherwise.
+  const manualOnlyByAssignment = new Map(
+    assignments.map((assignment) => [assignment.id, isManualOnly(assignment.sections)]),
+  );
+
+  return submissions.map(({ gradingDrafts, ...submission }) => {
+    const draft = gradingDrafts[0] ?? null;
+    const draftIsStale =
+      draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
+
+    return {
+      ...submission,
+      bucket: triageBucket(
+        submission.status,
+        draft,
+        draftIsStale,
+        undeliveredIds.has(submission.id),
+        manualOnlyByAssignment.get(submission.assignmentId) ?? false,
+      ),
+    };
+  });
+}
 
 /** Refuses unless the caller teaches this course. Admins teach none and may do anything. */
 async function assertTeachesCourse(
