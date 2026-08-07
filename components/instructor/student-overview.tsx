@@ -101,11 +101,11 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(
                 [
-                  { key: 'all', label: `All (${counts.all})` },
-                  { key: 'needs_review', label: `To do (${counts.needs_review})` },
-                  { key: 'graded', label: `Graded (${counts.graded})` },
-                  { key: 'not_started', label: `Not started (${counts.not_started})` },
-                ] as { key: Filter; label: string }[]
+                  { key: 'all', label: `All`, count: counts.all },
+                  { key: 'needs_review', label: `To do`, count: counts.needs_review },
+                  { key: 'graded', label: `Graded`, count: counts.graded },
+                  { key: 'not_started', label: `Not started`, count: counts.not_started },
+                ] as { key: Filter; label: string; count: number }[]
               ).map((tab) => (
                 <button
                   key={tab.key}
@@ -118,7 +118,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {tab.label}
+                  {tab.label}<br></br>({tab.count})
                 </button>
               ))}
             </div>
