@@ -195,7 +195,7 @@ export async function submissionUploadExists(path: string): Promise<boolean> {
   return (data ?? []).some((entry) => entry.name === name);
 }
 
-/** Removes one stored object. Only the verification script does this. */
+/** Removes one stored object. Used by the verification script and by course removal below. */
 export async function removeSubmissionUpload(path: string): Promise<void> {
   const { error } = await storageClient()
     .from(SUBMISSION_UPLOAD_BUCKET)
@@ -204,4 +204,42 @@ export async function removeSubmissionUpload(path: string): Promise<void> {
   if (error) {
     throw new UploadStorageError(`Could not remove ${path}: ${error.message}`);
   }
+}
+
+/**
+ * Removes many stored objects, reporting the ones that would not go rather than throwing.
+ *
+ * For deleting a whole cohort, where the database rows are already gone by the time this runs
+ * and throwing would turn "some files are still in the bucket" into "the operation failed". The
+ * paths that survived are returned so they can be named, which is the only way anybody could
+ * find them afterwards — the rows that pointed at them no longer exist.
+ *
+ * In batches, because a term's uploads can be hundreds of objects and Supabase takes a list.
+ * A batch that errors is reported whole: the API does not say which of its paths failed, and
+ * claiming to know would be worse than naming a few extra.
+ */
+export async function removeSubmissionUploads(
+  paths: readonly string[],
+): Promise<{ removed: number; leftBehind: string[] }> {
+  const BATCH = 100;
+  let removed = 0;
+  const leftBehind: string[] = [];
+
+  for (let start = 0; start < paths.length; start += BATCH) {
+    const batch = paths.slice(start, start + BATCH);
+    try {
+      const { error } = await storageClient()
+        .from(SUBMISSION_UPLOAD_BUCKET)
+        .remove([...batch]);
+
+      if (error) leftBehind.push(...batch);
+      else removed += batch.length;
+    } catch {
+      // The bucket being unreachable is the same outcome as it refusing: the files are still
+      // there and nothing else about the removal changes.
+      leftBehind.push(...batch);
+    }
+  }
+
+  return { removed, leftBehind };
 }

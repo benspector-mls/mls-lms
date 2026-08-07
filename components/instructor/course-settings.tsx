@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import {
@@ -9,8 +9,10 @@ import {
   Copy,
   GitBranch,
   KeyRound,
+  Loader2,
   RotateCcw,
   ShieldCheck,
+  Trash2,
   UserMinus,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,6 +20,7 @@ import { toast } from 'sonner';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -78,6 +81,14 @@ export function CourseSettings({ data }: { data: Data }) {
         canArchive={data.callerActsAsOwner}
         ownerName={ownerNameIn(data)}
       />
+      {/*
+        Only on an archived cohort, and only for whoever owns it — the same two conditions the
+        procedures enforce. A destructive control that appears and then refuses is worse than
+        one that is not there, and here it would appear on every cohort somebody is teaching.
+      */}
+      {archived && data.callerActsAsOwner && (
+        <DeleteCourseCard courseId={data.course.id} name={data.course.name} />
+      )}
     </div>
   );
 }
@@ -587,6 +598,202 @@ function ArchiveCard({
         </Button>
       )}
     </section>
+  );
+}
+
+/**
+ * Deleting a cohort, which is the one thing in this application that cannot be undone.
+ *
+ * **The counts come first and the confirmation second.** "This cannot be undone" is a
+ * generality nobody reads; "24 students, 187 submissions, 143 released grades" is a sentence
+ * somebody can weigh, and it is read before the box that unlocks the button rather than beside
+ * it. Same shape as removing an assignment, at the grain of a whole term.
+ *
+ * The short name is what has to be typed, not the course name. A program runs every term under
+ * the same name, so typing "Software Engineering Fellowship" would confirm the wrong cohort as
+ * readily as the right one — and the short name is the thing that is unique to this one. The
+ * procedure is what enforces it; this only decides when to offer the button.
+ */
+function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }) {
+  const trpc = useTRPC();
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [typed, setTyped] = React.useState('');
+
+  // Only when asked for. It counts a term's worth of submissions, and this card sits at the
+  // bottom of a screen most people open for the co-teaching link.
+  const impact = useQuery({
+    ...trpc.courses.removalImpact.queryOptions({ courseId }),
+    enabled: open,
+  });
+
+  const remove = useMutation(
+    trpc.courses.remove.mutationOptions({
+      onSuccess: (result) => {
+        /*
+          What was destroyed, and what was not. The two leftovers are named rather than
+          implied — the repositories are still on GitHub and the files that would not go are
+          in a bucket nothing points at any more, so this message is the only record of either.
+        */
+        const parts = [
+          `${result.name} is gone`,
+          `${result.assignments} ${result.assignments === 1 ? 'assignment' : 'assignments'}`,
+          `${result.submissions} ${result.submissions === 1 ? 'submission' : 'submissions'}`,
+        ];
+        if (result.orphanedRepositories.length > 0) {
+          parts.push(
+            `${result.orphanedRepositories.length} GitHub ${
+              result.orphanedRepositories.length === 1 ? 'repository is' : 'repositories are'
+            } untouched`,
+          );
+        }
+        if (result.uploadsLeftBehind.length > 0) {
+          parts.push(`${result.uploadsLeftBehind.length} uploaded files could not be removed`);
+        }
+        toast.success(parts.join(' · '), { duration: 12_000 });
+        router.push('/courses');
+        router.refresh();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  const ready = typed.trim() !== '' && impact.data?.cohortSlug === typed.trim().toLowerCase();
+
+  if (!open) {
+    return (
+      <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-sm font-medium">Delete this cohort</h2>
+          <p className="text-xs text-muted-foreground">
+            Permanent. {name} and everything in it — assignments, submissions, grades, and the
+            feedback that was given — go, and the database&apos;s own backups are the only way
+            back. Archiving is the reversible version and this cohort is already archived.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="self-start text-destructive hover:text-destructive"
+          onClick={() => setOpen(true)}
+        >
+          <Trash2 data-icon="inline-start" />
+          Delete cohort
+        </Button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Delete {name}?</h2>
+        <p className="text-xs text-muted-foreground">
+          There is no undo and no recovery path here. The database&apos;s own backups are the
+          only way back.
+        </p>
+      </div>
+
+      {impact.isPending ? (
+        <p className="text-xs text-muted-foreground">Counting what would go…</p>
+      ) : impact.data ? (
+        <>
+          <dl className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+            <Detail label="Students" value={countLabel(impact.data.enrollments, 'enrollment')} />
+            <Detail
+              label="Assignments"
+              value={`${impact.data.assignments} in ${countLabel(impact.data.modules, 'module')}`}
+            />
+            <Detail
+              label="Submissions"
+              value={`${impact.data.submissions}, of which ${impact.data.releasedGrades} carry a released grade`}
+            />
+            <Detail
+              label="Also"
+              value={`${countLabel(impact.data.drafts, 'grading draft')}, ${countLabel(
+                impact.data.testRuns,
+                'test run',
+              )}, ${countLabel(impact.data.uploadedFiles, 'uploaded file')}`}
+            />
+            {/*
+              Named rather than counted silently, because this is the one thing here that
+              survives: a student's repository holds their own work and they can reach it on
+              GitHub whether or not this application still knows about it.
+            */}
+            <Detail
+              label="Left alone"
+              value={
+                impact.data.repositories > 0
+                  ? `${countLabel(impact.data.repositories, 'GitHub repository')}, which stay exactly as they are`
+                  : 'No GitHub repositories were ever generated'
+              }
+            />
+          </dl>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" htmlFor="confirm-cohort">
+              Type <code className="font-mono">{impact.data.cohortSlug}</code> to confirm
+            </label>
+            <Input
+              id="confirm-cohort"
+              value={typed}
+              autoComplete="off"
+              className="font-mono"
+              placeholder={impact.data.cohortSlug}
+              onChange={(event) => setTyped(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              The cohort&apos;s short name, not the course name — every term of this program is
+              called {name}.
+            </p>
+          </div>
+        </>
+      ) : (
+        <p className="text-xs text-destructive">
+          {impact.error?.message ?? 'Could not read what deleting this would destroy.'}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-destructive hover:text-destructive"
+          disabled={!ready || remove.isPending}
+          onClick={() => remove.mutate({ courseId, confirmCohortSlug: typed.trim() })}
+        >
+          {remove.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
+          Delete this cohort permanently
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={remove.isPending}
+          onClick={() => {
+            setOpen(false);
+            setTyped('');
+          }}
+        >
+          Keep it
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** "3 modules", "1 module", "no modules" — a count somebody reads rather than parses. */
+function countLabel(count: number, noun: string): string {
+  if (count === 0) return `no ${noun}s`;
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+}
+
+/** One labelled fact in the impact list, in a column that lines its labels up. */
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+      <dt className="shrink-0 text-xs text-muted-foreground sm:w-24 sm:pt-0.5">{label}</dt>
+      <dd className="min-w-0 break-words text-sm text-muted-foreground">{value}</dd>
+    </div>
   );
 }
 

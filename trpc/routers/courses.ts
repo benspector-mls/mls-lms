@@ -746,6 +746,167 @@ export const coursesRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * What deleting this cohort would destroy. Read-only.
+   *
+   * Exists so the confirmation states facts rather than generalities — "24 students, 12
+   * assignments, 187 submissions, 143 released grades" is a sentence somebody can act on, and
+   * "this cannot be undone" is not. Same shape as `assignments.removalImpact`, at the grain of
+   * a whole cohort.
+   *
+   * **Archived only**, like the removal itself, so this cannot be used to preview an action
+   * that is not available. Refusing here rather than returning an empty answer keeps the two in
+   * step: a screen that could read the impact of something it cannot do would eventually offer
+   * to do it.
+   */
+  removalImpact: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const course = await assertArchivedAndOwned(ctx, input.courseId, 'delete');
+
+      const [enrollments, assignments, modules, instructors, submissions] = await Promise.all([
+        ctx.db.enrollment.count({ where: { courseId: course.id } }),
+        ctx.db.assignment.count({ where: { courseId: course.id } }),
+        ctx.db.module.count({ where: { courseId: course.id } }),
+        ctx.db.courseInstructor.count({ where: { courseId: course.id } }),
+        ctx.db.submission.findMany({
+          where: { assignment: { courseId: course.id } },
+          select: {
+            finalScore: true,
+            repoFullName: true,
+            uploadPath: true,
+            _count: { select: { gradingDrafts: true, testRuns: true } },
+          },
+        }),
+      ]);
+
+      return {
+        name: course.name,
+        cohortTerm: course.cohortTerm,
+        /** What has to be typed to confirm. Returned so the screen and the procedure agree. */
+        cohortSlug: course.cohortSlug,
+        enrollments,
+        assignments,
+        modules,
+        instructors,
+        submissions: submissions.length,
+        releasedGrades: submissions.filter((row) => row.finalScore !== null).length,
+        drafts: submissions.reduce((total, row) => total + row._count.gradingDrafts, 0),
+        testRuns: submissions.reduce((total, row) => total + row._count.testRuns, 0),
+        /**
+         * Uploaded files, which **are** deleted — unlike the repositories below.
+         *
+         * The asymmetry is the point. A repository holds a student's own work and they can
+         * reach it on GitHub whether or not this application still knows about it, so deleting
+         * it would destroy something. An object in the private bucket had exactly one reader,
+         * which is the row about to go, so leaving it is not preservation — it is a file
+         * nobody can ever reach again, paid for forever.
+         */
+        uploadedFiles: submissions.filter((row) => row.uploadPath !== null).length,
+        /**
+         * Left alone, and reported so they can be dealt with deliberately. Losing a cohort's
+         * work on GitHub because somebody tidied a course list is the worse failure.
+         */
+        repositories: submissions
+          .map((row) => row.repoFullName)
+          .filter((name): name is string => name !== null).length,
+      };
+    }),
+
+  /**
+   * Deletes a cohort and everything cascading from it.
+   *
+   * Permanent, and there is no recovery path in the application: the course takes its modules,
+   * assignments, submissions, grading drafts, sections, test runs, enrollments, and instructor
+   * rows with it. The database's own backups are the only way back, which is worth saying on a
+   * screen that can destroy a term.
+   *
+   * **Archived first**, always. Archiving is reversible and this is not, so making it the only
+   * path means the destructive action always has a survivable step in front of it — somebody
+   * who meant "take this off my list" gets what they wanted before reaching anything permanent.
+   *
+   * **Owner only**, the same gate as archiving. If any co-teacher could archive and then delete,
+   * the ownership rules would buy nothing.
+   *
+   * **The typed confirmation is enforced here rather than in the dialog**, which is the whole
+   * point of it: the interface warns and the procedure is what refuses. It asks for the short
+   * name rather than the course name, because a program runs every term under the same name —
+   * "Software Engineering Fellowship" would confirm the wrong cohort as readily as the right
+   * one, and the short name is the thing that is unique to this one.
+   */
+  remove: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), confirmCohortSlug: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const course = await assertArchivedAndOwned(ctx, input.courseId, 'delete');
+
+      if (input.confirmCohortSlug.trim().toLowerCase() !== course.cohortSlug) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            `Type the cohort's short name exactly to delete it. Expected "${course.cohortSlug}" ` +
+            `— every cohort of this program is called "${course.name}", so the short name is ` +
+            `what says which one.`,
+        });
+      }
+
+      /*
+        Counted and collected before the delete, so what is reported afterwards is what was
+        actually destroyed rather than a guess — and so the upload paths still exist to be
+        removed with. Once the rows are gone there is nothing left that knows where those
+        objects are.
+      */
+      const submissions = await ctx.db.submission.findMany({
+        where: { assignment: { courseId: course.id } },
+        select: {
+          repoFullName: true,
+          uploadPath: true,
+          _count: { select: { gradingDrafts: true, testRuns: true } },
+        },
+      });
+      const enrollments = await ctx.db.enrollment.count({ where: { courseId: course.id } });
+      const assignments = await ctx.db.assignment.count({ where: { courseId: course.id } });
+
+      await ctx.db.course.delete({ where: { id: course.id } });
+
+      /*
+        The stored files, after the rows and best effort.
+
+        After, because the database is the authoritative act: a bucket that refuses should not
+        leave a cohort half deleted. Best effort for the same reason — the paths that would not
+        go are named in the result, which is the only way anybody could find them, rather than
+        thrown as a failure of an operation that has already succeeded.
+      */
+      const uploadPaths = submissions
+        .map((row) => row.uploadPath)
+        .filter((path): path is string => path !== null);
+
+      let uploadsRemoved = 0;
+      let uploadsLeftBehind: string[] = [];
+      if (uploadPaths.length > 0) {
+        const { removeSubmissionUploads } = await import('@/lib/uploads/storage');
+        const result = await removeSubmissionUploads(uploadPaths);
+        uploadsRemoved = result.removed;
+        uploadsLeftBehind = result.leftBehind;
+      }
+
+      return {
+        name: course.name,
+        cohortTerm: course.cohortTerm,
+        enrollments,
+        assignments,
+        submissions: submissions.length,
+        drafts: submissions.reduce((total, row) => total + row._count.gradingDrafts, 0),
+        testRuns: submissions.reduce((total, row) => total + row._count.testRuns, 0),
+        uploadsRemoved,
+        /** Stored files the bucket would not remove, named so they can be found by hand. */
+        uploadsLeftBehind,
+        /** Untouched on GitHub, and listed so they can be dealt with deliberately. */
+        orphanedRepositories: submissions
+          .map((row) => row.repoFullName)
+          .filter((name): name is string => name !== null),
+      };
+    }),
+
   /*
     There is deliberately no `setCohortSlug`.
 
@@ -1215,6 +1376,46 @@ async function courseCells(
       ),
     };
   });
+}
+
+/**
+ * Refuses unless this course is archived **and** the caller owns it, and returns it.
+ *
+ * Shared by `removalImpact` and `remove` so the read and the act cannot come apart. Two gates
+ * asked in one place rather than four checks written twice: the day one of them is added to the
+ * mutation and forgotten on the query, a screen starts previewing something it cannot do, which
+ * is how an offer to do it eventually gets built.
+ *
+ * The archived requirement is what puts a survivable step in front of a permanent one. Archiving
+ * is reversible, so somebody who meant "take this off my list" gets exactly that before reaching
+ * anything that cannot be undone.
+ */
+async function assertArchivedAndOwned(
+  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  courseId: string,
+  action: string,
+) {
+  const course = await ctx.db.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, name: true, cohortTerm: true, cohortSlug: true, archivedAt: true },
+  });
+
+  if (!course) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+  }
+
+  await assertOwnsCourse(ctx, courseId, action);
+
+  if (course.archivedAt === null) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message:
+        `${course.name} is still running, so it cannot be deleted. Archive it first — that ` +
+        `takes it off everyone's list and can be undone, which this cannot.`,
+    });
+  }
+
+  return course;
 }
 
 /** Refuses unless the caller teaches this course. Admins teach none and may do anything. */

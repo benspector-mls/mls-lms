@@ -1239,6 +1239,120 @@ async function main() {
         true);
 
       /*
+        ---- Deleting a cohort --------------------------------------------------
+
+        The one irreversible operation on a whole term, so the checks that earn their place are
+        the refusals — and each of them asserts the course is **still there** afterwards, which
+        is the half that matters. A refusal that returned the right code while the rows went
+        anyway would look correct in every log this script produces.
+
+        Archived first, because archiving is reversible and this is not: making it the only path
+        puts a survivable step in front of a permanent one.
+      */
+      const doomed = await asInstructor.courses.create({
+        name: "Verify Deletion",
+        cohortTerm: "Cohort Verify H",
+      });
+      const doomedModule = await asInstructor.modules.create({
+        courseId: doomed.course.id,
+        name: "Mod 1",
+      });
+      /*
+        Somebody to be counted, written directly rather than joined through the link — the one
+        student account this script has was promoted to INSTRUCTOR above, and it is about to
+        redeem the co-teaching link on this same course, which being enrolled here would refuse.
+        A different student, and the count check is skipped rather than faked if there is none.
+      */
+      const bystander = await tx.profile.findFirst({
+        where: { role: "STUDENT", id: { not: studentId } },
+        select: { id: true },
+      });
+      if (bystander) {
+        await tx.enrollment.create({
+          data: { courseId: doomed.course.id, studentId: bystander.id, status: "ACTIVE" },
+        });
+      }
+      // Before archiving, because an archived cohort takes no new instructors.
+      const doomedToken = (await tx.course.findUnique({
+        where: { id: doomed.course.id },
+        select: { coTeachToken: true },
+      }))!.coTeachToken;
+      await asNewInstructor.courses.acceptCoTeach({ token: doomedToken });
+
+      check("a cohort that is still running cannot be deleted",
+        await refusal(() => asInstructor.courses.remove({
+          courseId: doomed.course.id,
+          confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+        })),
+        "PRECONDITION_FAILED");
+      check("...and its impact cannot even be read",
+        await refusal(() => asInstructor.courses.removalImpact({ courseId: doomed.course.id })),
+        "PRECONDITION_FAILED");
+
+      await asInstructor.courses.setArchived({ courseId: doomed.course.id, archived: true });
+
+      check("a co-teacher cannot delete an archived cohort",
+        await refusal(() => asNewInstructor.courses.remove({
+          courseId: doomed.course.id,
+          confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+        })),
+        "FORBIDDEN");
+      check("...nor read what deleting it would destroy",
+        await refusal(() =>
+          asNewInstructor.courses.removalImpact({ courseId: doomed.course.id })),
+        "FORBIDDEN");
+
+      /*
+        The counts, checked against rows this block put there. The impact read is what the
+        confirmation screen states as fact, so it being right is the difference between a
+        sentence somebody can weigh and a number they cannot check.
+      */
+      const impact = await asInstructor.courses.removalImpact({ courseId: doomed.course.id });
+      check("the impact counts the cohort's students",
+        bystander ? impact.enrollments : "no spare student to enrol", bystander ? 1 : "no spare student to enrol");
+      check("...its modules", impact.modules, 1);
+      check("...its instructors", impact.instructors, 2);
+      check("...and asks for the short name rather than the course name", impact.cohortSlug,
+        slugifyCohort("Cohort Verify H"));
+
+      check("the wrong confirmation is refused",
+        await refusal(() => asInstructor.courses.remove({
+          courseId: doomed.course.id,
+          confirmCohortSlug: "Verify Deletion",
+        })),
+        "BAD_REQUEST");
+      check("...and the cohort is still there",
+        await tx.course.count({ where: { id: doomed.course.id } }), 1);
+
+      const deletedCourse = await asInstructor.courses.remove({
+        courseId: doomed.course.id,
+        confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+      });
+      check("the owner can delete an archived cohort", deletedCourse.name, "Verify Deletion");
+      check("...and it is gone",
+        await tx.course.count({ where: { id: doomed.course.id } }), 0);
+      /*
+        The cascade, asserted rather than assumed. Every one of these is a separate foreign key
+        with its own `onDelete`, and the one that is wrong is the one that leaves rows pointing
+        at a course that no longer exists.
+      */
+      check("...taking its modules with it",
+        await tx.module.count({ where: { id: doomedModule.id } }), 0);
+      check("...its enrollments",
+        await tx.enrollment.count({ where: { courseId: doomed.course.id } }), 0);
+      check("...and its instructor rows",
+        await tx.courseInstructor.count({ where: { courseId: doomed.course.id } }), 0);
+      check("...and it leaves the course list",
+        (await asInstructor.courses.listMine()).some((row) => row.id === doomed.course.id),
+        false);
+      check("...while a course deleted twice is simply not found",
+        await refusal(() => asInstructor.courses.remove({
+          courseId: doomed.course.id,
+          confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+        })),
+        "NOT_FOUND");
+
+      /*
         ---- An admin acts as owner on every course -----------------------------
 
         A decision rather than a consequence of a guard written for something else. An admin is

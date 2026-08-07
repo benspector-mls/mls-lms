@@ -90,29 +90,28 @@ The sequence, most immediate first. A feature's own section says what is known a
 
 **Nothing about running a cohort needs the database any more**, which is what moved measurement to the front. A course can be created, copied, filled from a join link, co-taught, and retired; somebody can be made staff by an admin and added to a cohort by whoever runs it. The first admin of a deployment is still a hand-edited row, necessarily, because there is nobody to grant it — `npm run grant:admin` is that base case as a tool.
 
-**Two things ahead of that turned out to be gaps rather than features**, and both are now closed. A cohort could be archived and then reached from nowhere in the interface, which contradicted what archiving is supposed to mean; and a course's creator could be removed from it by anybody who taught alongside them, which was the one permission in the application that nothing guarded. What is left of that pair is the destructive half — deleting an archived cohort — which is a feature rather than a gap and is ordered as one.
+**Two things ahead of that turned out to be gaps rather than features**, and both are closed. A cohort could be archived and then reached from nowhere in the interface, which contradicted what archiving is supposed to mean; and a course's creator could be removed from it by anybody who taught alongside them, which was the one permission in the application that nothing guarded. Deleting an archived cohort went with them, since it is the half of archiving that needed ownership to gate on.
 
 The ordering principle is: correctness gaps, then the cheap things, then measurement, then a review of code that already works, then the features that add real surface area. Measurement before the review because a real cohort produces figures rather than estimates; the review before the large features because every one of them adds readers to the parts it would touch.
 
-1. **[Deleting an archived cohort](#archived-courses-need-a-way-back-and-a-way-out--the-way-back-is-done)** — the second half of archiving, and the destructive one. It has [ownership](#course-ownership--done) to gate on now, which is what it was waiting for.
-2. **[Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)** — the procedure already does this; what is missing is a course picker. The smallest item on this list.
-3. **[More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)** — Jupyter notebooks and spreadsheets are a few lines each. Google Slides is not a file type at all, which is the part worth reading.
-4. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
-5. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-6. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-7. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-8. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
-9. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
-10. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-11. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-12. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-13. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)** — the procedure already does this; what is missing is a course picker. The smallest item on this list.
+2. **[More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)** — Jupyter notebooks and spreadsheets are a few lines each. Google Slides is not a file type at all, which is the part worth reading.
+3. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
+4. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+5. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+6. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+7. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
+8. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
+9. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+10. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+11. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+12. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1 through 4 and 7 through 9 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 comes before the rest: it is the last piece of a pair whose other half was the application failing to do what it already claimed.
+Items 1 through 3 and 6 through 8 are new and their ordering relative to each other is a proposal rather than a decision.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that [token management](#token-management) produces anyway.
 
-**Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, co-taught, retired, and found again afterwards — and [who owns it](#course-ownership--done) decides which of its instructors can do the last two.
+**Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, co-taught, retired, found again afterwards, and finally deleted — and [who owns it](#course-ownership--done) decides which of its instructors can do the last three.
 
 [Triggering and orchestration](#phase-4-triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -932,7 +931,7 @@ The constraint itself is read out of `pg_indexes` rather than provoked. Writing 
 
 ---
 
-## Archived courses need a way back, and a way out — the way back is done
+## Archived courses need a way back, and a way out — done
 
 **Archiving used to lose the cohort.** `courses.listMine` filtered `archivedAt: null` with no way to ask for the rest, so once a cohort was archived there was no link to it from anywhere in the interface. Every procedure still admitted its members — `courses.get`, the gradebook, an assignment's queue, a student's released feedback — so the work was all there and reachable by a URL somebody happened to still have. The README said an archived cohort "stays readable to the people who were in it", which was true of the procedures and false of the navigation.
 
@@ -942,14 +941,20 @@ The constraint itself is read out of `pg_indexes` rather than provoked. Writing 
 
 Two checks replaced the two that asserted the old behaviour: an archived cohort is in the list and carries the label, and — from the other side — a student whose cohort has been archived still has it on their own list while its work is out of triage. That second one is the half a reader is most likely to get wrong, because "archived" reads as "gone".
 
-**Deleting an archived course is the second half, and it is the destructive one.** Removal is permanent by decision — there is no soft delete anywhere in the application — and a course cascades to its modules, assignments, submissions, grading drafts, sections, and test runs. So it needs the same shape as `assignments.remove`, which is the closest precedent and got this right: a `removalImpact` read that counts what would go, a typed confirmation enforced **in the procedure** rather than in the dialog, and a report afterwards of what was destroyed. Student repositories on GitHub are left alone, for the same reason removing an assignment leaves them: losing a student's work because somebody tidied a list is the worse failure.
+**Deleting an archived course was the second half, and it is the destructive one.** Removal is permanent by decision — there is no soft delete anywhere in the application — and a course cascades to its modules, assignments, submissions, grading drafts, sections, test runs, enrollments, and instructor rows. It has the same shape as `assignments.remove`, which is the closest precedent and got this right: a `removalImpact` read that counts what would go, a typed confirmation enforced **in the procedure** rather than in the dialog, and a report afterwards of what was destroyed.
 
-Two constraints worth writing down now:
+Two constraints, both now gates rather than intentions:
 
-- **Archived first.** Deleting a live cohort should not be reachable, because archiving is reversible and deletion is not — making it the only path means the destructive action always has a survivable step in front of it.
-- **Owner only**, which [ownership](#course-ownership--done) now makes expressible: `assertOwnsCourse` is the gate, the same one archiving uses. If any co-teacher could archive and then delete, those rules would buy nothing.
+- **Archived first.** Deleting a live cohort is refused, because archiving is reversible and deletion is not — making it the only path means the destructive action always has a survivable step in front of it, and somebody who meant "take this off my list" gets exactly that before reaching anything permanent.
+- **Owner only**, which [ownership](#course-ownership--done) made expressible: `assertOwnsCourse` is the gate, the same one archiving uses. If any co-teacher could archive and then delete, those rules would buy nothing. Both conditions are asked in one place that the read and the mutation share, so the day one of them is added to the mutation and forgotten on the query, a screen does not start previewing something it cannot do.
 
-Worth being honest that the database's own backups are the only way back from a mistaken deletion, which is already true of removing an assignment and is worth restating on a screen that can destroy a whole cohort.
+**The confirmation asks for the cohort's short name, not the course name.** A program runs every term under the same name, so typing "Software Engineering Fellowship" would confirm the wrong cohort as readily as the right one — and `cohortSlug` is unique by construction, which is what makes it the thing that identifies *this* term. The impact read returns it so the screen and the procedure ask for the same string.
+
+**Uploaded files are deleted; GitHub repositories are not.** That asymmetry looks inconsistent and is the point. A repository holds a student's own work and they can reach it on GitHub whether or not this application still knows about it, so deleting it would destroy something — losing a cohort's work because somebody tidied a course list is the worse failure, and the same reasoning already leaves them alone when an assignment is removed. An object in the private bucket had exactly one reader, which is the row about to go: leaving it is not preservation but a file nobody can ever reach again, paid for forever. The storage removal runs after the rows and is best effort, because the database is the authoritative act and a bucket that refuses should not leave a cohort half deleted; the paths that would not go are named in the result, which is the only way anybody could find them afterwards.
+
+Nine of the checks are refusals, and every one of them also asserts the cohort is **still there** — a refusal that returned the right code while the rows went anyway would look correct in every log the script produces. The cascade is asserted rather than assumed for the same reason: each of those foreign keys carries its own `onDelete`, and the one that is wrong is the one leaving rows pointing at a course that no longer exists.
+
+The database's own backups are the only way back from a mistaken deletion. That is already true of removing an assignment and is restated on a screen that can destroy a whole term.
 
 ---
 
