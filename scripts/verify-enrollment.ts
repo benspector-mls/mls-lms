@@ -57,11 +57,22 @@ function report() {
 
 async function main() {
   const { db } = await import("../lib/prisma");
+  const { studentRepoName, slugifyCohort } = await import("../lib/courses/cohort-slug");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
 
+  /*
+    A course with work already in it, which several checks below depend on rather than assume.
+
+    `submissions: { some: {} }` is the load-bearing part. The short name is frozen once anybody
+    has accepted, and a removed student keeping access is only meaningful against an assignment
+    they actually submitted — so a course with assignments and no submissions would make both
+    checks pass vacuously. It did: with two courses matching, `findFirst` returned the copied one
+    and the freeze check reported that renaming was allowed.
+  */
   const course = await db.course.findFirst({
-    where: { archivedAt: null, assignments: { some: {} } },
+    where: { archivedAt: null, assignments: { some: { submissions: { some: {} } } } },
+    orderBy: { createdAt: 'asc' },
     select: { id: true, name: true },
   });
   const instructor = course
@@ -78,7 +89,9 @@ async function main() {
     : null;
 
   if (!course || !instructor || !enrollment) {
-    console.log("skip — no seeded course with an instructor, a student, and assignments");
+    console.log(
+      "skip — needs a course with an instructor, an active student, and at least one submission",
+    );
     return report();
   }
 
@@ -90,10 +103,31 @@ async function main() {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
 
+      // ---- Deriving a short name from a term ---------------------------------
+      //
+      // Pure, and checked before anything else, because every repository name a cohort generates
+      // starts with the result.
+      const derivations: [string, string][] = [
+        ["Fall 2026", "fall-2026"],
+        ["Spring 2027", "spring-2027"],
+        ["Cohort 12 (evening)", "cohort-12-evening"],
+        ["  Fall   2026  ", "fall-2026"],
+        ["FALL/2026", "fall-2026"],
+        // Nothing usable, which the caller has to notice rather than have a name invented.
+        ["!!!", ""],
+        ["", ""],
+      ];
+      for (const [term, expected] of derivations) {
+        check(`"${term}" suggests "${expected}"`, slugifyCohort(term), expected);
+      }
+
       // ---- Creating a cohort ------------------------------------------------
+      // Distinct terms, because a slug is unique across every course and the term is what
+      // suggests it. Two cohorts called the same thing is a real situation and a real refusal —
+      // checked below deliberately rather than tripped over here.
       const empty = await asInstructor.courses.create({
         name: "Verify Empty",
-        cohortTerm: "Cohort Verify",
+        cohortTerm: "Cohort Verify A",
       });
       check("a course is created", empty.course.name, "Verify Empty");
       check("...with nothing copied into it", { copied: empty.copied, failed: empty.failed },
@@ -132,7 +166,7 @@ async function main() {
 
       const copy = await asInstructor.courses.create({
         name: "Verify Copy",
-        cohortTerm: "Cohort Verify",
+        cohortTerm: "Cohort Verify B",
         copyFromCourseId: course.id,
       });
 
@@ -198,17 +232,15 @@ async function main() {
           asStudent.courses.create({ name: "Nope", cohortTerm: "Nope" })), "FORBIDDEN");
 
       /*
-        ---- One repository cannot serve two cohorts ----------------------------
+        ---- The cohort is in every repository name -----------------------------
 
-        The failure copying a course makes reachable. A generated repository is
-        `{assignmentRepoName}-{github login}` with no course in it, so two cohorts holding an
-        assignment of the same name in the same organization want *one* repository for two
-        submissions — and `submissions.repoFullName` is unique, so the second write is refused.
+        A student's repository is `{cohortSlug}-{assignmentRepoName}-{github login}`, which is
+        what keeps two cohorts of the same program apart on GitHub. Before the prefix existed,
+        copying a course produced assignments whose generated names collided with the original's
+        for anybody in both — a student repeating a module, or an instructor testing a copy.
 
-        Different students never collide, which is why reusing a name every term is normal. This
-        is about the one person in both, and both halves are checked: the instructor is warned
-        while renaming is still free, and the student is refused before anything touches GitHub
-        rather than by a constraint violation afterwards.
+        Checked here because copying is exactly how that arises, and because the slug is only
+        editable until the first Accept.
       */
       const twinInCopy = await tx.assignment.findFirst({
         where: {
@@ -220,79 +252,90 @@ async function main() {
         select: { id: true, assignmentRepoName: true, githubOrg: true },
       });
 
+      check("a copied course gets its own short name",
+        copy.course.cohortSlug !== empty.course.cohortSlug &&
+          copy.course.cohortSlug.length > 0,
+        true);
+
       if (twinInCopy) {
-        // Built field by field rather than handing `getDraft`'s output straight back: it also
-        // carries `id`, `courseId`, `distributedAt`, and `submissionCount`, and the spec is
-        // `.strict()`, so passing it whole is refused for reasons that have nothing to do with
-        // what this check is about.
-        const loaded = await asInstructor.assignments.getDraft({ assignmentId: twinInCopy.id });
-        const reused = await asInstructor.assignments.validateDraft({
-          courseId: copy.course.id,
-          assignmentId: twinInCopy.id,
-          draft: {
-            kind: loaded.kind,
-            title: loaded.title,
-            moduleId: loaded.moduleId,
-            completionThreshold: loaded.completionThreshold,
-            dueAt: loaded.dueAt,
-            templateRepo: loaded.templateRepo,
-            answerKeyRepo: loaded.answerKeyRepo,
-            answerKeyDir: loaded.answerKeyDir,
-            assignmentRepoName: loaded.assignmentRepoName,
-            githubOrg: loaded.githubOrg,
-            templateRef: loaded.templateRef,
-            runnerPreset: loaded.runnerPreset,
-            runnerConfig: loaded.runnerConfig,
-            templateDocUrl: loaded.templateDocUrl,
-            submissionInstructions: loaded.submissionInstructions,
-            sections: loaded.sections,
-          },
-        });
-        check("an instructor is warned that another cohort generates the same repository name",
-          {
-            warns: reused.findings.some(
-              (f) => f.severity === 'warning' && f.path === 'assignmentRepoName'),
-            canSave: reused.canSave,
-          },
-          { warns: true, canSave: true });
-
         /*
-          And the student is refused before anything touches GitHub.
+          The names the two cohorts generate for the same assignment and the same student differ.
 
-          Conditional on the seeded student actually holding the colliding repository, so this
-          asserts the refusal when there is something to collide with and says so when there is
-          not, rather than passing vacuously. The refusal is reached without a network call —
-          which is the point of moving the check ahead of `generate`.
+          Built through `studentRepoName` rather than by string concatenation here, so this
+          checks the function `accept` actually calls. Asserting the shape by rebuilding it a
+          second way would pass while both were wrong together.
         */
-        const heldElsewhere = await tx.submission.findFirst({
-          where: {
-            studentId,
-            assignment: { assignmentRepoName: twinInCopy.assignmentRepoName },
-            repoFullName: { not: null },
-          },
-          select: { repoFullName: true },
+        const original = await tx.assignment.findFirst({
+          where: { courseId: course.id, assignmentRepoName: twinInCopy.assignmentRepoName },
+          select: { assignmentRepoName: true, course: { select: { cohortSlug: true } } },
         });
 
-        if (heldElsewhere) {
-          await asInstructor.assignments.publish({ assignmentId: twinInCopy.id });
-          const copyToken = (await tx.course.findUnique({
-            where: { id: copy.course.id },
-            select: { joinToken: true },
-          }))!.joinToken;
-          await asStudent.enrollments.join({ token: copyToken });
-
-          const refusedAccept = await refusalMessage(() =>
-            asStudent.assignments.accept({ assignmentId: twinInCopy.id }));
-          check("...and the student's second Accept is refused, naming the other course",
-            refusedAccept.includes('cannot serve two courses'), true);
-          check("...before creating anything on GitHub",
-            await tx.submission.count({ where: { assignmentId: twinInCopy.id } }), 0);
-        } else {
-          console.log(
-            '     (skipped the Accept half — the seeded student holds no colliding repository)',
-          );
+        if (original) {
+          const inOriginal = studentRepoName({
+            cohortSlug: original.course.cohortSlug,
+            assignmentRepoName: original.assignmentRepoName!,
+            githubLogin: 'somebody',
+          });
+          const inCopy = studentRepoName({
+            cohortSlug: copy.course.cohortSlug,
+            assignmentRepoName: twinInCopy.assignmentRepoName!,
+            githubLogin: 'somebody',
+          });
+          check("the same assignment in two cohorts generates two different repository names",
+            inOriginal !== inCopy, true);
+          check("...and each starts with its own cohort",
+            inCopy.startsWith(`${copy.course.cohortSlug}-`), true);
         }
       }
+
+      // ---- The short name, and its window -----------------------------------
+      check("a duplicate short name is refused",
+        await refusal(() =>
+          asInstructor.courses.create({
+            name: "Verify Duplicate",
+            cohortTerm: "Cohort Verify D",
+            cohortSlug: empty.course.cohortSlug,
+          })),
+        "CONFLICT");
+
+      check("an illegal short name is refused",
+        await refusal(() =>
+          asInstructor.courses.create({
+            name: "Verify Illegal",
+            cohortTerm: "Cohort Verify E",
+            cohortSlug: "Fall 2026!",
+          })),
+        "BAD_REQUEST");
+
+      check("a term with nothing usable in it is refused rather than guessed at",
+        await refusal(() =>
+          asInstructor.courses.create({ name: "Verify Blank", cohortTerm: "!!!" })),
+        "BAD_REQUEST");
+
+      check("the short name can be changed before anybody accepts",
+        (await asInstructor.courses.setCohortSlug({
+          courseId: empty.course.id,
+          cohortSlug: "verify-renamed",
+        })).cohortSlug,
+        "verify-renamed");
+
+      check("a student cannot change it",
+        await refusal(() =>
+          asStudent.courses.setCohortSlug({ courseId: empty.course.id, cohortSlug: "nope" })),
+        "FORBIDDEN");
+
+      /*
+        And it is frozen once anything has been accepted, because those repositories are already
+        named after it and renaming here would not rename theirs. The seeded course has real
+        submissions, which is what makes this checkable without creating any.
+      */
+      check("the short name is frozen once a student has accepted",
+        await refusal(() =>
+          asInstructor.courses.setCohortSlug({
+            courseId: course.id,
+            cohortSlug: "verify-too-late",
+          })),
+        "PRECONDITION_FAILED");
 
       // ---- The join link ----------------------------------------------------
       const token = created!.joinToken;
@@ -436,7 +479,7 @@ async function main() {
       // is why the procedure loads it before checking who is asking.
       const elsewhere = await asInstructor.courses.create({
         name: "Verify Elsewhere",
-        cohortTerm: "Cohort Verify",
+        cohortTerm: "Cohort Verify C",
       });
       const elsewhereToken = (await tx.course.findUnique({
         where: { id: elsewhere.course.id },
@@ -469,7 +512,7 @@ async function main() {
     }))?.status,
     "ACTIVE");
   check("no courses this script created survived the rollback",
-    await db.course.count({ where: { cohortTerm: "Cohort Verify" } }), 0);
+    await db.course.count({ where: { cohortTerm: { startsWith: "Cohort Verify" } } }), 0);
 
   return report();
 }

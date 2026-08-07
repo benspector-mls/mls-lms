@@ -238,6 +238,7 @@ async function main() {
         data: {
           name: "Elsewhere (verify:modules)",
           cohortTerm: "Cohort Elsewhere",
+          cohortSlug: `vm-${crypto.randomUUID().slice(0, 8)}`,
           joinToken: `verify-modules-${crypto.randomUUID()}`,
         },
         select: { id: true },

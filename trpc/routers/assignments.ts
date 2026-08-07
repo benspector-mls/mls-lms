@@ -13,6 +13,7 @@ import {
   validateAssignmentDraft,
   type ValidationFinding,
 } from '@/lib/assignments/validate';
+import { studentRepoName } from '@/lib/courses/cohort-slug';
 import { assertActiveStudent, assertCourseMember } from '@/lib/courses/membership';
 import { effectiveSection } from '@/lib/grade/approve';
 import {
@@ -296,6 +297,8 @@ export const assignmentsRouter = createTRPCRouter({
           assignmentRepoName: true,
           githubOrg: true,
           templateDocUrl: true,
+          // The cohort's short name, which prefixes the repository this creates.
+          course: { select: { cohortSlug: true } },
         },
       });
 
@@ -410,7 +413,18 @@ export const assignmentsRouter = createTRPCRouter({
       }
 
       const installationId = getConfiguredInstallationId();
-      const repoName = `${source.assignmentRepoName}-${student.githubUsername}`;
+      /*
+        `{cohortSlug}-{assignmentRepoName}-{github login}`, built in one place.
+
+        The cohort in the name is what keeps two courses running the same program apart on
+        GitHub, so a student repeating a module gets a fresh repository rather than wanting the
+        one their previous cohort holds.
+      */
+      const repoName = studentRepoName({
+        cohortSlug: assignment.course.cohortSlug,
+        assignmentRepoName: source.assignmentRepoName,
+        githubLogin: student.githubUsername,
+      });
       const [templateOwner, templateRepoName] = source.templateRepo.split('/');
 
       if (!templateOwner || !templateRepoName) {

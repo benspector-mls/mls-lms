@@ -9,6 +9,11 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  cohortSlugProblem,
+  MAX_COHORT_SLUG,
+  slugifyCohort,
+} from '@/lib/courses/cohort-slug';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -46,6 +51,19 @@ export function NewCourseDialog({
   const [name, setName] = React.useState('');
   const [cohortTerm, setCohortTerm] = React.useState('');
   const [copyFrom, setCopyFrom] = React.useState('');
+
+  /*
+    The slug follows the cohort term until somebody edits it, and then stops.
+
+    Held as "have they touched it" rather than by comparing the two, because those are different
+    questions: an instructor who deliberately types `fall-2026` — the same thing the term would
+    have suggested — has still taken it over, and their next keystroke in the term field should
+    not silently overwrite it.
+  */
+  const [slug, setSlug] = React.useState('');
+  const [slugEdited, setSlugEdited] = React.useState(false);
+  const effectiveSlug = slugEdited ? slug : slugifyCohort(cohortTerm);
+  const slugProblem = effectiveSlug === '' ? null : cohortSlugProblem(effectiveSlug);
 
   const copyable = courses.filter((course) => course.teaches);
 
@@ -98,6 +116,7 @@ export function NewCourseDialog({
         create.mutate({
           name: name.trim(),
           cohortTerm: cohortTerm.trim(),
+          cohortSlug: effectiveSlug,
           copyFromCourseId: copyFrom || undefined,
         });
       }}
@@ -125,6 +144,42 @@ export function NewCourseDialog({
           placeholder="Fall 2026"
           onChange={(event) => setCohortTerm(event.target.value)}
         />
+      </div>
+
+      {/*
+        The short name, which is the only field here whose value is visible outside this
+        application — it is in the name of every repository the cohort generates, which students
+        see, clone, and read for the next nine months.
+
+        Suggested rather than asked for, because typing one per cohort is a chore and "Fall 2026"
+        already implies it. Editable in the same breath, because `f26` is what somebody reading
+        forty repository names actually wants, and this is the only moment it is free to change:
+        after the first student accepts, their repositories are named after it.
+      */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium" htmlFor="course-slug">
+          Short name
+        </label>
+        <Input
+          id="course-slug"
+          value={effectiveSlug}
+          maxLength={MAX_COHORT_SLUG}
+          placeholder="f26"
+          className="font-mono"
+          onChange={(event) => {
+            setSlugEdited(true);
+            setSlug(event.target.value.toLowerCase());
+          }}
+        />
+        {slugProblem ? (
+          <p className="text-xs text-destructive">{slugProblem}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Every repository this cohort generates is named{' '}
+            <code>{effectiveSlug || 'short-name'}-assignment-githubname</code>. It cannot be
+            changed once a student has accepted anything.
+          </p>
+        )}
       </div>
 
       {copyable.length > 0 && (
@@ -164,7 +219,13 @@ export function NewCourseDialog({
         <Button
           type="submit"
           size="sm"
-          disabled={create.isPending || !name.trim() || !cohortTerm.trim()}
+          disabled={
+            create.isPending ||
+            !name.trim() ||
+            !cohortTerm.trim() ||
+            effectiveSlug === '' ||
+            slugProblem !== null
+          }
         >
           {create.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
           Create

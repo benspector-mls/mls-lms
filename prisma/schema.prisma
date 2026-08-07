@@ -95,6 +95,21 @@ model Course {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   cohortTerm String    @map("cohort_term")
+  /// The cohort's short name, which prefixes every repository it generates:
+  /// `{cohortSlug}-{assignmentRepoName}-{github login}`.
+  ///
+  /// This is what makes two cohorts of the same program distinct on GitHub —
+  /// `f26-swe-1-4-loops-benspector3` beside `s26-swe-1-4-loops-benspector3`. Without it the
+  /// name carries no cohort, so a student repeating a module would want the repository their
+  /// previous cohort already holds, and copying a course to test it would collide with the
+  /// original for anybody in both.
+  ///
+  /// Suggested from `cohortTerm` and then editable, because these names are read constantly
+  /// and `f26` beats `fall-2026`. Frozen once anybody in the course has accepted anything:
+  /// their repositories are already named after it, and renaming here would not rename theirs.
+  ///
+  /// Unique across every course, archived ones included — their repositories still exist.
+  cohortSlug String    @unique @map("cohort_slug")
   /// The one link that enrolls a student in this course.
   ///
   /// An instructor copies it and sends it however they already talk to their students;
@@ -329,7 +344,8 @@ model Assignment {
   /// is capped, both reported rather than silent — see lib/grade/assets.ts.
   answerKeyDir String? @map("answer_key_dir")
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
-  /// are named `{assignmentRepoName}-{student github login}`.
+  /// are named `{cohortSlug}-{assignmentRepoName}-{student github login}`, where the slug
+  /// comes from the course — see `Course.cohortSlug`.
   assignmentRepoName String? @map("assignment_repo_name")
   githubOrg String? @map("github_org")
   /// Which template commit the tests come from. Null means the template's

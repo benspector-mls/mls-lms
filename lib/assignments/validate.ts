@@ -98,9 +98,12 @@ export async function validateAssignmentDraft(
   const pointValue = sectionsPointTotal(spec.sections);
 
   // ---- The course, and whether the module belongs to it ----
+  //
+  // `cohortSlug` is read here because it prefixes every repository this assignment generates,
+  // which the name-length check below needs.
   const course = await db.course.findUnique({
     where: { id: input.courseId },
-    select: { id: true },
+    select: { id: true, cohortSlug: true },
   });
 
   if (!course) {
@@ -145,36 +148,28 @@ export async function validateAssignmentDraft(
     }
 
     /*
-      The same name in a *different* course, in the same organization.
+      Whether the generated name leaves room for a GitHub login.
 
-      A warning rather than an error, because the ordinary case is fine and common: a new cohort
-      every term reuses `swe-1-4-loops`, and since a generated repository is
-      `{assignmentRepoName}-{github login}`, a new cohort of new students never collides.
+      A repository is `{cohortSlug}-{assignmentRepoName}-{github login}` and GitHub allows 100
+      characters. A login can be 39, so a slug and an assignment name that together run past 60
+      would refuse a student with a long username — at the moment they press Accept, which is
+      both the worst place to find out and the hardest to attribute.
 
-      What it warns about is the one student who is in both. There is no course in a generated
-      repository's name, so their second Accept wants a repository that already exists and is
-      refused — `accept` says so before touching GitHub. Surfaced here because the instructor is
-      the only person who can fix it, and renaming is free until somebody has accepted.
+      A warning rather than an error, because the limit depends on who enrols: 60 is the point
+      past which *some* login fails, not the point where the name is wrong. `validateAssignmentDraft`
+      is the only place that knows both halves, which is why it lives here rather than in the
+      slug's own rules.
     */
-    if (spec.githubOrg) {
-      const elsewhere = await db.assignment.findFirst({
-        where: {
-          assignmentRepoName: spec.assignmentRepoName,
-          githubOrg: spec.githubOrg,
-          courseId: { not: input.courseId },
-        },
-        select: { title: true, course: { select: { name: true, cohortTerm: true } } },
-      });
-
-      if (elsewhere) {
-        warn(
-          "assignmentRepoName",
-          `${elsewhere.course.name} (${elsewhere.course.cohortTerm}) also generates ` +
-            `${spec.githubOrg}/${spec.assignmentRepoName}-{github login}. That is fine unless ` +
-            `one student is in both cohorts — a repository cannot serve two courses, so their ` +
-            `second Accept would be refused. Rename this one if that is a possibility.`,
-        );
-      }
+    const prefixed = `${course.cohortSlug}-${spec.assignmentRepoName}`;
+    const longestLogin = 100 - prefixed.length - 1;
+    if (longestLogin < 39) {
+      warn(
+        "assignmentRepoName",
+        `Repositories will be named ${prefixed}-{github login}, which leaves ` +
+          `${longestLogin} characters for the login. GitHub allows 39, so a student with a ` +
+          `longer username than that would be refused. Shorten this name, or the cohort's ` +
+          `short name.`,
+      );
     }
   }
 

@@ -2,6 +2,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { isManualOnly } from '@/lib/assignments/spec';
+import {
+  cohortSlugProblem,
+  MAX_COHORT_SLUG,
+  slugifyCohort,
+} from '@/lib/courses/cohort-slug';
 import { newJoinToken } from '@/lib/courses/join-token';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
@@ -168,6 +173,7 @@ export const coursesRouter = createTRPCRouter({
           id: true,
           name: true,
           cohortTerm: true,
+          cohortSlug: true,
           archivedAt: true,
           /*
             The join link. Safe here and nowhere a student can reach: this procedure is
@@ -266,6 +272,7 @@ export const coursesRouter = createTRPCRouter({
           id: course.id,
           name: course.name,
           cohortTerm: course.cohortTerm,
+          cohortSlug: course.cohortSlug,
           archivedAt: course.archivedAt,
           joinToken: course.joinToken,
           modules: course.modules,
@@ -329,10 +336,25 @@ export const coursesRouter = createTRPCRouter({
     .input(z.object({
       name: z.string().trim().min(1, 'A course needs a name.').max(200),
       cohortTerm: z.string().trim().min(1, 'A course needs a term.').max(120),
+      /**
+       * The cohort's short name, which prefixes every repository it generates.
+       *
+       * Optional, and derived from the term when absent — so a caller that does not care gets
+       * `fall-2026` and the form can offer `f26` instead. Validated rather than slugified on
+       * arrival: silently rewriting somebody's `F26` to `f26` is fine, but silently rewriting
+       * `spring/26` to `spring-26` would put a name they did not choose into every repository.
+       */
+      cohortSlug: z.string().trim().toLowerCase().max(MAX_COHORT_SLUG).optional(),
       /** Copies its modules and, unpublished, its assignments. */
       copyFromCourseId: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const cohortSlug = input.cohortSlug || slugifyCohort(input.cohortTerm);
+      const slugProblem = cohortSlugProblem(cohortSlug);
+      if (slugProblem) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: slugProblem });
+      }
+
       /*
         Read before the transaction opens, and only what a copy needs.
 
@@ -387,15 +409,36 @@ export const coursesRouter = createTRPCRouter({
         The assignments are deliberately *outside* it — see below.
       */
       const course = await ctx.db.$transaction(async (tx) => {
-        const created = await tx.course.create({
-          data: {
-            name: input.name,
-            cohortTerm: input.cohortTerm,
-            joinToken: newJoinToken(),
-            instructors: { create: { userId: ctx.profile.id, isPrimary: true } },
-          },
-          select: { id: true, name: true, cohortTerm: true },
-        });
+        const created = await tx.course
+          .create({
+            data: {
+              name: input.name,
+              cohortTerm: input.cohortTerm,
+              cohortSlug,
+              joinToken: newJoinToken(),
+              instructors: { create: { userId: ctx.profile.id, isPrimary: true } },
+            },
+            select: { id: true, name: true, cohortTerm: true, cohortSlug: true },
+          })
+          .catch((err: unknown) => {
+            /*
+              The one collision the database refuses, said in words.
+
+              Two cohorts a term apart slugify the same way more often than it sounds — "Fall
+              2026" and "Fall 2026 (evening)" both start `fall-2026` once truncated — and a raw
+              constraint error would name a column rather than the thing to change.
+            */
+            if ((err as { code?: string }).code === 'P2002') {
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message:
+                  `Another course already uses "${cohortSlug}" as its short name. Every ` +
+                  `cohort needs its own, because it prefixes the repository names — pick ` +
+                  `something like "${cohortSlug}-2".`,
+              });
+            }
+            throw err;
+          });
 
         if (source && source.modules.length > 0) {
           // Names carried across exactly, because `duplicate` matches a module across courses
@@ -479,6 +522,60 @@ export const coursesRouter = createTRPCRouter({
         data: { archivedAt: input.archived ? new Date() : null },
         select: { id: true, name: true, archivedAt: true },
       });
+    }),
+
+  /**
+   * Changes the cohort's short name, while that is still free.
+   *
+   * **Refused once anybody in the course has accepted anything.** Their repositories are already
+   * named `{cohortSlug}-{assignmentRepoName}-{login}`, and renaming here would not rename theirs
+   * — every later lookup uses the `repoFullName` recorded on the submission, so the rows would go
+   * on working while the name in the interface described nothing. The same rule and the same
+   * reason as `assignments.update` refusing a repository-name change.
+   *
+   * Which makes the window small and worth saying so: this is editable between creating a course
+   * and the first student pressing Accept.
+   */
+  setCohortSlug: instructorProcedure
+    .input(z.object({
+      courseId: z.string().uuid(),
+      cohortSlug: z.string().trim().toLowerCase().max(MAX_COHORT_SLUG),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await assertTeachesCourse(ctx, input.courseId);
+
+      const problem = cohortSlugProblem(input.cohortSlug);
+      if (problem) throw new TRPCError({ code: 'BAD_REQUEST', message: problem });
+
+      const accepted = await ctx.db.submission.count({
+        where: { assignment: { courseId: input.courseId } },
+      });
+
+      if (accepted > 0) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            `${accepted} ${accepted === 1 ? 'student has' : 'students have'} already started ` +
+            `work in this course, and their repositories are named after the current short ` +
+            `name. Renaming it here would not rename theirs.`,
+        });
+      }
+
+      try {
+        return await ctx.db.course.update({
+          where: { id: input.courseId },
+          data: { cohortSlug: input.cohortSlug },
+          select: { id: true, name: true, cohortSlug: true },
+        });
+      } catch (err) {
+        if ((err as { code?: string }).code === 'P2002') {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `Another course already uses "${input.cohortSlug}" as its short name.`,
+          });
+        }
+        throw err;
+      }
     }),
 
   /**

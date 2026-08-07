@@ -308,21 +308,19 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 
 What that trades away is an allowlist, so the controls are after the fact: `regenerateJoinToken` replaces a link that reached the wrong person, and removing deals with whoever got in. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.gradebook`, which is instructor-only *and* teach-gated — and appears in nothing a student receives.
 
-**One repository cannot serve two cohorts.** A generated repository is
-`{assignmentRepoName}-{github login}` with no course in it, so two courses holding an assignment
-of the same name in the same organization want *one* repository for two submissions —
-and `submissions.repoFullName` is unique, so the second write is refused.
-`@@unique([courseId, assignmentRepoName])` does not catch this: it is per course, and the
-collision domain is the organization.
+### The cohort is in every repository name
 
-**Different students never collide**, which is why reusing `swe-1-4-loops` for a new cohort every
-term is normal. It bites the one person who is in both, which happens when a cohort is copied and
-tested, and when a student repeats a module. Two things say so:
+**`courses.cohortSlug` prefixes every repository a cohort generates:** `{cohortSlug}-{assignmentRepoName}-{github login}`, so `f26-swe-1-4-loops-benspector3` sits beside `s26-swe-1-4-loops-benspector3`. It is built in one place, `studentRepoName`, because a second caller assembling it slightly differently would create repositories nothing could find again — every later lookup uses the `repoFullName` recorded on the submission.
 
-- **Authoring warns**, not errors, naming the other cohort — renaming is free until somebody has accepted.
-- **`accept` refuses before touching GitHub**, naming the course that holds the repository. Without that check the sequence is ugly rather than wrong: `generate` fails on the taken name, the catch reuses the existing repository — which is correct when retrying a half-finished accept — collaborators are added, and only then does the unique constraint refuse, with a raw Prisma error reaching a student.
+**Without it, two cohorts of the same program collide.** The name would carry no course, so a student in both — one repeating a module, or an instructor testing a copied cohort — would want the repository their other cohort already holds. `@@unique([courseId, assignmentRepoName])` does not catch that: it is per course, and the collision domain is the organization.
 
-The constraint is what makes this safe rather than silently wrong. Two submissions sharing one repository would be worse than a refusal, because the webhook resolves a pull request *by* `repoFullName` — one push would land on whichever row Postgres returned first.
+**Suggested from the cohort term, then editable.** "Fall 2026" offers `fall-2026`; an instructor who would rather read `f26` across forty repository names says so. The form follows the term until somebody edits the slug and then stops — tracked as "have they touched it" rather than by comparing the two, because typing `fall-2026` by hand is still taking it over.
+
+**Frozen once anybody in the course has accepted anything**, the same rule and reason as an assignment's repository name: those repositories are already named after it, and renaming here would not rename theirs. That makes the editable window "between creating the course and the first Accept", which the screen says out loud.
+
+Unique across every course, archived ones included, because their repositories still exist. Two cohorts whose terms slugify the same way is a real situation and a named refusal rather than a constraint error.
+
+**Two guards remain around the collision the prefix prevents.** `accept` looks for the claimed repository before touching GitHub and refuses naming the course that holds it — near-unreachable now, and cheap insurance against a repository claimed some other way. And authoring warns when a slug and an assignment name together leave fewer than 39 characters for a login, which is GitHub's limit on one; only that check knows both halves.
 
 **An `Enrollment` row is created *by* somebody joining**, so `studentId` is `NOT NULL` and there is no "invited" state: `@@unique([courseId, studentId])` is what makes redeeming a link twice return the enrollment that exists rather than adding another. A removed student redeeming again is refused, and that is the one place idempotence would be wrong — if the link let them back in, removal would not stick while they still held it, so coming back is `enrollments.restore`, which the instructor calls.
 
@@ -363,7 +361,7 @@ They live side by side in `lib/courses/membership.ts` because the two `where` cl
 
 **`assignments.accept`** branches on the kind first, because what accepting *is* depends on it. For `GOOGLE_DOC` it records the submission as `ACCEPTED` and returns the copy prompt — `templateDocUrl` with its last path segment replaced by `/copy` — so the application creates nothing, holds no Google credentials, touches no student's Drive, and the copy belongs to the student from the moment Google makes it. The substitution is worth being honest about: it works because that is how Google Docs URLs are shaped, which is why `assignmentSpecSchema` checks the link's shape rather than accepting any URL — one it did not match is one the substitution would leave untouched, sending every student to the instructor's own document to edit in place. The alternative was Drive API integration with OAuth against every student's Google account, which is a great deal of machinery for something a link already does. `FILE_UPLOAD` and `EXTERNAL_URL` have no accept at all: there is nothing to hand out, so the assignment stays `NOT_STARTED` until the student submits.
 
-For `REPO` it creates the repository from the template as `{assignmentRepoName}-{github login}`, adds the student as a collaborator with push permission, adds every `course_instructors` row for that course as a collaborator, waits for the template copy to land, removes `classroom.yml`, records the repository identity on the submission, and sets the status to `ACCEPTED`. It is idempotent: if a previous attempt created the repository but its database write never landed, it reuses the existing repository rather than failing on the name collision. An instructor with no linked GitHub account is skipped with a warning rather than failing the whole operation.
+For `REPO` it creates the repository from the template as `{cohortSlug}-{assignmentRepoName}-{github login}`, adds the student as a collaborator with push permission, adds every `course_instructors` row for that course as a collaborator, waits for the template copy to land, removes `classroom.yml`, records the repository identity on the submission, and sets the status to `ACCEPTED`. It is idempotent: if a previous attempt created the repository but its database write never landed, it reuses the existing repository rather than failing on the name collision. An instructor with no linked GitHub account is skipped with a warning rather than failing the whole operation.
 
 **The template copy is asynchronous, which is why there is a wait.** Measured rather than assumed: `generate` returned after 2.1 seconds and the new repository's tree only became readable at 5.6 seconds. In between, the repository exists and is empty, and GitHub answers a contents request with 404 and the body `"This repository is empty."` — the same status as a file that genuinely is not there. The body is the only thing that tells them apart, so `waitForRepoContent` retries on that specific 404 with lengthening gaps and `removeClassroomWorkflow` returns `removed`, `absent`, or `repository-empty` rather than a bare void. Without the distinction, losing the race looked exactly like success and nothing could tell that a `classroom.yml` had been left in a student's repository.
 

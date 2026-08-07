@@ -18,6 +18,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { config as loadEnv } from "dotenv";
 
 import { AssignmentKind, parseAssignmentSpec } from "../lib/assignments/spec";
+import { slugifyCohort } from "../lib/courses/cohort-slug";
 import { newJoinToken } from "../lib/courses/join-token";
 import { PrismaClient, Prisma, Role, EnrollmentStatus, RubricScaleType } from "../lib/generated/prisma/client";
 
@@ -40,7 +41,7 @@ const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO ? `${GITHUB_ORG}/${process.
 
 /**
  * The repository name is the template repository's name, so a student's
- * repository is `{assignmentRepoName}-{their github login}`. Derived rather than
+ * repository is `{cohortSlug}-{assignmentRepoName}-{their github login}`. Derived rather than
  * written out separately, because the two must always agree: if they disagree,
  * `accept` creates a repository from one template and names it after another.
  */
@@ -420,6 +421,7 @@ async function main() {
       data: {
         name: "Software Engineering Fellowship",
         cohortTerm: "Cohort Test",
+        cohortSlug: slugifyCohort("Cohort Test"),
         joinToken: newJoinToken(),
       },
     }));
@@ -615,7 +617,9 @@ async function main() {
   console.log(
     `Assignment: ${assignment.title} — template ${assignment.templateRepo}`,
   );
-  console.log(`  student repositories will be named ${ASSIGNMENT_REPO_NAME}-{github login}`);
+  console.log(
+    `  student repositories will be named ${course.cohortSlug}-${ASSIGNMENT_REPO_NAME}-{github login}`,
+  );
 
   // Assignments from earlier runs that used a different template repository are
   // left in place. Changing SEED_TEMPLATE_REPO therefore adds an assignment
