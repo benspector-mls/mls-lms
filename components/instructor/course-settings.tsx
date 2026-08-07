@@ -124,8 +124,9 @@ function RepositoryNamingCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Short name</h2>
         <p className="text-xs text-muted-foreground">
-          Every repository this cohort generates is named after it, which is what keeps two
-          cohorts of the same program apart on GitHub.
+          Every repository this cohort generates is named after it. It carries the course and
+          the term, which is what keeps two programs starting the same season — and two cohorts
+          of the same program — apart on GitHub.
         </p>
       </div>
 

@@ -797,6 +797,20 @@ What it bought was correcting a typo, in a window measured in hours against a ni
 
 **The short name is read on two screens: the review step, and the cohort's settings.** The review step is where it is decided. Settings is where it is looked up afterwards, alongside an example of the repository name it produces, the count of repositories already named after it, and the reason there is no way to change it — see [a cohort's six views](README.md#a-cohorts-six-views-are-six-addresses). It is returned by `courses.settings` and by nothing else; the gradebook, the roster, and the assignments list all read a cohort without it.
 
+### The short name names the course as well as the term
+
+It was suggested from the cohort term alone, so "Fall 2026" offered `fall-2026`. That is not unique and was never going to be: **every program a school runs starts in the fall.** The first course created in a season took `fall-2026`, and every other program starting that season hit a uniqueness refusal — with the instructor who hit it being the one who had done nothing wrong. It looked fine with one program running.
+
+`suggestCohortSlug({ courseName, cohortTerm })` composes both halves. "Data Science" starting "Fall 2026" offers `data-science-f26`; "Software Engineering Fellowship" offers `sef-f26`, which an instructor edits to `swe-f26`.
+
+**The course name is either whole or its initials, never half of itself.** `software-engineeri` is a name nobody would have chosen and this is a suggestion people accept without reading closely, while `sef` is visibly an abbreviation — somebody who wants `swe` can see there was a decision to make.
+
+**One program's short name is the same shape in every season**, which is the part worth knowing about. The course half is measured against the longest a compacted term can be — four characters, `sp27` — rather than against the term in hand. Measured against the term itself, one character of season would cost a word of the course name: a fellowship reading `software-engineering-f26` in the autumn and `software-sp27` in the spring, with two cohorts of the same program no longer looking related. Which is the whole thing the prefix exists for.
+
+**Uniqueness is still the database's.** `cohort_slug` is unique across every course and that constraint is what guarantees it; naming both halves only moves collisions from routine to rare. Two cohorts of the same program in the same term still collide, and two programs whose names abbreviate the same way do too — both refused in words rather than by a constraint error.
+
+Existing cohorts keep the slugs they have, because the short name is frozen and their repositories are already named after it. This changes what a *new* course is offered.
+
 ### The check scripts were reporting passes they had not earned
 
 Found while verifying the above, and worth more than the feature. Five scripts required an **active** enrollment on the seeded course to run their database checks, and printed "All checks passed" when they could not find one. Removing a student in the running application — which is what this whole item is about — was enough to silently stop 4 of the 8 suites: `verify:modules` ran nothing at all, and `authoring`, `approve`, and `uploads` each dropped a whole group, all while reporting success.

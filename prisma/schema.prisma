@@ -149,11 +149,17 @@ model Course {
   /// previous cohort already holds, and copying a course to test it would collide with the
   /// original for anybody in both.
   ///
-  /// Suggested from `cohortTerm` and then editable, because these names are read constantly
-  /// and `f26` beats `fall-2026`. Frozen once anybody in the course has accepted anything:
-  /// their repositories are already named after it, and renaming here would not rename theirs.
+  /// Suggested from the course name **and** `cohortTerm`, then editable — "Software Engineering
+  /// Fellowship" starting "Fall 2026" offers `sef-f26`, which an instructor may edit to
+  /// `swe-f26`. Both halves are in the suggestion because neither is unique on its own: every
+  /// program a school runs starts in the fall, so a term-only slug would be the short name of
+  /// whichever course was created first and a refusal for the rest.
   ///
-  /// Unique across every course, archived ones included — their repositories still exist.
+  /// Frozen once anybody in the course has accepted anything: their repositories are already
+  /// named after it, and renaming here would not rename theirs.
+  ///
+  /// Unique across every course, archived ones included — their repositories still exist. The
+  /// constraint is what guarantees it; naming both halves only makes collisions rare.
   cohortSlug String    @unique @map("cohort_slug")
   /// The one link that enrolls a student in this course.
   ///

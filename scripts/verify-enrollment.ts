@@ -79,7 +79,8 @@ function report(skipped?: string) {
 
 async function main() {
   const { db } = await import("../lib/prisma");
-  const { studentRepoName, slugifyCohort } = await import("../lib/courses/cohort-slug");
+  const { studentRepoName, slugifyCohort, suggestCohortSlug, cohortSlugProblem } =
+    await import("../lib/courses/cohort-slug");
   const links = await import("../lib/links");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
@@ -152,7 +153,7 @@ async function main() {
         await asInstructor.enrollments.restore({ enrollmentId: enrollment.id });
       }
 
-      // ---- Deriving a short name from a term ---------------------------------
+      // ---- Turning text into a slug ------------------------------------------
       //
       // Pure, and checked before anything else, because every repository name a cohort generates
       // starts with the result.
@@ -167,7 +168,55 @@ async function main() {
         ["", ""],
       ];
       for (const [term, expected] of derivations) {
-        check(`"${term}" suggests "${expected}"`, slugifyCohort(term), expected);
+        check(`"${term}" slugifies to "${expected}"`, slugifyCohort(term), expected);
+      }
+
+      /*
+        ---- The short name a new course is offered -----------------------------
+
+        **The course and the term, not the term alone.** That is the whole reason this function
+        exists: every program a school runs starts in the fall, so a term-only suggestion made
+        `fall-2026` the short name of whichever course was created first and a refusal for the
+        rest — and the instructor hitting the refusal had done nothing wrong.
+
+        The pair that matters most is the middle one: **one program's short name is the same
+        shape in every season**. Measured against the term in hand rather than against the
+        longest a term can be, a fellowship would be `software-engineering-f26` in the autumn and
+        `software-sp27` in the spring — one character of season costing a word of the course name
+        — and two cohorts of the same program would stop looking related.
+
+        Uniqueness is still the database's. Two programs whose names abbreviate the same way
+        collide, which this cannot prevent and `create` refuses in words.
+      */
+      const suggestions: [string, string, string][] = [
+        // Short enough whole.
+        ["Data Science", "Fall 2026", "data-science-f26"],
+        // Too long whole, so the course becomes its initials — and stays that way across seasons.
+        ["Software Engineering Fellowship", "Fall 2026", "sef-f26"],
+        ["Software Engineering Fellowship", "Spring 2027", "sef-sp27"],
+        ["Data Science", "Spring 2027", "data-science-sp27"],
+        // A term this cannot compact keeps its full slug, and the course gives way to it.
+        ["Software Engineering Fellowship", "Cohort 12 (evening)", "sef-cohort-12-evening"],
+        // Seasons that share a first letter are still told apart.
+        ["Data Science", "Summer 2026", "data-science-su26"],
+        ["Data Science", "Winter 2026", "data-science-w26"],
+        // A two-digit year, for the people who write it that way.
+        ["Data Science", "Fall '26", "data-science-f26"],
+        // Half a form is half a suggestion rather than none.
+        ["", "Fall 2026", "f26"],
+        ["Data Science", "", "data-science"],
+      ];
+      for (const [courseName, cohortTerm, expected] of suggestions) {
+        check(`"${courseName}" + "${cohortTerm}" suggests "${expected}"`,
+          suggestCohortSlug({ courseName, cohortTerm }), expected);
+      }
+
+      // Every one of them has to be a legal repository name, which is the only property that
+      // actually matters — a suggestion the form would then reject is worse than no suggestion.
+      for (const [courseName, cohortTerm] of suggestions) {
+        const slug = suggestCohortSlug({ courseName, cohortTerm });
+        if (slug === "") continue;
+        check(`..."${slug}" is a usable short name`, cohortSlugProblem(slug), null);
       }
 
       /*
@@ -418,9 +467,20 @@ async function main() {
           })),
         "BAD_REQUEST");
 
-      check("a term with nothing usable in it is refused rather than guessed at",
+      /*
+        A term with nothing in it leaves the course name carrying the short name on its own,
+        which is the point of the suggestion naming both halves. Nothing is invented — it is
+        still derived from what the instructor typed — so this is a fallback rather than a
+        refusal. The refusal is for the case where neither half yields anything, because that
+        is where a name nobody chose would have to be made up.
+      */
+      check("a term with nothing usable in it leaves the course name carrying it",
+        (await asInstructor.courses.create({ name: "Verify Blank", cohortTerm: "!!!" }))
+          .course.cohortSlug,
+        "verify-blank");
+      check("...and nothing usable in either half is refused rather than guessed at",
         await refusal(() =>
-          asInstructor.courses.create({ name: "Verify Blank", cohortTerm: "!!!" })),
+          asInstructor.courses.create({ name: "!!!", cohortTerm: "???" })),
         "BAD_REQUEST");
 
       /*
@@ -1253,6 +1313,13 @@ async function main() {
         name: "Verify Deletion",
         cohortTerm: "Cohort Verify H",
       });
+      // Asked for rather than assumed. The confirmation is the cohort's own short name, and
+      // writing out what the derivation happens to produce today is how a check comes to be
+      // testing its own copy of a rule instead of the one the application uses.
+      const doomedSlug = suggestCohortSlug({
+        courseName: "Verify Deletion",
+        cohortTerm: "Cohort Verify H",
+      });
       const doomedModule = await asInstructor.modules.create({
         courseId: doomed.course.id,
         name: "Mod 1",
@@ -1282,7 +1349,7 @@ async function main() {
       check("a cohort that is still running cannot be deleted",
         await refusal(() => asInstructor.courses.remove({
           courseId: doomed.course.id,
-          confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+          confirmCohortSlug: doomedSlug,
         })),
         "PRECONDITION_FAILED");
       check("...and its impact cannot even be read",
@@ -1294,7 +1361,7 @@ async function main() {
       check("a co-teacher cannot delete an archived cohort",
         await refusal(() => asNewInstructor.courses.remove({
           courseId: doomed.course.id,
-          confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+          confirmCohortSlug: doomedSlug,
         })),
         "FORBIDDEN");
       check("...nor read what deleting it would destroy",
@@ -1313,7 +1380,7 @@ async function main() {
       check("...its modules", impact.modules, 1);
       check("...its instructors", impact.instructors, 2);
       check("...and asks for the short name rather than the course name", impact.cohortSlug,
-        slugifyCohort("Cohort Verify H"));
+        doomedSlug);
 
       check("the wrong confirmation is refused",
         await refusal(() => asInstructor.courses.remove({
@@ -1326,7 +1393,7 @@ async function main() {
 
       const deletedCourse = await asInstructor.courses.remove({
         courseId: doomed.course.id,
-        confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+        confirmCohortSlug: doomedSlug,
       });
       check("the owner can delete an archived cohort", deletedCourse.name, "Verify Deletion");
       check("...and it is gone",
@@ -1348,7 +1415,7 @@ async function main() {
       check("...while a course deleted twice is simply not found",
         await refusal(() => asInstructor.courses.remove({
           courseId: doomed.course.id,
-          confirmCohortSlug: slugifyCohort("Cohort Verify H"),
+          confirmCohortSlug: doomedSlug,
         })),
         "NOT_FOUND");
 

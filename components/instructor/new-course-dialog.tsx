@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import {
   cohortSlugProblem,
   MAX_COHORT_SLUG,
-  slugifyCohort,
+  suggestCohortSlug,
 } from '@/lib/courses/cohort-slug';
 import {
   Select,
@@ -83,7 +83,14 @@ export function NewCourseDialog({
   */
   const [slug, setSlug] = React.useState('');
   const [slugEdited, setSlugEdited] = React.useState(false);
-  const effectiveSlug = slugEdited ? slug : slugifyCohort(cohortTerm);
+  /*
+    Suggested from the course *and* the term, not the term alone.
+
+    Every program a school runs starts in the fall, so a term-only suggestion made `fall-2026`
+    the short name of whichever course was created first and a refusal for the rest — and the
+    instructor hitting the refusal was the one who had done nothing wrong.
+  */
+  const effectiveSlug = slugEdited ? slug : suggestCohortSlug({ courseName: name, cohortTerm });
   const slugProblem = effectiveSlug === '' ? null : cohortSlugProblem(effectiveSlug);
 
   /*
@@ -259,10 +266,11 @@ export function NewCourseDialog({
         application — it is in the name of every repository the cohort generates, which students
         see, clone, and read for the next nine months.
 
-        Suggested rather than asked for, because typing one per cohort is a chore and "Fall 2026"
-        already implies it. Editable in the same breath, because `f26` is what somebody reading
-        forty repository names actually wants — and this is the only moment it is editable at all,
-        which is what the review step exists to make sure gets read.
+        Suggested rather than asked for, because typing one per cohort is a chore and the course
+        and term together already imply it. Editable in the same breath, because `swe-f26` is what
+        somebody reading forty repository names actually wants where the suggestion offers
+        `software-engineering-f26` — and this is the only moment it is editable at all, which is
+        what the review step exists to make sure gets read.
       */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium" htmlFor="course-slug">
@@ -272,7 +280,7 @@ export function NewCourseDialog({
           id="course-slug"
           value={effectiveSlug}
           maxLength={MAX_COHORT_SLUG}
-          placeholder="f26"
+          placeholder="swe-f26"
           className="font-mono"
           onChange={(event) => {
             setSlugEdited(true);

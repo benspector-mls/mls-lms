@@ -5,7 +5,7 @@ import { isManualOnly } from '@/lib/assignments/spec';
 import {
   cohortSlugProblem,
   MAX_COHORT_SLUG,
-  slugifyCohort,
+  suggestCohortSlug,
 } from '@/lib/courses/cohort-slug';
 import { newJoinToken } from '@/lib/courses/join-token';
 import { removedStudentIds } from '@/lib/courses/membership';
@@ -562,7 +562,8 @@ export const coursesRouter = createTRPCRouter({
       copyFromCourseId: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const cohortSlug = input.cohortSlug || slugifyCohort(input.cohortTerm);
+      const cohortSlug =
+        input.cohortSlug || suggestCohortSlug({ courseName: input.name, cohortTerm: input.cohortTerm });
       const slugProblem = cohortSlugProblem(cohortSlug);
       if (slugProblem) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: slugProblem });
@@ -638,8 +639,9 @@ export const coursesRouter = createTRPCRouter({
             /*
               The one collision the database refuses, said in words.
 
-              Two cohorts a term apart slugify the same way more often than it sounds — "Fall
-              2026" and "Fall 2026 (evening)" both start `fall-2026` once truncated — and a raw
+              Rarer than it was, now that the suggestion names the course as well as the term —
+              it used to be that every program starting in the same season collided. What still
+              collides is two cohorts of the *same* program in the same term, and a raw
               constraint error would name a column rather than the thing to change.
             */
             if ((err as { code?: string }).code === 'P2002') {
