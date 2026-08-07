@@ -343,17 +343,19 @@ function ModuleSection({
                   key={assignment.id}
                   className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium">{assignment.title}</span>
-                  <AssignmentKindBadge kind={assignment.kind} />
+                  <div className="min-w-0 flex-1">
+                    <span className="truncate font-medium">{assignment.title}</span>
+                    <AssignmentKindBadge kind={assignment.kind} className="mx-1" />
+                    {assignment.distributedAt === null && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+                      >
+                        Draft
+                      </Badge>
+                    )}
+                  </div>
                   {/* Why a module can look full here and empty to the cohort. */}
-                  {assignment.distributedAt === null && (
-                    <Badge
-                      variant="outline"
-                      className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-                    >
-                      Draft
-                    </Badge>
-                  )}
                   <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
                     {assignment.pointValue} pts
                   </span>
