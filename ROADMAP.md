@@ -89,13 +89,14 @@ After those, the ordering principle is: correctness gaps, then the cheap things,
 7. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
 8. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
 9. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
-10. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
-11. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-12. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-13. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-14. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+10. **[The Modules screen shows the course the way a student meets it](#the-modules-screen-shows-the-course-the-way-a-student-meets-it)** — module dropdowns with their assignments and resources listed inside, reordering on the headers. Buildable before resources exist, and better after.
+11. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
+12. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+13. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+14. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+15. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1 through 5 and 8 through 10 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 and 2 come before the rest: both are the application failing to do what it already claims.
+Items 1 through 5 and 8 through 11 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 and 2 come before the rest: both are the application failing to do what it already claims.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that item 6 produces anyway.
 
@@ -978,6 +979,24 @@ Two things it needs beyond a filter control:
 
 ---
 
+## The Modules screen shows the course the way a student meets it
+
+Today it is a list of module names with up and down buttons — accurate, and it says nothing about what is *in* a module. So the question an instructor actually has about their module list, "is this in the right place and does this module have anything in it", cannot be answered from the screen that manages modules.
+
+**It becomes the student's course page, with module management on it.** Each module is a dropdown, the same collapsible the student page already uses, holding that module's assignments in due-date order and its resources beneath them in alphabetical order. The reordering buttons move onto the module headers, beside the module they move. Creating, renaming, and removing a module stay here too — everything about modules in one place, which is what it already was.
+
+**The assignments and resources listed here are not interactive.** No links, no per-row menus, no publish toggles. This screen shows the *shape* of the course; the Assignments screen is where assignments are worked on, and a second route to the grading queue that looked different from the first would be two answers to the same question. The cost is real and accepted: an instructor who spots something in the wrong module here goes to Assignments to move it.
+
+**The Assignments screen is unchanged and stays the working surface.** Its table, search box, module and kind and due-date filters, five sortable columns, and All/To grade/Published/Drafts switcher are how an instructor finds one assignment among fifty and finds where the grading is, and none of that survives an accordion. It is also where a new assignment is created. The two screens answer different questions — this one "what does this course look like", that one "which assignment do I need" — and neither is a worse version of the other.
+
+**Drafts should be shown and marked rather than hidden.** A true mirror would omit unpublished assignments, and then a module that is full to the instructor and empty to students reads as simply empty, which is the exact confusion the screen exists to remove. Showing them with the Draft badge the assignments table already uses makes the screen diagnostic: *this* is why your students see nothing in Mod 4. Worth deciding explicitly, since "mirrors what students see" argues the other way.
+
+**This is not [seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it) and does not replace it.** That item is a test enrollment an instructor can look *through* — the accept button, the submission instructions, the feedback screen, the whole flow. This is the shape only, with no submissions and nothing to press. What it does do is cover the cheapest and most common case for free: catching an assignment filed under the wrong module, or a module that is empty when it should not be.
+
+Almost all of the rendering already exists in `components/student/course-detail.tsx` — `groupByModule` builds from the course's module list so an empty module still appears, and `ModuleSection` is the collapsible, open when it has contents and closed when it does not. The work is a version of it that takes module actions and renders non-interactive rows, not a new component from nothing.
+
+---
+
 ## Content that is not an assignment
 
 Readings and external links, open-ended rich text, and embedded video. The largest of these items, and the reason is not the editor — it is that a module currently has exactly one kind of child.
@@ -993,9 +1012,26 @@ The model decision, which should be made before anything else:
 
 The first is almost certainly right for the same reason the modules table was: the cheap version that does not touch what already works.
 
-**Ordering is the concrete gap either way.** Assignments within a module are ordered by title today — `orderBy: [{ module: { position } }, { title }]` — and there is no per-item position. Content interleaved with assignments ("read this, then do that") needs one, so this feature is also where assignments finally get an explicit order within their module. That is worth knowing because it sounds like a separate change and is not.
+### Ordering, which is settled and needs no new column
 
-The three kinds themselves, briefly:
+**Resources do not interleave with assignments.** A module reads as its assignments, then a Resources section beneath them. That is what makes the ordering question go away rather than needing an answer:
+
+- **Assignments sort by due date, earliest first, and cannot be reordered by hand.** A due date is a fact an instructor already maintains and a student already reads, so an explicit position beside it would be a second ordering to keep in step with the first — and the day the two disagree, nothing says which is right. An assignment with no due date sorts **last**, which is the rule the assignments table's own due-date sort already applies in both directions: no due date is not earlier or later than every date, it is outside the ordering.
+- **Resources sort alphabetically by title.** They have no date and no natural sequence, so the only orderings available are alphabetical and manual, and alphabetical is the one that needs nothing maintained.
+
+So neither `Assignment` nor the content table gains a `position`, and modules keep the only manual ordering in the course — which is the right place for it, because a module is a unit of teaching and the things inside one are already ordered by when they are due.
+
+**One consequence reaches the student side.** `assignments.listForCourse` orders by `[{ module: { position } }, { title }]` today, so a student's course page is alphabetical within a module. Due-date ordering changes that page as well as the instructor's, which is an improvement and worth stating rather than discovering: it is a change to what every current student sees.
+
+### A Resources page, and a course-level list
+
+**Its own screen and its own sidebar item**, beside Assignments, listing every resource in the course grouped by module with the actions to add, edit, and remove one. The same shape as Assignments for the same reason: the thing being authored gets a screen, and the module accordion is where the result is read.
+
+**Every resource belongs to a module**, so `moduleId` is a `NOT NULL` foreign key exactly as it is on `Assignment`. There is no course-level resource, because a student reads the course as a list of modules and a resource outside all of them has nowhere to appear.
+
+**No draft state, deliberately.** Assignments have `distributedAt` because handing one out starts a clock and creates work; a link to a reading does neither, and a student seeing one early is not a problem the way an unfinished assignment is. So a resource is visible as soon as it is added, and there is no publish step, no Draft badge, and no fourth thing for the module accordion to explain. If that turns out to be wrong, adding the column later is cheap — the reverse, taking a publish step away once instructors rely on it, is not.
+
+### The three kinds
 
 - **A link with a title and a description** is the whole of the readings case, and it is the one to build first because it needs no editor at all.
 - **Rich text** should be markdown, because `submissionInstructions` already is and the report markdown a student reads already renders through this application's own renderer. A second content format would mean a second renderer and a second set of rules about what is allowed in it.
