@@ -621,7 +621,7 @@ One rule they all share, decided once here rather than three times below.
 
 ### Removing and archiving make lists go quiet; they never take work back
 
-A student removed from a cohort keeps reading the feedback they were given. An archived course stays readable to the people who were in it. What both do is stop appearing: off the active course list, out of the roster, out of the gradebook, out of triage and the grading queue, and out of every count on a course card.
+A student removed from a cohort keeps reading the feedback they were given. An archived course stays readable to the people who were in it. What both do is stop appearing: off the active course list, out of the roster, out of the gradebook, out of grading triage, and out of every count on a course card. Not out of an assignment's own grading queue, which is how its submissions are read rather than a list of work outstanding — emptying that would take the feedback back.
 
 The reason is that the alternative takes something back. A student who was shown a grade and then removed would find the grade gone, and there is no version of that which is not worse than a course they can still open. Cohorts also end for the ordinary reason that they finished, which is not an event that should retract anything.
 
@@ -666,7 +666,7 @@ Renaming the copied modules comes after, which is safe precisely because [the mo
 
 `archive` and `unarchive` set and clear the column. Reversible, deliberately: archiving is a tidying action and a tidying action that cannot be undone gets avoided instead of used.
 
-An archived course is readable by its members and accepts nothing new — the same pair as a removed student, for the same reason. Its submissions leave triage and the grading queue, because those are lists of work waiting to be done and a finished cohort's work is not waiting.
+An archived course is readable by its members and accepts nothing new — the same pair as a removed student, for the same reason. Its submissions leave grading triage, because that is a list of work waiting to be done and a finished cohort's work is not waiting.
 
 ---
 
@@ -707,7 +707,7 @@ Every place in application code that asks for `status: 'ACTIVE'`, and which of t
 | `assignments.ts:341` — `accept` | active participant | no |
 | `lib/uploads/submit.ts` — `assertCanHandIn` | active participant | no |
 
-Four widen, three stay. `courses.gradebook` and `submissions.forTriage` are not on this list because they filter through the *submission* rather than the enrollment, which is a second thing to check rather than a third to change: a removed student's existing submissions would go on appearing in both, and both are lists of a cohort's current state.
+Four widen, three stay. `courses.gradebook` and `submissions.triage` are not on this list because they filter through the *submission* rather than the enrollment, which is a second thing to check rather than a third to change: a removed student's existing submissions would go on appearing in both, and both are lists of a cohort's current state.
 
 **The one to get right is `listMine`**, because it is the only one where the intended behaviour is not simply "admit them". A removed student whose course silently reappears in their list, indistinguishable from the ones they are in, is worse than not seeing it. It needs the label as well as the row, in the same way the student course list already labels an archived one.
 
@@ -718,6 +718,28 @@ Four widen, three stay. `courses.gradebook` and `submissions.forTriage` are not 
 **[Preview-as-student](#seeing-a-course-as-a-student-sees-it)**, which stays its own item and says there why it is not bundled here.
 
 **Targeted assignments and excusing a student**, which stays below as its own decision. It is a data-model change rather than a screen and it does not block a cohort from running.
+
+---
+
+## Course switching — done
+
+Not a planned item. It is what the first second course found: three separate defects that could not exist while there was one cohort, and one wrong claim in this document.
+
+**Every instructor route now names its course**, and the switcher and the navigation read it from there. The sidebar had been deriving the current cohort from the address where it could and falling back to the first course in the list where it could not — and `listMine` is ordered newest-first, so on the triage screen and the grading queue it named last term's cohort. Worse, the "Course" link in the navigation never consulted the address at all: it was the first course unconditionally, so grading one cohort's queue and then clicking Course took you into a different cohort. That is what moved `/instructor` to `/instructor/courses/[courseId]/triage` and `/instructor/assignments/[id]` to `/instructor/courses/[courseId]/assignments/[id]`; both old addresses redirect, the first by picking the caller's most recent cohort and the second by asking the assignment which course it belongs to.
+
+**There is deliberately no remembered "current course".** The URL is the whole of the state. A remembered one disagrees with the page the moment somebody opens a link, and a sidebar naming a different cohort than the screen is worse than one naming none — so where the address names no course, the switcher shows a placeholder and the Course link is dropped rather than pointed at an arbitrary cohort. Guessing is exactly what went wrong.
+
+**Switching cohort keeps the view.** Triage becomes the other cohort's triage, the gradebook the other cohort's gradebook. Only for the screens every course has: an assignment belongs to one cohort, so its queue and its edit form land on the course page instead.
+
+**Triage is one cohort's, and the course is required rather than optional.** Two terms' work interleaved has no state in which the screen is empty and no order in which to work it — "what do I do next" is not a question that can be answered across cohorts. Leaving an unscoped mode available is how the screen came to use one.
+
+**Two routes name their course twice** — as a segment and through the assignment — and nothing stopped the two disagreeing. Access was never affected, because every procedure checks the assignment's own course rather than the segment; what broke was everything that reads the segment, so the sidebar named the wrong cohort and the edit form offered the wrong course's modules. `lib/instructor/course-scope.ts` redirects to the address where both agree.
+
+### The claim this document had wrong
+
+`triage` filtered `archivedAt: null` in its admin branch and not in its instructor branch, so an archived cohort stayed in triage for everyone who teaches it and left it only for the reader who teaches nothing. Three places above and the archived-course banner all said otherwise, and the check listed under [what to verify](#what-to-verify-for-all-three) was never written. Both are now true and checked.
+
+The banner also said an archived cohort's submissions leave *the grading queue*, which was never the intent: triage is a list of work outstanding, and an assignment's queue is how its submissions are read. Emptying the second would take the feedback back, which is the one thing archiving must not do.
 
 ---
 
@@ -775,13 +797,13 @@ Through the tRPC callers inside a rolled-back transaction, which is what `verify
 - **A created course has its creator as primary instructor**, and that instructor can immediately author an assignment in it. The second half is the real check: a course whose `CourseInstructor` row was not written looks fine until somebody tries to use it.
 - **A copy reproduces every module and every assignment**, unpublished, with `dueAt` cleared and both repositories and the answer key folder intact — and copying into a course whose modules do not exist yet is refused rather than half-applied.
 - **A copied cohort generates different repository names from the one it came from**, built through the same function `accept` calls rather than reassembled in the check. A duplicate short name is refused, an illegal one is refused, a term with nothing usable in it is refused rather than guessed at, and the name is frozen once a student has accepted.
-- **A copied cohort generates different repository names from the one it came from**, built through the same function `accept` calls rather than reassembled in the check. A duplicate short name is refused, an illegal one is refused, a term with nothing usable in it is refused rather than guessed at, and the name is frozen once a student has accepted.
 - **A student cannot create a course**, and an instructor cannot archive a course they do not teach.
 - **Redeeming a join link twice yields one enrollment.** Redeeming a rotated link is refused. Redeeming as a removed student is refused.
 - **A removed student can still read the course and their released feedback, and cannot accept, submit, or upload.** Both halves, in the same check, because the pair is the whole point — and because the four widened read checks and the three untouched write checks are the same `where` clause in the same files.
 - **A removed student's course is still in `listMine`, and labelled.** The one reader whose right answer is not simply "admit them".
 - **A removed student is not counted in the course card's enrollment count.** The one counting reader on the list; the gradebook and triage filter through submissions instead, so what they do with a departed student's existing work is checked rather than changed.
-- **An archived course leaves the active lists and stays readable**, and its submissions leave triage.
+- **An archived course leaves the active lists and stays readable**, and its submissions leave grading triage and come back when it is reopened — while staying readable in the assignment's own queue throughout. Guarded by a check that the cohort has work in triage *before* anything empties it, because every assertion here is that some pile is empty and a cohort with nothing outstanding would pass all of them while measuring nothing.
+- **Triage is scoped to the cohort asked for**, checked against a cohort with work and a copy of it with none.
 - **An instructor invite is single use**, refuses after expiry, does not demote an admin who opens it, and records who redeemed it.
 - **A student cannot grant themselves any role**, called directly against the procedure rather than through a screen. And revoking the last admin is refused.
 

@@ -753,20 +753,26 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 
 `app/(shell)/` holds the signed-in application; `app/auth/` holds the Supabase auth screens.
 
-| Route                                      | Screen                                                               |
-| ------------------------------------------ | -------------------------------------------------------------------- |
-| `/courses`                                 | A student's courses                                                  |
-| `/courses/[courseId]`                      | Assignments, status, and feedback for one course                     |
-| `/instructor`                              | Triage across every course the instructor teaches                    |
-| `/instructor/courses/[courseId]`           | One course: assignments, modules, roster, gradebook                   |
-| `/instructor/courses/[courseId]/gradebook` | Assignments × roster, each cell carrying its triage bucket           |
-| `/instructor/assignments/[assignmentId]`   | The grading queue and the review surface, `?submission=` to open one |
+| Route                                                        | Screen                                                                |
+| ------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `/courses`                                                   | A student's courses                                                   |
+| `/courses/[courseId]`                                        | Assignments, status, and feedback for one course                      |
+| `/instructor`                                                | Nothing: picks the most recent cohort the caller teaches and redirects |
+| `/instructor/courses/[courseId]`                             | One course: assignments, modules, roster, gradebook                   |
+| `/instructor/courses/[courseId]/triage`                      | What is waiting on the instructor in this cohort                      |
+| `/instructor/courses/[courseId]/gradebook`                   | Assignments × roster, each cell carrying its triage bucket            |
+| `/instructor/courses/[courseId]/assignments/[assignmentId]`  | The grading queue and the review surface, `?submission=` to open one   |
+| `/instructor/assignments/[assignmentId]`                     | The queue's old address: looks up the course and redirects            |
 
-`lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens.
+**Every instructor route names its course**, because the URL is the only record of which cohort you are in. There is no remembered "current course": a remembered one disagrees with the page the moment you open a link, and a sidebar naming a different cohort than the screen is worse than one naming none. So the switcher and the navigation read the address, and where the address names no course — `/courses` — the switcher shows a placeholder rather than a guess. It used to fall back to the first course in the list, which is ordered newest-first, and the result was a sidebar confidently naming last term's cohort while you graded this term's work.
+
+Switching cohort keeps the view rather than returning to the course page: triage becomes the other cohort's triage. That only holds for the screens every course has, so an assignment's queue and its edit form land on the course instead — an assignment belongs to one cohort and cannot travel.
+
+`lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens, and `lib/instructor/course-scope.ts` redirects the two routes that name a course twice over — as a segment and through the assignment — when the two disagree.
 
 Two routes outside that table: `/api/webhooks/github` and `/api/submissions/upload`. Both exist because a browser form or GitHub's own request cannot go through tRPC — see [handing in a file](#handing-in-a-file) for why the upload does not, and why its authorization is still procedure code.
 
-Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[panel-open]` styles an open Collapsible trigger, and `Select`'s `onValueChange` passes `string | null` — null when a select is cleared, which most of these never do, so the handlers coerce.
+Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[panel-open]` styles an open Collapsible trigger, and `Select`'s `onValueChange` passes `string | null` — null when a select is cleared, which most of these never do, so the handlers coerce. The course switcher is the exception and guards instead: its value is genuinely null wherever the address names no cohort. `Select` also needs an `items` map of value to label whenever the value is not also the label, or the trigger renders the raw value — a course id.
 
 ****"Approved" is not shown beside "Graded".** They are the same fact in two words — approving a draft is the only thing that sets a submission to `GRADED` — so the review header shows the draft's own state only when it says something the submission's does not. `draftStatusAddsSomething` in `lib/status.ts` is that rule, and it also excludes `SUPERSEDED`, which is history rather than a state to act on. The grading queue worked this out first and had it in a comment; both screens now read the same function. The draft history list is the exception and shows every state deliberately, because distinguishing the approved round from the superseded ones is the whole of its job.
 

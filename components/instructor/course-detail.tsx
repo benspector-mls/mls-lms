@@ -62,7 +62,7 @@ import { ModulesTab } from '@/components/instructor/modules-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cohortSlugProblem, MAX_COHORT_SLUG } from '@/lib/courses/cohort-slug';
 import type { EnrollmentStatus } from '@/lib/generated/prisma/enums';
-import { gradingQueueHref } from '@/lib/links';
+import { gradingQueueHref, triageHref } from '@/lib/links';
 import { useTRPC } from '@/trpc/client';
 import { ASSIGNMENT_KIND_META, formatDate } from '@/lib/status';
 import { cn } from '@/lib/utils';
@@ -105,8 +105,10 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
               courseId={data.course.id}
               archived={data.course.archivedAt !== null}
             />
+            {/* This cohort's, not every cohort's — the button used to land on a pile that
+                mixed in every other course the instructor teaches. */}
             <Link
-              href="/instructor"
+              href={triageHref(data.course.id)}
               className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
             >
               Grading triage
@@ -130,10 +132,17 @@ export function InstructorCourseDetail({ data }: { data: Data }) {
       {data.course.archivedAt !== null && (
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          {/*
+            "Out of triage" and not "out of the grading queue", which is what this said and
+            was not true. Triage is a list of work waiting to be done, and a finished cohort's
+            work is not waiting; the queue for a named assignment is how its submissions are
+            read, and emptying that would take the feedback back.
+          */}
           <p className="text-muted-foreground">
             This cohort is archived. It is off everyone&apos;s active course list and its
-            submissions are out of triage and the grading queue. Everything stays readable to
-            the people who were in it, and nothing new can be handed in.
+            submissions are out of grading triage. Everything stays readable to the people who
+            were in it — this page, the gradebook, and every assignment&apos;s own queue — and
+            nothing new can be handed in.
           </p>
         </div>
       )}
@@ -818,7 +827,7 @@ function AssignmentsTab({ data }: { data: Data }) {
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
-                          href={gradingQueueHref(assignment.id)}
+                          href={gradingQueueHref(data.course.id, assignment.id)}
                           className="font-medium hover:underline"
                         >
                           {assignment.title}
@@ -866,7 +875,7 @@ function AssignmentsTab({ data }: { data: Data }) {
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
                         <Link
-                          href={gradingQueueHref(assignment.id)}
+                          href={gradingQueueHref(data.course.id, assignment.id)}
                           className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           aria-label={`Grade ${assignment.title}`}
                         >

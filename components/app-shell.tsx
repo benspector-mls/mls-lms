@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { courseHref, gradingQueueHref, sameViewInCourse, triageHref } from "@/lib/links"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { useTRPC } from "@/trpc/client"
@@ -70,6 +71,28 @@ import { useTRPC } from "@/trpc/client"
  * the procedures enforce it independently.
  */
 type Role = "student" | "instructor"
+
+/**
+ * Which cohort the reader is in, according to the address and nothing else.
+ *
+ * The URL is the only record of it. There is no remembered "current course", which is
+ * deliberate: a remembered one disagrees with the page the moment you open a link, and a
+ * sidebar that names a different cohort than the screen is worse than one that names none.
+ *
+ * So this returns null rather than a guess. It used to fall back to the first course in
+ * the list, which is newest-first, and the result was a switcher confidently naming last
+ * term's cohort while you graded this term's work.
+ */
+function useActiveCourseId(): string | null {
+  const segments = usePathname().split("/").filter(Boolean)
+
+  if (segments[0] === "instructor" && segments[1] === "courses" && segments[2]) {
+    return segments[2]
+  }
+  // The student side has carried it all along: /courses/[courseId].
+  if (segments[0] === "courses" && segments[1]) return segments[1]
+  return null
+}
 
 function initials(name: string) {
   return name
@@ -94,11 +117,16 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
   const pathname = usePathname()
   const segments = pathname.split("/").filter(Boolean)
 
-  const assignmentId =
-    segments[0] === "instructor" && segments[1] === "assignments" ? segments[2] : undefined
+  // ["instructor", "courses", <courseId>, ...rest]
+  const inCourse = segments[0] === "instructor" && segments[1] === "courses" && segments[2]
+  const rest = inCourse ? segments.slice(3) : []
 
-  // Only fetched on the grading queue, where the path carries an assignment id and
-  // nothing else. Everywhere else the course list already in memory has the name.
+  // The assignment routes: .../assignments/<id> and .../assignments/<id>/edit. "new" is a
+  // sibling of the ids rather than one of them, so it is excluded here and named below.
+  const assignmentId = rest[0] === "assignments" && rest[1] !== "new" ? rest[1] : undefined
+
+  // Only fetched where the path names an assignment, because the title is the one label on
+  // these screens the course list in memory cannot supply.
   const assignment = useQuery({
     ...trpc.assignments.get.queryOptions({ assignmentId: assignmentId ?? "" }),
     enabled: Boolean(assignmentId),
@@ -106,23 +134,30 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
 
   const courseName = (id: string) => courses.find((c) => c.id === id)?.name ?? "Course"
 
-  if (segments[0] === "instructor") {
-    const crumbs: Crumb[] = [{ label: "Triage", href: "/instructor" }]
+  if (inCourse) {
+    const courseId = segments[2]
+    // The cohort first on every instructor screen, because it is what every one of them is
+    // scoped to now — and a trail that did not start there would leave the same question
+    // the sidebar used to answer wrongly: which course is this.
+    const crumbs: Crumb[] = [{ label: courseName(courseId), href: courseHref(courseId) }]
 
-    if (assignmentId) {
-      crumbs.push({
-        label: assignment.data ? `Grading · ${assignment.data.title}` : "Grading queue",
-      })
-      return crumbs
-    }
-
-    if (segments[1] === "courses" && segments[2]) {
-      const courseId = segments[2]
-      crumbs.push({ label: courseName(courseId), href: `/instructor/courses/${courseId}` })
-      if (segments[3] === "gradebook") crumbs.push({ label: "Gradebook" })
+    if (rest[0] === "triage") crumbs.push({ label: "Grading triage" })
+    else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" })
+    else if (rest[0] === "assignments") {
+      if (rest[1] === "new") crumbs.push({ label: "New assignment" })
+      else {
+        crumbs.push({
+          label: assignment.data ? `Grading · ${assignment.data.title}` : "Grading queue",
+          href: rest[2] === "edit" ? gradingQueueHref(courseId, rest[1]) : undefined,
+        })
+        if (rest[2] === "edit") crumbs.push({ label: "Edit" })
+      }
     }
     return crumbs
   }
+
+  // `/instructor` itself, which shows nothing and redirects into a cohort's triage.
+  if (segments[0] === "instructor") return [{ label: "Grading triage" }]
 
   if (segments[0] === "courses" && segments[1]) {
     return [{ label: "Courses", href: "/courses" }, { label: courseName(segments[1]) }]
@@ -143,19 +178,19 @@ function CourseSelector({
 }) {
   const router = useRouter()
   const pathname = usePathname()
+  const activeCourseId = useActiveCourseId()
 
   // Nothing to select between, and nothing to say. A student enrolled in one course
   // does not need a switcher, and neither does anyone before their first enrollment.
   if (courses.length === 0) return null
 
-  const segments = pathname.split("/").filter(Boolean)
-  const activeCourseId =
-    segments[0] === "instructor" && segments[1] === "courses" && segments[2]
-      ? segments[2]
-      : courses[0].id
-
   if (role === "student") {
-    const active = courses.find((c) => c.id === activeCourseId) ?? courses[0]
+    const active = courses.find((c) => c.id === activeCourseId)
+
+    // On the course list itself there is no current course, and naming one would be a
+    // claim about a screen the reader is not looking at.
+    if (!active) return null
+
     return (
       <div className="flex items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/50 px-2.5 py-2">
         <BookOpen className="size-4 shrink-0 text-muted-foreground" />
@@ -169,10 +204,26 @@ function CourseSelector({
     )
   }
 
+  /*
+    Only a course this switcher can actually label. An id it has no row for — an archived
+    cohort, which `listMine` leaves out — would otherwise reach `Select.Value`, which falls
+    back to printing the raw value, and the trigger would read as a bare uuid.
+  */
+  const selected = courses.some((c) => c.id === activeCourseId) ? activeCourseId : null
+
   return (
     <Select
-      value={activeCourseId}
-      onValueChange={(id) => router.push(`/instructor/courses/${id}`)}
+      value={selected}
+      /*
+        The same view in the other cohort, not that cohort's front page. An instructor
+        comparing two terms' triage asks for the other term's triage; being dropped back at
+        the course overview means finding the way again on every switch.
+      */
+      onValueChange={(id) => {
+        // Typed as nullable because `value` is: the trigger sits on a placeholder wherever
+        // the address names no cohort, and clearing the selection is not a navigation.
+        if (id) router.push(sameViewInCourse(pathname, id))
+      }}
       /*
         Without this the trigger renders the *value* — a course id — rather than the name,
         because `Select.Value` has no other way to know what the selected item was labelled.
@@ -182,7 +233,7 @@ function CourseSelector({
     >
       <SelectTrigger className="w-full" aria-label="Select course">
         <BookOpen className="size-4 text-muted-foreground" />
-        <SelectValue />
+        <SelectValue placeholder="Choose a cohort" />
         <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
       </SelectTrigger>
       <SelectContent>
@@ -207,14 +258,9 @@ function CourseSelector({
   )
 }
 
-function MainNav({
-  role,
-  courses,
-}: {
-  role: Role
-  courses: { id: string }[]
-}) {
+function MainNav({ role }: { role: Role }) {
   const pathname = usePathname()
+  const activeCourseId = useActiveCourseId()
 
   const studentItems = [
     {
@@ -225,32 +271,64 @@ function MainNav({
     },
   ]
 
-  const instructorItems = [
-    {
-      title: "Triage",
-      href: "/instructor",
-      icon: ListChecks,
-      active: pathname === "/instructor" || pathname.startsWith("/instructor/assignments"),
-    },
-    // Points at whichever course the instructor is looking at, falling back to their
-    // first. Omitted entirely when they teach none, rather than linking nowhere.
-    ...(courses.length > 0
-      ? [
-          {
-            title: "Course",
-            href: `/instructor/courses/${courses[0].id}`,
-            icon: BookOpen,
-            active: pathname.startsWith("/instructor/courses"),
-          },
-        ]
-      : []),
-    {
-      title: "All courses",
-      href: "/courses",
-      icon: GraduationCap,
-      active: pathname === "/courses",
-    },
-  ]
+  /*
+    Both course-scoped links point at the cohort in the address, so navigating never
+    changes which course you are in. They used to be a fixed `/instructor` and the *first*
+    course in the list, which meant grading one cohort's queue and then clicking "Course"
+    took you into a different cohort entirely.
+
+    Only from an instructor address, though. `/courses/[courseId]` names a course too, and
+    an instructor is sometimes reading one they do not teach — a colleague's cohort they are
+    enrolled in — where both links would lead somewhere that refuses them. The switcher
+    above is unaffected: switching *out* of such a course is exactly what it is for.
+
+    With no course to scope them to, Triage stays and points at the bare `/instructor`,
+    which resolves to a real cohort's triage rather than an all-courses pile. "Course" is
+    dropped, because there is no answer to which one, and offering an arbitrary one is how
+    this went wrong in the first place.
+  */
+  const navCourseId = pathname.startsWith("/instructor/") ? activeCourseId : null
+
+  const instructorItems = navCourseId
+    ? [
+        {
+          title: "Triage",
+          href: triageHref(navCourseId),
+          icon: ListChecks,
+          active: pathname.endsWith("/triage"),
+        },
+        {
+          title: "Course",
+          href: courseHref(navCourseId),
+          icon: BookOpen,
+          // The course overview itself and everything filed under it except triage, which
+          // has its own row above.
+          active:
+            pathname === courseHref(navCourseId) ||
+            (pathname.startsWith(`${courseHref(navCourseId)}/`) &&
+              !pathname.endsWith("/triage")),
+        },
+        {
+          title: "All courses",
+          href: "/courses",
+          icon: GraduationCap,
+          active: false,
+        },
+      ]
+    : [
+        {
+          title: "Triage",
+          href: "/instructor",
+          icon: ListChecks,
+          active: pathname === "/instructor",
+        },
+        {
+          title: "All courses",
+          href: "/courses",
+          icon: GraduationCap,
+          active: pathname === "/courses",
+        },
+      ]
 
   const items = role === "student" ? studentItems : instructorItems
 
@@ -431,7 +509,7 @@ function ShellSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <MainNav role={role} courses={courses} />
+        <MainNav role={role} />
       </SidebarContent>
       <SidebarFooter>
         <SidebarSeparator className="mx-0" />

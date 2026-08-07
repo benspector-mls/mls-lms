@@ -1,29 +1,32 @@
+import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { GradingQueue } from '@/components/instructor/grading-queue';
 import { ListSkeleton } from '@/components/list-states';
+import { gradingQueueHref } from '@/lib/links';
 import { getQueryClient, trpc } from '@/trpc/server';
 
 /**
- * The grading queue for one assignment.
+ * The grading queue's old address, which named the assignment and not the course.
  *
- * `cacheComponents` is enabled, so `params` is passed down rather than awaited here —
- * awaiting it in the page component would make the whole route block on per-request data
- * outside a Suspense boundary.
+ * Kept because links to it are already in the wild — in a browser history, in a message
+ * to a colleague — and because it costs one lookup to answer correctly. The assignment
+ * knows its course, so there is exactly one right destination.
  */
-export default function GradingQueuePage({
+export default function LegacyGradingQueuePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ assignmentId: string }>;
+  searchParams: Promise<{ submission?: string }>;
 }) {
   return (
-    <Suspense fallback={<QueueFallback />}>
-      <Queue params={params} />
+    <Suspense fallback={<Fallback />}>
+      <ToCourseScopedQueue params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-function QueueFallback() {
+function Fallback() {
   return (
     <div className="p-4 md:p-6">
       <ListSkeleton rows={8} />
@@ -31,26 +34,22 @@ function QueueFallback() {
   );
 }
 
-/**
- * The list is read here; each review pane loads its own draft and test runs in the
- * browser, since selecting a student must not cost a page navigation.
- */
-async function Queue({ params }: { params: Promise<{ assignmentId: string }> }) {
-  const { assignmentId } = await params;
-  const queryClient = getQueryClient();
+async function ToCourseScopedQueue({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ assignmentId: string }>;
+  searchParams: Promise<{ submission?: string }>;
+}) {
+  const [{ assignmentId }, { submission }] = await Promise.all([params, searchParams]);
 
-  // Both, because the completion threshold decides whether a score passes and is not on
-  // the submission list.
-  const [data, assignment] = await Promise.all([
-    queryClient.fetchQuery(trpc.submissions.listForAssignment.queryOptions({ assignmentId })),
-    queryClient.fetchQuery(trpc.assignments.get.queryOptions({ assignmentId })),
-  ]);
-
-  return (
-    <GradingQueue
-      data={data}
-      completionThreshold={assignment.completionThreshold}
-      now={new Date()}
-    />
+  // Carried across, because this is the shape the triage list and the gradebook cells
+  // linked to: the address that opens one student's work rather than the whole pile.
+  const assignment = await getQueryClient().fetchQuery(
+    trpc.assignments.get.queryOptions({ assignmentId }),
   );
+
+  // Returned rather than called bare so the inferred type stays `never`: a component whose
+  // body falls off the end is typed as rendering `void`, which is not a React node.
+  return redirect(gradingQueueHref(assignment.courseId, assignmentId, submission));
 }

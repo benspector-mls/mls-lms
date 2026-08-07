@@ -255,12 +255,18 @@ export const submissionsRouter = createTRPCRouter({
     }),
 
   /**
-   * Everything across the caller's courses that is waiting on them. Instructors only.
+   * Everything in one course that is waiting on the caller. Instructors only.
    *
    * The landing screen for an instructor, so it answers "what do I do next" rather than
    * "what exists". Taken together the buckets are the whole of the outstanding grading:
    * every submission a student has declared finished and nobody has approved appears in
    * exactly one of them, whether or not a report has been generated for it yet.
+   *
+   * One course, not all of them. The course is required rather than optional: an
+   * instructor teaching two cohorts at once was shown both piles interleaved, and "what do
+   * I do next" is not a question that can be answered across cohorts — the answer depends
+   * on which one you are teaching this hour. There is no unscoped mode to fall back into,
+   * because leaving one available is how the screen came to use it.
    *
    * Which bucket is decided by the submission's most recent grading draft, not by
    * `submission.status`. Generating a report writes the draft's status and leaves the
@@ -275,31 +281,45 @@ export const submissionsRouter = createTRPCRouter({
    * review" — approving it is refused — so it falls back to `needs_report`.
    */
   triage: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid().optional() }))
+    .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // Which courses the caller may see across. An admin sees every course; an
-      // instructor sees only the ones they are listed on. This is what scopes the read,
-      // since it deliberately crosses both students and assignments.
-      const taught =
+      /*
+        Whether the caller may see this course's pile at all. An admin may see any course;
+        an instructor only the ones they are listed on. This is also the access check —
+        everything below is scoped by the ids it returns, and it deliberately crosses both
+        students and assignments, so nothing narrower could stand in for it.
+
+        Archived either way. An archived cohort is readable and its work is finished, so it
+        has nothing waiting on anyone; leaving it here is how a term that ended keeps
+        appearing in "what do I do next" for as long as the account exists. The admin branch
+        has always filtered it and the instructor branch never did, which meant the rule held
+        for the one reader who does not teach and failed for every reader who does.
+      */
+      const visible =
         ctx.profile.role === 'ADMIN'
           ? await ctx.db.course.findMany({
-              where: { archivedAt: null, ...(input.courseId ? { id: input.courseId } : {}) },
+              where: { id: input.courseId, archivedAt: null },
               select: { id: true },
             })
           : await ctx.db.courseInstructor.findMany({
-              where: { userId: ctx.profile.id, ...(input.courseId ? { courseId: input.courseId } : {}) },
+              where: {
+                userId: ctx.profile.id,
+                courseId: input.courseId,
+                course: { archivedAt: null },
+              },
               select: { courseId: true },
             });
 
-      const courseIds = taught.map((row) => ('id' in row ? row.id : row.courseId));
-
-      if (courseIds.length === 0) {
+      // Empty rather than a refusal, because the two reasons to be here are not worth
+      // telling apart on this screen: a course that is archived and a course somebody else
+      // teaches both have nothing in them waiting on the caller.
+      if (visible.length === 0) {
         return { submissions: [], gradedCount: 0 };
       }
 
       const submissions = await ctx.db.submission.findMany({
         where: {
-          assignment: { courseId: { in: courseIds } },
+          assignment: { courseId: input.courseId },
           OR: [
             // Open work, whether or not a run has happened yet.
             { status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
@@ -361,7 +381,7 @@ export const submissionsRouter = createTRPCRouter({
 
       // Counted rather than fetched. The screen shows how many are done, not which.
       const gradedCount = await ctx.db.submission.count({
-        where: { assignment: { courseId: { in: courseIds } }, status: 'GRADED' },
+        where: { assignment: { courseId: input.courseId }, status: 'GRADED' },
       });
 
       /*

@@ -77,7 +77,7 @@ export function Gradebook({ data }: { data: Gradebook }) {
                   a column total would be the same number said twice.
                 */}
                 <Link
-                  href={gradingQueueHref(assignment.id)}
+                  href={gradingQueueHref(data.course.id, assignment.id)}
                   className="mx-auto block max-w-28 truncate hover:underline"
                   title={assignment.title}
                 >
@@ -111,7 +111,7 @@ export function Gradebook({ data }: { data: Gradebook }) {
                 return (
                   <TableCell key={assignment.id} className="p-0 text-center">
                     <Link
-                      href={gradingQueueHref(assignment.id, cell.id)}
+                      href={gradingQueueHref(data.course.id, assignment.id, cell.id)}
                       className="flex h-11 items-center justify-center px-3 transition-colors hover:bg-muted/60"
                     >
                       {graded ? (

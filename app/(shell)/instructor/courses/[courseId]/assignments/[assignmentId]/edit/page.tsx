@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 
 import { AssignmentForm } from '@/components/instructor/assignment-form';
 import { ListSkeleton } from '@/components/list-states';
+import { requireCourseMatch } from '@/lib/instructor/course-scope';
 import { getQueryClient, trpc } from '@/trpc/server';
 
 /**
@@ -40,6 +41,12 @@ async function EditAssignment({
   const existing = await getQueryClient().fetchQuery(
     trpc.assignments.getDraft.queryOptions({ assignmentId }),
   );
+
+  requireCourseMatch({
+    urlCourseId: courseId,
+    assignmentCourseId: existing.courseId,
+    canonical: `/instructor/courses/${existing.courseId}/assignments/${assignmentId}/edit`,
+  });
 
   return <AssignmentForm courseId={courseId} existing={existing} />;
 }

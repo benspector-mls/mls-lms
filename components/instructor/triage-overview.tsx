@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type * as React from 'react';
 import {
   AlertTriangle,
+  Archive,
   ArrowRight,
   CircleCheck,
   Clock,
@@ -20,20 +21,24 @@ import { EmptyState } from '@/components/list-states';
 import { PageHeader } from '@/components/page-header';
 import { FlagBadge } from '@/components/status-badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { gradingQueueHref } from '@/lib/links';
+import { courseHref, gradingQueueHref } from '@/lib/links';
 import { flagMeta, formatRelative, scoreLabel } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@/trpc/types';
 
 /**
- * What is waiting on the instructor, across every course they teach.
+ * What is waiting on the instructor in one cohort.
  *
- * Organized by what to do about it rather than by course or assignment, because the
- * question this screen answers is "what next". The buckets together are the whole of the
- * outstanding grading: everything a student has declared finished and nobody has
- * approved is in one of them, so clearing them is being caught up.
+ * Organized by what to do about it rather than by assignment, because the question this
+ * screen answers is "what next". The buckets together are the whole of the outstanding
+ * grading: everything a student has declared finished and nobody has approved is in one of
+ * them, so clearing them is being caught up.
+ *
+ * One cohort at a time, which is what makes "caught up" mean anything. Two terms' work
+ * interleaved has no state in which the screen is empty and no order in which to work it.
  */
 
 type Triage = RouterOutputs['submissions']['triage'];
@@ -127,11 +132,17 @@ const BUCKET_META: Record<
 
 export function TriageOverview({
   triage,
-  instructorName,
+  courseId,
+  courseName,
+  cohortTerm,
+  archived,
   now,
 }: {
   triage: Triage;
-  instructorName: string | null;
+  courseId: string;
+  courseName: string;
+  cohortTerm: string;
+  archived: boolean;
   /**
    * Passed in rather than read here, so every relative time on the screen is measured
    * from one instant and a component cannot disagree with its neighbour.
@@ -147,18 +158,45 @@ export function TriageOverview({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
+      {/*
+        The cohort in the title, not the instructor's own name. Two cohorts' triage screens
+        are otherwise indistinguishable, and telling a reader who they are is the one fact on
+        the screen they already had.
+      */}
       <PageHeader
         title="Grading triage"
         description={[
-          instructorName,
+          `${courseName} · ${cohortTerm}`,
           remaining === 0
             ? 'Caught up'
             : `${remaining} ${remaining === 1 ? 'submission' : 'submissions'} left to grade`,
           `${triage.gradedCount} approved`,
-        ]
-          .filter(Boolean)
-          .join(' · ')}
+        ].join(' · ')}
+        actions={
+          <Link
+            href={courseHref(courseId)}
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+          >
+            {courseName}
+            <ArrowRight data-icon="inline-end" />
+          </Link>
+        }
       />
+
+      {/*
+        Otherwise an archived cohort reads as caught up, which is a different claim and a
+        false one. Empty here because the work is finished being waited on, not because it
+        was done.
+      */}
+      {archived && (
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+          <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p className="text-muted-foreground">
+            This cohort is archived, so nothing here is waiting on you. Its submissions and
+            feedback stay readable on the course page and in the gradebook.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/*
@@ -356,7 +394,7 @@ function TriageRow({ row, now }: { row: Row; now: Date }) {
 
   return (
     <Link
-      href={gradingQueueHref(row.assignment.id, row.id)}
+      href={gradingQueueHref(row.assignment.courseId, row.assignment.id, row.id)}
       className="flex items-center gap-4 rounded-lg border border-transparent px-3 py-3 transition-colors hover:border-border hover:bg-muted/50"
     >
       <Avatar className="size-9">

@@ -1,5 +1,5 @@
 /**
- * Creating a cohort, getting students into it, and taking them out again.
+ * Creating a cohort, getting students into it, taking them out again, and moving between them.
  *
  * Run with `npm run verify:enrollment`.
  *
@@ -58,6 +58,7 @@ function report() {
 async function main() {
   const { db } = await import("../lib/prisma");
   const { studentRepoName, slugifyCohort } = await import("../lib/courses/cohort-slug");
+  const links = await import("../lib/links");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
 
@@ -120,6 +121,42 @@ async function main() {
       for (const [term, expected] of derivations) {
         check(`"${term}" suggests "${expected}"`, slugifyCohort(term), expected);
       }
+
+      /*
+        ---- Moving between cohorts -------------------------------------------
+
+        Pure too, and checked because it is the arithmetic the sidebar does. Switching cohort
+        keeps the view where the view exists in every course, and lands on the course page
+        where it does not — an assignment belongs to one cohort, so its queue cannot travel.
+        Getting that backwards sends an instructor to another cohort's assignment id.
+      */
+      const [alpha, beta, someAssignment] = [
+        "aaaaaaaa-0000-0000-0000-000000000001",
+        "bbbbbbbb-0000-0000-0000-000000000002",
+        "cccccccc-0000-0000-0000-000000000003",
+      ];
+      const switches: [string, string, string][] = [
+        ["triage", links.triageHref(alpha), links.triageHref(beta)],
+        ["the gradebook", links.gradebookHref(alpha), links.gradebookHref(beta)],
+        ["the course page", links.courseHref(alpha), links.courseHref(beta)],
+        // The three that cannot carry across, each landing on the course rather than on
+        // another cohort's copy of an id it does not have.
+        ["an assignment's queue",
+          links.gradingQueueHref(alpha, someAssignment), links.courseHref(beta)],
+        ["an assignment's edit form",
+          `${links.gradingQueueHref(alpha, someAssignment)}/edit`, links.courseHref(beta)],
+        ["the new-assignment form",
+          `/instructor/courses/${alpha}/assignments/new`, links.courseHref(beta)],
+        // No course in the address at all, which is the course list.
+        ["the course list", "/courses", links.courseHref(beta)],
+      ];
+      for (const [what, from, expected] of switches) {
+        check(`switching cohort from ${what}`, links.sameViewInCourse(from, beta), expected);
+      }
+
+      check("a queue link can still open one submission",
+        links.gradingQueueHref(alpha, someAssignment, "sub-1"),
+        `/instructor/courses/${alpha}/assignments/${someAssignment}?submission=sub-1`);
 
       // ---- Creating a cohort ------------------------------------------------
       // Distinct terms, because a slug is unique across every course and the term is what
@@ -407,6 +444,53 @@ async function main() {
       check("a student cannot archive a course",
         await refusal(() =>
           asStudent.courses.setArchived({ courseId: empty.course.id, archived: true })),
+        "FORBIDDEN");
+
+      /*
+        ---- Triage is one cohort's, and an archived cohort's is nobody's ----------
+
+        Both halves were claimed in the ROADMAP and neither was true. `triage` filtered
+        `archivedAt: null` in its admin branch only, so the reader it held for was the one who
+        teaches nothing; and the screen called it with no course at all, so an instructor
+        teaching two cohorts got both piles interleaved.
+
+        The first check is the load-bearing one. Every assertion below is that some pile is
+        empty, and a seeded course with nothing outstanding would make all of them pass while
+        measuring nothing — so the pile is asserted to be non-empty before anything empties it.
+      */
+      const outstanding = await asInstructor.submissions.triage({ courseId: course.id });
+      check("the seeded cohort has work in triage",
+        outstanding.submissions.length > 0, true);
+
+      // The copy is unpublished and nobody has submitted to it, so a triage that crossed
+      // courses would show the seeded cohort's work here.
+      check("triage is scoped to the cohort asked for",
+        (await asInstructor.submissions.triage({ courseId: copy.course.id })).submissions.length,
+        0);
+
+      await asInstructor.courses.setArchived({ courseId: course.id, archived: true });
+      check("an archived cohort's submissions leave triage",
+        (await asInstructor.submissions.triage({ courseId: course.id })).submissions.length, 0);
+      await asInstructor.courses.setArchived({ courseId: course.id, archived: false });
+      check("...and come back when it is reopened",
+        (await asInstructor.submissions.triage({ courseId: course.id })).submissions.length,
+        outstanding.submissions.length);
+
+      // Readable, though: archiving stops the cohort appearing in a list of work to do, and
+      // takes nothing back. The assignment's own queue is how its submissions are read.
+      await asInstructor.courses.setArchived({ courseId: course.id, archived: true });
+      const archivedAssignmentId = outstanding.submissions[0]?.assignment.id;
+      check("...while its submissions stay readable in the assignment's queue",
+        archivedAssignmentId
+          ? (await asInstructor.submissions.listForAssignment({
+              assignmentId: archivedAssignmentId,
+            })).submissions.length > 0
+          : "no submission to read",
+        true);
+      await asInstructor.courses.setArchived({ courseId: course.id, archived: false });
+
+      check("a student cannot read a cohort's triage",
+        await refusal(() => asStudent.submissions.triage({ courseId: course.id })),
         "FORBIDDEN");
 
       // ---- Removing, and the pair that must not come apart ------------------

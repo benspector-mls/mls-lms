@@ -36,6 +36,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { isLinkSubmitted } from '@/lib/assignments/spec';
 import type { AssignmentKind } from '@/lib/generated/prisma/enums';
+import { gradingQueueHref } from '@/lib/links';
 import {
   acceptAttributeFor,
   checkUpload,
@@ -298,7 +299,7 @@ function AssignmentRow({
 
           {teaches && (
             <Link
-              href={`/instructor/assignments/${assignment.id}`}
+              href={gradingQueueHref(assignment.courseId, assignment.id)}
               className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <Wrench className="size-3.5" />
