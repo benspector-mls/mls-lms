@@ -219,9 +219,123 @@ async function main() {
         "FORBIDDEN");
 
       // A student may *read* them, because their own course page groups assignments by module.
-      // There is nothing here they should not see: a module is a name and a position.
       check("a student can read the list",
         (await asStudent.modules.listForCourse({ courseId: course.id })).length > 0, true);
+
+      /*
+        ---- What the list now carries, and who may see it --------------------
+
+        The procedure returns each module's assignments so the Modules screen can show the
+        course's shape. It still admits students, which is what makes the publish filter the
+        check worth having here: without it, this read would hand a cohort the assignments
+        their instructor is still writing — a leak no screen would reveal, because a student's
+        own course page is built from a different procedure.
+      */
+      const draftHome = await asInstructor.modules.create({
+        courseId: course.id,
+        name: "Mod 93 - Ordering",
+      });
+
+      // Deliberately created out of order: the middle one first, then the earliest, then one
+      // with no date at all. If the ordering came from insertion or from the title, this
+      // arrangement would pass while measuring nothing.
+      const [middle, earliest, undated] = await Promise.all([
+        tx.assignment.create({
+          data: {
+            courseId: course.id,
+            moduleId: draftHome.id,
+            title: "B - due later",
+            kind: "EXTERNAL_URL",
+            pointValue: 10,
+            completionThreshold: 0.75,
+            sections: [],
+            dueAt: new Date("2026-10-02T00:00:00Z"),
+            distributedAt: new Date(),
+          },
+          select: { id: true },
+        }),
+        tx.assignment.create({
+          data: {
+            courseId: course.id,
+            moduleId: draftHome.id,
+            title: "C - due first",
+            kind: "EXTERNAL_URL",
+            pointValue: 10,
+            completionThreshold: 0.75,
+            sections: [],
+            dueAt: new Date("2026-10-01T00:00:00Z"),
+            distributedAt: new Date(),
+          },
+          select: { id: true },
+        }),
+        tx.assignment.create({
+          data: {
+            courseId: course.id,
+            moduleId: draftHome.id,
+            title: "A - no due date",
+            kind: "EXTERNAL_URL",
+            pointValue: 10,
+            completionThreshold: 0.75,
+            sections: [],
+            dueAt: null,
+            distributedAt: new Date(),
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      const orderingModule = (
+        await asInstructor.modules.listForCourse({ courseId: course.id })
+      ).find((row) => row.id === draftHome.id)!;
+
+      /*
+        Due date decides, and the undated one is last — not first, which is what a naive
+        ascending sort gives on most databases and what would put every assignment nobody has
+        dated yet at the top of the module. Alphabetically "A - no due date" comes first, so
+        this ordering is only correct if the title is the tie-break rather than the key.
+      */
+      check("a module's assignments come back in due-date order",
+        orderingModule.assignments.map((row) => row.id),
+        [earliest.id, middle.id, undated.id]);
+
+      // The draft filter, which is the reason this procedure reads the membership at all.
+      const draftAssignment = await tx.assignment.create({
+        data: {
+          courseId: course.id,
+          moduleId: draftHome.id,
+          title: "D - unpublished",
+          kind: "EXTERNAL_URL",
+          pointValue: 10,
+          completionThreshold: 0.75,
+          sections: [],
+          dueAt: new Date("2026-09-01T00:00:00Z"),
+          distributedAt: null,
+        },
+        select: { id: true },
+      });
+
+      const asInstructorSees = (
+        await asInstructor.modules.listForCourse({ courseId: course.id })
+      ).find((row) => row.id === draftHome.id)!;
+      const asStudentSees = (
+        await asStudent.modules.listForCourse({ courseId: course.id })
+      ).find((row) => row.id === draftHome.id)!;
+
+      check("an instructor sees an unpublished assignment in the module",
+        asInstructorSees.assignments.some((row) => row.id === draftAssignment.id), true);
+      check("...and a student does not",
+        asStudentSees.assignments.some((row) => row.id === draftAssignment.id), false);
+      // The other three are published, so the student's list is short by exactly the draft.
+      check("...and sees everything else in it",
+        asStudentSees.assignments.length, asInstructorSees.assignments.length - 1);
+
+      /*
+        The count is deliberately *not* the length of the list. It decides whether Remove is
+        offered, and the foreign key refuses on every assignment including drafts — so a count
+        narrowed to what the caller can see would offer a button the procedure then refuses.
+      */
+      check("the count includes drafts, because removal is refused on them too",
+        asInstructorSees._count.assignments, 4);
 
       /*
         And an empty module is in what the student's page is built from. Their course page
@@ -252,8 +366,21 @@ async function main() {
         },
         select: { id: true },
       });
+      /*
+        Somebody who genuinely does not teach this course, asked as that question.
+
+        This used to be "any INSTRUCTOR who is not the instructor this script is acting as",
+        which was the same thing only while a course had exactly one instructor. Once
+        co-teaching existed the seeded course gained a second, and the query started returning
+        somebody who *does* teach it — so the rename was correctly allowed and the check
+        reported a hole that is not there. Worse in the other direction: had it returned a real
+        outsider it would have passed by luck rather than because the premise held.
+
+        `instructorOf: { none: ... }` is the predicate the check is actually about, and it
+        cannot go stale as the course gains or loses instructors.
+      */
       const outsider = await tx.profile.findFirst({
-        where: { role: "INSTRUCTOR", id: { not: instructor.userId } },
+        where: { role: "INSTRUCTOR", instructorOf: { none: { courseId: course.id } } },
         select: { id: true },
       });
 

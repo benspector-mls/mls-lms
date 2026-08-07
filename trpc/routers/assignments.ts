@@ -240,9 +240,25 @@ export const assignmentsRouter = createTRPCRouter({
             },
           },
         },
-        // Module order, then title. `assignmentRepoName` used to be the tie-break and only
-        // REPO assignments have one, so a course mixing kinds sorted the rest arbitrarily.
-        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+        /*
+          Module order, then **due date**, then title.
+
+          The order a student meets the work in, which is what this list is. Within a module,
+          the sequence that means something is when things are due — alphabetical put "Arrays"
+          before "Loops" regardless of which was set first, which is an ordering of the titles
+          rather than of the course.
+
+          `nulls: 'last'` is explicit rather than left to the database's default, because it is
+          a decision: an assignment with no due date is not earlier or later than every date, it
+          is outside the ordering, so it sits at the foot of its module. Title stays as the
+          tie-break for work due the same day. (`assignmentRepoName` was the tie-break once and
+          only REPO assignments have one, so a course mixing kinds sorted the rest arbitrarily.)
+        */
+        orderBy: [
+          { module: { position: 'asc' } },
+          { dueAt: { sort: 'asc', nulls: 'last' } },
+          { title: 'asc' },
+        ],
       });
 
       /*

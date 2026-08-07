@@ -88,7 +88,18 @@ export const modulesRouter = createTRPCRouter({
       // security: without it any signed-in user could read any course's modules by id. A
       // removed student is admitted — the course stays readable to them, and its module
       // sequence is how their own assignment list is ordered.
-      await assertCourseMember(ctx, input.courseId);
+      const membership = await assertCourseMember(ctx, input.courseId);
+
+      /*
+        Whether unpublished assignments come back, which is the reason this procedure reads
+        the membership rather than discarding it.
+
+        It admits students, so returning every assignment would hand a cohort the ones their
+        instructor is still writing — the exact thing `distributedAt` exists to prevent, and
+        a leak that no screen would reveal because a student's own page reads a different
+        procedure. Same rule and same shape as `assignments.listForCourse`.
+      */
+      const teaches = membership.as !== 'student';
 
       return ctx.db.module.findMany({
         where: { courseId: input.courseId },
@@ -99,7 +110,35 @@ export const modulesRouter = createTRPCRouter({
           id: true,
           name: true,
           position: true,
+          /*
+            **Every assignment, published or not, and deliberately not the length of the list
+            below.** This count is what decides whether a module can be removed, and the
+            foreign key refuses on all of them — so a count narrowed to what the caller can
+            see would offer an instructor a Remove button on a module full of drafts and then
+            have the procedure refuse it.
+          */
           _count: { select: { assignments: true } },
+          /**
+           * What is in each module, for the screen that shows the course's shape.
+           *
+           * Ordered the way a student meets it: by due date, earliest first, with undated
+           * work **last**. `nulls: 'last'` is explicit rather than left to the database's
+           * default, because the rule is a decision — no due date is not earlier or later
+           * than every date, it is outside the ordering — and a default that changes is a
+           * silent reordering of every course page.
+           */
+          assignments: {
+            where: teaches ? {} : { distributedAt: { not: null } },
+            orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { title: 'asc' }],
+            select: {
+              id: true,
+              title: true,
+              kind: true,
+              pointValue: true,
+              dueAt: true,
+              distributedAt: true,
+            },
+          },
         },
       });
     }),

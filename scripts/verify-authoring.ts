@@ -953,19 +953,30 @@ async function procedures() {
   await refused("a student cannot remove an assignment", () =>
     asStudent.assignments.remove({ assignmentId: seeded.id, confirmTitle: seeded.title }));
 
-  const otherCourse = await db.course.findFirst({
-    where: { id: { not: seeded.courseId } }, select: { id: true },
+  /*
+    Somebody holding the INSTRUCTOR role who does not teach *this* course, asked as that
+    question directly.
+
+    This used to look for an instructor of some *other* course who is not the one this script
+    acts as, which was the same thing only while a course had one instructor and nobody taught
+    two. Once co-teaching existed the seeded course gained a second instructor, and the query
+    started returning somebody who teaches it — so the call got past the teach gate and failed
+    validation instead, reporting a hole that is not there. The reverse is the worse case: on a
+    different set of rows it would have picked a real outsider and passed by luck.
+
+    `instructorOf: { none: ... }` cannot go stale as courses gain or lose instructors. ADMIN is
+    excluded by asking for the role exactly, which is correct — an admin may author anywhere.
+  */
+  const outsider = await db.profile.findFirst({
+    where: { role: "INSTRUCTOR", instructorOf: { none: { courseId: seeded.courseId } } },
+    select: { id: true },
   });
-  if (otherCourse) {
-    const outsider = await db.courseInstructor.findFirst({
-      where: { courseId: otherCourse.id, userId: { not: instructor.userId } },
-      select: { userId: true },
-    });
-    if (outsider) {
-      const asOutsider = createCaller({ db, user: { id: outsider.userId } } as never);
-      await refused("an instructor who does not teach the course cannot author in it", () =>
-        asOutsider.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }));
-    }
+  if (outsider) {
+    const asOutsider = createCaller({ db, user: { id: outsider.id } } as never);
+    await refused("an instructor who does not teach the course cannot author in it", () =>
+      asOutsider.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }));
+  } else {
+    console.log("skip  an instructor who does not teach the course cannot author in it — none exists");
   }
 
   // --- create, diffed against the seed --------------------------------------

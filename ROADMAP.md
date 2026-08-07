@@ -89,14 +89,13 @@ After those, the ordering principle is: correctness gaps, then the cheap things,
 7. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
 8. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
 9. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
-10. **[The Modules screen shows the course the way a student meets it](#the-modules-screen-shows-the-course-the-way-a-student-meets-it)** — module dropdowns with their assignments and resources listed inside, reordering on the headers. Buildable before resources exist, and better after.
-11. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
-12. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-13. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-14. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-15. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+10. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
+11. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+12. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+13. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+14. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1 through 5 and 8 through 11 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 and 2 come before the rest: both are the application failing to do what it already claims.
+Items 1 through 5 and 8 through 10 are new and their ordering relative to each other is a proposal rather than a decision. What is not a proposal is that 1 and 2 come before the rest: both are the application failing to do what it already claims.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that item 6 produces anyway.
 
@@ -979,9 +978,9 @@ Two things it needs beyond a filter control:
 
 ---
 
-## The Modules screen shows the course the way a student meets it
+## The Modules screen shows the course the way a student meets it — done
 
-Today it is a list of module names with up and down buttons — accurate, and it says nothing about what is *in* a module. So the question an instructor actually has about their module list, "is this in the right place and does this module have anything in it", cannot be answered from the screen that manages modules.
+**Built**, and described in [the README](README.md#interface). It was a list of module names with up and down buttons — accurate, and it says nothing about what is *in* a module. So the question an instructor actually has about their module list, "is this in the right place and does this module have anything in it", cannot be answered from the screen that manages modules.
 
 **It becomes the student's course page, with module management on it.** Each module is a dropdown, the same collapsible the student page already uses, holding that module's assignments in due-date order and its resources beneath them in alphabetical order. The reordering buttons move onto the module headers, beside the module they move. Creating, renaming, and removing a module stay here too — everything about modules in one place, which is what it already was.
 
@@ -993,7 +992,17 @@ Today it is a list of module names with up and down buttons — accurate, and it
 
 **This is not [seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it) and does not replace it.** That item is a test enrollment an instructor can look *through* — the accept button, the submission instructions, the feedback screen, the whole flow. This is the shape only, with no submissions and nothing to press. What it does do is cover the cheapest and most common case for free: catching an assignment filed under the wrong module, or a module that is empty when it should not be.
 
-Almost all of the rendering already exists in `components/student/course-detail.tsx` — `groupByModule` builds from the course's module list so an empty module still appears, and `ModuleSection` is the collapsible, open when it has contents and closed when it does not. The work is a version of it that takes module actions and renders non-interactive rows, not a new component from nothing.
+Almost all of the rendering already existed in `components/student/course-detail.tsx` — `groupByModule` builds from the course's module list so an empty module still appears, and `ModuleSection` is the collapsible, open when it has contents and closed when it does not. The work was a version of it that takes module actions and renders non-interactive rows, not a new component from nothing.
+
+**Resources are not in it**, because they do not exist yet — [that is the next item](#content-that-is-not-an-assignment). Each module's Resources section slots in beneath its assignments when they do, and nothing about the screen has to change to accept them.
+
+### Two check scripts were reporting a hole that was not there
+
+Found by running the suite after this change, and worth more than the feature it came out of. Both `verify:modules` and `verify:authoring` prove that an instructor who does not teach a course cannot act in it — the check the INSTRUCTOR role alone cannot make — and both picked their outsider as **"an instructor who is not the one this script acts as"**. That was the same question only while a course had exactly one instructor.
+
+Co-teaching made it false. The seeded course gained a second instructor, the query started returning somebody who *does* teach it, and both scripts reported a failure that was the check being wrong rather than the procedure. The reverse is the worse case and the reason this is not merely a broken test: on a different set of rows the same query picks a genuine outsider and the check passes **by luck**, proving nothing while looking correct — and `verify:modules` had been skipping it entirely for want of any second instructor at all.
+
+Both now ask the question they are actually about, `instructorOf: { none: { courseId } }`, which cannot go stale as courses gain or lose instructors. Same family as [the check scripts reporting passes they had not earned](#the-check-scripts-were-reporting-passes-they-had-not-earned): a script that selects its fixtures by a proxy for the property it needs will eventually select the wrong one, and the failure is silent in the direction that matters.
 
 ---
 
