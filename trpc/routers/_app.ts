@@ -6,6 +6,7 @@ import { coursesRouter } from './courses';
 import { enrollmentsRouter } from './enrollments';
 import { gradingDraftsRouter } from './grading-drafts';
 import { modulesRouter } from './modules';
+import { staffRouter } from './staff';
 import { submissionsRouter } from './submissions';
 import { testRunsRouter } from './test-runs';
 
@@ -63,6 +64,7 @@ export const appRouter = createTRPCRouter({
   submissions: submissionsRouter,
   testRuns: testRunsRouter,
   gradingDrafts: gradingDraftsRouter,
+  staff: staffRouter,
 });
 
 // export type definition of API

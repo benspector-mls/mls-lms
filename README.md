@@ -95,10 +95,15 @@ You need a Supabase project, a GitHub App, an E2B key, an Anthropic key, and rea
 ```sh
 npm i                  # also runs prisma generate
 npm run db:deploy      # apply migrations
-npm run db:seed        # courses, rubrics, three assignments, enrollments
+npm run db:seed        # bootstraps an EMPTY database — see below
+npm run grant:admin -- you@example.com   # the first admin; every later one comes from /admin
 npm run dev            # localhost:3000
 npm run dev:webhook    # in a second terminal — forwards smee.io to /api/webhooks/github
 ```
+
+**`db:seed` creates; it does not modify.** It is for an empty database, and re-running it against one with real work in it leaves every existing row alone. That is a correction rather than a design: it used to reassert the shape it describes on every run, and each reassertion was a silent revert of a decision made in the application. All three happened on the development database — a renamed module was **recreated** under its seeded name, leaving an empty duplicate that a course copied from it then inherited; a removed student would have been **put back**; an edited assignment would have had its title and rubric **reverted**. Modules are now identified by position rather than name, roles are raised and never lowered, and existing enrollments and assignments are untouched. The cost is stated rather than discovered: a corrected spec does not reach a row that already exists — edit it in the application, or delete the row and seed again. The one exception is rubrics, which no router can author, so this script is their only author.
+
+Neither script creates accounts. Identity belongs to Supabase Auth, so both the seed and `grant:admin` look up a profile a real login created and fail with an explanation if it is absent.
 
 Copy `.env.example` to `.env.local`; it documents every variable and the traps behind several of them. In brief:
 
@@ -141,6 +146,7 @@ Verification scripts are re-runnable and are the fastest way to find out whether
 | `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
 | `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                             |
 | `npm run verify:enrollment`   | Creating a cohort, copying one, the join link, and the removed-student pair — through the callers                                |
+| `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                    |
 | `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                        |
 | `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                    |
 | `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points        |
@@ -340,12 +346,27 @@ Because [removing and archiving never take work back](#standing-decisions), "is 
 | - | - | - |
 | `assertCourseMember` | active students, **removed students**, instructors, admins | the course page, an assignment's page, released feedback |
 | `assertActiveStudent` | active students only | `accept`, `submitWork`, the upload route |
+| `adminProcedure` | admins only | everything on `/admin` — invitations, and who is an admin |
 
 They live side by side in `lib/courses/membership.ts` because the two `where` clauses differ by one enum value in code that otherwise reads identically. Written out at each call site, the failure is not spotting a difference — it is not noticing there was a decision to make.
 
 **The write paths were already right, and the read paths were the work**, which is the opposite of how it looks. `accept` and `assertCanHandIn` each checked `ACTIVE` themselves — a mutation must not assume which query preceded it — so a removed student was already refused. What had to widen was the four read checks, which filtered on `ACTIVE` too and would otherwise deny a removed student the course they are meant to keep.
 
 `courses.listMine` is the one where admitting them is not the whole answer: it returns `enrolledAs`, so the card can say *no longer enrolled*. A course that silently reappeared, indistinguishable from the cohorts they are still in, would be telling a student something false.
+
+### Who may teach, and who may decide that
+
+**Two mechanisms, because they answer two questions.** `staff.createInvite` is how somebody *becomes* staff and works before they have an account at all — the case that matters, since a new hire has no reason to sign in to a system they cannot yet use. `staff.setAdmin` is how an account that already exists gains more, which is what makes "an admin can let others invite people" reachable. Everything is `adminProcedure`: an instructor deciding who else becomes an instructor is the escalation that guard exists to prevent.
+
+**An invitation is single use and expires in seven days**, unlike a cohort's join link, which is reusable on purpose. The difference is what they grant — the course link admits a stranger to one cohort, this one admits them to authoring and to every student's grades in every course — so reuse buys nothing and a forwarded link costs much more. Single use is enforced by `updateMany` with `redeemedAt: null` in the `where`, not by reading the row and then writing it: that is what makes two simultaneous redemptions resolve to one winner.
+
+**Redeeming raises the role and never lowers it.** An admin who opens an instructor link stays an admin — and the person most likely to click one to see what it does is the admin who generated it. `raiseRole` exists because the obvious `role: 'INSTRUCTOR'` silently demotes them.
+
+**A used invitation is kept and cannot be deleted.** It has stopped being a credential and become the record of how somebody got access, which is the question an audit asks months later. Revoking their access is a role change, not a tidied list.
+
+**Revoking the last admin is refused.** There is no procedure that grants the *first* admin — deliberately — so an application with no admins has no way back except a database edit. `npm run grant:admin -- you@example.com` is that base case as a tool; it cannot create an account, because identity belongs to Supabase Auth, and it has no reverse.
+
+**The guarantee that is not in any procedure**: migration `20260730024911_tighten_profiles_grants` means `anon` and `authenticated` may UPDATE exactly `display_name` and `avatar_url` on `profiles`, and `instructor_invites` has no browser privileges at all. `verify:staff` asserts both, because every procedure here could be perfect and a slipped grant would still let a student promote themselves from browser JavaScript — which is why that migration exists.
 
 ### A removed student's work
 
@@ -786,6 +807,8 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 | `/instructor/courses/[courseId]/gradebook`                   | Assignments × roster, each cell carrying its triage bucket            |
 | `/instructor/courses/[courseId]/assignments/[assignmentId]`  | The grading queue and the review surface, `?submission=` to open one   |
 | `/instructor/assignments/[assignmentId]`                     | The queue's old address: looks up the course and redirects            |
+| `/admin`                                                     | Staff: who may teach, and who may decide that. Admins only            |
+| `/invite/[token]`                                            | Where an instructor invitation lands                                  |
 
 **Every instructor route names its course**, because the URL is the only record of which cohort you are in. There is no remembered "current course": a remembered one disagrees with the page the moment you open a link, and a sidebar naming a different cohort than the screen is worse than one naming none. So the switcher and the navigation read the address, and where the address names no course — `/courses` — the switcher shows a placeholder rather than a guess. It used to fall back to the first course in the list, which is ordered newest-first, and the result was a sidebar confidently naming last term's cohort while you graded this term's work.
 

@@ -14,6 +14,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
+    "grant:admin": "tsx --conditions=react-server scripts/grant-admin.ts",
     "db:studio": "prisma studio",
     "verify:authoring": "tsx --conditions=react-server scripts/verify-authoring.ts",
     "verify:sandbox": "tsx scripts/verify-sandbox-logic.ts",
@@ -31,6 +32,7 @@
     "verify:uploads": "tsx --conditions=react-server scripts/verify-uploads.ts",
     "verify:modules": "tsx --conditions=react-server scripts/verify-modules.ts",
     "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",
+    "verify:staff": "tsx --conditions=react-server scripts/verify-staff.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts"
   },
   "dependencies": {

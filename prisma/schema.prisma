@@ -78,8 +78,53 @@ model Profile {
   gradedSubmissions Submission[]     @relation("GradedBy")
   approvedDrafts    GradingDraft[]   @relation("ApprovedDrafts")
   editedSections    GradingDraftSection[] @relation("EditedSections")
+  invitesCreated    InstructorInvite[] @relation("InvitesCreated")
+  invitesRedeemed   InstructorInvite[] @relation("InvitesRedeemed")
 
   @@map("profiles")
+  @@schema("public")
+}
+
+/// A link that makes whoever opens it an instructor.
+///
+/// **Single use and expiring**, which the course join link deliberately is not. That link admits
+/// a stranger to one cohort; this one admits them to authoring and to every student's grades in
+/// every course, so a forwarded one is a much sharper edge and reusing it has no upside — staff
+/// arrive one at a time.
+///
+/// A row rather than a column on `Profile`, because the invitation exists before the person does.
+/// That is the case that matters: a new hire has no reason to sign in to a system they cannot use
+/// yet, and a flow requiring them to sign in first, do nothing, and wait to be found on a list is
+/// a worse first day.
+///
+/// `redeemedById` and `redeemedAt` are what make "how did this person get access" answerable
+/// afterwards, which is the question an audit actually asks.
+model InstructorInvite {
+  id    String @id @default(uuid()) @db.Uuid
+  /// Opaque and unique. The URL is the whole of the credential, so it is generated the same way
+  /// as a course join link — 32 hex characters from `crypto.randomUUID`.
+  token String @unique
+
+  createdById String   @map("created_by_id") @db.Uuid
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+
+  /// Both null until somebody redeems it, and set together. Null `redeemedAt` is what "unused"
+  /// means, so nothing else needs a status column.
+  redeemedAt   DateTime? @map("redeemed_at") @db.Timestamptz(6)
+  redeemedById String?   @map("redeemed_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// Cascade: an admin's account being deleted should not leave invitations they issued behind.
+  createdBy Profile @relation("InvitesCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  /// SetNull rather than Cascade. If the redeemer's account is deleted the *record that this
+  /// invitation was used* must survive — deleting it would erase the audit trail by removing the
+  /// person it was about.
+  redeemedBy Profile? @relation("InvitesRedeemed", fields: [redeemedById], references: [id], onDelete: SetNull)
+
+  @@index([createdById])
+  @@map("instructor_invites")
   @@schema("public")
 }
 

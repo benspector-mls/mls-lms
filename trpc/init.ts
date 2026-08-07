@@ -125,3 +125,18 @@ export const studentProcedure = requireRole('STUDENT');
 
 /** Instructors and admins. */
 export const instructorProcedure = requireRole('INSTRUCTOR', 'ADMIN');
+
+/**
+ * Admins only. Who may teach, and who may decide that.
+ *
+ * A separate procedure rather than `ctx.profile.role === 'ADMIN'` at each call site, for the
+ * reason every other guard here is one: a check remembered at seven places is a check forgotten
+ * at the eighth. It matters more here than anywhere else, because what these procedures grant is
+ * access to every course and every student's grade — the one privilege that cannot be scoped to a
+ * cohort and undone by removing somebody from it.
+ *
+ * Not the same shape as `instructorProcedure`, which admits admins *as well*. This admits nobody
+ * else: an instructor deciding who else becomes an instructor is the escalation this exists to
+ * prevent.
+ */
+export const adminProcedure = requireRole('ADMIN');

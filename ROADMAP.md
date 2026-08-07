@@ -615,7 +615,7 @@ A job that reads `PENDING` submissions, writes them, and records `SYNCED` with t
 
 ## Getting a cohort into the application
 
-Three features that interlock: a course has to exist, students have to get into it, and somebody other than a hand-edited database row has to be allowed to teach. **The first two are built; instructor approval is designed and not.**
+Three features that interlock: a course has to exist, students have to get into it, and somebody other than a hand-edited database row has to be allowed to teach. **All three are built.**
 
 One rule they all share, decided once here rather than three times below.
 
@@ -804,7 +804,9 @@ A new capability rather than a screen, and it needs a data-model decision. Today
 
 ---
 
-## An admin view for approving instructors
+## An admin view for approving instructors — done
+
+**Built**: `trpc/routers/staff.ts`, `lib/staff/invite.ts`, `adminProcedure` in `trpc/init.ts`, the `instructor_invites` table, `/admin` with People and Invitations tabs, `/invite/[token]`, and `npm run grant:admin` for the base case. Checked by `npm run verify:staff`.
 
 Two mechanisms, because they answer two different questions: how somebody *becomes* an instructor, and how an existing account gains more.
 
@@ -824,7 +826,19 @@ Migration `20260730024911_tighten_profiles_grants` exists because a signed-in st
 
 **`adminProcedure` is added to `trpc/init.ts`.** `Role` has three values and `instructorProcedure` is `requireRole('INSTRUCTOR', 'ADMIN')`, so an admin is currently an instructor with wider reach, compared by hand in twelve places. This is the first admin-only feature, so it is where that becomes a procedure — for the reason every other guard here is one: a check remembered at twelve call sites is a check forgotten at the thirteenth.
 
-**The first admin of a deployment is a hand-edited row, necessarily**, because there is nobody to grant it. Worth writing down rather than discovering: this feature does not remove the need for database access, it removes it from the ordinary case.
+**The first admin of a deployment is a hand-edited row, necessarily**, because there is nobody to grant it. Worth writing down rather than discovering: this feature does not remove the need for database access, it removes it from the ordinary case. `npm run grant:admin -- you@example.com` is that base case made into a tool rather than a psql session — it cannot create an account, because identity belongs to Supabase Auth, and it deliberately has no reverse: taking admin away is an ordinary decision the Admin screen makes, with the last-admin check that a script bypassing the procedure would not have.
+
+### What the build decided that the design did not
+
+**Single use is enforced by a conditional update, not by a read.** `updateMany` with `redeemedAt: null` in the `where` is what makes two simultaneous redemptions resolve to one winner — the second matches no rows. Reading the invitation and then writing it leaves a window where both callers saw it unused, and this is the one credential in the application where two people getting in on one link matters.
+
+**Redeemed beats expired**, wherever an invitation's state is named. An invitation that was used and has since passed its expiry is the record of somebody being given access; calling it "expired" would hide the fact worth keeping. `inviteState` orders the two for that reason and nothing else.
+
+**A used invitation cannot be deleted.** The row has stopped being a credential and become the record of how somebody got access — the delete button is absent and the procedure refuses it, because tidying that list is how the audit trail would quietly go missing. Revoking their access is a role change, which is a different control.
+
+**`setAdmin` refuses a student.** It only moves an account between INSTRUCTOR and ADMIN. Accepting a student id would make this screen a second path to staff access with no record of it, which is the thing the invitation exists to prevent — so making somebody staff is always an invitation, and this only decides how much.
+
+**The grants are checked, not assumed.** `verify:staff` asserts that `anon` and `authenticated` can UPDATE exactly `display_name` and `avatar_url` on `profiles` and nothing else, that they have no privilege at all on `instructor_invites`, and that row level security is on. That is the most valuable check in the file: it is the only one that would still fail if every procedure here were perfect.
 
 ---
 
@@ -846,8 +860,11 @@ Through the tRPC callers inside a rolled-back transaction, which is what `verify
 - **A removed student is not counted in the course card's enrollment count.** The one counting reader on the list; the gradebook and triage filter through submissions instead, so what they do with a departed student's existing work is checked rather than changed.
 - **An archived course leaves the active lists and stays readable**, and its submissions leave grading triage and come back when it is reopened — while staying readable in the assignment's own queue throughout. Guarded by a check that the cohort has work in triage *before* anything empties it, because every assertion here is that some pile is empty and a cohort with nothing outstanding would pass all of them while measuring nothing.
 - **Triage is scoped to the cohort asked for**, checked against a cohort with work and a copy of it with none.
-- **An instructor invite is single use**, refuses after expiry, does not demote an admin who opens it, and records who redeemed it.
-- **A student cannot grant themselves any role**, called directly against the procedure rather than through a screen. And revoking the last admin is refused.
+- **An instructor invite is single use**, refuses after expiry, does not demote an admin who opens it, and records who redeemed it. The single-use check is a pair: a *second person* is refused, while the person who used it can open their own link again — each half looks correct without the other, and only together do they mean "one link, one instructor, and a bookmark is not an error".
+- **An instructor cannot promote anybody, themselves included**, called directly against the procedure rather than through a screen — six refusals, because that is the escalation `adminProcedure` exists to prevent and one missing guard is the whole of it.
+- **Revoking the last admin is refused**, with the count asserted to be one first. A second admin lying around would make that check pass while testing nothing, and the failure it prevents is the only one in this application with no recovery path inside it.
+- **A student cannot be promoted directly**, so staff access always leaves a record.
+- **The database grants are checked, not the procedures that rely on them**: `anon` and `authenticated` may UPDATE exactly `display_name` and `avatar_url` on `profiles`, have no privilege at all on `instructor_invites`, and row level security is on. The one check here that would still fail if every procedure were correct.
 
 ---
 

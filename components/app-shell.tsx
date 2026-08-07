@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  ShieldCheck,
   BookOpen,
   ChevronsUpDown,
 } from "lucide-react"
@@ -258,7 +259,7 @@ function CourseSelector({
   )
 }
 
-function MainNav({ role }: { role: Role }) {
+function MainNav({ role, isAdmin }: { role: Role; isAdmin: boolean }) {
   const pathname = usePathname()
   const activeCourseId = useActiveCourseId()
 
@@ -333,25 +334,54 @@ function MainNav({ role }: { role: Role }) {
   const items = role === "student" ? studentItems : instructorItems
 
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>
-        {role === "student" ? "Student" : "Instructor"}
-      </SidebarGroupLabel>
-      <SidebarMenu>
-        {items.map((item) => (
-          <SidebarMenuItem key={item.href}>
-            <SidebarMenuButton
-              isActive={item.active}
-              tooltip={item.title}
-              render={<Link href={item.href} />}
-            >
-              <item.icon />
-              <span>{item.title}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        ))}
-      </SidebarMenu>
-    </SidebarGroup>
+    <>
+      <SidebarGroup>
+        <SidebarGroupLabel>
+          {role === "student" ? "Student" : "Instructor"}
+        </SidebarGroupLabel>
+        <SidebarMenu>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.href}>
+              <SidebarMenuButton
+                isActive={item.active}
+                tooltip={item.title}
+                render={<Link href={item.href} />}
+              >
+                <item.icon />
+                <span>{item.title}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroup>
+
+      {/*
+        Its own group rather than a fourth row above, because it is a different kind of capability:
+        everything above is scoped to a cohort, and this decides who may teach at all.
+
+        Hidden from an instructor, and that is presentation only — `/admin` reads through
+        `adminProcedure`, so an instructor who types the URL is refused by the procedures rather
+        than by this component having declined to draw a link. Offering a link that leads to a
+        refusal is the thing worth avoiding here; the refusal itself is not this file's job.
+      */}
+      {isAdmin && (
+        <SidebarGroup>
+          <SidebarGroupLabel>Admin</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={pathname === "/admin"}
+                tooltip="Staff"
+                render={<Link href="/admin" />}
+              >
+                <ShieldCheck />
+                <span>Staff</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+      )}
+    </>
   )
 }
 
@@ -500,6 +530,11 @@ function ShellSidebar() {
   const role: Role =
     profile?.role === "INSTRUCTOR" || profile?.role === "ADMIN" ? "instructor" : "student"
 
+  // Separate from `role` rather than a third value in it, because an admin is an instructor who
+  // can also do one more thing. Folding it into `role` would make every `role === "instructor"`
+  // check in here silently exclude admins.
+  const isAdmin = profile?.role === "ADMIN"
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -509,7 +544,7 @@ function ShellSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <MainNav role={role} />
+        <MainNav role={role} isAdmin={isAdmin} />
       </SidebarContent>
       <SidebarFooter>
         <SidebarSeparator className="mx-0" />
