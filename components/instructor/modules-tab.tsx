@@ -125,7 +125,7 @@ export function ModulesTab({ courseId }: { courseId: string }) {
 
       {rows.length === 0 ? (
         <EmptyState
-          icon={Plus}
+          icon={<Plus />}
           title="No modules yet"
           description="An assignment belongs to a module, so a course needs at least one before anything can be added to it."
         />

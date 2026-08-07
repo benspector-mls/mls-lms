@@ -629,7 +629,7 @@ function AssignmentsTab({ data }: { data: Data }) {
   if (data.assignments.length === 0) {
     return (
       <EmptyState
-        icon={ClipboardList}
+        icon={<ClipboardList />}
         title="No assignments yet"
         description="Add one from the answer-keys repository — what it holds is what this course can offer."
         action={
@@ -758,7 +758,7 @@ function AssignmentsTab({ data }: { data: Data }) {
 
       {assignments.length === 0 ? (
         <EmptyState
-          icon={Search}
+          icon={<Search />}
           title="Nothing matches"
           description="No assignment in this course matches the search and filters above."
           // The way out, from where the problem is seen. A hidden filter is easy to forget
@@ -1186,7 +1186,7 @@ function RosterTab({
 
       {enrollments.length === 0 ? (
         <EmptyState
-          icon={Users}
+          icon={<Users />}
           title="Nobody has joined yet"
           description="Send the link above. Students appear here as they use it."
         />

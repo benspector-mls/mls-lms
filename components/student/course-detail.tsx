@@ -123,7 +123,7 @@ export function StudentCourseDetail({
 
       {modules.length === 0 ? (
         <EmptyState
-          icon={ListChecks}
+          icon={<ListChecks />}
           title="No assignments yet"
           description="When your instructor publishes assignments for this course, they will appear here."
         />

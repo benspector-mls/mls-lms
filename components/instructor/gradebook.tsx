@@ -50,7 +50,7 @@ export function Gradebook({ data }: { data: Gradebook }) {
   if (roster.length === 0 || assignments.length === 0) {
     return (
       <EmptyState
-        icon={BarChart3}
+        icon={<BarChart3 />}
         title="Nothing to show yet"
         description="Grades appear here once the course has assignments and students have joined."
       />

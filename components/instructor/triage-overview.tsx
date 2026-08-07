@@ -223,7 +223,7 @@ export function TriageOverview({
 
       {remaining === 0 ? (
         <EmptyState
-          icon={Inbox}
+          icon={<Inbox />}
           title="Nothing is waiting on you"
           description="Every submission that has been declared finished has been graded and delivered."
         />

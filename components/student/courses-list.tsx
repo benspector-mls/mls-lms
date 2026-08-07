@@ -76,7 +76,7 @@ export function CoursesList({
 
       {courses.length === 0 ? (
         <EmptyState
-          icon={BookOpen}
+          icon={<BookOpen />}
           title="You are not enrolled in any courses yet"
           description="When you are added to a cohort, it will appear here."
         />
