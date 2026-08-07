@@ -1,16 +1,33 @@
 /**
- * Seed script for Phase 1 verification.
+ * Bootstraps an empty database. **It creates; it does not modify.**
  *
- * Creates: the four rubrics that exist in grading-toolkit/rubric.md, one course,
- * one instructor, one enrolled student, and one assignment whose `sections`
- * mapping points at real files in the answer-keys repository.
+ * Creates: the four rubrics that exist in grading-toolkit/rubric.md, one course, its modules, one
+ * instructor, one enrolled student, and one assignment whose `sections` mapping points at real
+ * files in the answer-keys repository.
  *
- * This script does NOT create auth users. Identity is owned by Supabase Auth, so
- * both profiles must already exist from a real login. The script looks them up
- * by email and fails with an explanation if they are absent.
+ * ## The rule, and why it is stricter than it used to be
  *
- * Idempotent: every write is an upsert keyed on a natural unique column, so
- * running it repeatedly converges rather than duplicating.
+ * This began as the only way to get data into the application, so it asserted the shape it
+ * describes on every run — module names, assignment fields, enrollment status, roles. Every one of
+ * those is now something an instructor sets through the interface, and each reassertion was a
+ * silent revert of a real decision. All three happened on the development database:
+ *
+ * - A renamed module was **recreated** under its seeded name, leaving an empty duplicate beside
+ *   the real one, which a course copied from it then inherited.
+ * - A removed student would have been **put back** into the cohort.
+ * - An edited assignment would have had its title, points, and rubric **reverted**.
+ *
+ * So: existing rows are left alone. Modules are identified by position rather than name, because
+ * position is what this script is actually asserting and a name is what an instructor changes.
+ * Roles are raised and never lowered. The one exception is rubrics, which no router can author —
+ * see the comment at the top of `main`.
+ *
+ * The cost, stated rather than discovered: a corrected spec does not reach a row that already
+ * exists. Edit it in the application, or delete the row and run this again.
+ *
+ * This script does NOT create auth users. Identity is owned by Supabase Auth, so both profiles
+ * must already exist from a real login. It looks them up by email and fails with an explanation if
+ * they are absent.
  *
  * Run with: npm run db:seed
  */
@@ -333,16 +350,45 @@ async function requireProfile(email: string, role: Role) {
     );
   }
 
-  if (profile.role !== role) {
+  /*
+    Raised, never lowered. `SEED_INSTRUCTOR_EMAIL` asks for INSTRUCTOR, and the account that
+    holds it is the deployment's admin — so writing the role unconditionally would demote the
+    only admin every time this ran, locking the admin screens against everybody. The same rule
+    `redeemInvite` follows, for the same reason: a bootstrap step must not take access away.
+  */
+  const RANK: Record<Role, number> = {
+    [Role.STUDENT]: 0,
+    [Role.INSTRUCTOR]: 1,
+    [Role.ADMIN]: 2,
+  };
+
+  if (RANK[profile.role] < RANK[role]) {
     await prisma.profile.update({ where: { id: profile.id }, data: { role } });
-    console.log(`  set ${email} role to ${role}`);
+    console.log(`  raised ${email} to ${role}`);
+    return { ...profile, role };
   }
 
-  return { ...profile, role };
+  if (profile.role !== role) {
+    console.log(`  left ${email} as ${profile.role}, which is above the ${role} this seed asks for`);
+  }
+  return profile;
 }
 
 async function main() {
-  // ---- Rubrics ------------------------------------------------------------
+  /*
+    ---- Rubrics ------------------------------------------------------------
+
+    **The one thing this seed still updates, and the exception is deliberate.**
+
+    Everything else here creates and never modifies, because everything else is editable in the
+    application and re-seeding was reverting instructors' decisions. Rubrics are not: there is no
+    rubric mutation in any router, so this script is their only author. Refusing to update them
+    would mean a corrected rubric could never reach a database that already has the old one, with
+    nothing to gain — there is no instructor edit here to protect.
+
+    That changes the day rubrics become editable, which the ROADMAP has as instructor-authored
+    rubrics. At that point this becomes `update: {}` like the rest.
+  */
   const rubricsByName = new Map<string, string>();
   for (const rubric of RUBRICS) {
     const row = await prisma.rubric.upsert({
@@ -546,9 +592,13 @@ async function main() {
       studentId: student.id,
       status: EnrollmentStatus.ACTIVE,
     },
-    // Re-seeding puts a student the roster removed back, which is what every other `update`
-    // here does too: the seed is the authority on the shape it describes.
-    update: { status: EnrollmentStatus.ACTIVE },
+    /*
+      Deliberately empty. This used to force the status back to ACTIVE, which meant re-seeding
+      un-removed a student an instructor had removed — the same mistake as recreating a renamed
+      module, one table over. Removing somebody is a decision made in the application, and a
+      bootstrap script is not the authority on it.
+    */
+    update: {},
   });
   console.log(`Student: ${STUDENT_EMAIL}${student.githubUsername ? ` (${student.githubUsername})` : ""}`);
 
@@ -629,27 +679,21 @@ async function main() {
       runnerConfig: (spec.runnerConfig ?? Prisma.DbNull) as Prisma.InputJsonValue,
       sections: spec.sections as unknown as Prisma.InputJsonValue,
     },
-    // Everything the spec describes is refreshed here as well as on create,
-    // because a row seeded before its spec was corrected would otherwise keep
-    // the wrong shape forever. Due dates, scores, and anything an instructor
-    // sets by hand are not in the spec and are left alone.
-    update: {
-      kind: spec.kind,
-      title: spec.title,
-      // `moduleId` is deliberately absent: an instructor who moved this assignment to a
-      // different module made a decision, and re-seeding must not undo it. Every other field
-      // here is something the spec is the authority on; the module is not.
-      templateRepo: spec.templateRepo,
-      answerKeyRepo: spec.answerKeyRepo,
-      answerKeyDir: spec.answerKeyDir,
-      githubOrg: spec.githubOrg,
-      pointValue: spec.pointValue,
-      runnerPreset: spec.runnerPreset,
-      // Prisma.DbNull writes SQL NULL. Passing plain `null` to a Json? column
-      // writes the JSON value `null` instead, which an `IS NULL` filter misses.
-      runnerConfig: (spec.runnerConfig ?? Prisma.DbNull) as Prisma.InputJsonValue,
-      sections: spec.sections as unknown as Prisma.InputJsonValue,
-    },
+    /*
+      Deliberately empty. **This seed creates; it does not correct.**
+
+      Every field the spec describes used to be refreshed here too, so that a row seeded before
+      its spec was fixed would pick the fix up. That was defensible while this database held
+      nothing but seeded rows. It is not now: an assignment's title, point value, thresholds,
+      repositories, and rubric sections are all editable in the authoring form, and re-seeding
+      reverted whichever of them an instructor had changed — silently, and with no record that
+      the values had ever been different.
+
+      The cost is stated rather than hidden: a corrected spec no longer reaches an assignment
+      that already exists. Edit it in the authoring form, which is where its current values came
+      from, or remove the row and seed again.
+    */
+    update: {},
   });
   console.log(
     `Assignment: ${assignment.title} — template ${assignment.templateRepo}`,
