@@ -21,6 +21,8 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
   - [`assertCourseMember` and `assertActiveStudent` are two different questions](#assertcoursemember-and-assertactivestudent-are-two-different-questions)
   - [Who may teach, and who may decide that](#who-may-teach-and-who-may-decide-that)
   - [Co-teaching one cohort](#co-teaching-one-cohort)
+  - [Who owns a cohort](#who-owns-a-cohort)
+  - [Deleting a cohort](#deleting-a-cohort)
   - [One student, or one assignment: the same screen from two sides](#one-student-or-one-assignment-the-same-screen-from-two-sides)
   - [A removed student's work](#a-removed-students-work)
   - [Migrations are authored with `migrate diff`, never `migrate dev`](#migrations-are-authored-with-migrate-diff-never-migrate-dev)
@@ -47,8 +49,11 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
   - [Grading by hand](#grading-by-hand)
   - [Resubmission](#resubmission)
   - [Triage](#triage)
+  - [Resources: what is in a module that is not work](#resources-what-is-in-a-module-that-is-not-work)
+  - [Groups, and grading a portion of a cohort](#groups-and-grading-a-portion-of-a-cohort)
 - [Interface](#interface)
-  - [A cohort's six views are six addresses](#a-cohorts-six-views-are-six-addresses)
+  - [A cohort's seven views are seven addresses](#a-cohorts-seven-views-are-seven-addresses)
+  - [Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)
 - [What is verified, and how](#what-is-verified-and-how)
 - [Deploying](#deploying)
 
@@ -94,13 +99,13 @@ Two deliberate departures from GitHub Classroom's design:
 - **No separate feedback branch.** The existing student ritual is preserved exactly as documented in `marcy-curriculum-docs/how-tos/working-with-assignments.md` and confirmed against real student repository history: students work on a `draft` branch, open a pull request from `draft` into `main`, and add the instructor as a reviewer. That pull request is the submission signal.
 - **AI grading reports are part of the first working version, not a later addition.** The manual grading toolkit already does real evaluation work, so automating it is the point of the build. Reports always land as a draft for instructor review and are never posted automatically, so a person remains the last word on feedback quality.
 
-Test execution and report generation are triggered by an instructor today, not by the webhook. Whether they should become automatic — and what runs them if they do — is [the one architectural decision still open](ROADMAP.md#phase-4-triggering-and-orchestration).
+Test execution and report generation are triggered by an instructor today, not by the webhook. Whether they should become automatic — and what runs them if they do — is [the one architectural decision still open](ROADMAP.md#triggering-and-orchestration).
 
 ---
 
 ## Running it
 
-**Stack:** Next.js 16 App Router on Vercel, Supabase PostgreSQL, Prisma 7 with `@prisma/adapter-pg`, tRPC v11, Tailwind v4 with Base UI, Supabase Auth with GitHub OAuth, GitHub App with Octokit, E2B for sandboxed test execution, and Claude `claude-opus-5` behind a provider interface.
+**Stack:** Next.js 16 App Router on Vercel, Supabase PostgreSQL, Prisma 7 with `@prisma/adapter-pg`, tRPC v11, Tailwind v4 with Base UI, Supabase Auth with GitHub OAuth, GitHub App with Octokit, E2B for sandboxed test execution, and Claude `claude-sonnet-5` behind a provider interface.
 
 You need a Supabase project, a GitHub App, an E2B key, an Anthropic key, and read access to the grading guides repository.
 
@@ -128,6 +133,7 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 | `GITHUB_WEBHOOK_PROXY_URL`                                                                       | development only: the smee.io channel `dev:webhook` listens on               |
 | `E2B_API_KEY`                                                                                    | sandbox                                                                      |
 | `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GRADING_LLM_EFFORT`                | report generation                                                            |
+| `ANTHROPIC_MODEL`                                                                                | optional: overrides the model, which defaults to `claude-sonnet-5`           |
 | `GRADING_ASSETS_REPO`                                                                            | the repository holding `rubric.md`, `agent-rules.md`, and the sample reports |
 | `GRADING_ASSETS_INSTALLATION_ID`                                                                 | optional: overrides which installation reads that repository                 |
 | `GRADING_ASSETS_REF`                                                                             | optional: a branch to read the guides from instead of the default            |
@@ -148,7 +154,7 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 ## Scripts
 
-Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. The first two need neither a model nor a network; the next four drive the real procedures against the development database inside a transaction that is rolled back.
+Verification scripts are re-runnable and are the fastest way to find out whether a change broke something. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. The first two need neither a model nor a network; the eight after them drive the real procedures against the development database inside a transaction that is rolled back.
 
 | Script                        | What it does                                                                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -171,7 +177,12 @@ Verification scripts are re-runnable and are the fastest way to find out whether
 | `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                |
 | `npm run approve`             | Approves a draft from the terminal                                                                                                |
 | `npm run accept`              | Runs the accept flow from the terminal                                                                                            |
+| `npm run setup:storage`       | Creates the private uploads bucket, or brings its size limit and type allow-list back into step with the code                     |
 | `npm run db:diff`             | Generates a migration — see [Data model](#data-model), and never `migrate dev`                                                    |
+
+`scripts/list-installations.ts` is the odd one out: not an npm script, and run with `tsx` when a new organization's installation id is needed.
+
+**`setup:storage` is a deploy step, not a setup step.** It builds the bucket's allow-list from `UPLOAD_FILE_TYPES`, so adding a file type means re-running it against every environment — and forgetting leaves the upload route accepting a file the bucket then refuses, which appears only on a real upload and only where nobody re-ran it. See [handing in a file](#handing-in-a-file).
 
 ---
 
@@ -240,17 +251,25 @@ export default function Page({ params }: { params: Promise<{ courseId: string }>
 
 ## Data model
 
-`prisma/schema.prisma`, twenty-six migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
+`prisma/schema.prisma`, thirty migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
 
 ```
 Profile ──1:1── auth.users
-Course ──< CourseInstructor, Enrollment, Module, Assignment
-Module ──< Assignment ──< Submission ──< GradingDraft ──< GradingDraftSection
-                                     └──< TestRun
+        └──< InstructorInvite (created, and redeemed)
+
+Course ──< CourseInstructor ──> CourseGroup   (which group this instructor is grading)
+       ├──< Enrollment ──< GroupMembership >── CourseGroup
+       ├──< CourseGroup
+       └──< Module ──┬──< Assignment ──< Submission ──< GradingDraft ──< GradingDraftSection
+                     │                              └──< TestRun
+                     └──< Resource
+
 Rubric ──< (referenced by assignment.sections[].rubricId)
 ```
 
-Enums: `Role`, `EnrollmentStatus`, `RubricScaleType`, `SubmissionStatus`, `SalesforceSyncStatus`, `GradingDraftStatus`, `Confidence`, `TestRunStatus`, `TestRunTrigger`.
+Enums: `Role`, `EnrollmentStatus`, `AssignmentKind`, `ResourceKind`, `VideoProvider`, `RubricScaleType`, `SubmissionStatus`, `SalesforceSyncStatus`, `GradingDraftStatus`, `Confidence`, `TestRunStatus`, `TestRunTrigger`.
+
+**A module has two kinds of child and they are siblings**: `Assignment`, which is submitted and graded, and `Resource`, which is neither — see [resources](#resources-what-is-in-a-module-that-is-not-work). **A group joins to an `Enrollment` rather than to a `Profile`**, so the foreign key is what guarantees a group's members are students of that group's course — see [groups](#groups-and-grading-a-portion-of-a-cohort).
 
 **`profiles`** carries the `Role` enum, `githubUsername`, a display name fallback, and `githubUserId BigInt? @unique`. The numeric ID is recorded by the `sync_github_identity` trigger from `auth.identities.provider_id`, guarded by a regular expression because that column is text and other providers put non-numeric values in it. Repository naming still uses the username, because that is the existing convention, which is why `submissions.repo_github_login_at_creation` exists.
 
@@ -736,7 +755,7 @@ Everything else produces manual review with the specific reason attached, never 
 
 One interface, two implementations. Pipeline code calls `getReportGenerator()` and never references a vendor; `GRADING_LLM_PROVIDER=claude|groq` selects. The contract carries a Zod schema rather than a JSON Schema document, because each provider has a better path than a hand-rolled validator: Claude's SDK derives the response format and parses through it with `messages.parse()` and `zodOutputFormat()`, and Groq needs a plain JSON Schema in its request body, which the same schema derives.
 
-**Claude on `claude-opus-5` is the provider in use.** Groq's `openai/gpt-oss-120b` with strict `json_schema` remains implemented and is the only Groq model and mode combination confirmed to guarantee schema-conformant output, but its free tier caps requests at 8,000 tokens per minute and a frontend prompt does not fit — those carry several answer keys and a verbatim README checklist, about 12,400 tokens by Groq's count, rejected with a 413.
+**Claude is the provider in use, on `claude-sonnet-5`.** The model is a constant in `lib/grade/providers/claude.ts` with `ANTHROPIC_MODEL` as an override, so trying another tier costs an environment variable — what it does not cost is the [calibration](#what-is-verified-and-how) that says whether the other tier still agrees with an instructor, which is the actual work of changing it. Groq's `openai/gpt-oss-120b` with strict `json_schema` remains implemented and is the only Groq model and mode combination confirmed to guarantee schema-conformant output, but its free tier caps requests at 8,000 tokens per minute and a frontend prompt does not fit — those carry several answer keys and a verbatim README checklist, about 12,400 tokens by Groq's count, rejected with a 413.
 
 Two differences the interface must not hide:
 
@@ -745,7 +764,7 @@ Two differences the interface must not hide:
 
 ### What a report costs
 
-Measured on Claude, one section per run, normalized to a cache hit so the only variable is `effort`:
+Measured on `claude-opus-5`, one section per run, normalized to a cache hit so the only variable is `effort`. The default model is `claude-sonnet-5`, so these are the figures for the more expensive tier and the shape of the answer rather than the current bill — the proportions below hold regardless of tier, and re-measuring is [token management](ROADMAP.md#token-management):
 
 | Section            | Effort | Uncached input | Cached | Output | Cost   | Wall clock |
 | ------------------ | ------ | -------------- | ------ | ------ | ------ | ---------- |
@@ -899,11 +918,11 @@ Readings, notes, and videos. **Nothing here is graded, submitted, or in the grad
 
 Three kinds, named in the enum before any of them was built, the way `AssignmentKind` was:
 
-| Kind    | What it is                                        | Where it lives                              |
-| ------- | ------------------------------------------------- | ------------------------------------------- |
-| `LINK`  | A title, a URL, and one line about it              | `url`, `description`                        |
-| `TEXT`  | Markdown an instructor writes                      | `body`                                      |
-| `VIDEO` | A YouTube or Vimeo video, played on the page      | `videoProvider`, `videoId`, and a watch URL |
+| Kind    | What it is                                   | Where it lives                              |
+| ------- | -------------------------------------------- | ------------------------------------------- |
+| `LINK`  | A title, a URL, and one line about it        | `url`, `description`                        |
+| `TEXT`  | Markdown an instructor writes                | `body`                                      |
+| `VIDEO` | A YouTube or Vimeo video, played on the page | `videoProvider`, `videoId`, and a watch URL |
 
 **The video vocabulary is closed, and that is the one sharp edge here.** The obvious implementation accepts the embed HTML an instructor pastes, which puts an arbitrary iframe on a page every student in the cohort opens. Instead `parseVideoUrl` matches a URL against the shapes the two supported providers actually use, takes the id out of it, and stores provider and id; `videoEmbedUrl` builds the frame's address from those two and never from a string anybody typed. Anything unrecognised is refused when it is saved, where an instructor can fix it. Matching is on the **parsed host** rather than a substring, because `https://evil.example/youtube.com/watch?v=…` contains "youtube.com" and is not YouTube — `verify:resources` checks that one along with a subdomain trick, a lookalike host, a `javascript:` URL, and a traversal in place of an id.
 
@@ -954,6 +973,7 @@ Two things this is deliberately not yet, both on the roadmap: an assignment give
 | `/instructor/courses/[courseId]/students/[studentId]`       | One student's whole record in this cohort — the queue's other axis     |
 | `/instructor/assignments/[assignmentId]`                    | The queue's old address: looks up the course and redirects             |
 | `/admin`                                                    | Staff: who may teach, and who may decide that. Admins only             |
+| `/join/[token]`                                             | Where a cohort's student join link lands                               |
 | `/invite/[token]`                                           | Where an instructor invitation lands                                   |
 | `/co-teach/[token]`                                         | Where a cohort's co-teaching link lands                                |
 
@@ -981,13 +1001,13 @@ The breadcrumb names the cohort as plain text rather than as a link, because the
 
 `lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens, and `lib/instructor/course-scope.ts` redirects the two routes that name a course twice over — as a segment and through the assignment — when the two disagree.
 
-Two routes outside that table: `/api/webhooks/github` and `/api/submissions/upload`. Both exist because a browser form or GitHub's own request cannot go through tRPC — see [handing in a file](#handing-in-a-file) for why the upload does not, and why its authorization is still procedure code.
+Three routes outside that table. `/api/trpc/[trpc]` is the endpoint every browser query and mutation arrives at, and is the only one of the three that is not an exception to anything. `/api/webhooks/github` and `/api/submissions/upload` are: GitHub's own request and a multipart form cannot go through tRPC — see [handing in a file](#handing-in-a-file) for why the upload does not, and why its authorization is still procedure code.
 
 **A wide table scrolls; the page does not.** `SidebarInset` carries `min-w-0`, because it is a flex item of the sidebar row and a flex item's `min-width: auto` resolves to its content-based minimum — so the gradebook's fifty columns pushed it wider than the viewport and everything measured against it went along. The window scrolled sideways instead of the table: the header's theme toggle left the screen, the assignments list's search box and New assignment button were cut off, and the gradebook's sticky Student column stuck to a scroll that was not the one moving, so it slid over the sidebar. `w-full` does not prevent it — that sets the basis and leaves the minimum alone. With a floor of zero the width is definite at every level below, which is what lets the `overflow-x-auto` around each table be the thing that scrolls. The same rule is why `SelectTrigger`, which is `w-fit whitespace-nowrap`, gets `w-full min-w-0` wherever its label is a course name.
 
 Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[panel-open]` styles an open Collapsible trigger, and `Select`'s `onValueChange` passes `string | null` — null when a select is cleared, which most of these never do, so the handlers coerce. The course switcher is the exception and guards instead: its value is genuinely null wherever the address names no cohort. `Select` also needs an `items` map of value to label whenever the value is not also the label, or the trigger renders the raw value — a course id.
 
-****"Approved" is not shown beside "Graded".** They are the same fact in two words — approving a draft is the only thing that sets a submission to `GRADED` — so the review header shows the draft's own state only when it says something the submission's does not. `draftStatusAddsSomething` in `lib/status.ts` is that rule, and it also excludes `SUPERSEDED`, which is history rather than a state to act on. The grading queue worked this out first and had it in a comment; both screens now read the same function. The draft history list is the exception and shows every state deliberately, because distinguishing the approved round from the superseded ones is the whole of its job.
+**"Approved" is not shown beside "Graded".** They are the same fact in two words — approving a draft is the only thing that sets a submission to `GRADED` — so the review header shows the draft's own state only when it says something the submission's does not. `draftStatusAddsSomething` in `lib/status.ts` is that rule, and it also excludes `SUPERSEDED`, which is history rather than a state to act on. The grading queue worked this out first and had it in a comment; both screens now read the same function. The draft history list is the exception and shows every state deliberately, because distinguishing the approved round from the superseded ones is the whole of its job.
 
 **A test run has no status badge.** Everything one could report is said better immediately below it by `RunOutcome`: a spinner while running, a destructive alert explaining that an error is not a score of zero, another for a timeout, and the pass rate itself when the suite finished. The badge was the weaker of two descriptions of the same fact and the misleading one — "Completed" in green above a pass rate of 3 out of 13 is a suite that ran and work that failed. Removing it left `TestRunStatusBadge` and `TEST_RUN_STATUS_META` with no callers, so both are gone too.
 
@@ -1015,7 +1035,7 @@ Base UI rather than Radix: `render={<Link/>}` replaces `asChild`, `group-data-[p
 
 **Anything the instructor's course screens render comes from a server component**, fetched once and passed down as a prop — so a mutation there needs `router.refresh()` and not only `queryClient.invalidateQueries()`. Publishing an assignment left the row showing "Draft" until a manual reload, because the browser's query cache never held that data to invalidate. Both calls are made: `invalidateQueries` for the parts that genuinely are client queries, the Modules screen among them, and `refresh()` for the server-rendered rest.
 
-`lib/status.ts` is the single source of presentation truth** — status vocabulary, tone classes, flag copy, relative dates, module ordering. `formatRelative(date, now)` takes the reference instant as an argument rather than reading the clock, and dates render in a fixed school timezone.
+**`lib/status.ts` is the single source of presentation truth** — status vocabulary, tone classes, flag copy, relative dates, module ordering. `formatRelative(date, now)` takes the reference instant as an argument rather than reading the clock, and dates render in a fixed school timezone.
 
 **On a score or a status pill, green means one thing: the work met the completion threshold.** `GRADED` and `APPROVED` were both the `success` tone, which put a green pill beside a 9/15 and said the opposite of the truth. Grading being finished, feedback being released, and work being complete are three different facts, and one colour cannot say all of them. Both are now `info`, and the score beside them carries the verdict in green or red.
 
@@ -1052,7 +1072,7 @@ Every claim below was checked against real repositories in the `marcy-lms-test` 
 
 **Grading.** `verify:grade` is 101 checks with no model call, including that every path a real submission is made of survives the prompt filter while a committed `.env`, dependency tree, or build directory does not — a false positive there would grade a section against a prompt with the student's work missing from it. The filter was also run over all 10,507 files in the curriculum repository, which is the check that matters more than any hand-written case: every path it withheld was genuinely a build artifact, a dependency tree, a committed `.env`, or editor litter, and no directory named `build` or `out` anywhere in the curriculum holds authored work. On real submissions: `swe-1-4-loops` with every test passing scores 30/30 at high confidence; a submission that broke its code and edited the assertion scored 12/13 against the template's own assertion; full credit claimed alongside a failing test is caught; claiming a failed test passed is caught in both the bare and `Suite › name` forms; a submission that passes every test with hardcoded return values is **not** flagged merely for scoring below full credit.
 
-**Calibration.** `npm run calibrate` grades a sample and compares it against the report an instructor wrote about the same work. The toolkit holds two short response pairs; pair 1 is the exemplar embedded in the prompt and **pair 2 is held out**, which is the only reason grading it measures anything.
+**Calibration.** `npm run calibrate` grades a sample and compares it against the report an instructor wrote about the same work. The toolkit holds two short response pairs; pair 1 is the exemplar embedded in the prompt and **pair 2 is held out**, which is the only reason grading it measures anything. The figures below were produced on `claude-opus-5` and predate the current default, so re-running them is [the first thing under token management](ROADMAP.md#token-management) — this is the one check that says a change of model tier is safe.
 
 |                        | pair 1 (exemplar) | pair 2 (held out)   |
 | ---------------------- | ----------------- | ------------------- |
