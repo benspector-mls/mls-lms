@@ -4,6 +4,8 @@ import type {
   SubmissionStatus,
 } from "@/lib/generated/prisma/enums";
 
+import { isSectionType, SECTION_TYPE_REGISTRY } from "@/lib/section-types";
+
 /**
  * How every status, flag, and number is presented. One place, because the same
  * submission status appears on the student's assignment list, the instructor's triage
@@ -454,16 +456,8 @@ export const CONFIDENCE_META: Record<"HIGH" | "LOW", StatusMeta> = {
  * separately, so both the student's feedback and the instructor's review are per
  * section rather than per assignment.
  */
-const SECTION_LABELS: Record<string, string> = {
-  short_response: "Short response",
-  coding_algorithm: "Algorithm fluency",
-  coding_sql: "SQL fluency",
-  coding_frontend: "Frontend",
-};
-
 export function sectionLabel(sectionType: string): string {
-  const known = SECTION_LABELS[sectionType];
-  if (known) return known;
+  if (isSectionType(sectionType)) return SECTION_TYPE_REGISTRY[sectionType].label;
 
   // A section type the interface has not been taught about still needs to read as
   // words rather than as a database value.

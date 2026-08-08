@@ -2,7 +2,7 @@ import "server-only";
 
 import path from "node:path";
 
-import type { SectionType } from "./classify";
+import { SECTION_TYPE_REGISTRY, type SectionType } from "../section-types";
 
 /**
  * The grading toolkit and answer keys: the rules, the rubric, the sample reports,
@@ -311,40 +311,6 @@ async function readRequired(source: AssetSource, relativePath: string): Promise<
 }
 
 /**
- * Which heading in rubric.md governs each section type, and which sample report
- * the output must be shaped like.
- *
- * Written out rather than derived from the section name, because the rubric's
- * headings and the sample filenames follow different conventions and neither
- * matches the enum.
- */
-const SECTION_ASSETS: Record<SectionType, { rubricHeading: string; sampleFile: string }> = {
-  short_response: {
-    rubricHeading: "SHORT RESPONSE",
-    // Pair 1 of two. The toolkit also holds sample-short-response-submission-1.md,
-    // the work this report was written about.
-    //
-    // Pair 2 is deliberately NOT used here. It is the held-out calibration case:
-    // `npm run calibrate` grades submission 2 and compares the result against report
-    // 2, which only measures anything as long as the model has not been shown the
-    // answer. Adding it to this prompt would quietly invalidate that test.
-    sampleFile: "sample-short-response-report-1.md",
-  },
-  coding_algorithm: {
-    rubricHeading: "CODING — ALGORITHM FLUENCY",
-    sampleFile: "sample-coding-fluency-report.md",
-  },
-  coding_sql: {
-    rubricHeading: "CODING — SQL FLUENCY",
-    sampleFile: "sample-coding-frontend-report.md",
-  },
-  coding_frontend: {
-    rubricHeading: "CODING — FRONTEND",
-    sampleFile: "sample-coding-frontend-report.md",
-  },
-};
-
-/**
  * Extracts one `## `-level section from rubric.md.
  *
  * The whole rubric is roughly 110 lines, so sending all of it would not be
@@ -360,7 +326,7 @@ export function extractRubricSection(rubric: string, heading: string): string {
   if (start === -1) {
     throw new GradingAssetsError(
       `rubric.md has no "## ${heading}" section. The rubric's headings may have been ` +
-        `renamed — see SECTION_ASSETS in lib/grade/assets.ts.`,
+        `renamed — see SECTION_TYPE_REGISTRY in lib/section-types.ts.`,
     );
   }
 
@@ -641,7 +607,7 @@ export async function loadGradingAssets(params: {
   answerKeyDir: string | null;
 }): Promise<GradingAssets> {
   const source = await programAssetSource();
-  const config = SECTION_ASSETS[params.sectionType];
+  const config = SECTION_TYPE_REGISTRY[params.sectionType];
 
   if (params.answerKeyDir !== null && !params.answerKeyRepo) {
     throw new GradingAssetsError(

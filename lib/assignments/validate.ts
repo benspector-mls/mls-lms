@@ -1,5 +1,6 @@
 import "server-only";
 
+import { SECTION_TYPE_REGISTRY } from "../section-types";
 import { checkAnswerKeyDir } from "../grade/assets";
 import {
   getConfiguredInstallationId,
@@ -11,7 +12,6 @@ import type { db as Db } from "../prisma";
 import {
   assignmentSpecSchema,
   isAiGraded,
-  RUBRIC_NAME_BY_SECTION_TYPE,
   repositorySource,
   requiresRepository,
   sectionsPointTotal,
@@ -196,7 +196,7 @@ export async function validateAssignmentDraft(
 
     for (const { section, index } of aiSections) {
       const name = rubricById.get(section.rubricId);
-      const expected = RUBRIC_NAME_BY_SECTION_TYPE[section.type];
+      const expected = SECTION_TYPE_REGISTRY[section.type].rubricName;
 
       if (!name) {
         error(`sections.${index}.rubricId`, "That rubric does not exist.");

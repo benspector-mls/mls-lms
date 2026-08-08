@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RUBRIC_NAME_BY_SECTION_TYPE, SECTION_TYPES } from "@/lib/assignments/spec";
+import { SECTION_TYPE_REGISTRY, SECTION_TYPES, type SectionType } from "@/lib/section-types";
 import { sectionLabel } from "@/lib/status";
 
 /**
@@ -35,7 +35,7 @@ import { sectionLabel } from "@/lib/status";
 export type SectionDraft =
   | {
       grading: "ai";
-      type: (typeof SECTION_TYPES)[number];
+      type: SectionType;
       pointValue: number;
       rubricId: string;
       reportTemplate?: string;
@@ -108,12 +108,12 @@ export function SectionEditor({
               <Select
                 value={section.type}
                 onValueChange={(value) => {
-                  const type = value as (typeof SECTION_TYPES)[number];
+                  const type = value as SectionType;
                   // The rubric follows the type rather than being chosen separately. The
                   // procedures refuse a mismatched pairing, so offering the choice would only
                   // create a way to be refused.
                   const rubric = rubrics.find(
-                    (candidate) => candidate.name === RUBRIC_NAME_BY_SECTION_TYPE[type],
+                    (candidate) => candidate.name === SECTION_TYPE_REGISTRY[type].rubricName,
                   );
                   onChange({ ...section, type, rubricId: rubric?.id ?? section.rubricId });
                 }}
@@ -133,7 +133,7 @@ export function SectionEditor({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Graded against {RUBRIC_NAME_BY_SECTION_TYPE[section.type]}
+                Graded against {SECTION_TYPE_REGISTRY[section.type].rubricName}
               </p>
             </Field>
             <PointValueField

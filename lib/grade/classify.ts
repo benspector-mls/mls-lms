@@ -1,4 +1,5 @@
 import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
+import { isSectionType, type SectionType } from "../section-types";
 
 /**
  * Which gradable sections a pull request contains.
@@ -12,8 +13,12 @@ import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
  * Pure, so it can be checked without a model or a network.
  */
 
-/** The four section types that exist in rubric.md today. */
-export type SectionType = "short_response" | "coding_algorithm" | "coding_sql" | "coding_frontend";
+/**
+ * Re-exported rather than restated. It was written out here as a union of four string literals
+ * *and* as a tuple in `spec.ts` *and* as an inline array in `classifySections` below, so three
+ * copies of the same four values had to be kept in step by hand.
+ */
+export type { SectionType };
 
 /** One entry from `assignment.sections`. */
 export type AssignmentSection = {
@@ -190,11 +195,7 @@ export function classifySections(params: {
   }
 
   const declared = new Set(
-    params.declaredSections
-      .map((section) => section.type)
-      .filter((type): type is SectionType =>
-        ["short_response", "coding_algorithm", "coding_sql", "coding_frontend"].includes(type),
-      ),
+    params.declaredSections.map((section) => section.type).filter(isSectionType),
   );
 
   return {

@@ -27,7 +27,7 @@ import {
   repoNameFromRef,
   repoPathFromRef,
 } from "@/lib/assignments/repo-ref";
-import { RUBRIC_NAME_BY_SECTION_TYPE } from "@/lib/assignments/spec";
+import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
 import {
@@ -1219,7 +1219,7 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
     grading: "ai",
     type,
     pointValue: 30,
-    rubricId: rubrics.find((r) => r.name === RUBRIC_NAME_BY_SECTION_TYPE[type])?.id ?? "",
+    rubricId: rubrics.find((r) => r.name === SECTION_TYPE_REGISTRY[type].rubricName)?.id ?? "",
     reportTemplate: "coding-fluency",
   };
 }

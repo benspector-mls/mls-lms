@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isSectionType, SECTION_TYPES, type SectionType } from "../section-types";
 import { AssignmentKind } from "../generated/prisma/enums";
 import { resolveRunner, UnknownRunnerPresetError } from "../sandbox/presets";
 import { UPLOAD_FILE_TYPE_KEYS, type UploadFileTypeKey } from "../uploads/file-types";
@@ -26,32 +27,15 @@ import { preprocessRepoRef } from "./repo-ref";
 
 export { AssignmentKind };
 
-/** The four section types that exist in `rubric.md`, and the only ones a rubric covers. */
-export const SECTION_TYPES = [
-  "short_response",
-  "coding_algorithm",
-  "coding_sql",
-  "coding_frontend",
-] as const;
-
-export type SectionTypeName = (typeof SECTION_TYPES)[number];
-
 /**
- * Which `Rubric` row a section type is graded against, by name.
+ * The section types, and the rubric each is graded against, both from `lib/section-types.ts`.
  *
- * The pairing is fixed rather than chosen: a `coding_algorithm` section graded against the
- * short response rubric would produce a confident report against criteria that do not apply
- * to it. `prisma/seed.ts` already encoded this mapping by hand when it looked rubrics up by
- * name; stating it here means the authoring procedures can *check* the pairing an instructor
- * submits rather than trusting it, which is the same reasoning as every other field being
- * validated against a real source.
+ * Re-exported rather than moved-and-forgotten: this module is where the section *schema* lives,
+ * so a reader validating a section here should not have to know that the vocabulary it draws on
+ * sits one directory up. `SectionTypeName` is the old spelling, kept because it reads better in
+ * this file's Zod schemas than `SectionType` does beside `AssignmentKind`.
  */
-export const RUBRIC_NAME_BY_SECTION_TYPE: Record<SectionTypeName, string> = {
-  short_response: "SHORT_RESPONSE",
-  coding_algorithm: "CODING_ALGORITHM_FLUENCY",
-  coding_sql: "CODING_SQL_FLUENCY",
-  coding_frontend: "CODING_FRONTEND",
-};
+export { SECTION_TYPES, type SectionType as SectionTypeName } from "../section-types";
 
 /**
  * Kinds the application can actually distribute, collect, and grade today.
@@ -398,7 +382,7 @@ export function readSections(sections: unknown): Record<string, unknown>[] {
  * `TEST_EVIDENCE` against `NO_TESTS_EXPECTED` — is the difference between "checked" and
  * "nothing to check", which an instructor reading a report needs to see.
  */
-export function derivesTestEvidence(sectionType: SectionTypeName, runnerPreset: string): boolean {
+export function derivesTestEvidence(sectionType: SectionType, runnerPreset: string): boolean {
   if (sectionType === "short_response") return false;
   return runnerPreset !== "none";
 }
@@ -424,8 +408,8 @@ export function withDerivedFields(draft: unknown): unknown {
       const entry = section as Record<string, unknown>;
       if (entry.grading !== "ai") return entry;
 
-      const type = entry.type as SectionTypeName;
-      if (!SECTION_TYPES.includes(type)) return entry;
+      const type = entry.type;
+      if (typeof type !== "string" || !isSectionType(type)) return entry;
 
       const evidence = derivesTestEvidence(type, runnerPreset) ? "tests" : undefined;
       const next: Record<string, unknown> = { ...entry, evidence };

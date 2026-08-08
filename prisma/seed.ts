@@ -73,32 +73,38 @@ const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO
 const ASSIGNMENT_REPO_NAME = TEMPLATE_REPO.split("/")[1];
 
 /**
- * What each seedable assignment actually contains, keyed by template repository
- * name.
+ * The one assignment this bootstraps, and what it contains.
  *
- * This exists because an assignment's gradable sections cannot be derived from
- * its name, and getting them wrong is not a harmless default: sections drive
- * which answer keys are loaded and which rubric is applied. An unknown template
- * therefore fails the seed rather than borrowing another assignment's shape.
+ * **A bootstrap, not a registry.** This map held three assignments and read as a partial
+ * curriculum: their point values, their answer-key directories, and the reasoning behind each
+ * one, maintained by hand in a seed script. All of that is now authored in the application —
+ * an instructor creates an assignment, names its template and answer keys, and enters its
+ * sections against a validated form — so a second and third entry here were two more copies of
+ * facts with a real home, kept in step by nobody.
  *
- * `answerKeyDir` is the directory holding the module's answer keys; the assignment's own
- * folder inside it is named after the template repository, which is where every file is
- * the reference set. Verify a new entry against
- * `{GRADING_ASSETS_REPO}/{answerKeyDir}/{repo}/`.
+ * What remains is the minimum that produces a working local database: one assignment with a
+ * runnable suite, so the whole pipeline can be exercised on a fresh checkout before anything has
+ * been authored. It is a `Record` rather than a single object because `SEED_TEMPLATE_REPO` still
+ * chooses, and a set of one is the honest shape of a chooser with one choice.
+ *
+ * `answerKeyDir` is the directory holding the module's answer keys; the assignment's own folder
+ * inside it is named after the template repository, which is where every file is the reference
+ * set.
  */
 type SeedAssignment = {
   answerKeyDir: string;
   /** Names an entry in lib/sandbox/presets.ts. "none" means no runnable tests. */
   runnerPreset: string;
   /**
-   * Shallow override merged over the named preset, for the exceptions. Nothing uses
-   * it today; the SQL preset will, once it needs its own E2B template.
+   * Shallow override merged over the named preset, for the exceptions. The one entry below
+   * does not use it; the SQL preset will, once it needs its own E2B template.
    *
-   * Reach for it only when the assignment needs something different about the
-   * *environment* — a template with PostgreSQL installed, a longer timeout. When a
-   * test asserts something the git archive cannot carry, fix the test instead: an
-   * override fixes one assignment, a corrected test fixes it everywhere the tests
-   * run. See swe-1-3-node-modules below.
+   * Present because the column is, and because the authoring form offers it — so the seeded
+   * assignment has to be able to carry one for the round trip to be the real one. Reach for it
+   * only when an assignment needs something different about the *environment*: a template with
+   * PostgreSQL installed, a longer timeout. When a test asserts something the git archive cannot
+   * carry, fix the test instead — an override fixes one assignment, a corrected test fixes it
+   * everywhere the tests run.
    */
   runnerConfig?: Record<string, unknown>;
   /**
@@ -107,12 +113,10 @@ type SeedAssignment = {
    * different rubrics with different maximums, and each gets its own model call and
    * its own report, so one number per assignment cannot serve both.
    *
-   * These are a stopgap until an instructor can enter them when creating an
-   * assignment. They do not belong in a repository, and not every assignment has one
-   * to derive them from: a writing assignment submitted as a Google Doc, or a resume
-   * uploaded as a PDF, has no template repository and no test suite but still has a
-   * point value. This map only pre-fills the seeded assignments so the pipeline is
-   * testable before the authoring interface exists.
+   * A function of `rubricId` rather than a literal, because a section names the `Rubric` row it
+   * is graded against and those rows are created by this same script a few lines earlier. The
+   * pairing itself is not decided here — `SECTION_TYPE_REGISTRY` in `lib/section-types.ts` owns
+   * which rubric a section type takes, and the authoring form validates against it.
    */
   sections: (rubricId: (name: string) => string | undefined) => SeedSection[];
 };
@@ -133,9 +137,13 @@ type SeedSection = {
 };
 
 const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
-  // A standard three-question algorithm assignment: from-scratch, modify, and
-  // debug, with the instructor's Jest suite in the template's tests/ directory.
-  // This is the assignment Phase 2 is verified against.
+  // A standard three-question algorithm assignment: from-scratch, modify, and debug, with the
+  // instructor's Jest suite in the template's tests/ directory.
+  //
+  // This one rather than another because it is the only shape that exercises everything: a
+  // template to generate from, answer keys to load, a rubric to grade against, and a suite the
+  // sandbox can actually run. An assignment with no tests would leave half the pipeline
+  // unreachable on a fresh database.
   "swe-1-4-loops": {
     answerKeyDir: "answer-keys/mod-1-js-fundamentals",
     runnerPreset: "node-jest",
@@ -153,74 +161,6 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
       },
     ],
   },
-
-  // Student work here includes a *nested* npm package: the student runs
-  // `npm init -y` and installs `prompt-sync` inside src/madlib-challenge/.
-  //
-  // Two things this does NOT need, both of which look at first as though it would.
-  //
-  // It does not need `allowStudentDependencies`. That flag governs the repository's
-  // own package.json, which is a protected path. A nested package.json is ordinary
-  // student work and is never restored or merged, so the student's dependency
-  // survives untouched.
-  //
-  // It does not need a `setupCommands` override to install that nested package
-  // either. Its test asserted that node_modules/prompt-sync existed on disk, which
-  // `node_modules/` being gitignored made impossible to satisfy from any checkout;
-  // the assertion was removed from the template instead. Fixing a test that asserted
-  // something git cannot carry was smaller than teaching the runner a special case.
-  "swe-1-3-node-modules": {
-    answerKeyDir: "answer-keys/mod-1-js-fundamentals",
-    runnerPreset: "node-jest",
-    sections: (rubricId) => [
-      {
-        type: "coding_algorithm",
-        // PLACEHOLDER — confirm before grading anyone on this assignment.
-        //
-        // Two questions at 3 points each: the modify exercise and the madlib
-        // challenge. The count is genuinely arguable, which is why this needs a
-        // person: the madlib challenge is one exercise but seven checklist-like
-        // steps, and grading it as seven questions would make it worth 24 rather
-        // than 6.
-        // Confirmed 6 points — there are only 2 real questions even though each
-        // may have multiple tests or steps
-        pointValue: 6,
-        rubricId: rubricId("CODING_ALGORITHM_FLUENCY"),
-        reportTemplate: "coding-fluency",
-        evidence: "tests",
-      },
-    ],
-  },
-
-  // A checkpoint carrying two sections at once, which is the case the explicit
-  // `sections` mapping exists for: one pull request contains both a short
-  // response file and frontend source files, and a path convention alone cannot
-  // express that. Neither section has a suite this build can run — the short
-  // response has nothing to execute and frontend execution is deferred — so the
-  // preset is "none" and neither section declares `evidence`.
-  "swe-checkpoint-summative-1-4": {
-    answerKeyDir: "answer-keys/mod-4-dom",
-    runnerPreset: "none",
-    sections: (rubricId) => [
-      {
-        type: "short_response",
-        // Three technical points for each of 4 questions, plus a single 3-point
-        // writing quality score for the submission as a whole.
-        pointValue: 15,
-        rubricId: rubricId("SHORT_RESPONSE"),
-        reportTemplate: "short-response",
-      },
-      {
-        type: "coding_frontend",
-        // One point per item in the README checklist, of which there are 25. This
-        // section is deliberately worth more than the short response above; the two
-        // are scored against different rubrics and are not meant to be comparable.
-        pointValue: 25,
-        rubricId: rubricId("CODING_FRONTEND"),
-        reportTemplate: "coding-frontend",
-      },
-    ],
-  },
 };
 
 const SPEC = SEED_ASSIGNMENTS[ASSIGNMENT_REPO_NAME];
@@ -228,10 +168,11 @@ if (!SPEC) {
   throw new Error(
     `No seed definition for template repository "${ASSIGNMENT_REPO_NAME}".\n` +
       `  Known: ${Object.keys(SEED_ASSIGNMENTS).join(", ")}\n` +
-      `  Add an entry to SEED_ASSIGNMENTS in prisma/seed.ts naming its answer-key\n` +
-      `  directory, point value, runner preset, and gradable sections. Seeding it with\n` +
-      `  another assignment's sections would load the wrong answer keys and apply the\n` +
-      `  wrong rubric, so this fails rather than guessing.`,
+      `  This script bootstraps one assignment so a fresh database is usable; it is not\n` +
+      `  where the curriculum lives. Author the one you want in the application, which\n` +
+      `  validates its answer keys and rubric pairing against the real repositories —\n` +
+      `  seeding it from a guess here would load the wrong answer keys and apply the\n` +
+      `  wrong rubric.`,
   );
 }
 
