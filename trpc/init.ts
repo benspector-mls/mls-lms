@@ -1,7 +1,9 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { cache } from "react";
 import superjson from "superjson";
+import { z } from "zod";
 
+import { assertTeaches } from "@/lib/courses/membership";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -131,6 +133,35 @@ export const studentProcedure = requireRole("STUDENT");
 
 /** Instructors and admins. */
 export const instructorProcedure = requireRole("INSTRUCTOR", "ADMIN");
+
+/**
+ * An instructor **of this course**, for every procedure whose input already names one.
+ *
+ * The check the INSTRUCTOR role cannot make on its own: holding it says somebody is staff, not
+ * which cohorts are theirs, so without this one cohort's instructor could author in another's,
+ * rename its modules, or regroup its students. It was `await assertTeaches(ctx, input.courseId)`
+ * written out as the first line of about twenty procedures — correct at every one of them, and
+ * forgettable at the twenty-first.
+ *
+ * **Structural, the way `protectedProcedure` gates a session.** A procedure built on this cannot
+ * omit the check, because there is no line to leave out. That is the same trade every guard above
+ * makes, and it is worth naming: the check is no longer the first thing you read in the body, so
+ * the builder's name has to carry it. Which is why this is its own name rather than a widening of
+ * `instructorProcedure`.
+ *
+ * tRPC merges chained `.input()` schemas, so a procedure adding its own keeps `courseId` in its
+ * input type and no browser call site moves.
+ *
+ * For the procedures whose input names a *row* rather than a course — a module id, a submission
+ * id — this cannot help: the row has to be read before anything knows which course it is in.
+ * Those use the `teachable*` loaders in `lib/courses/scope.ts`, which do both in one query.
+ */
+export const courseProcedure = instructorProcedure
+  .input(z.object({ courseId: z.string().uuid() }))
+  .use(async ({ ctx, input, next }) => {
+    await assertTeaches(ctx, input.courseId);
+    return next();
+  });
 
 /**
  * Admins only. Who may teach, and who may decide that.

@@ -17,7 +17,13 @@ import { assertOwnsCourse, ownerOf } from "@/lib/courses/ownership";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 
-import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import {
+  type AuthedCtx,
+  courseProcedure,
+  createTRPCRouter,
+  instructorProcedure,
+  profileProcedure,
+} from "../init";
 import { displayNameOf, moduleSummarySelect, personNameSelect, personSelect } from "../selects";
 
 export const coursesRouter = createTRPCRouter({
@@ -168,46 +174,42 @@ export const coursesRouter = createTRPCRouter({
    * they are who Restore acts on, and a roster that silently omitted them would make removal
    * look like deletion. The screen splits them into their own table.
    */
-  roster: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
-      const course = await ctx.db.course.findUnique({
-        where: { id: input.courseId },
-        select: {
-          id: true,
-          name: true,
-          cohortTerm: true,
-          archivedAt: true,
-          /*
+  roster: courseProcedure.query(async ({ ctx, input }) => {
+    const course = await ctx.db.course.findUnique({
+      where: { id: input.courseId },
+      select: {
+        id: true,
+        name: true,
+        cohortTerm: true,
+        archivedAt: true,
+        /*
             The join link. Safe here and nowhere a student can reach: this procedure is
             `instructorProcedure` *and* teach-gated above. It must never appear in `get` or
             `assignments.listForCourse`, both of which answer to students — a link in a
             payload is a link that has leaked.
           */
-          joinToken: true,
+        joinToken: true,
+      },
+    });
+
+    if (!course) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+    }
+
+    const enrollments = await ctx.db.enrollment.findMany({
+      where: { courseId: course.id },
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        status: true,
+        student: {
+          select: personSelect,
         },
-      });
+      },
+    });
 
-      if (!course) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
-      }
-
-      const enrollments = await ctx.db.enrollment.findMany({
-        where: { courseId: course.id },
-        orderBy: [{ status: "asc" }, { createdAt: "asc" }],
-        select: {
-          id: true,
-          status: true,
-          student: {
-            select: personSelect,
-          },
-        },
-      });
-
-      return { course, enrollments };
-    }),
+    return { course, enrollments };
+  }),
 
   /**
    * Every assignment in the course, with how much of each is graded and how much is waiting.
@@ -222,10 +224,9 @@ export const coursesRouter = createTRPCRouter({
    * `triageBucket`, so the "to grade" column here cannot disagree with the pile that screen
    * lists.
    */
-  assignmentsOverview: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
+  assignmentsOverview: courseProcedure
+    .input(z.object({ group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
       /*
         The screen this feeds is the reason every group filter is applied on the server. Its
         counts are aggregated here and sent as numbers, so there is nothing left for the browser
@@ -328,64 +329,60 @@ export const coursesRouter = createTRPCRouter({
    * an instructor who has to derive their own cohort's short name by reading a student's
    * repository name has been told to work it out rather than told.
    */
-  settings: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
-      const course = await ctx.db.course.findUnique({
-        where: { id: input.courseId },
-        select: {
-          id: true,
-          name: true,
-          cohortTerm: true,
-          cohortSlug: true,
-          archivedAt: true,
-          createdAt: true,
-          /*
+  settings: courseProcedure.query(async ({ ctx, input }) => {
+    const course = await ctx.db.course.findUnique({
+      where: { id: input.courseId },
+      select: {
+        id: true,
+        name: true,
+        cohortTerm: true,
+        cohortSlug: true,
+        archivedAt: true,
+        createdAt: true,
+        /*
             Same guard as the join link above, and a sharper edge: this one admits somebody to
             authoring and to every student's grades in this cohort. It is behind
             `instructorProcedure` and the teach gate, and appears in no other payload.
           */
-          coTeachToken: true,
-          instructors: {
-            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-            select: {
-              id: true,
-              isPrimary: true,
-              createdAt: true,
-              user: {
-                select: personSelect,
-              },
+        coTeachToken: true,
+        instructors: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            isPrimary: true,
+            createdAt: true,
+            user: {
+              select: personSelect,
             },
           },
         },
-      });
+      },
+    });
 
-      if (!course) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
-      }
+    if (!course) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+    }
 
-      /*
+    /*
         The organizations this cohort's repositories are created in, which is the other half of
         what a repository name is made of. Distinct values rather than a row per assignment: the
         question is which organizations are in play, and a course normally has one answer.
       */
-      const orgRows = await ctx.db.assignment.findMany({
-        where: { courseId: course.id, githubOrg: { not: null } },
-        select: { githubOrg: true },
-        distinct: ["githubOrg"],
-        orderBy: { githubOrg: "asc" },
-      });
+    const orgRows = await ctx.db.assignment.findMany({
+      where: { courseId: course.id, githubOrg: { not: null } },
+      select: { githubOrg: true },
+      distinct: ["githubOrg"],
+      orderBy: { githubOrg: "asc" },
+    });
 
-      // Whether the short name is still theoretically free, which it is not once a repository
-      // has been named after it. Stated on the screen rather than acted on — there is no
-      // mutation either way, and knowing why is the point.
-      const acceptedCount = await ctx.db.submission.count({
-        where: { assignment: { courseId: course.id }, repoFullName: { not: null } },
-      });
+    // Whether the short name is still theoretically free, which it is not once a repository
+    // has been named after it. Stated on the screen rather than acted on — there is no
+    // mutation either way, and knowing why is the point.
+    const acceptedCount = await ctx.db.submission.count({
+      where: { assignment: { courseId: course.id }, repoFullName: { not: null } },
+    });
 
-      /*
+    /*
         Derived by the same function the guards use, rather than read off `isPrimary` here.
 
         The owner is `isPrimary` **or** the longest-serving instructor when no row holds it, and
@@ -393,31 +390,29 @@ export const coursesRouter = createTRPCRouter({
         Archive button that the procedure then refuses. Null only for a course with no
         instructors at all, which `removeInstructor` refuses to create.
       */
-      const ownerId =
-        ownerOf(course.instructors.map((row) => ({ ...row, userId: row.user.id })))?.userId ?? null;
+    const ownerId =
+      ownerOf(course.instructors.map((row) => ({ ...row, userId: row.user.id })))?.userId ?? null;
 
-      return {
-        course,
-        githubOrgs: orgRows
-          .map((row) => row.githubOrg)
-          .filter((org): org is string => org !== null),
-        acceptedCount,
-        /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
-        callerId: ctx.profile.id,
-        /** Which of them owns it. */
-        ownerId,
-        /**
-         * Whether this caller may do the things ownership gates — archive, reopen, hand the
-         * cohort on, remove the owner.
-         *
-         * Not `ownerId === callerId` in the browser, because an admin acts as owner on every
-         * course and holds no `CourseInstructor` row on any of them. A screen deriving it that
-         * way would hide the Archive button from the one reader who is the recovery path when
-         * an owner has left.
-         */
-        callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === "ADMIN",
-      };
-    }),
+    return {
+      course,
+      githubOrgs: orgRows.map((row) => row.githubOrg).filter((org): org is string => org !== null),
+      acceptedCount,
+      /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
+      callerId: ctx.profile.id,
+      /** Which of them owns it. */
+      ownerId,
+      /**
+       * Whether this caller may do the things ownership gates — archive, reopen, hand the
+       * cohort on, remove the owner.
+       *
+       * Not `ownerId === callerId` in the browser, because an admin acts as owner on every
+       * course and holds no `CourseInstructor` row on any of them. A screen deriving it that
+       * way would hide the Archive button from the one reader who is the recovery path when
+       * an owner has left.
+       */
+      callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === "ADMIN",
+    };
+  }),
 
   /**
    * A whole course at once: its assignments, its roster, and every cell where the two
@@ -436,10 +431,9 @@ export const coursesRouter = createTRPCRouter({
    * own screens — no join link, and the two enrollment complements rather than the whole
    * list. Everything still here is something the grid itself draws.
    */
-  gradebook: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
+  gradebook: courseProcedure
+    .input(z.object({ group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
       const selection = parseGroupSelection(input.group);
 
       const course = await ctx.db.course.findUnique({
@@ -634,19 +628,16 @@ export const coursesRouter = createTRPCRouter({
       } | null = null;
 
       if (input.copyFromCourseId) {
-        const teachesSource =
-          ctx.profile.role === "ADMIN" ||
-          (await ctx.db.courseInstructor.findFirst({
-            where: { courseId: input.copyFromCourseId, userId: ctx.profile.id },
-            select: { id: true },
-          })) !== null;
+        /*
+          The source has to be a course the caller teaches — copying from one they cannot see
+          would let an instructor read another cohort's assignment configuration, including
+          which private repository holds its answer keys.
 
-        if (!teachesSource) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You can only copy from a course you teach.",
-          });
-        }
+          `assertTeaches` rather than a check written out here, which is what it was. There is
+          no `courseProcedure` to lean on: the course this procedure gates on is the one it is
+          about to create, and this is a second course named in its input.
+        */
+        await assertTeaches(ctx, input.copyFromCourseId);
 
         const found = await ctx.db.course.findUnique({
           where: { id: input.copyFromCourseId },
@@ -989,17 +980,13 @@ export const coursesRouter = createTRPCRouter({
    * in. Students already enrolled are unaffected — the token is how you *join*, not how you
    * stay.
    */
-  regenerateJoinToken: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
-      return ctx.db.course.update({
-        where: { id: input.courseId },
-        data: { joinToken: newJoinToken() },
-        select: { id: true, joinToken: true },
-      });
-    }),
+  regenerateJoinToken: courseProcedure.mutation(async ({ ctx, input }) => {
+    return ctx.db.course.update({
+      where: { id: input.courseId },
+      data: { joinToken: newJoinToken() },
+      select: { id: true, joinToken: true },
+    });
+  }),
 
   // =====================================================================================
   // Co-teaching: who else may teach this cohort
@@ -1169,17 +1156,13 @@ export const coursesRouter = createTRPCRouter({
    * dealt with by replacing it and removing whoever got in. Instructors already on the course
    * are unaffected — the token is how you are added, not how you stay.
    */
-  regenerateCoTeachToken: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
-      return ctx.db.course.update({
-        where: { id: input.courseId },
-        data: { coTeachToken: newJoinToken() },
-        select: { id: true, coTeachToken: true },
-      });
-    }),
+  regenerateCoTeachToken: courseProcedure.mutation(async ({ ctx, input }) => {
+    return ctx.db.course.update({
+      where: { id: input.courseId },
+      data: { coTeachToken: newJoinToken() },
+      select: { id: true, coTeachToken: true },
+    });
+  }),
 
   /**
    * Removes an instructor from a course.
@@ -1201,11 +1184,9 @@ export const coursesRouter = createTRPCRouter({
    * a student accepts and those repositories hold real student work. Same reasoning as leaving
    * student repositories alone when an assignment is removed.
    */
-  removeInstructor: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), userId: z.string().uuid() }))
+  removeInstructor: courseProcedure
+    .input(z.object({ userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
       /*
         Every instructor on the course in one read, rather than the target row and a count.
         Three of the four things decided below — who the target is, whether this would empty

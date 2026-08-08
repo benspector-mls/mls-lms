@@ -6,8 +6,9 @@ import {
   UnknownRunnerPresetError,
   resolveRunner,
 } from "@/lib/sandbox/presets";
+import { teachableSubmission } from "@/lib/courses/scope";
 import { runTestsForSubmission } from "@/lib/sandbox/run-tests";
-import { type AuthedCtx, createTRPCRouter, instructorProcedure } from "../init";
+import { createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * Deterministic test execution, instructor-only.
@@ -43,53 +44,6 @@ const testRunFields = {
   setupDurationMs: true,
 } as const;
 
-/**
- * Resolves a submission and confirms the caller teaches its course.
- *
- * Returns the assignment's runner configuration alongside, because every caller
- * needs it and loading it separately would mean a second query.
- */
-async function loadSubmissionForInstructor(ctx: AuthedCtx, submissionId: string) {
-  const submission = await ctx.db.submission.findUnique({
-    where: { id: submissionId },
-    select: {
-      id: true,
-      repoFullName: true,
-      headSha: true,
-      prNumber: true,
-      assignment: {
-        select: {
-          id: true,
-          title: true,
-          courseId: true,
-          runnerPreset: true,
-          runnerConfig: true,
-        },
-      },
-    },
-  });
-
-  if (!submission) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
-  }
-
-  const teaches =
-    ctx.profile.role === "ADMIN" ||
-    (await ctx.db.courseInstructor.findFirst({
-      where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
-      select: { id: true },
-    })) !== null;
-
-  if (!teaches) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You do not teach the course this submission belongs to.",
-    });
-  }
-
-  return submission;
-}
-
 export const testRunsRouter = createTRPCRouter({
   /**
    * Runs the assignment's suite against one submission, awaited inside the request.
@@ -102,7 +56,15 @@ export const testRunsRouter = createTRPCRouter({
   start: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        repoFullName: true,
+        headSha: true,
+        prNumber: true,
+        assignment: {
+          select: { id: true, title: true, runnerPreset: true, runnerConfig: true },
+        },
+      });
 
       try {
         return await runTestsForSubmission(submission.id, { trigger: "MANUAL" });
@@ -136,7 +98,15 @@ export const testRunsRouter = createTRPCRouter({
   listForSubmission: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        repoFullName: true,
+        headSha: true,
+        prNumber: true,
+        assignment: {
+          select: { id: true, title: true, runnerPreset: true, runnerConfig: true },
+        },
+      });
 
       const runs = await ctx.db.testRun.findMany({
         where: { submissionId: submission.id },
@@ -176,7 +146,7 @@ export const testRunsRouter = createTRPCRouter({
 
       // Authorization lives on the submission, so it is checked there rather than
       // duplicated here.
-      await loadSubmissionForInstructor(ctx, run.submissionId);
+      await teachableSubmission(ctx, run.submissionId, { id: true });
       return run;
     }),
 });

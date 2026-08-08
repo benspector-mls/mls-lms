@@ -4,13 +4,19 @@ import { z } from "zod";
 import { isManualOnly } from "@/lib/assignments/spec";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
-import { activeStudentWork, removedStudentIds, selectedStudentIds } from "@/lib/courses/membership";
+import {
+  activeStudentWork,
+  assertOwnsOrTeaches,
+  removedStudentIds,
+  selectedStudentIds,
+} from "@/lib/courses/membership";
+import { teachableAssignment } from "@/lib/courses/scope";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { moduleSummarySelect, personSelect } from "../selects";
 
 /**
@@ -255,24 +261,16 @@ export const submissionsRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
       }
 
-      const isOwner = submission.studentId === ctx.profile.id;
-
-      if (!isOwner && ctx.profile.role !== "ADMIN") {
-        const teaches = await ctx.db.courseInstructor.findFirst({
-          where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
-          select: { id: true },
-        });
-
-        // Holding the INSTRUCTOR role is not enough, for the reason every authoring procedure
-        // checks the same thing: it says nothing about *which* courses, so without this one
-        // cohort's instructor could read another cohort's submissions.
-        if (!teaches) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not teach the course this submission belongs to.",
-          });
-        }
-      }
+      /*
+        The student who owns this, or an instructor of its course. Holding the INSTRUCTOR role
+        is not enough, for the reason every authoring procedure checks the same thing: it says
+        nothing about *which* courses, so without this one cohort's instructor could read
+        another cohort's submissions.
+      */
+      await assertOwnsOrTeaches(ctx, {
+        studentId: submission.studentId,
+        courseId: submission.assignment.courseId,
+      });
 
       if (!submission.uploadPath) {
         throw new TRPCError({
@@ -370,6 +368,16 @@ export const submissionsRouter = createTRPCRouter({
    * describing a commit the student has since pushed past is deliberately not "ready to
    * review" — approving it is refused — so it falls back to `needs_report`.
    */
+  /*
+    Deliberately **not** `courseProcedure`, and the one instructor read that is not.
+
+    Its `visible` check below answers two questions at once — may this caller see the pile, and
+    is the cohort archived — and answers the first with an empty result rather than a refusal,
+    because on this screen the two reasons to see nothing are not worth telling apart: a cohort
+    somebody else teaches and a cohort that has finished both have nothing waiting on you.
+    `courseProcedure` would turn that into a FORBIDDEN, which is a different answer to a
+    question this screen deliberately does not ask.
+  */
   triage: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
@@ -572,14 +580,14 @@ export const submissionsRouter = createTRPCRouter({
     .input(z.object({ assignmentId: z.string().uuid(), group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
       const selection = parseGroupSelection(input.group);
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: { id: true, title: true, courseId: true, dueAt: true, kind: true, sections: true },
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        title: true,
+        courseId: true,
+        dueAt: true,
+        kind: true,
+        sections: true,
       });
-
-      if (!assignment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      }
 
       /*
         Read once for the whole queue rather than per row: every submission here belongs to
@@ -588,20 +596,6 @@ export const submissionsRouter = createTRPCRouter({
         an empty draft to type into.
       */
       const manualOnly = isManualOnly(assignment.sections);
-
-      const teaches =
-        ctx.profile.role === "ADMIN" ||
-        (await ctx.db.courseInstructor.findFirst({
-          where: { courseId: assignment.courseId, userId: ctx.profile.id },
-          select: { id: true },
-        })) !== null;
-
-      if (!teaches) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not teach the course this assignment belongs to.",
-        });
-      }
 
       const submissions = await ctx.db.submission.findMany({
         where: { assignmentId: assignment.id },
@@ -703,23 +697,9 @@ export const submissionsRouter = createTRPCRouter({
    *
    * Any enrollment status. A removed student's record is exactly what this screen is for.
    */
-  listForStudent: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), studentId: z.string().uuid() }))
+  listForStudent: courseProcedure
+    .input(z.object({ studentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const teaches =
-        ctx.profile.role === "ADMIN" ||
-        (await ctx.db.courseInstructor.findFirst({
-          where: { courseId: input.courseId, userId: ctx.profile.id },
-          select: { id: true },
-        })) !== null;
-
-      if (!teaches) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not teach this course.",
-        });
-      }
-
       /*
         The enrollment is what proves the student belongs to this course, so it is the access
         check as well as a fact for the header. Without it, any student id plus a course the

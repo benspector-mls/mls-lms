@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { assertCourseMember, assertTeaches } from "@/lib/courses/membership";
+import { assertCourseMember } from "@/lib/courses/membership";
+import { teachableModule, teachableResource } from "@/lib/courses/scope";
 import { resourceColumns, resourceSpecSchema, UnrecognisedVideoError } from "@/lib/resources/spec";
 
-import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 /**
  * The things in a module that are not work: readings, notes, and videos.
@@ -23,37 +24,6 @@ import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure
  * publish step. An assignment has one because handing it out starts a clock and creates work; a
  * link to a reading does neither.
  */
-
-/**
- * The module, if the caller teaches the course it belongs to.
- *
- * The same shape as `loadTeachableModule` in the modules router and separate from it on
- * purpose: that one returns a module's own fields to act on, this one is only a guard, and
- * sharing it would mean either exporting a router's internals or selecting columns neither
- * caller wants.
- */
-async function loadTeachableModule(ctx: AuthedCtx, moduleId: string) {
-  const found = await ctx.db.module.findUnique({
-    where: { id: moduleId },
-    select: { id: true, courseId: true, name: true },
-  });
-
-  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Module not found." });
-  await assertTeaches(ctx, found.courseId);
-  return found;
-}
-
-/** The resource with its module, if the caller teaches that module's course. */
-async function loadTeachableResource(ctx: AuthedCtx, resourceId: string) {
-  const found = await ctx.db.resource.findUnique({
-    where: { id: resourceId },
-    select: { id: true, title: true, kind: true, module: { select: { id: true, courseId: true } } },
-  });
-
-  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Resource not found." });
-  await assertTeaches(ctx, found.module.courseId);
-  return found;
-}
 
 /**
  * Turns a spec into columns, reporting an unrecognised video as something an instructor can act
@@ -124,7 +94,7 @@ export const resourcesRouter = createTRPCRouter({
   create: instructorProcedure
     .input(z.object({ moduleId: z.string().uuid(), spec: resourceSpecSchema }))
     .mutation(async ({ ctx, input }) => {
-      await loadTeachableModule(ctx, input.moduleId);
+      await teachableModule(ctx, input.moduleId, { id: true });
 
       return ctx.db.resource.create({
         data: { moduleId: input.moduleId, ...columnsOrRefuse(input.spec) },
@@ -149,7 +119,10 @@ export const resourcesRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const existing = await loadTeachableResource(ctx, input.resourceId);
+      const existing = await teachableResource(ctx, input.resourceId, {
+        id: true,
+        module: { select: { id: true, courseId: true } },
+      });
 
       /*
         Checked rather than left to the foreign key, which would happily accept a module from
@@ -193,7 +166,11 @@ export const resourcesRouter = createTRPCRouter({
   remove: instructorProcedure
     .input(z.object({ resourceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const found = await loadTeachableResource(ctx, input.resourceId);
+      const found = await teachableResource(ctx, input.resourceId, {
+        id: true,
+        title: true,
+        kind: true,
+      });
       await ctx.db.resource.delete({ where: { id: input.resourceId } });
       return { id: found.id, title: found.title, kind: found.kind };
     }),

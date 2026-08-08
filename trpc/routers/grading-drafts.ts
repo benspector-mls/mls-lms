@@ -4,11 +4,12 @@ import { z } from "zod";
 import { isManualOnly, manualSections } from "@/lib/assignments/spec";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { approveDraft, ApprovalError, deliveryOutcome, retryComment } from "@/lib/grade/approve";
+import { teachableSubmission } from "@/lib/courses/scope";
 import { GradingAssetsError } from "@/lib/grade/assets";
 import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
 import { ProviderError } from "@/lib/grade/provider";
 import { ReportValidationError } from "@/lib/grade/schema";
-import { type AuthedCtx, createTRPCRouter, instructorProcedure } from "../init";
+import { createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * AI grading drafts, instructor-only.
@@ -51,40 +52,6 @@ const draftFields = {
   },
 } as const;
 
-/** Resolves a submission and confirms the caller teaches its course. */
-async function loadSubmissionForInstructor(ctx: AuthedCtx, submissionId: string) {
-  const submission = await ctx.db.submission.findUnique({
-    where: { id: submissionId },
-    select: {
-      id: true,
-      headSha: true,
-      prNumber: true,
-      repoFullName: true,
-      assignment: { select: { id: true, title: true, courseId: true, sections: true } },
-    },
-  });
-
-  if (!submission) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
-  }
-
-  const teaches =
-    ctx.profile.role === "ADMIN" ||
-    (await ctx.db.courseInstructor.findFirst({
-      where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
-      select: { id: true },
-    })) !== null;
-
-  if (!teaches) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You do not teach the course this submission belongs to.",
-    });
-  }
-
-  return submission;
-}
-
 export const gradingDraftsRouter = createTRPCRouter({
   /**
    * Generates a draft, awaited inside the request.
@@ -96,7 +63,13 @@ export const gradingDraftsRouter = createTRPCRouter({
   generate: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        headSha: true,
+        prNumber: true,
+        repoFullName: true,
+        assignment: { select: { id: true, title: true, courseId: true, sections: true } },
+      });
 
       try {
         return await generateReportForSubmission(submission.id);
@@ -136,7 +109,13 @@ export const gradingDraftsRouter = createTRPCRouter({
   startManual: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        headSha: true,
+        prNumber: true,
+        repoFullName: true,
+        assignment: { select: { id: true, title: true, courseId: true, sections: true } },
+      });
 
       const sections = manualSections(submission.assignment.sections);
 
@@ -214,7 +193,13 @@ export const gradingDraftsRouter = createTRPCRouter({
   listForSubmission: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        headSha: true,
+        prNumber: true,
+        repoFullName: true,
+        assignment: { select: { id: true, title: true, courseId: true, sections: true } },
+      });
 
       const drafts = await ctx.db.gradingDraft.findMany({
         where: { submissionId: submission.id },
@@ -322,7 +307,7 @@ export const gradingDraftsRouter = createTRPCRouter({
 
       // Authorization lives on the submission, so it is checked there rather than
       // duplicated here.
-      await loadSubmissionForInstructor(ctx, draft.submissionId);
+      await teachableSubmission(ctx, draft.submissionId, { id: true });
       return draft;
     }),
 
@@ -355,7 +340,7 @@ export const gradingDraftsRouter = createTRPCRouter({
       });
       if (!section) throw new TRPCError({ code: "NOT_FOUND", message: "Section not found." });
 
-      await loadSubmissionForInstructor(ctx, section.gradingDraft.submissionId);
+      await teachableSubmission(ctx, section.gradingDraft.submissionId, { id: true });
 
       // An approved draft is a round of feedback the student has already read. Editing
       // it would change the record of what they were told without changing what they
@@ -410,7 +395,7 @@ export const gradingDraftsRouter = createTRPCRouter({
       });
       if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
 
-      await loadSubmissionForInstructor(ctx, draft.submissionId);
+      await teachableSubmission(ctx, draft.submissionId, { id: true });
 
       try {
         return await approveDraft({
@@ -441,7 +426,7 @@ export const gradingDraftsRouter = createTRPCRouter({
   retryComment: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await loadSubmissionForInstructor(ctx, input.submissionId);
+      await teachableSubmission(ctx, input.submissionId, { id: true });
 
       try {
         return await retryComment(input.submissionId);

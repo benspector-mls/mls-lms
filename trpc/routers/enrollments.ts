@@ -1,6 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { teachableEnrollment } from "@/lib/courses/scope";
+
 import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { displayNameOf, personNameSelect } from "../selects";
 
@@ -209,35 +211,21 @@ export const enrollmentsRouter = createTRPCRouter({
 });
 
 /**
- * The enrollment, if the caller teaches the course it belongs to.
+ * The enrollment, if the caller teaches the course it belongs to, and who it is about.
  *
- * Loading the row first is what makes the course-level check possible at all: an enrollment id
- * says nothing about which course it is in until the row is read, so without this an instructor
- * could remove a student from another cohort by id.
+ * A thin wrapper over `teachableEnrollment` rather than its own check: both call sites want the
+ * student's name for the message they return, and that is the only thing this adds. Loading the
+ * row first is what makes the course-level check possible at all — an enrollment id says nothing
+ * about which course it is in until the row is read.
  */
 async function loadTeachableEnrollment(
   ctx: AuthedCtx,
   enrollmentId: string,
 ): Promise<{ courseId: string; studentName: string }> {
-  const found = await ctx.db.enrollment.findUnique({
-    where: { id: enrollmentId },
-    select: {
-      courseId: true,
-      student: { select: personNameSelect },
-    },
+  const found = await teachableEnrollment(ctx, enrollmentId, {
+    courseId: true,
+    student: { select: personNameSelect },
   });
-
-  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Enrollment not found." });
-
-  if (ctx.profile.role !== "ADMIN") {
-    const teaches = await ctx.db.courseInstructor.findFirst({
-      where: { courseId: found.courseId, userId: ctx.profile.id },
-      select: { id: true },
-    });
-    if (!teaches) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "You do not teach this course." });
-    }
-  }
 
   return {
     courseId: found.courseId,

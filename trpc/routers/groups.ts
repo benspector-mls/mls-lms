@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { assertTeaches } from "@/lib/courses/membership";
+import { teachableGroup } from "@/lib/courses/scope";
 
-import { type AuthedCtx, createTRPCRouter, instructorProcedure } from "../init";
+import { courseProcedure, createTRPCRouter, instructorProcedure } from "../init";
 import { personSelect } from "../selects";
 
 /**
@@ -30,24 +30,6 @@ import { personSelect } from "../selects";
 /** Trimmed, because " Squad 1" and "Squad 1" are the same group to everyone but the database. */
 const groupName = z.string().trim().min(1, "A group needs a name.").max(120);
 
-/**
- * The group, if the caller teaches the course it belongs to.
- *
- * Loading the row first is what makes the course-level check possible at all: the mutations
- * below take a group id, and a group id says nothing about which course it is in until the row
- * is read.
- */
-async function loadTeachableGroup(ctx: AuthedCtx, groupId: string) {
-  const found = await ctx.db.courseGroup.findUnique({
-    where: { id: groupId },
-    select: { id: true, courseId: true, name: true },
-  });
-
-  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found." });
-  await assertTeaches(ctx, found.courseId);
-  return found;
-}
-
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string): never {
   const code = (err as { code?: string }).code;
@@ -73,56 +55,52 @@ export const groupsRouter = createTRPCRouter({
    * Read by the picker on four screens, so it carries `gradingGroupId`: which group the caller
    * is currently working, so the picker opens on it rather than having to ask separately.
    */
-  listForCourse: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
-      const [groups, instructorRow, ungrouped] = await Promise.all([
-        ctx.db.courseGroup.findMany({
-          where: { courseId: input.courseId },
-          orderBy: { name: "asc" },
-          select: {
-            id: true,
-            name: true,
-            _count: { select: { memberships: { where: { enrollment: { status: "ACTIVE" } } } } },
-          },
-        }),
-        /*
+  listForCourse: courseProcedure.query(async ({ ctx, input }) => {
+    const [groups, instructorRow, ungrouped] = await Promise.all([
+      ctx.db.courseGroup.findMany({
+        where: { courseId: input.courseId },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          _count: { select: { memberships: { where: { enrollment: { status: "ACTIVE" } } } } },
+        },
+      }),
+      /*
           Null for an admin, who has no `CourseInstructor` row in any course and therefore
           nowhere to remember a selection. That is the right answer rather than a gap: an admin
           reading somebody else's cohort is looking rather than working it, and the picker
           simply opens on All Students each time.
         */
-        ctx.db.courseInstructor.findFirst({
-          where: { courseId: input.courseId, userId: ctx.profile.id },
-          select: { gradingGroupId: true },
-        }),
-        /*
+      ctx.db.courseInstructor.findFirst({
+        where: { courseId: input.courseId, userId: ctx.profile.id },
+        select: { gradingGroupId: true },
+      }),
+      /*
           Active students in no group at all. Its own count rather than the cohort total minus
           the group counts, which would be wrong the moment a student is in two groups — a
           membership is many-to-many in both directions.
         */
-        ctx.db.enrollment.count({
-          where: {
-            courseId: input.courseId,
-            status: "ACTIVE",
-            groupMemberships: { none: {} },
-          },
-        }),
-      ]);
+      ctx.db.enrollment.count({
+        where: {
+          courseId: input.courseId,
+          status: "ACTIVE",
+          groupMemberships: { none: {} },
+        },
+      }),
+    ]);
 
-      return {
-        groups: groups.map(({ _count, ...group }) => ({
-          ...group,
-          memberCount: _count.memberships,
-        })),
-        /** How many active students belong to no group, for the picker's Ungrouped entry. */
-        ungroupedCount: ungrouped,
-        /** The caller's remembered selection. Null is All Students. */
-        gradingGroupId: instructorRow?.gradingGroupId ?? null,
-      };
-    }),
+    return {
+      groups: groups.map(({ _count, ...group }) => ({
+        ...group,
+        memberCount: _count.memberships,
+      })),
+      /** How many active students belong to no group, for the picker's Ungrouped entry. */
+      ungroupedCount: ungrouped,
+      /** The caller's remembered selection. Null is All Students. */
+      gradingGroupId: instructorRow?.gradingGroupId ?? null,
+    };
+  }),
 
   /**
    * Every active student of a course with the groups each belongs to, for the roster.
@@ -131,41 +109,33 @@ export const groupsRouter = createTRPCRouter({
    * without having to compare two lists. Removed students are absent — they are not who
    * grouping is about, and the roster shows them in their own table anyway.
    */
-  membershipsForCourse: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
+  membershipsForCourse: courseProcedure.query(async ({ ctx, input }) => {
+    const enrollments = await ctx.db.enrollment.findMany({
+      where: { courseId: input.courseId, status: "ACTIVE" },
+      select: {
+        id: true,
+        student: { select: personSelect },
+        groupMemberships: { select: { groupId: true } },
+      },
+    });
 
-      const enrollments = await ctx.db.enrollment.findMany({
-        where: { courseId: input.courseId, status: "ACTIVE" },
-        select: {
-          id: true,
-          student: { select: personSelect },
-          groupMemberships: { select: { groupId: true } },
-        },
+    return enrollments.map((enrollment) => ({
+      enrollmentId: enrollment.id,
+      student: enrollment.student,
+      groupIds: enrollment.groupMemberships.map((membership) => membership.groupId),
+    }));
+  }),
+
+  create: courseProcedure.input(z.object({ name: groupName })).mutation(async ({ ctx, input }) => {
+    try {
+      return await ctx.db.courseGroup.create({
+        data: { courseId: input.courseId, name: input.name },
+        select: { id: true, name: true },
       });
-
-      return enrollments.map((enrollment) => ({
-        enrollmentId: enrollment.id,
-        student: enrollment.student,
-        groupIds: enrollment.groupMemberships.map((membership) => membership.groupId),
-      }));
-    }),
-
-  create: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), name: groupName }))
-    .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
-      try {
-        return await ctx.db.courseGroup.create({
-          data: { courseId: input.courseId, name: input.name },
-          select: { id: true, name: true },
-        });
-      } catch (err) {
-        refuseDuplicate(err, input.name);
-      }
-    }),
+    } catch (err) {
+      refuseDuplicate(err, input.name);
+    }
+  }),
 
   /**
    * Renames a group.
@@ -176,7 +146,7 @@ export const groupsRouter = createTRPCRouter({
   rename: instructorProcedure
     .input(z.object({ groupId: z.string().uuid(), name: groupName }))
     .mutation(async ({ ctx, input }) => {
-      await loadTeachableGroup(ctx, input.groupId);
+      await teachableGroup(ctx, input.groupId, { id: true });
 
       try {
         return await ctx.db.courseGroup.update({
@@ -204,7 +174,7 @@ export const groupsRouter = createTRPCRouter({
   remove: instructorProcedure
     .input(z.object({ groupId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const found = await loadTeachableGroup(ctx, input.groupId);
+      const found = await teachableGroup(ctx, input.groupId, { id: true, name: true });
 
       const memberCount = await ctx.db.groupMembership.count({
         where: { groupId: input.groupId },
@@ -237,7 +207,7 @@ export const groupsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const group = await loadTeachableGroup(ctx, input.groupId);
+      const group = await teachableGroup(ctx, input.groupId, { id: true, courseId: true });
 
       const wanted = [...new Set(input.enrollmentIds)];
 
@@ -323,16 +293,9 @@ export const groupsRouter = createTRPCRouter({
    * query string, and inventing a row for them would put the cohort into their own course list
    * as one they teach.
    */
-  setGradingGroup: instructorProcedure
-    .input(
-      z.object({
-        courseId: z.string().uuid(),
-        groupId: z.string().uuid().nullable(),
-      }),
-    )
+  setGradingGroup: courseProcedure
+    .input(z.object({ groupId: z.string().uuid().nullable() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
       /*
         Checked rather than left to the foreign key, which would accept a group belonging to any
         course. Stored, that is a remembered filter matching no enrollment in this cohort — an

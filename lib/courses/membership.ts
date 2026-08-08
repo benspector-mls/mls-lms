@@ -141,6 +141,27 @@ export async function assertTeaches(ctx: AuthedCtx, courseId: string): Promise<v
   }
 }
 
+/**
+ * Refuses unless the caller is **the student this work belongs to, or an instructor of its
+ * course**.
+ *
+ * Its own named question rather than a special case of the two above, because it is the only
+ * place where owning something and teaching it grant the same thing. It governs one act:
+ * minting a signed URL for a stored file — which is the *whole* of the access control on
+ * uploads, since the bucket is private and carries no policies, so there is no other route to
+ * the bytes.
+ *
+ * The student check comes first and costs nothing, which matters: the common caller is the
+ * student looking at their own work, and they are not an instructor of anything.
+ */
+export async function assertOwnsOrTeaches(
+  ctx: AuthedCtx,
+  work: { studentId: string; courseId: string },
+): Promise<void> {
+  if (work.studentId === ctx.profile.id) return;
+  await assertTeaches(ctx, work.courseId);
+}
+
 // =======================================================================================
 // The same two questions, asked about a cohort's work rather than about the caller
 //

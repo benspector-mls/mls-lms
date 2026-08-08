@@ -17,6 +17,7 @@ import {
 } from "@/lib/assignments/validate";
 import { studentRepoName } from "@/lib/courses/cohort-slug";
 import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/courses/membership";
+import { teachableAssignment } from "@/lib/courses/scope";
 import { effectiveSection } from "@/lib/grade/approve";
 import { getConfiguredInstallationId, isGithubAppConfigured } from "@/lib/github/app-client";
 import {
@@ -27,7 +28,13 @@ import {
   waitForRepoContent,
 } from "@/lib/github/repos";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure, studentProcedure } from "../init";
+import {
+  courseProcedure,
+  createTRPCRouter,
+  instructorProcedure,
+  profileProcedure,
+  studentProcedure,
+} from "../init";
 import { moduleSummarySelect } from "../selects";
 
 /** Columns of an assignment that are safe to send to any enrolled member. */
@@ -138,7 +145,7 @@ export const assignmentsRouter = createTRPCRouter({
   listForCourse: profileProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertCourseMember(ctx, input.courseId);
+      const membership = await assertCourseMember(ctx, input.courseId);
 
       /*
         An unpublished assignment is invisible to a student and visible to an instructor.
@@ -147,13 +154,13 @@ export const assignmentsRouter = createTRPCRouter({
         authoring safe: an assignment can be built over several sittings, and a section
         mapping corrected, without a student seeing a half-finished one or accepting an
         assignment whose answer keys are still wrong.
+
+        Read off the membership that was just fetched rather than asked again — which is also
+        what stops this from being a second implementation of the question
+        `modules.listForCourse` asks. It was one, and the two would have had to be changed
+        together with nothing to say so.
       */
-      const teaches =
-        ctx.profile.role === "ADMIN" ||
-        (await ctx.db.courseInstructor.findFirst({
-          where: { courseId: input.courseId, userId: ctx.profile.id },
-          select: { id: true },
-        })) !== null;
+      const teaches = membership.as !== "student";
 
       const assignments = await ctx.db.assignment.findMany({
         where: {
@@ -282,6 +289,12 @@ export const assignmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const student = ctx.profile;
 
+      /*
+        Deliberately a plain read rather than one of the `teachable*` loaders. This is the
+        student path: the caller is not an instructor of this course and must not be asked to
+        be. `assertActiveStudent` below is the check that belongs here, and it is a different
+        question with a different answer.
+      */
       const assignment = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
         select: {
@@ -593,35 +606,31 @@ export const assignmentsRouter = createTRPCRouter({
    * fetched separately because the form cannot render its first question without the module
    * list, and a form that appears one field at a time as three requests land reads as broken.
    */
-  authoringContext: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
+  authoringContext: courseProcedure.query(async ({ ctx, input }) => {
+    const [course, modules, rubrics, siblings] = await Promise.all([
+      ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: { id: true, name: true, cohortTerm: true },
+      }),
+      // The course's own modules, which are the only ones an assignment may be filed
+      // under. Empty is a real state and the form has to say so rather than offering an
+      // empty select: a course with no modules cannot hold an assignment yet.
+      ctx.db.module.findMany({
+        where: { courseId: input.courseId },
+        orderBy: [{ position: "asc" }, { name: "asc" }],
+        select: moduleSummarySelect,
+      }),
+      ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      ctx.db.assignment.findMany({
+        where: { courseId: input.courseId, kind: "REPO" },
+        select: { githubOrg: true, answerKeyRepo: true },
+        take: 50,
+      }),
+    ]);
 
-      const [course, modules, rubrics, siblings] = await Promise.all([
-        ctx.db.course.findUnique({
-          where: { id: input.courseId },
-          select: { id: true, name: true, cohortTerm: true },
-        }),
-        // The course's own modules, which are the only ones an assignment may be filed
-        // under. Empty is a real state and the form has to say so rather than offering an
-        // empty select: a course with no modules cannot hold an assignment yet.
-        ctx.db.module.findMany({
-          where: { courseId: input.courseId },
-          orderBy: [{ position: "asc" }, { name: "asc" }],
-          select: moduleSummarySelect,
-        }),
-        ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-        ctx.db.assignment.findMany({
-          where: { courseId: input.courseId, kind: "REPO" },
-          select: { githubOrg: true, answerKeyRepo: true },
-          take: 50,
-        }),
-      ]);
+    if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
 
-      if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
-
-      /*
+    /*
         Whatever this course's other repository assignments use, for the two fields that are
         the same for nearly every assignment in a cohort: the organization students'
         repositories are created in, and the repository the reference solutions live in.
@@ -631,29 +640,29 @@ export const assignmentsRouter = createTRPCRouter({
         report comes back graded without its answer keys. Offered as a default rather than
         enforced, because a cohort legitimately splits its solutions across repositories.
       */
-      const commonest = (values: (string | null)[]): string | null => {
-        const counts = new Map<string, number>();
-        for (const value of values) {
-          if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
-        }
-        return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-      };
+    const commonest = (values: (string | null)[]): string | null => {
+      const counts = new Map<string, number>();
+      for (const value of values) {
+        if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    };
 
-      const defaultGithubOrg = commonest(siblings.map((sibling) => sibling.githubOrg));
-      const defaultAnswerKeyRepo = commonest(siblings.map((sibling) => sibling.answerKeyRepo));
+    const defaultGithubOrg = commonest(siblings.map((sibling) => sibling.githubOrg));
+    const defaultAnswerKeyRepo = commonest(siblings.map((sibling) => sibling.answerKeyRepo));
 
-      return {
-        course: {
-          id: course.id,
-          name: course.name,
-          cohortTerm: course.cohortTerm,
-          modules,
-        },
-        rubrics,
-        defaultGithubOrg,
-        defaultAnswerKeyRepo,
-      };
-    }),
+    return {
+      course: {
+        id: course.id,
+        name: course.name,
+        cohortTerm: course.cohortTerm,
+        modules,
+      },
+      rubrics,
+      defaultGithubOrg,
+      defaultAnswerKeyRepo,
+    };
+  }),
 
   /**
    * One assignment in the shape the authoring form edits.
@@ -666,36 +675,30 @@ export const assignmentsRouter = createTRPCRouter({
   getDraft: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: {
-          id: true,
-          courseId: true,
-          kind: true,
-          title: true,
-          moduleId: true,
-          pointValue: true,
-          completionThreshold: true,
-          dueAt: true,
-          distributedAt: true,
-          templateRepo: true,
-          answerKeyRepo: true,
-          answerKeyDir: true,
-          assignmentRepoName: true,
-          githubOrg: true,
-          templateRef: true,
-          runnerPreset: true,
-          runnerConfig: true,
-          templateDriveUrl: true,
-          acceptedFileTypes: true,
-          submissionInstructions: true,
-          sections: true,
-          _count: { select: { submissions: true } },
-        },
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        courseId: true,
+        kind: true,
+        title: true,
+        moduleId: true,
+        pointValue: true,
+        completionThreshold: true,
+        dueAt: true,
+        distributedAt: true,
+        templateRepo: true,
+        answerKeyRepo: true,
+        answerKeyDir: true,
+        assignmentRepoName: true,
+        githubOrg: true,
+        templateRef: true,
+        runnerPreset: true,
+        runnerConfig: true,
+        templateDriveUrl: true,
+        acceptedFileTypes: true,
+        submissionInstructions: true,
+        sections: true,
+        _count: { select: { submissions: true } },
       });
-
-      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      await assertTeaches(ctx, assignment.courseId);
 
       const { _count, ...rest } = assignment;
       return { ...rest, submissionCount: _count.submissions };
@@ -708,16 +711,14 @@ export const assignmentsRouter = createTRPCRouter({
    * problems instead of discovering them one at a time, and returns the point total the
    * sections imply so the form does not compute it a second way.
    */
-  validateDraft: instructorProcedure
+  validateDraft: courseProcedure
     .input(
       z.object({
-        courseId: z.string().uuid(),
         assignmentId: z.string().uuid().optional(),
         draft: z.unknown(),
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
       const { findings, pointValue } = await validateAssignmentDraft(ctx.db, input);
       return { findings, pointValue, canSave: !hasErrors(findings) };
     }),
@@ -732,16 +733,14 @@ export const assignmentsRouter = createTRPCRouter({
    * `dir` is empty for the repository root. `entries` is null when the directory does not
    * exist, which is a real answer while a path is being typed and not an error.
    */
-  browseAnswerKeys: instructorProcedure
+  browseAnswerKeys: courseProcedure
     .input(
       z.object({
-        courseId: z.string().uuid(),
         answerKeyRepo: z.string().min(3),
         dir: z.string().default(""),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
+    .query(async ({ input }) => {
       const { listAnswerKeyEntries } = await import("@/lib/grade/assets");
       return { entries: await listAnswerKeyEntries(input.answerKeyRepo, input.dir) };
     }),
@@ -754,16 +753,14 @@ export const assignmentsRouter = createTRPCRouter({
    * folder and this says what naming it means, which is the same list `loadGradingAssets`
    * builds at grading time from the same function.
    */
-  answerKeyPreview: instructorProcedure
+  answerKeyPreview: courseProcedure
     .input(
       z.object({
-        courseId: z.string().uuid(),
         answerKeyRepo: z.string().min(3),
         dir: z.string().default(""),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
+    .query(async ({ input }) => {
       const { listAnswerKeys, MAX_ANSWER_KEYS } = await import("@/lib/grade/assets");
       const set = await listAnswerKeys(input.answerKeyRepo, input.dir);
       return { ...set, limit: MAX_ANSWER_KEYS };
@@ -778,10 +775,9 @@ export const assignmentsRouter = createTRPCRouter({
    * The reference is normalized here rather than trusted, so a pasted URL works the same as
    * a typed `owner/repo` — the field the form sends holds whichever the instructor produced.
    */
-  inferFromTemplate: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), templateRepo: z.string().min(3) }))
-    .query(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
+  inferFromTemplate: courseProcedure
+    .input(z.object({ templateRepo: z.string().min(3) }))
+    .query(async ({ input }) => {
       const { normalizeRepoRef } = await import("@/lib/assignments/repo-ref");
       const { detectRunnerPreset, NOT_A_REPOSITORY } = await import("@/lib/assignments/detect");
 
@@ -795,11 +791,9 @@ export const assignmentsRouter = createTRPCRouter({
    * `pointValue` comes from the validated spec rather than from input, so there is no
    * request that can make the gradebook column disagree with the sections beneath it.
    */
-  create: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), draft: z.unknown() }))
+  create: courseProcedure
+    .input(z.object({ draft: z.unknown() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
       const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, input);
       refuseOnErrors(findings);
       if (!spec || pointValue === null) {
@@ -830,16 +824,11 @@ export const assignmentsRouter = createTRPCRouter({
   update: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid(), draft: z.unknown() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: {
-          courseId: true,
-          assignmentRepoName: true,
-          _count: { select: { submissions: true } },
-        },
+      const existing = await teachableAssignment(ctx, input.assignmentId, {
+        courseId: true,
+        assignmentRepoName: true,
+        _count: { select: { submissions: true } },
       });
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      await assertTeaches(ctx, existing.courseId);
 
       const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, {
         courseId: existing.courseId,
@@ -879,12 +868,10 @@ export const assignmentsRouter = createTRPCRouter({
   publish: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: { courseId: true, distributedAt: true },
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        courseId: true,
+        distributedAt: true,
       });
-      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      await assertTeaches(ctx, assignment.courseId);
 
       return ctx.db.assignment.update({
         where: { id: input.assignmentId },
@@ -904,12 +891,7 @@ export const assignmentsRouter = createTRPCRouter({
   unpublish: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: { courseId: true },
-      });
-      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      await assertTeaches(ctx, assignment.courseId);
+      await teachableAssignment(ctx, input.assignmentId, { id: true });
 
       return ctx.db.assignment.update({
         where: { id: input.assignmentId },
@@ -943,14 +925,9 @@ export const assignmentsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const source = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: copyableAssignmentSelect,
-      });
-      if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-
-      // Both courses, because copying reads one and writes the other.
-      await assertTeaches(ctx, source.courseId);
+      // Both courses, because copying reads one and writes the other. The source is loaded
+      // and authorized in one query; the target has no row here to hang a check on.
+      const source = await teachableAssignment(ctx, input.assignmentId, copyableAssignmentSelect);
       await assertTeaches(ctx, input.targetCourseId);
 
       /*
@@ -991,12 +968,12 @@ export const assignmentsRouter = createTRPCRouter({
   removalImpact: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: { id: true, courseId: true, title: true, distributedAt: true },
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        courseId: true,
+        title: true,
+        distributedAt: true,
       });
-      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      await assertTeaches(ctx, assignment.courseId);
 
       const submissions = await ctx.db.submission.findMany({
         where: { assignmentId: input.assignmentId },
@@ -1040,12 +1017,11 @@ export const assignmentsRouter = createTRPCRouter({
   remove: instructorProcedure
     .input(z.object({ assignmentId: z.string().uuid(), confirmTitle: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const assignment = await ctx.db.assignment.findUnique({
-        where: { id: input.assignmentId },
-        select: { id: true, courseId: true, title: true },
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        courseId: true,
+        title: true,
       });
-      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
-      await assertTeaches(ctx, assignment.courseId);
 
       if (input.confirmTitle !== assignment.title) {
         throw new TRPCError({

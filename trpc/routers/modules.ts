@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { assertCourseMember, assertTeaches } from "@/lib/courses/membership";
+import { assertCourseMember } from "@/lib/courses/membership";
+import { teachableModule } from "@/lib/courses/scope";
 
-import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { moduleSummarySelect } from "../selects";
 
 /**
@@ -24,24 +25,6 @@ import { moduleSummarySelect } from "../selects";
 
 /** Trimmed, because " Mod 4" and "Mod 4" are the same module to everyone but the database. */
 const moduleName = z.string().trim().min(1, "A module needs a name.").max(120);
-
-/**
- * The module, if the caller teaches the course it belongs to.
- *
- * Loading the row first is what makes the course-level check possible at all: every mutation
- * below takes a module id, and a module id says nothing about which course it is in until the
- * row is read.
- */
-async function loadTeachableModule(ctx: AuthedCtx, moduleId: string) {
-  const found = await ctx.db.module.findUnique({
-    where: { id: moduleId },
-    select: { id: true, courseId: true, name: true, position: true },
-  });
-
-  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Module not found." });
-  await assertTeaches(ctx, found.courseId);
-  return found;
-}
 
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string): never {
@@ -143,30 +126,26 @@ export const modulesRouter = createTRPCRouter({
     }),
 
   /** Adds a module at the end. Position is assigned here, never sent by the browser. */
-  create: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), name: moduleName }))
-    .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
+  create: courseProcedure.input(z.object({ name: moduleName })).mutation(async ({ ctx, input }) => {
+    const last = await ctx.db.module.findFirst({
+      where: { courseId: input.courseId },
+      orderBy: { position: "desc" },
+      select: { position: true },
+    });
 
-      const last = await ctx.db.module.findFirst({
-        where: { courseId: input.courseId },
-        orderBy: { position: "desc" },
-        select: { position: true },
+    try {
+      return await ctx.db.module.create({
+        data: {
+          courseId: input.courseId,
+          name: input.name,
+          position: (last?.position ?? -1) + 1,
+        },
+        select: moduleSummarySelect,
       });
-
-      try {
-        return await ctx.db.module.create({
-          data: {
-            courseId: input.courseId,
-            name: input.name,
-            position: (last?.position ?? -1) + 1,
-          },
-          select: moduleSummarySelect,
-        });
-      } catch (err) {
-        refuseDuplicate(err, input.name);
-      }
-    }),
+    } catch (err) {
+      refuseDuplicate(err, input.name);
+    }
+  }),
 
   /**
    * Renames a module.
@@ -178,7 +157,7 @@ export const modulesRouter = createTRPCRouter({
   rename: instructorProcedure
     .input(z.object({ moduleId: z.string().uuid(), name: moduleName }))
     .mutation(async ({ ctx, input }) => {
-      await loadTeachableModule(ctx, input.moduleId);
+      await teachableModule(ctx, input.moduleId, { id: true });
 
       try {
         return await ctx.db.module.update({
@@ -203,16 +182,9 @@ export const modulesRouter = createTRPCRouter({
    * The list must be exactly this course's modules. A subset would leave the omitted ones
    * holding stale positions, which is an order nobody asked for.
    */
-  reorder: instructorProcedure
-    .input(
-      z.object({
-        courseId: z.string().uuid(),
-        moduleIds: z.array(z.string().uuid()).min(1),
-      }),
-    )
+  reorder: courseProcedure
+    .input(z.object({ moduleIds: z.array(z.string().uuid()).min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeaches(ctx, input.courseId);
-
       const existing = await ctx.db.module.findMany({
         where: { courseId: input.courseId },
         select: { id: true },
@@ -274,7 +246,7 @@ export const modulesRouter = createTRPCRouter({
   remove: instructorProcedure
     .input(z.object({ moduleId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const found = await loadTeachableModule(ctx, input.moduleId);
+      const found = await teachableModule(ctx, input.moduleId, { id: true, name: true });
 
       const assignments = await ctx.db.assignment.count({
         where: { moduleId: input.moduleId },
