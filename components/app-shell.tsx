@@ -12,7 +12,6 @@ import {
   GraduationCap,
   Layers,
   Library,
-  LayoutDashboard,
   ListChecks,
   LogOut,
   Settings,
@@ -205,40 +204,26 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
 // Sidebar navigation
 // ---------------------------------------------------------------------------
 
-function CourseSelector({
-  role,
+/**
+ * Which cohort an instructor is working in, and the way into another one.
+ *
+ * **Instructors only.** A student used to get a read-only card here naming their current course,
+ * which said what the screen they were looking at already said and disappeared on the course list
+ * — the one place a name would have added something. Their sidebar names every course they are in
+ * instead, so the current one is a highlighted row rather than a second copy of the heading.
+ */
+function CourseSwitcher({
   courses,
 }: {
-  role: Role
   courses: { id: string; name: string; cohortTerm: string; archivedAt: Date | null }[]
 }) {
   const router = useRouter()
   const pathname = usePathname()
   const activeCourseId = useActiveCourseId()
 
-  // Nothing to select between, and nothing to say. A student enrolled in one course
-  // does not need a switcher, and neither does anyone before their first enrollment.
+  // Nothing to select between and nothing to say, which is where anybody starts before their
+  // first cohort exists.
   if (courses.length === 0) return null
-
-  if (role === "student") {
-    const active = courses.find((c) => c.id === activeCourseId)
-
-    // On the course list itself there is no current course, and naming one would be a
-    // claim about a screen the reader is not looking at.
-    if (!active) return null
-
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/50 px-2.5 py-2">
-        <BookOpen className="size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-sidebar-foreground">
-            {active.cohortTerm}
-          </p>
-          <p className="truncate text-[11px] text-muted-foreground">{active.name}</p>
-        </div>
-      </div>
-    )
-  }
 
   /*
     Only a course this switcher can actually label. An id it has no row for would otherwise
@@ -332,28 +317,23 @@ const COURSE_VIEWS = [
   { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
 ] as const
 
-function MainNav({ role, isAdmin }: { role: Role; isAdmin: boolean }) {
+function MainNav({
+  role,
+  isAdmin,
+  courses,
+}: {
+  role: Role
+  isAdmin: boolean
+  /** A student's sidebar *is* this list, so it comes down rather than being fetched twice. */
+  courses: StudentCourse[]
+}) {
   const pathname = usePathname()
   const activeCourseId = useActiveCourseId()
 
   if (role === "student") {
     return (
       <>
-        <SidebarGroup>
-          <SidebarGroupLabel>Student</SidebarGroupLabel>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={pathname === "/courses" || pathname.startsWith("/courses/")}
-                tooltip="My courses"
-                render={<Link href="/courses" />}
-              >
-                <LayoutDashboard />
-                <span>My courses</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
+        <StudentCourses courses={courses} pathname={pathname} />
         <AdminGroup isAdmin={isAdmin} pathname={pathname} />
       </>
     )
@@ -426,6 +406,112 @@ function MainNav({ role, isAdmin }: { role: Role; isAdmin: boolean }) {
       <AdminGroup isAdmin={isAdmin} pathname={pathname} />
     </>
   )
+}
+
+/** What the student sidebar needs from `courses.listMine`. */
+type StudentCourse = {
+  id: string
+  name: string
+  cohortTerm: string
+  archivedAt: Date | null
+  enrolledAs: "ACTIVE" | "REMOVED" | null
+}
+
+/**
+ * A student's courses, each one a link.
+ *
+ * The whole of their navigation, because a student's application *is* their courses — there is no
+ * second thing for them to be doing. It replaced a single "My courses" item under a heading
+ * reading "Student", which spent a row telling a reader who they were and then made reaching a
+ * course two clicks: one to a list, one to the course.
+ *
+ * `/courses` is not offered as an item of its own. It is still a real screen — the breadcrumb
+ * links to it, and it is where `/` lands — but with every course named here it would be a row
+ * pointing at a list of the rows above it. The exception is a student with no enrollment yet,
+ * where it is the only thing there is to offer and the screen explains what to do.
+ *
+ * **Archived and left-behind cohorts stay, labelled**, exactly as the course list shows them. A
+ * cohort somebody has finished or been removed from is still theirs to read — that is what
+ * removal being a status rather than a deletion is for — and one sitting here unlabelled among
+ * the ones they are in would be the sidebar telling them something false.
+ */
+function StudentCourses({
+  courses,
+  pathname,
+}: {
+  courses: StudentCourse[]
+  pathname: string
+}) {
+  /*
+    Current cohorts first, finished ones after, newest-first within each — the same ordering the
+    instructor switcher applies and for the same reason: this is a list of places to work, and
+    the ones still running are what it should open on. `listMine` is already newest-first, so
+    partitioning preserves that.
+  */
+  const current = courses.filter((c) => c.archivedAt == null && c.enrolledAs !== "REMOVED")
+  const past = courses.filter((c) => c.archivedAt != null || c.enrolledAs === "REMOVED")
+  const ordered = [...current, ...past]
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>My courses</SidebarGroupLabel>
+      <SidebarMenu>
+        {ordered.length === 0 ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/courses"}
+              tooltip="My courses"
+              render={<Link href="/courses" />}
+            >
+              <BookOpen />
+              <span>My courses</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : (
+          ordered.map((course) => {
+            const note = courseNote(course)
+
+            return (
+              <SidebarMenuItem key={course.id}>
+                <SidebarMenuButton
+                  isActive={pathname === `/courses/${course.id}`}
+                  /*
+                    The full name and the term, because the label below truncates and the
+                    collapsed sidebar shows nothing else. Two cohorts of one program share a name,
+                    so the term is what tells them apart.
+                  */
+                  tooltip={`${course.name} · ${course.cohortTerm}`}
+                  // `h-auto` because this row is two lines where every other one is one.
+                  className="h-auto py-1.5"
+                  render={<Link href={`/courses/${course.id}`} />}
+                >
+                  <BookOpen />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{course.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {note ? `${course.cohortTerm} · ${note}` : course.cohortTerm}
+                    </span>
+                  </span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })
+        )}
+      </SidebarMenu>
+    </SidebarGroup>
+  )
+}
+
+/**
+ * Why a course is in the list but not one somebody is currently in, or null when it is.
+ *
+ * Removal wins over archiving when both are true, because it is the fact about *this reader*: a
+ * cohort that ended is something everybody in it shares, and having left one is not.
+ */
+function courseNote(course: StudentCourse): string | null {
+  if (course.enrolledAs === "REMOVED") return "No longer enrolled"
+  if (course.archivedAt != null) return "Archived"
+  return null
 }
 
 /**
@@ -622,9 +708,6 @@ function ShellBrand() {
         <p className="truncate text-sm font-semibold leading-tight text-sidebar-foreground">
           Marcy LMS
         </p>
-        <p className="truncate text-[11px] leading-tight text-muted-foreground">
-          Internal grading
-        </p>
       </div>
     </div>
   )
@@ -650,12 +733,18 @@ function ShellSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <ShellBrand />
-        <div className="group-data-[collapsible=icon]:hidden">
-          <CourseSelector role={role} courses={courses} />
-        </div>
+        {/*
+          Instructors only. A student's courses are the sidebar itself, a few rows down, so a
+          switcher here would be a second control over the same list.
+        */}
+        {role === "instructor" && (
+          <div className="group-data-[collapsible=icon]:hidden">
+            <CourseSwitcher courses={courses} />
+          </div>
+        )}
       </SidebarHeader>
       <SidebarContent>
-        <MainNav role={role} isAdmin={isAdmin} />
+        <MainNav role={role} isAdmin={isAdmin} courses={courses} />
       </SidebarContent>
       <SidebarFooter>
         <SidebarSeparator className="mx-0" />
