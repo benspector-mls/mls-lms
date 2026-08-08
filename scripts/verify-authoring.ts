@@ -14,6 +14,11 @@
  * holds when called through the interface is not a check. Every write it makes happens
  * inside a transaction that is rolled back, so it is safe against live data.
  */
+import { createChecker, loadEnvironment } from "./verify/harness";
+
+loadEnvironment();
+
+const { check, skip, finish } = createChecker();
 import {
   AssignmentConfigurationError,
   AssignmentKind,
@@ -33,16 +38,6 @@ import {
   UnsupportedAssignmentKindError,
   withDerivedFields,
 } from "../lib/assignments/spec";
-
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual),
-    e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
 
 /**
  * What a parse rejected, by field, so a check names the field and not just "threw".
@@ -893,10 +888,7 @@ check(
 const ELSEWHERE_COURSE_ID = "e7c1a1d0-0000-4000-8000-00000000ffff";
 
 async function procedures() {
-  const { config: loadEnv } = await import("dotenv");
-  loadEnv({ path: ".env.local", quiet: true });
-  loadEnv({ quiet: true });
-
+  // The environment is already loaded at module scope, which runs before this does.
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
@@ -1795,30 +1787,9 @@ async function procedures() {
   );
 }
 
-/**
- * Groups of checks that did not run, and why.
- *
- * **A partial run must not read as a pass.** This script depends on seeded data, and the day that
- * data changes shape — a student removed in the running application was enough — a whole group can
- * stop running while the output still says everything is fine. Reported, and non-zero.
- */
-const skips: string[] = [];
-function skip(reason: string) {
-  skips.push(reason);
-  console.log(`\nSKIPPED — ${reason}`);
-}
-
 // Not top-level await: tsx compiles this to CommonJS, which rejects it.
 procedures()
-  .then(() => {
-    if (failures > 0) console.log(`\n${failures} FAILED`);
-    else if (skips.length === 0) console.log("\nAll checks passed.");
-    else
-      console.log(
-        `\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`,
-      );
-    process.exit(failures > 0 || skips.length > 0 ? 1 : 0);
-  })
+  .then(() => finish())
   .catch((err) => {
     console.error("\n", err);
     process.exit(1);

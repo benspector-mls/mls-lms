@@ -14,20 +14,19 @@
  * "PRIVATE KEY" — which is exactly the mistake this script was written after. The only
  * check worth making is whether the crypto library will parse it.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
+
+/*
+  Kept as the object as well as destructured, because this is the one script that reads the
+  running count mid-way: with a required variable missing, nothing below it can be checked, so
+  it stops rather than reporting a cascade of failures that all have one cause.
+*/
+const checker = createChecker();
+const { checkThat, finish } = checker;
 
 import { createPrivateKey } from "node:crypto";
-
-let failures = 0;
-function check(label: string, ok: boolean, detail = "") {
-  if (!ok) {
-    failures++;
-    console.log(`FAIL ${label}${detail && `\n       ${detail}`}`);
-  } else console.log(`ok   ${label}${detail && `  (${detail})`}`);
-}
 
 /** The production app's shape, which a development app should mirror. */
 const REQUIRED_PERMISSIONS: Record<string, string> = {
@@ -48,9 +47,9 @@ async function main() {
     "GITHUB_WEBHOOK_SECRET",
     "GITHUB_APP_INSTALLATION_ID",
   ]) {
-    check(`${key} is set`, Boolean(process.env[key]));
+    checkThat(`${key} is set`, Boolean(process.env[key]));
   }
-  if (failures > 0) {
+  if (checker.failures > 0) {
     console.log("\nSet the missing values before the rest can be checked — see .env.example.");
     process.exit(1);
   }
@@ -61,7 +60,7 @@ async function main() {
 
   // Detail only when the check fails: a hint printed beside "ok" reads as a problem.
   const hasEnd = /-----END [A-Z ]*PRIVATE KEY-----/.test(pem);
-  check(
+  checkThat(
     "GITHUB_APP_PRIVATE_KEY holds a whole key, not just its first line",
     hasEnd,
     hasEnd
@@ -71,7 +70,7 @@ async function main() {
   );
 
   const repeatsName = pem.trimStart().startsWith("GITHUB_APP_PRIVATE_KEY=");
-  check(
+  checkThat(
     "GITHUB_APP_PRIVATE_KEY does not repeat its own name",
     !repeatsName,
     repeatsName
@@ -83,13 +82,13 @@ async function main() {
   try {
     const parsed = createPrivateKey(pem);
     keyParses = true;
-    check(
+    checkThat(
       "the private key parses",
       true,
       `${parsed.asymmetricKeyType} ${parsed.asymmetricKeyDetails?.modulusLength} bits`,
     );
   } catch (err) {
-    check("the private key parses", false, err instanceof Error ? err.message : String(err));
+    checkThat("the private key parses", false, err instanceof Error ? err.message : String(err));
   }
   if (!keyParses) {
     console.log("\nNothing further can be checked without a usable key.");
@@ -104,14 +103,14 @@ async function main() {
 
   const { data: app } = await octokit.request("GET /app");
   if (!app) {
-    check("GET /app returned an app", false);
+    checkThat("GET /app returned an app", false);
     process.exit(1);
   }
 
   const owner = app.owner && "login" in app.owner ? app.owner.login : "unknown";
   console.log(`\napp: ${app.name} (slug ${app.slug}, id ${app.id}), owned by ${owner}`);
 
-  check(
+  checkThat(
     "subscribed to pull_request",
     (app.events ?? []).includes("pull_request"),
     (app.events ?? []).join(", ") || "no events",
@@ -119,7 +118,7 @@ async function main() {
 
   const permissions = (app.permissions ?? {}) as Record<string, string>;
   for (const [name, level] of Object.entries(REQUIRED_PERMISSIONS)) {
-    check(
+    checkThat(
       `permission ${name}: ${level}`,
       permissions[name] === level,
       permissions[name] ? `is "${permissions[name]}"` : "not granted",
@@ -141,7 +140,7 @@ async function main() {
         (installation.id === configured ? "   <- GITHUB_APP_INSTALLATION_ID" : ""),
     );
   }
-  check(
+  checkThat(
     "GITHUB_APP_INSTALLATION_ID is one of them",
     installations.some((installation) => installation.id === configured),
     `configured ${configured}`,
@@ -160,7 +159,7 @@ async function main() {
     const [repoOwner, repoName] = submission.repoFullName.split("/");
     const { getRepo } = await import("../lib/github/repos");
     const repo = await getRepo(configured, { owner: repoOwner, repo: repoName });
-    check(
+    checkThat(
       `can read ${submission.repoFullName}`,
       repo !== null,
       repo ? `default branch ${repo.default_branch}` : "not visible to this installation",
@@ -182,7 +181,7 @@ async function main() {
   }
 
   if (deliveries.length === 0) {
-    check(
+    checkThat(
       "the app has received at least one delivery",
       false,
       "not even the ping GitHub sends when a webhook is first saved — check the webhook URL",
@@ -194,7 +193,7 @@ async function main() {
     console.log(`\nthis app posts webhooks to: ${latest.url ?? "(not reported)"}`);
 
     if (proxy) {
-      check(
+      checkThat(
         "its webhook URL is the smee channel in GITHUB_WEBHOOK_PROXY_URL",
         latest.url === proxy,
         `app posts to ${latest.url ?? "unknown"}, GITHUB_WEBHOOK_PROXY_URL is ${proxy}`,
@@ -204,7 +203,7 @@ async function main() {
           "listening, so run `npm run dev:webhook` before expecting a push to land.",
       );
     } else {
-      check(
+      checkThat(
         "no proxy configured, so this should post straight to a deployment",
         !latest.url?.includes("smee.io"),
         "GITHUB_WEBHOOK_PROXY_URL is unset but the app still posts to smee.io",
@@ -212,8 +211,7 @@ async function main() {
     }
   }
 
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} problem(s) above.`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((err) => {

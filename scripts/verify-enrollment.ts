@@ -24,31 +24,11 @@
  * the partial unique index out of the catalog, which is the one rule here that lives in the
  * database rather than in a procedure.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment, refusal } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
-
-/** The tRPC error code a call refused with, or "accepted". */
-async function refusal(work: () => Promise<unknown>): Promise<string> {
-  try {
-    await work();
-    return "accepted";
-  } catch (err) {
-    const code = (err as { code?: string })?.code;
-    return typeof code === "string" ? code : (err as Error).name;
-  }
-}
+const { check, skip, finish } = createChecker();
 
 /** What a call refused with, message included, for the checks that are about the wording. */
 async function refusalMessage(work: () => Promise<unknown>): Promise<string> {
@@ -58,23 +38,6 @@ async function refusalMessage(work: () => Promise<unknown>): Promise<string> {
   } catch (err) {
     return err instanceof Error ? err.message : String(err);
   }
-}
-
-/**
- * A run that checked nothing is not a run that passed.
- *
- * This script needs a seeded course to work against, and it used to print "All checks passed"
- * when it could not find one — so the day the seed changed shape, every check here would have
- * stopped running and the output would have said everything was fine. Exiting non-zero on a skip
- * is the only version of this that cannot be read as a green result.
- */
-function report(skipped?: string) {
-  if (skipped) {
-    console.log(`\nNOTHING CHECKED — ${skipped}`);
-    process.exit(1);
-  }
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
 }
 
 async function main() {
@@ -135,9 +98,8 @@ async function main() {
     : null;
 
   if (!course || !instructor || !enrollment) {
-    return report(
-      "needs a seeded course with an instructor, a student, and at least one submission",
-    );
+    skip("needs a seeded course with an instructor, a student, and at least one submission");
+    return finish();
   }
 
   const studentId = enrollment.studentId;
@@ -1902,7 +1864,7 @@ async function main() {
     0,
   );
 
-  return report();
+  return finish();
 }
 
 main().catch((err) => {

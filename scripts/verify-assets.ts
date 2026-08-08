@@ -11,18 +11,11 @@
  * rather than letting the code read it out of the environment. A failure here means grading
  * cannot happen anywhere.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, ok: boolean, detail = "") {
-  if (!ok) {
-    failures++;
-    console.log(`FAIL ${label}${detail && `\n  ${detail}`}`);
-  } else console.log(`ok   ${label}${detail && `  (${detail})`}`);
-}
+const { checkThat, finish } = createChecker();
 
 async function main() {
   const {
@@ -74,7 +67,7 @@ async function main() {
   ];
   for (const [input, expected] of parses) {
     const got = parseRepoRef(input)?.fullName ?? null;
-    check(`parses ${JSON.stringify(input)}`, got === expected, `got ${JSON.stringify(got)}`);
+    checkThat(`parses ${JSON.stringify(input)}`, got === expected, `got ${JSON.stringify(got)}`);
   }
 
   /*
@@ -110,7 +103,7 @@ async function main() {
   ];
   for (const [input, expected] of paths) {
     const got = parseRepoRef(input)?.path ?? null;
-    check(
+    checkThat(
       `reads the directory out of ${JSON.stringify(input.replace(KEYS, "…"))}`,
       got === expected,
       `got ${JSON.stringify(got)}`,
@@ -119,7 +112,7 @@ async function main() {
 
   // The deep address still stores the repository and nothing more, which is what keeps the
   // column a repository identity rather than a location.
-  check(
+  checkThat(
     "a deep address still stores just the repository",
     parseRepoRef(`${KEYS}/tree/main/answer-keys/mod-1-js-fundamentals`)?.fullName ===
       "The-Marcy-Lab-School/swe-assignment-grading-guides",
@@ -130,7 +123,7 @@ async function main() {
     `${KEYS}/tree/main/answer-keys/mod-1-js-fundamentals/swe-1-2-strings-conditionals`,
   )!;
   const pastedKeys = await listAnswerKeys(pastedDir.fullName, pastedDir.path);
-  check(
+  checkThat(
     "the keys under a pasted folder are found without any navigating",
     pastedKeys.paths.length > 0 &&
       pastedKeys.paths.every((p) => p.startsWith(`${pastedDir.path}/`)),
@@ -143,16 +136,16 @@ async function main() {
   // "" to ".", so it asked GitHub for a path called "." and got nothing back — which read as
   // an empty repository and refused to let an assignment be created at all.
   const root = await listAnswerKeyEntries(answerKeyRepo, "");
-  check(
+  checkThat(
     "the repository root lists its contents",
     (root?.length ?? 0) > 0,
     `${root?.length ?? 0} entries`,
   );
-  check(
+  checkThat(
     "...including the answer-keys directory",
     (root ?? []).some((entry) => entry.name === "answer-keys" && entry.type === "dir"),
   );
-  check(
+  checkThat(
     "directories are listed before files",
     (root ?? []).every(
       (entry, index, all) => index === 0 || all[index - 1].type === "dir" || entry.type === "file",
@@ -160,17 +153,17 @@ async function main() {
   );
 
   const modules = await listAnswerKeyEntries(answerKeyRepo, "answer-keys");
-  check(
+  checkThat(
     "a directory inside it lists its own contents",
     (modules?.length ?? 0) > 0,
     `${modules?.length ?? 0} entries`,
   );
-  check(
+  checkThat(
     "...including mod-1-js-fundamentals",
     (modules ?? []).some((entry) => entry.name === "mod-1-js-fundamentals"),
   );
 
-  check(
+  checkThat(
     "a directory that does not exist is null rather than an error",
     (await listAnswerKeyEntries(answerKeyRepo, "answer-keys/mod-99-nope")) === null,
   );
@@ -191,12 +184,16 @@ async function main() {
     "answer-keys/mod-1-js-fundamentals/swe-1-3-node-modules/madlib-challenge/index.js",
     "answer-keys/mod-1-js-fundamentals/swe-1-3-node-modules/madlib-challenge/madlib.js",
   ];
-  check(
+  checkThat(
     "a folder resolves to exactly what the seed used to name, nested files included",
     JSON.stringify([...nested.paths].sort()) === JSON.stringify([...expectedNested].sort()),
     `got ${JSON.stringify(nested.paths)}`,
   );
-  check("nothing in it was skipped", nested.excluded.length === 0, JSON.stringify(nested.excluded));
+  checkThat(
+    "nothing in it was skipped",
+    nested.excluded.length === 0,
+    JSON.stringify(nested.excluded),
+  );
 
   // ---- What "everything in the folder" refuses ------------------------------
   //
@@ -208,24 +205,24 @@ async function main() {
     answerKeyRepo,
     "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4",
   );
-  check(
+  checkThat(
     "an archive in the folder is skipped rather than sent",
     checkpoint.excluded.some((entry) => entry.path.endsWith("solutions.zip")),
     JSON.stringify(checkpoint.excluded),
   );
-  check(
+  checkThat(
     "...and named as an archive, so it is clear it was deliberate",
     checkpoint.excluded.find((entry) => entry.path.endsWith("solutions.zip"))?.reason ===
       "an archive",
   );
-  check(
+  checkThat(
     "the source files beside it are kept",
     checkpoint.paths.some((p) => p.endsWith("SHORT_RESPONSE.MD")) &&
       checkpoint.paths.some((p) => p.endsWith("src/main.js")) &&
       checkpoint.paths.some((p) => p.endsWith("styles.css")),
     `${checkpoint.paths.length} kept`,
   );
-  check(
+  checkThat(
     "nothing skipped is also kept",
     checkpoint.paths.every((p) => !checkpoint.excluded.some((e) => e.path === p)),
   );
@@ -252,7 +249,7 @@ async function main() {
   ];
   for (const [file, expected] of refusals) {
     const got = notAReferenceSolution(file);
-    check(
+    checkThat(
       `${file} is ${expected ?? "a reference solution"}`,
       got === expected,
       `got ${JSON.stringify(got)}`,
@@ -264,14 +261,14 @@ async function main() {
     answerKeyRepo,
     "answer-keys/mod-1-js-fundamentals/swe-1-4-loops",
   );
-  check(
+  checkThat(
     "a real folder is usable",
     goodDir.ok && goodDir.set.paths.length === 3,
     goodDir.reason ?? `${goodDir.set.paths.length} files`,
   );
 
   const goneDir = await checkAnswerKeyDir(answerKeyRepo, "answer-keys/mod-99-nope");
-  check(
+  checkThat(
     "a folder that is not there is refused and says so",
     !goneDir.ok && (goneDir.reason ?? "").includes("There is no"),
     goneDir.reason,
@@ -280,13 +277,13 @@ async function main() {
   // A traversal in the column is the one case that must not be reported as a finding an
   // instructor could shrug at: it is an attempt to read somewhere the assignment does not name.
   const escapingDir = await checkAnswerKeyDir(answerKeyRepo, "../../../etc");
-  check(
+  checkThat(
     "a folder escaping the repository is refused",
     !escapingDir.ok && (escapingDir.reason ?? "").includes("escapes"),
     escapingDir.reason,
   );
 
-  check("the file limit is a real bound rather than a comment", MAX_ANSWER_KEYS > 0);
+  checkThat("the file limit is a real bound rather than a comment", MAX_ANSWER_KEYS > 0);
 
   // ---- Loading what one section is graded against --------------------------
   const CHECKPOINT = "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4";
@@ -307,27 +304,27 @@ async function main() {
   });
   const warmMs = Date.now() - warmStart;
 
-  check(
+  checkThat(
     "a commit sha is resolved for the program assets",
     typeof assets.commitSha === "string",
     assets.commitSha ?? "none",
   );
-  check(
+  checkThat(
     "a commit sha is recorded for the answer keys too",
     typeof assets.answerKeyCommitSha === "string",
     assets.answerKeyCommitSha ?? "none",
   );
-  check(
+  checkThat(
     "agent rules are readable",
     assets.agentRules.length > 500,
     `${assets.agentRules.length} chars`,
   );
-  check(
+  checkThat(
     "the rubric section is sliced, not the whole file",
     assets.rubricSection.startsWith("## SHORT RESPONSE") && assets.rubricSection.length < 8000,
     `${assets.rubricSection.length} chars`,
   );
-  check(
+  checkThat(
     "the sample report is readable",
     assets.sampleReport.length > 200,
     `${assets.sampleReport.length} chars`,
@@ -340,22 +337,22 @@ async function main() {
     two agree: what the authoring screen showed and what the prompt receives come from the same
     function, so an instructor who read the list read what the model was given.
   */
-  check(
+  checkThat(
     "the prompt gets every reference file in the folder",
     assets.answerKeys.length === checkpoint.paths.length &&
       assets.answerKeys.every((key) => checkpoint.paths.includes(key.path)),
     `${assets.answerKeys.length} loaded against ${checkpoint.paths.length} listed`,
   );
-  check(
+  checkThat(
     "every one of them has content",
     assets.answerKeys.every((key) => key.content.length > 0),
   );
-  check(
+  checkThat(
     "and the archive is reported as excluded rather than absent",
     assets.excludedAnswerKeys.some((entry) => entry.path.endsWith("solutions.zip")),
     JSON.stringify(assets.excludedAnswerKeys),
   );
-  check(
+  checkThat(
     "content is cached by commit, so a second read is free",
     warmMs < coldMs / 2,
     `${coldMs}ms cold, ${warmMs}ms warm`,
@@ -369,7 +366,7 @@ async function main() {
     answerKeyRepo,
     answerKeyDir: null,
   });
-  check(
+  checkThat(
     "no answer key directory means no answer key commit",
     noKeys.answerKeyCommitSha === null && noKeys.answerKeys.length === 0,
   );
@@ -381,7 +378,7 @@ async function main() {
     answerKeyRepo,
     answerKeyDir: "answer-keys/mod-4-dom/no-such-assignment",
   });
-  check(
+  checkThat(
     "a folder that is not there is recorded rather than fatal",
     absent.answerKeys.length === 0 &&
       absent.excludedAnswerKeys.some((entry) => entry.reason.includes("no such directory")),
@@ -400,7 +397,7 @@ async function main() {
   } catch (err) {
     escaped = err instanceof GradingAssetsError ? "refused" : String(err);
   }
-  check("a folder escaping the repository is refused", escaped === "refused", escaped);
+  checkThat("a folder escaping the repository is refused", escaped === "refused", escaped);
 
   /*
     A directory with no repository to read it from.
@@ -419,7 +416,7 @@ async function main() {
   } catch (err) {
     orphaned = err instanceof GradingAssetsError ? "refused" : String(err);
   }
-  check(
+  checkThat(
     "an answer key directory with no repository to read it from is refused",
     orphaned === "refused",
     orphaned,
@@ -440,14 +437,13 @@ async function main() {
   }
   // coding_sql does have a rubric heading, so this should succeed. Recorded either way
   // so a rubric reorganisation that drops a heading is visible here.
-  check(
+  checkThat(
     "every section type resolves a rubric heading",
     missingSection === "no error",
     missingSection,
   );
 
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((err) => {

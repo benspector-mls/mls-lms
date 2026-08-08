@@ -24,16 +24,9 @@ import {
   buildRestoreScript,
 } from "../lib/sandbox/protected-paths";
 import { parseResults, computePassRate } from "../lib/sandbox/parsers";
+import { createChecker } from "./verify/harness";
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual),
-    e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
+const { check, finish } = createChecker();
 
 /** Reads one key out of a merged JSON object without widening it to `any`. */
 function field(container: unknown, key: string): unknown {
@@ -268,5 +261,4 @@ try {
 }
 check("unknown preset throws", unknownThrew, "UnknownRunnerPresetError");
 
-console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+finish();

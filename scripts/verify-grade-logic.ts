@@ -22,16 +22,9 @@ import { crossCheck, type Facts } from "../lib/grade/cross-check";
 import { extractRubricSection } from "../lib/grade/assets";
 import { gradingReportJsonSchema, parseGradingReport, REPORT_FLAGS } from "../lib/grade/schema";
 import type { GradingReport } from "../lib/grade/schema";
+import { createChecker } from "./verify/harness";
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
+const { check, finish } = createChecker();
 
 /** A report that is internally consistent, so each case varies one thing. */
 function report(overrides: Partial<GradingReport> = {}): GradingReport {
@@ -818,5 +811,4 @@ try {
 }
 check("a missing rubric section throws", rubricThrew, "GradingAssetsError");
 
-console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+finish();

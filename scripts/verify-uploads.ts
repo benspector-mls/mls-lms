@@ -11,31 +11,11 @@
  * the reason `verify:approve` gives — a check that only holds when called some other way is not
  * a check on the thing students use.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment, refusal } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
-
-/** What a refusal was about, or "accepted". Used so a message change does not fail a check. */
-async function refusal(work: () => Promise<unknown>): Promise<string> {
-  try {
-    await work();
-    return "accepted";
-  } catch (err) {
-    const code = (err as { code?: string })?.code;
-    return typeof code === "string" ? code : (err as Error).name;
-  }
-}
+const { check, skip, finish } = createChecker();
 
 async function main() {
   const {
@@ -298,7 +278,7 @@ async function main() {
       `\nskip everything below — the "${SUBMISSION_UPLOAD_BUCKET}" bucket does not exist. ` +
         `Run npm run setup:storage.`,
     );
-    return report();
+    return finish();
   }
 
   // The whole of the security question. A public bucket would publish every submission in it to
@@ -493,7 +473,7 @@ async function main() {
 
   if (!course || !instructor || !studentId || !moduleId) {
     skip("the lifecycle — no seeded course with an instructor, a bound student, and a module");
-    return report();
+    return finish();
   }
 
   const createCaller = createCallerFactory(appRouter);
@@ -737,29 +717,7 @@ async function main() {
     );
   }
 
-  return report();
-}
-
-/**
- * Groups of checks that did not run, and why.
- *
- * **A partial run must not read as a pass.** This script depends on seeded data, and the day that
- * data changes shape — a student removed in the running application was enough — a whole group can
- * stop running while the output still says everything is fine. Reported, and non-zero.
- */
-const skips: string[] = [];
-function skip(reason: string) {
-  skips.push(reason);
-  console.log(`\nSKIPPED — ${reason}`);
-}
-
-function report() {
-  if (failures > 0) console.log(`\n${failures} FAILED`);
-  else if (skips.length === 0) console.log("\nAll checks passed.");
-  else
-    console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
-
-  if (failures > 0 || skips.length > 0) process.exitCode = 1;
+  return finish();
 }
 
 main().catch((err) => {

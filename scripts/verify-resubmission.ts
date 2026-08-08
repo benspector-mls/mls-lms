@@ -12,18 +12,11 @@
  * `--post` is required for the re-approval step because it puts a second comment on a
  * real pull request.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, ok: boolean, detail = "") {
-  if (!ok) {
-    failures++;
-    console.log(`FAIL ${label}${detail && `\n  ${detail}`}`);
-  } else console.log(`ok   ${label}${detail && `  (${detail})`}`);
-}
+const { checkThat, finish } = createChecker();
 
 async function main() {
   const { db } = await import("../lib/prisma");
@@ -71,12 +64,12 @@ async function main() {
   console.log(`Submission  ${submission.repoFullName}\n`);
 
   // --- item 4: a push after grading -------------------------------------
-  check(
+  checkThat(
     "the status stayed GRADED through a push",
     submission.status === "GRADED" || submission.status === "RESUBMITTED",
     submission.status,
   );
-  check(
+  checkThat(
     "the new commit was recorded",
     submission.headSha !== null && submission.headSha !== submission.gradedHeadSha,
     `head ${submission.headSha?.slice(0, 7)}, graded ${submission.gradedHeadSha?.slice(0, 7)}`,
@@ -87,7 +80,7 @@ async function main() {
     const declared = await asStudent.submissions.declareResubmission({
       submissionId: submission.id,
     });
-    check(
+    checkThat(
       "the student's declaration sets RESUBMITTED",
       declared.status === "RESUBMITTED",
       declared.status,
@@ -109,7 +102,7 @@ async function main() {
     } catch (err) {
       code = (err as { code?: string }).code ?? String(err);
     }
-    check("another student cannot declare on this submission", code === "FORBIDDEN", code);
+    checkThat("another student cannot declare on this submission", code === "FORBIDDEN", code);
   } else {
     console.log("skip the cross-student check — only one student on record");
   }
@@ -125,8 +118,8 @@ async function main() {
     ).assignmentId,
   });
   const row = listed.submissions.find((s) => s.id === submission.id);
-  check("the queue shows it as a resubmission", row?.status === "RESUBMITTED", row?.status);
-  check(
+  checkThat("the queue shows it as a resubmission", row?.status === "RESUBMITTED", row?.status);
+  checkThat(
     "the queue can see it is revised since grading",
     row?.gradedHeadSha !== null && row?.headSha !== row?.gradedHeadSha,
   );
@@ -144,14 +137,14 @@ async function main() {
     );
   } else {
     const draft = await asInstructor.gradingDrafts.generate({ submissionId: submission.id });
-    check(
+    checkThat(
       "a report was generated for the new commit",
       draft.status === "READY" || draft.status === "NEEDS_MANUAL_REVIEW",
       draft.status,
     );
 
     const approved = await asInstructor.gradingDrafts.approve({ draftId: draft.id });
-    check(
+    checkThat(
       "the second approval posted its own comment",
       approved.postedPrCommentId !== null,
       approved.commentError ?? String(approved.postedPrCommentId),
@@ -162,14 +155,14 @@ async function main() {
       orderBy: { approvedAt: "asc" },
       select: { headSha: true, postedPrCommentId: true },
     });
-    check(
+    checkThat(
       "both rounds are on record",
       rounds.length === before + 1,
       rounds
         .map((r) => `${r.headSha?.slice(0, 7) ?? "no commit"}→${r.postedPrCommentId}`)
         .join(", "),
     );
-    check(
+    checkThat(
       "each round posted a distinct comment",
       new Set(rounds.map((r) => String(r.postedPrCommentId))).size === rounds.length,
     );
@@ -178,7 +171,7 @@ async function main() {
       where: { id: submission.id },
       select: { status: true, headSha: true, gradedHeadSha: true },
     });
-    check(
+    checkThat(
       "approving cleared the revised-since-grading state",
       after.status === "GRADED" && after.headSha === after.gradedHeadSha,
       `${after.status}, head ${after.headSha?.slice(0, 7)}`,
@@ -186,8 +179,7 @@ async function main() {
   }
 
   await db.$disconnect();
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((err) => {

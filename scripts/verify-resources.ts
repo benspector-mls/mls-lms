@@ -14,30 +14,11 @@
  * course it belongs to until the row is read, and the whole point of a module-scoped write is
  * that one cohort's instructor cannot file a reading in another's.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment, refusal } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
-
-async function refusal(work: () => Promise<unknown>): Promise<string> {
-  try {
-    await work();
-    return "accepted";
-  } catch (err) {
-    const code = (err as { code?: string })?.code;
-    return typeof code === "string" ? code : (err as Error).name;
-  }
-}
+const { check, skip, finish } = createChecker();
 
 async function main() {
   const { db } = await import("../lib/prisma");
@@ -574,29 +555,7 @@ async function main() {
     0,
   );
 
-  return report();
-}
-
-/**
- * Groups of checks that did not run, and why.
- *
- * **A partial run must not read as a pass.** These scripts depend on seeded data, and the day
- * that data changes shape a whole group can stop running while the output still says everything
- * is fine. Reported, and non-zero.
- */
-const skips: string[] = [];
-function skip(reason: string) {
-  skips.push(reason);
-  console.log(`\nSKIPPED — ${reason}`);
-}
-
-function report() {
-  if (failures > 0) console.log(`\n${failures} FAILED`);
-  else if (skips.length === 0) console.log("\nAll checks passed.");
-  else
-    console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
-
-  if (failures > 0 || skips.length > 0) process.exitCode = 1;
+  return finish();
 }
 
 main()

@@ -8,20 +8,11 @@
  * one number while the gradebook records another — the student reads the prose and
  * every other part of the system reads the column.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
+const { check, skip, finish } = createChecker();
 
 async function main() {
   const { db } = await import("../lib/prisma");
@@ -343,25 +334,7 @@ async function main() {
 
   await db.$disconnect();
 
-  if (failures > 0) console.log(`\n${failures} FAILED`);
-  else if (skips.length === 0) console.log("\nAll checks passed.");
-  else
-    console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
-
-  process.exit(failures > 0 || skips.length > 0 ? 1 : 0);
-}
-
-/**
- * Groups of checks that did not run, and why.
- *
- * **A partial run must not read as a pass.** This script depends on seeded data, and the day that
- * data changes shape — a student removed in the running application was enough — a whole group can
- * stop running while the output still says everything is fine. Reported, and non-zero.
- */
-const skips: string[] = [];
-function skip(reason: string) {
-  skips.push(reason);
-  console.log(`\nSKIPPED — ${reason}`);
+  finish();
 }
 
 /**

@@ -15,19 +15,11 @@
  *   4. No sandbox survives the run. A leaked sandbox bills until its own lifetime
  *      expires.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, pass: boolean, detail = "") {
-  if (pass) console.log(`ok   ${label}`);
-  else {
-    failures++;
-    console.log(`FAIL ${label}${detail ? `\n  ${detail}` : ""}`);
-  }
-}
+const { checkThat, finish } = createChecker();
 
 async function main() {
   const { createSandbox, killSandbox, revokeNetworkAccess, runCommand } =
@@ -58,12 +50,12 @@ async function main() {
       "CANARY_SECRET",
     ].filter((name) => env.stdout.includes(`${name}=`));
 
-    check(
+    checkThat(
       "no credential env vars reach the sandbox",
       leaked.length === 0,
       `leaked: ${leaked.join(", ")}`,
     );
-    check(
+    checkThat(
       "the canary value itself is absent",
       !env.stdout.includes("canary-must-not-appear-in-sandbox"),
     );
@@ -75,7 +67,7 @@ async function main() {
       `.catch(e=>{console.log('BLOCKED',e.name);process.exit(3)})"`;
 
     const before = await runCommand(handle, { command: probe, timeoutMs: 30_000 });
-    check(
+    checkThat(
       "the network is reachable before revocation",
       before.stdout.includes("REACHED"),
       `exit ${before.exitCode}: ${before.stdout.trim() || before.stderr.trim()}`,
@@ -84,7 +76,7 @@ async function main() {
     await revokeNetworkAccess(handle);
 
     const after = await runCommand(handle, { command: probe, timeoutMs: 30_000 });
-    check(
+    checkThat(
       "the network is blocked after revocation",
       after.stdout.includes("BLOCKED") || after.exitCode !== 0,
       `exit ${after.exitCode}: ${after.stdout.trim() || after.stderr.trim()}`,
@@ -95,13 +87,17 @@ async function main() {
       command: "while true; do :; done",
       timeoutMs: 5_000,
     });
-    check(
+    checkThat(
       "an endless command is killed",
       spin.timedOut,
       `exitCode ${spin.exitCode}, timedOut ${spin.timedOut}`,
     );
-    check("the kill is reported as exit 124", spin.exitCode === 124, `exitCode ${spin.exitCode}`);
-    check(
+    checkThat(
+      "the kill is reported as exit 124",
+      spin.exitCode === 124,
+      `exitCode ${spin.exitCode}`,
+    );
+    checkThat(
       "the sandbox still responds after a killed command",
       (await runCommand(handle, { command: "echo alive", timeoutMs: 15_000 })).stdout.includes(
         "alive",
@@ -117,14 +113,13 @@ async function main() {
   while (paginator.hasNext) {
     for (const item of await paginator.nextItems()) running.push(item.sandboxId);
   }
-  check(
+  checkThat(
     "no sandbox is left running",
     running.length === 0,
     running.length ? `still running: ${running.join(", ")}` : "",
   );
 
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish();
 }
 
 main().catch((err) => {

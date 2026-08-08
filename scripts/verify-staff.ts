@@ -13,49 +13,11 @@
  * every remaining person out of the screen that could undo it, recoverable only by editing the
  * database.
  */
-import { config as loadEnv } from "dotenv";
+import { createChecker, loadEnvironment, refusal } from "./verify/harness";
 
-loadEnv({ path: ".env.local", quiet: true });
-loadEnv({ quiet: true });
+loadEnvironment();
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  if (a !== e) {
-    failures++;
-    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
-  } else console.log(`ok   ${label}`);
-}
-
-/** The tRPC error code a call refused with, or "accepted". */
-async function refusal(work: () => Promise<unknown>): Promise<string> {
-  try {
-    await work();
-    return "accepted";
-  } catch (err) {
-    const code = (err as { code?: string })?.code;
-    return typeof code === "string" ? code : (err as Error).name;
-  }
-}
-
-/**
- * Groups of checks that did not run, and why. A run that checked nothing is not a run that passed.
- */
-const skips: string[] = [];
-function skip(reason: string) {
-  skips.push(reason);
-  console.log(`\nSKIPPED — ${reason}`);
-}
-
-function report() {
-  if (failures > 0) console.log(`\n${failures} FAILED`);
-  else if (skips.length === 0) console.log("\nAll checks passed.");
-  else
-    console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
-
-  process.exit(failures > 0 || skips.length > 0 ? 1 : 0);
-}
+const { check, skip, finish } = createChecker();
 
 async function main() {
   const { db } = await import("../lib/prisma");
@@ -195,7 +157,7 @@ async function main() {
 
   if (!admin || !student) {
     skip("needs an admin and a student account — run `npm run grant:admin -- you@example.com`");
-    return report();
+    return finish();
   }
 
   const createCaller = createCallerFactory(appRouter);
@@ -493,7 +455,7 @@ async function main() {
     console.log("\n(note: no INSTRUCTOR account existed before this run)");
   }
 
-  report();
+  finish();
 }
 
 main().catch((err) => {
