@@ -63,8 +63,13 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [What checking it found](#what-checking-it-found)
 - [Archived courses need a way back, and a way out — done](#archived-courses-need-a-way-back-and-a-way-out--done)
 - [Copying an assignment into another cohort — done](#copying-an-assignment-into-another-cohort--done)
-- [More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)
-- [Dividing grading between co-teachers](#dividing-grading-between-co-teachers)
+- [More kinds of thing a student can hand in — done](#more-kinds-of-thing-a-student-can-hand-in--done)
+  - [Google Slides was not a file type, and the kind was misnamed](#google-slides-was-not-a-file-type-and-the-kind-was-misnamed)
+- [Student groups, and grading a portion of a cohort](#student-groups-and-grading-a-portion-of-a-cohort)
+  - [The shape](#the-shape)
+  - [What the filter must not break](#what-the-filter-must-not-break)
+  - [Where it appears](#where-it-appears)
+  - [Deferred, and this is the table they want](#deferred-and-this-is-the-table-they-want)
 - [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
 - [The Modules screen shows the course the way a student meets it — done](#the-modules-screen-shows-the-course-the-way-a-student-meets-it--done)
   - [Two check scripts were reporting a hole that was not there](#two-check-scripts-were-reporting-a-hole-that-was-not-there)
@@ -99,17 +104,17 @@ The ordering principle is: correctness gaps, then the cheap things, then measure
 1. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
 2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
 3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-4. **[Student groups, and grading a portion of a cohort](#student-groups-and-grading-a-portion-of-a-cohort)** — a cohort is split between its instructors and nothing in the application can say so. The design is settled; the deferred halves of it are named in its own section.
-5. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-6. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
-7. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-8. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-9. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-10. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+4. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+5. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+6. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+7. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student) — half of which is now settled, since [a group](#student-groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
+8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1, 5, and 6 are new and their ordering relative to each other is a proposal rather than a decision. Item 4 is a decision: splitting a cohort between its instructors is what the term in front of us actually needs, and the filter it adds is the same mechanism item 5 wants.
+Item 1 and item 4 are new, and their ordering relative to each other is a proposal rather than a decision.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that [token management](#token-management) produces anyway.
+
+**Two large items came off this list rather than moving down it.** [Student groups](#student-groups-and-grading-a-portion-of-a-cohort) let a cohort be split between its instructors, and [content that is not an assignment](#content-that-is-not-an-assignment--done) puts readings, notes, and videos under a module beside its work — which is what makes a student's course page the whole of the course rather than only the parts that are marked. Both sections stay, describing what was built and naming what each deliberately left for later.
 
 **Done, and described in [getting a cohort into the application](#getting-a-cohort-into-the-application):** [course creation](#course-creation--done) and [student enrollment](#student-enrollment--done). A cohort can now be started, copied from a previous one, filled from a join link, co-taught, retired, found again afterwards, and finally deleted — and [who owns it](#course-ownership--done) decides which of its instructors can do the last three.
 
@@ -795,7 +800,7 @@ What it bought was correcting a typo, in a window measured in hours against a ni
 
 **Creating a course now has a review step** for the same reason: the short name cannot be taken back, and copying can bring a term's worth of assignments into the wrong cohort. The form's primary button says Review rather than Create, because it is not the button that creates anything. The review names the course, the cohort, the repository pattern the short name produces, and what copying will bring across.
 
-**The short name is read on two screens: the review step, and the cohort's settings.** The review step is where it is decided. Settings is where it is looked up afterwards, alongside an example of the repository name it produces, the count of repositories already named after it, and the reason there is no way to change it — see [a cohort's six views](README.md#a-cohorts-six-views-are-six-addresses). It is returned by `courses.settings` and by nothing else; the gradebook, the roster, and the assignments list all read a cohort without it.
+**The short name is read on two screens: the review step, and the cohort's settings.** The review step is where it is decided. Settings is where it is looked up afterwards, alongside an example of the repository name it produces, the count of repositories already named after it, and the reason there is no way to change it — see [a cohort's seven views](README.md#a-cohorts-seven-views-are-seven-addresses). It is returned by `courses.settings` and by nothing else; the gradebook, the roster, and the assignments list all read a cohort without it.
 
 ### The short name names the course as well as the term
 
@@ -861,7 +866,7 @@ Refusing a student who is not in the cohort with `NOT_FOUND` rather than returni
 
 **Built**, and described in [the README](README.md#a-cohorts-six-views-are-six-addresses). Not a planned item; it came out of the course page having accumulated a heading, a cohort line, an outstanding count, a triage button, a four-tab bar, and a row of stat cards, none of which was the thing being read.
 
-Triage, assignments, the gradebook, the roster, the modules, and the settings are six sidebar items and six addresses. "All courses" sits above them in its own group, separated. The Course navigation item is gone, and so is the button on triage that pointed at it.
+Triage, assignments, resources, the gradebook, the roster, the modules, and the settings are seven sidebar items and seven addresses. "All courses" sits above them in its own group, separated. The Course navigation item is gone, and so is the button on triage that pointed at it.
 
 **What the change was really about is that each view is now an address.** The switcher keeps the view across a change of cohort because there is a view to name; a link can point at the roster rather than at a page plus a tab; and each screen fetches what it needs. That last one is the part with teeth: `courses.gradebook` served all four tabs, so opening the roster fetched a term's worth of grading cells to list names, and the assignments tab derived its per-assignment counts by filtering those cells **inside a sort comparator** — once per comparison, per sort. It is four procedures now, and the counts are computed on the server from the same `triageBucket` the gradebook and triage use.
 
@@ -1091,7 +1096,7 @@ Two things it needs beyond a filter control:
 
 Almost all of the rendering already existed in `components/student/course-detail.tsx` — `groupByModule` builds from the course's module list so an empty module still appears, and `ModuleSection` is the collapsible, open when it has contents and closed when it does not. The work was a version of it that takes module actions and renders non-interactive rows, not a new component from nothing.
 
-**Resources are not in it**, because they do not exist yet — [that is the next item](#content-that-is-not-an-assignment). Each module's Resources section slots in beneath its assignments when they do, and nothing about the screen has to change to accept them.
+**Each module's Resources section sits beneath its assignments**, added when [resources were built](#content-that-is-not-an-assignment--done) and costing this screen nothing beyond a second list to render — which is what the shape was chosen for.
 
 ### Two check scripts were reporting a hole that was not there
 
@@ -1103,47 +1108,42 @@ Both now ask the question they are actually about, `instructorOf: { none: { cour
 
 ---
 
-## Content that is not an assignment
+## Content that is not an assignment — done
 
-Readings and external links, open-ended rich text, and embedded video. The largest of these items, and the reason is not the editor — it is that a module currently has exactly one kind of child.
+**Built**, and described in [the README](README.md#resources-what-is-in-a-module-that-is-not-work). Readings and external links, notes in markdown, and embedded video — authored on a Resources screen of their own and read beneath each module's assignments on the student's course page.
 
-**`assignments.moduleId` is a foreign key and assignments are a module's only children.** A student's course page renders a section per module and fills it from the assignment list; the gradebook's columns are assignments; triage counts submissions against assignments. Putting a second kind of thing under a module means every one of those readers has to decide what it does about a thing with no submission, no score, no due date, and no gradebook column.
+This was the largest item on the list, and the reason was never the editor: a module had exactly one kind of child, and every reader of a module assumed it. What made it an afternoon rather than a rewrite is the same thing that made a fourth `AssignmentKind` one — [the kind axis was named in the schema before any screen was built](#step-0-the-kind-axis--done), so the compiler enumerated the places that had to decide rather than a search hoping to find them.
 
-That is the same shape as the problem [the kind axis](#step-0-the-kind-axis--done) solved, and the lesson from it applies directly: **name the axis in the schema before building any screen**, and let the compiler enumerate the readers rather than a search hoping to find them. That is what made adding a fourth `AssignmentKind` an afternoon.
+### The model, and what it costs
 
-The model decision, which should be made before anything else:
+**A sibling table under `Module` rather than a shared parent.** `Resource` hangs off a module exactly as `Assignment` does. The tidier model is one module item that is either of them, and it is a much larger migration, since `Assignment` is referenced by submissions, grading drafts, and test runs. The cost of the cheap version is real and accepted: three screens merge two lists — the student's course page, the Modules screen, and the Resources screen — rather than the whole schema learning a new shape. Nothing in the gradebook, in triage, or in any count changed at all, which is the return on it.
 
-- **A sibling table under `Module`** — `ModuleContent` or similar, with its own `kind` — keeps assignments exactly as they are and costs every reader that wants "everything in this module in order" a merge of two lists.
-- **A shared parent** — a module item that is either an assignment or content — is the tidier model and a much larger migration, since `Assignment` is referenced by submissions, drafts, and test runs.
+**No `courseId` on the row**, unlike `Assignment`. That column exists there because a repository name is unique per course and the constraint needs it; nothing about a resource is unique per course, and every query has a module to reach through. One less denormalized column is one less thing that can come to disagree with the module it hangs off — and reaching the course *through* the module is also what makes the authorization check natural, since a write names a module and the module says which course to check.
 
-The first is almost certainly right for the same reason the modules table was: the cheap version that does not touch what already works.
+### Ordering, which needed no new column
 
-### Ordering, which is settled and needs no new column
+**Resources do not interleave with assignments.** A module reads as its assignments, then a Resources section beneath them. That is what made the ordering question disappear rather than need an answer:
 
-**Resources do not interleave with assignments.** A module reads as its assignments, then a Resources section beneath them. That is what makes the ordering question go away rather than needing an answer:
+- **Assignments sort by due date, earliest first, undated last**, which `assignments.listForCourse` and `modules.listForCourse` already did before this item existed. A due date is a fact an instructor already maintains and a student already reads, so an explicit position beside it would be a second ordering to keep in step with the first.
+- **Resources sort alphabetically by title**, decided on the server so the three screens that show them cannot each pick their own alphabet. They have no date and no natural sequence, so the only orderings available were alphabetical and manual, and alphabetical needs nothing maintained.
 
-- **Assignments sort by due date, earliest first, and cannot be reordered by hand.** A due date is a fact an instructor already maintains and a student already reads, so an explicit position beside it would be a second ordering to keep in step with the first — and the day the two disagree, nothing says which is right. An assignment with no due date sorts **last**, which is the rule the assignments table's own due-date sort already applies in both directions: no due date is not earlier or later than every date, it is outside the ordering.
-- **Resources sort alphabetically by title.** They have no date and no natural sequence, so the only orderings available are alphabetical and manual, and alphabetical is the one that needs nothing maintained.
+So neither table gained a `position`, and modules keep the only manual ordering in a course — which is the right place for it, because a module is a unit of teaching and the things inside one are already ordered by when they are due.
 
-So neither `Assignment` nor the content table gains a `position`, and modules keep the only manual ordering in the course — which is the right place for it, because a module is a unit of teaching and the things inside one are already ordered by when they are due.
+### A Resources page, and no course-level list
 
-**One consequence reaches the student side.** `assignments.listForCourse` orders by `[{ module: { position } }, { title }]` today, so a student's course page is alphabetical within a module. Due-date ordering changes that page as well as the instructor's, which is an improvement and worth stating rather than discovering: it is a change to what every current student sees.
+**Its own screen and its own sidebar item**, beside Assignments — the seventh course-scoped view. Every module is a section on it, including the empty ones, because an empty module is where the Add button for its first resource lives.
 
-### A Resources page, and a course-level list
+**Every resource belongs to a module**, so `moduleId` is `NOT NULL` exactly as it is on `Assignment`. There is no course-level resource: a student reads the course as a list of modules, and something outside all of them has nowhere to appear.
 
-**Its own screen and its own sidebar item**, beside Assignments, listing every resource in the course grouped by module with the actions to add, edit, and remove one. The same shape as Assignments for the same reason: the thing being authored gets a screen, and the module accordion is where the result is read.
-
-**Every resource belongs to a module**, so `moduleId` is a `NOT NULL` foreign key exactly as it is on `Assignment`. There is no course-level resource, because a student reads the course as a list of modules and a resource outside all of them has nowhere to appear.
-
-**No draft state, deliberately.** Assignments have `distributedAt` because handing one out starts a clock and creates work; a link to a reading does neither, and a student seeing one early is not a problem the way an unfinished assignment is. So a resource is visible as soon as it is added, and there is no publish step, no Draft badge, and no fourth thing for the module accordion to explain. If that turns out to be wrong, adding the column later is cheap — the reverse, taking a publish step away once instructors rely on it, is not.
+**No draft state, deliberately.** Assignments have `distributedAt` because handing one out starts a clock and creates work; a link to a reading does neither, and a student seeing one early is not a problem the way an unfinished assignment is. So a resource is visible as soon as it is saved, `resources.listForCourse` returns the same rows to both audiences, and there is no publish step, no Draft badge, and no fourth thing for the module accordion to explain. If that turns out to be wrong, adding the column later is cheap — the reverse is not.
 
 ### The three kinds
 
-- **A link with a title and a description** is the whole of the readings case, and it is the one to build first because it needs no editor at all.
-- **Rich text** should be markdown, because `submissionInstructions` already is and the report markdown a student reads already renders through this application's own renderer. A second content format would mean a second renderer and a second set of rules about what is allowed in it.
-- **Embedded video** is a URL plus an iframe, and the only real decision is whether arbitrary embed HTML is ever accepted — it should not be, for the same reason the upload check is a closed vocabulary. Store the video id, build the embed, and refuse anything that is not a URL shape the application recognises.
+- **`LINK`** — a title, a URL, and an optional line. The whole of the readings case and the only kind needing no editor.
+- **`TEXT`** — markdown, because `submissionInstructions` already is and a student's feedback already renders through this application's own renderer. A second content format would mean a second renderer and a second set of rules about what may appear in it.
+- **`VIDEO`** — and this is where the only real decision was. **Arbitrary embed HTML is never accepted**, for the same reason the upload check is a closed vocabulary: pasted embed code is an arbitrary iframe on a page every student in the cohort opens. `parseVideoUrl` matches against the URL shapes YouTube and Vimeo actually use, the provider and id are stored, and the frame's address is built from those two rather than from anything typed. Matching is on the parsed host rather than a substring, because a URL merely *containing* `youtube.com` is not YouTube — `verify:resources` checks that case along with a subdomain trick, a lookalike host, a `javascript:` URL, and a traversal in place of an id.
 
-Nothing here is graded, nothing is submitted, and nothing appears in the gradebook. Saying that plainly is most of the design: the value is that a student's course page becomes the whole of the course rather than only the parts that are marked.
+Nothing here is graded, nothing is submitted, and nothing appears in the gradebook. Saying that plainly was most of the design.
 
 ---
 

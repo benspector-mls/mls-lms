@@ -3,7 +3,15 @@
 // A client component because the tooltips are. `triage-overview.tsx` is a server component and
 // renders these badges, which is allowed — a server component may render a client one — but the
 // directive has to be here or the Base UI tooltip's hooks run in the wrong place.
-import { AlertTriangle, Code, FileText, Link as LinkIcon, Upload } from 'lucide-react';
+import {
+  AlertTriangle,
+  Code,
+  FileText,
+  Link as LinkIcon,
+  NotebookText,
+  PlayCircle,
+  Upload,
+} from 'lucide-react';
 import type * as React from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -11,8 +19,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type {
   AssignmentKind,
   GradingDraftStatus,
+  ResourceKind,
   SubmissionStatus,
 } from '@/lib/generated/prisma/enums';
+import { RESOURCE_KIND_LABEL } from '@/lib/resources/spec';
 import {
   ASSIGNMENT_KIND_META,
   CONFIDENCE_META,
@@ -167,6 +177,37 @@ export function AssignmentKindBadge({
     >
       <Icon data-icon="inline-start" />
       {meta.label}
+    </Badge>
+  );
+}
+
+const RESOURCE_KIND_ICON: Record<ResourceKind, React.ElementType> = {
+  LINK: LinkIcon,
+  TEXT: NotebookText,
+  VIDEO: PlayCircle,
+};
+
+/**
+ * What kind of resource this is.
+ *
+ * Outside the tone system for the same reason `AssignmentKindBadge` is: a kind never changes and
+ * nothing is waiting on it, so colour would read as a state needing attention. An icon and a
+ * word instead — and the words are the ones the authoring form offers, from one map, so a
+ * resource is not a "Note" on one screen and "Rich text" on the next.
+ */
+export function ResourceKindBadge({
+  kind,
+  className,
+}: {
+  kind: ResourceKind;
+  className?: string;
+}) {
+  const Icon = RESOURCE_KIND_ICON[kind];
+
+  return (
+    <Badge variant="secondary" className={cn('font-normal', className)}>
+      <Icon data-icon="inline-start" />
+      {RESOURCE_KIND_LABEL[kind]}
     </Badge>
   );
 }

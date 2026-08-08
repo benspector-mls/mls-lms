@@ -427,12 +427,113 @@ model Module {
 
   course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   assignments Assignment[]
+  resources   Resource[]
 
   /// One "Mod 4" per course. Two modules with the same name are indistinguishable in
   /// every select an instructor picks from.
   @@unique([courseId, name])
   @@index([courseId, position])
   @@map("modules")
+  @@schema("public")
+}
+
+/// What a resource *is*, which decides which of the columns below mean anything.
+///
+/// Named in full before any of it was built, the way `AssignmentKind` was: a code path that
+/// has to say which kinds it handles cannot silently work for one and break on the next, and
+/// the compiler enumerates the places that must decide rather than a search hoping to.
+enum ResourceKind {
+  /// A title, a URL, and an optional line saying what it is. The whole of the readings case,
+  /// and the only kind that needs no editor at all.
+  LINK
+  /// Markdown an instructor writes. Markdown rather than a second format because
+  /// `submissionInstructions` already is, and a student's feedback already renders through
+  /// this application's own renderer — a second content format is a second renderer and a
+  /// second set of rules about what may appear in it.
+  TEXT
+  /// A video from a provider this application recognises, embedded in the page.
+  VIDEO
+
+  @@schema("public")
+}
+
+/// The video services whose embeds this application will build.
+///
+/// A closed vocabulary, for the same reason the upload check is one. The alternative is
+/// accepting embed HTML an instructor pastes, which is an arbitrary iframe — or worse — on a
+/// page every student in the cohort opens.
+enum VideoProvider {
+  YOUTUBE
+  VIMEO
+
+  @@schema("public")
+}
+
+/// Something in a module that is not work: a reading, a note, a video.
+///
+/// **Nothing here is graded, submitted, or in the gradebook**, and saying that plainly is most
+/// of the design. The value is that a student's course page becomes the whole of the course
+/// rather than only the parts that are marked.
+///
+/// A sibling of `Assignment` under `Module` rather than a shared parent both hang off. The
+/// tidier model is one "module item" that is either of them, and it is a much larger migration:
+/// `Assignment` is referenced by submissions, grading drafts, and test runs. This costs every
+/// reader that wants "everything in this module" a merge of two lists, which is a cost paid in
+/// three screens rather than across the whole schema.
+///
+/// **No `courseId`.** `Assignment` carries one because a repository name is unique per course
+/// and the constraint needs the column; nothing here is unique per course, and every query has
+/// a module to reach through. One less denormalized column is one less thing that can come to
+/// disagree with the module it hangs off.
+///
+/// **No `distributedAt` and no draft state**, deliberately. An assignment has one because
+/// handing it out starts a clock and creates work; a link to a reading does neither, and a
+/// student seeing one early is not the problem an unfinished assignment is. Adding the column
+/// later is cheap; taking a publish step away once instructors rely on it is not.
+///
+/// **No `position`.** Resources sort alphabetically by title beneath their module's
+/// assignments, which sort by due date. Neither ordering is maintained by hand, so modules keep
+/// the only manual ordering in a course — which is the right place for it.
+model Resource {
+  id       String       @id @default(uuid()) @db.Uuid
+  moduleId String       @map("module_id") @db.Uuid
+  kind     ResourceKind
+  /// What it is called, for every kind. Also what it sorts by.
+  title    String
+
+  /// Where it points, for LINK and VIDEO. Validated as a URL by the schema rather than by the
+  /// column, because "required for one kind" is not something a column can express.
+  url String?
+
+  /// One line saying what a LINK is and why it is here. Plain text, not markdown: it renders
+  /// inside a row beside the title, and a row is not a place for a heading or a list.
+  description String?
+
+  /// The markdown of a TEXT resource. Rendered through the same renderer as a student's
+  /// feedback, so what is allowed in it is already decided.
+  body String?
+
+  /// A VIDEO's provider and its id *on* that provider, derived from the URL an instructor
+  /// pasted and stored rather than parsed at render time. The embed is built from these two
+  /// and never from a string somebody typed, which is what makes the vocabulary closed: a URL
+  /// this application does not recognise is refused when it is saved, not rendered as an
+  /// iframe pointing somewhere nobody checked.
+  videoProvider VideoProvider? @map("video_provider")
+  videoId       String?        @map("video_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  /// Cascade rather than restrict, which is the opposite of what an assignment gets from its
+  /// module — and right for the opposite reason. `modules.remove` refuses while assignments
+  /// reference the module, because those carry submissions and grades that would be destroyed
+  /// with it. A resource carries nothing: it is a title and a link, and re-adding one costs a
+  /// minute. Refusing to remove an empty module because somebody left a reading in it would be
+  /// a guard against nothing.
+  @@index([moduleId])
+  @@map("resources")
   @@schema("public")
 }
 

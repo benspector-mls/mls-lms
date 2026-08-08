@@ -16,7 +16,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { EmptyState } from '@/components/list-states';
-import { AssignmentKindBadge } from '@/components/status-badge';
+import { AssignmentKindBadge, ResourceKindBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -225,8 +225,9 @@ function ModuleSection({
   onRemove: () => void;
 }) {
   // Open when it holds something, closed when it does not — the same rule the student's course
-  // page follows. An empty module is worth seeing in the list and not worth the vertical space.
-  const [open, setOpen] = React.useState(row.assignments.length > 0);
+  // page follows. Resources count towards "something", so a module holding only readings opens
+  // rather than reading as empty.
+  const [open, setOpen] = React.useState(row.assignments.length > 0 || row.resources.length > 0);
   const drafts = row.assignments.filter((a) => a.distributedAt === null).length;
 
   return (
@@ -298,7 +299,7 @@ function ModuleSection({
                   />
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold">{row.name}</span>
                   <span className="text-xs whitespace-nowrap text-muted-foreground">
-                    {moduleSummary(row.assignments.length, drafts)}
+                    {moduleSummary(row.assignments.length, drafts, row.resources.length)}
                   </span>
                 </CollapsibleTrigger>
               </h2>
@@ -332,11 +333,14 @@ function ModuleSection({
         </div>
 
         <CollapsibleContent>
-          {row.assignments.length === 0 ? (
+          {row.assignments.length === 0 && row.resources.length === 0 ? (
             <p className="border-t border-border px-3 py-3 text-sm text-muted-foreground">
-              Nothing in this module yet. Add an assignment to it from the Assignments screen.
+              Nothing in this module yet. Add an assignment from the Assignments screen, or a
+              reading from Resources.
             </p>
           ) : (
+            <>
+            {row.assignments.length > 0 && (
             <ul className="divide-y divide-border border-t border-border">
               {row.assignments.map((assignment) => (
                 <li
@@ -370,6 +374,38 @@ function ModuleSection({
                 </li>
               ))}
             </ul>
+            )}
+
+            {/*
+              Beneath the assignments and never interleaved with them, which is the same shape
+              the student's course page uses — and the reason neither has an ordering problem:
+              assignments sort by due date, resources alphabetically, and the two sequences are
+              never merged into one.
+
+              Not interactive, exactly like the assignment rows above. This screen shows the
+              course's shape; Resources is where a reading is worked on, and a second route into
+              editing one that looked different from the first would be two answers to one
+              question.
+            */}
+            {row.resources.length > 0 && (
+              <section className="border-t border-border">
+                <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Resources
+                </h3>
+                <ul className="divide-y divide-border">
+                  {row.resources.map((resource) => (
+                    <li
+                      key={resource.id}
+                      className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{resource.title}</span>
+                      <ResourceKindBadge kind={resource.kind} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            </>
           )}
         </CollapsibleContent>
       </section>
@@ -378,14 +414,17 @@ function ModuleSection({
 }
 
 /**
- * "6 assignments · 2 drafts", or "Nothing yet".
+ * "6 assignments · 2 drafts · 3 resources", or "Nothing yet".
  *
- * The draft count is separate from the total rather than folded into it, because the two
- * answer different questions: how much is in this module, and how much of it the cohort
- * cannot see.
+ * Three counts rather than one, because they answer three different questions: how much work is
+ * in this module, how much of it the cohort cannot see, and how much of what is here is not work
+ * at all. Folding resources into the assignment total would make a module holding one reading
+ * read as holding an assignment.
  */
-function moduleSummary(total: number, drafts: number): string {
-  if (total === 0) return 'Nothing yet';
-  const assignments = total === 1 ? '1 assignment' : `${total} assignments`;
-  return drafts === 0 ? assignments : `${assignments} · ${drafts} draft${drafts === 1 ? '' : 's'}`;
+function moduleSummary(total: number, drafts: number, resources: number): string {
+  const parts: string[] = [];
+  if (total > 0) parts.push(total === 1 ? '1 assignment' : `${total} assignments`);
+  if (drafts > 0) parts.push(`${drafts} draft${drafts === 1 ? '' : 's'}`);
+  if (resources > 0) parts.push(resources === 1 ? '1 resource' : `${resources} resources`);
+  return parts.length === 0 ? 'Nothing yet' : parts.join(' · ');
 }

@@ -7,6 +7,7 @@ import { enrollmentsRouter } from './enrollments';
 import { gradingDraftsRouter } from './grading-drafts';
 import { groupsRouter } from './groups';
 import { modulesRouter } from './modules';
+import { resourcesRouter } from './resources';
 import { staffRouter } from './staff';
 import { submissionsRouter } from './submissions';
 import { testRunsRouter } from './test-runs';
@@ -62,6 +63,7 @@ export const appRouter = createTRPCRouter({
   enrollments: enrollmentsRouter,
   modules: modulesRouter,
   groups: groupsRouter,
+  resources: resourcesRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
   testRuns: testRunsRouter,

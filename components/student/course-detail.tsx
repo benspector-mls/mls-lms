@@ -21,6 +21,7 @@ import {
 
 import { AcceptAssignmentButton } from '@/components/accept-assignment-button';
 import { EmptyState } from '@/components/list-states';
+import { ResourceItem } from '@/components/resource-item';
 import { Markdown } from '@/components/markdown';
 import { PageHeader } from '@/components/page-header';
 import { AssignmentKindBadge, SubmissionStatusBadge } from '@/components/status-badge';
@@ -68,17 +69,27 @@ import { cn } from '@/lib/utils';
 type Course = RouterOutputs['courses']['get'];
 type Assignment = RouterOutputs['assignments']['listForCourse'][number];
 type Submission = Assignment['submissions'][number];
+type Resource = RouterOutputs['resources']['listForCourse'][number];
 
 export function StudentCourseDetail({
   course,
   assignments,
+  resources,
   githubLinked,
 }: {
   course: Course;
   assignments: Assignment[];
+  /**
+   * The readings, notes, and videos in this course, flat and already ordered.
+   *
+   * A second list rather than a field on the module, because they come from a second table —
+   * a resource is a sibling of an assignment under a module, not a kind of assignment. The
+   * merge is here, which is the cost that model was chosen knowing about.
+   */
+  resources: Resource[];
   githubLinked: boolean;
 }) {
-  const modules = groupByModule(course, assignments);
+  const modules = groupByModule(course, assignments, resources);
   const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
 
   return (
@@ -124,16 +135,17 @@ export function StudentCourseDetail({
       {modules.length === 0 ? (
         <EmptyState
           icon={<ListChecks />}
-          title="No assignments yet"
-          description="When your instructor publishes assignments for this course, they will appear here."
+          title="Nothing here yet"
+          description="When your instructor adds assignments or readings to this course, they will appear here."
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {modules.map(({ id, name, rows }) => (
+          {modules.map(({ id, name, rows, resources: moduleResources }) => (
             <ModuleSection
               key={id}
               name={name}
               assignments={rows}
+              resources={moduleResources}
               teaches={course.teaches}
             />
           ))}
@@ -144,7 +156,7 @@ export function StudentCourseDetail({
 }
 
 /**
- * Every module of the course, in the order the instructor set, with its assignments under it.
+ * Every module of the course, in the order the instructor set, with what is in it underneath.
  *
  * **Built from the course's modules rather than from the assignments**, so a module a student
  * has nothing in yet still appears. That is the point: the module list is the shape of the
@@ -153,19 +165,31 @@ export function StudentCourseDetail({
  * the instructor, which is what `distributedAt` is for.
  *
  * An assignment whose module is somehow not in the list is still shown, under that module, so
- * nothing can go missing from a student's page because of a data problem they cannot see.
+ * nothing can go missing from a student's page because of a data problem they cannot see. A
+ * *resource* in an unknown module is dropped instead, and the difference is deliberate: an
+ * assignment is work somebody is graded on and must never disappear silently, where a reading
+ * filed under nothing has nowhere to be shown and no consequence for going unseen.
  */
-function groupByModule(course: Course, assignments: Assignment[]) {
-  const groups = new Map<string, { id: string; name: string; position: number; rows: Assignment[] }>();
+function groupByModule(course: Course, assignments: Assignment[], resources: Resource[]) {
+  const groups = new Map<
+    string,
+    { id: string; name: string; position: number; rows: Assignment[]; resources: Resource[] }
+  >();
 
   for (const row of course.modules) {
-    groups.set(row.id, { ...row, rows: [] });
+    groups.set(row.id, { ...row, rows: [], resources: [] });
   }
 
   for (const assignment of assignments) {
     const existing = groups.get(assignment.module.id);
     if (existing) existing.rows.push(assignment);
-    else groups.set(assignment.module.id, { ...assignment.module, rows: [assignment] });
+    else groups.set(assignment.module.id, { ...assignment.module, rows: [assignment], resources: [] });
+  }
+
+  // Already in title order from the procedure, so pushing preserves it. Ordering resources
+  // here would be a second alphabet beside the one the server applied.
+  for (const resource of resources) {
+    groups.get(resource.moduleId)?.resources.push(resource);
   }
 
   return [...groups.values()].sort(
@@ -176,15 +200,18 @@ function groupByModule(course: Course, assignments: Assignment[]) {
 function ModuleSection({
   name,
   assignments,
+  resources,
   teaches,
 }: {
   name: string;
   assignments: Assignment[];
+  resources: Resource[];
   teaches: boolean;
 }) {
-  // Collapsed when there is nothing in it. A module with no assignments yet is worth seeing in
+  // Collapsed when there is nothing in it at all — resources count, so a module holding only
+  // readings opens rather than reading as empty. A module with nothing yet is worth seeing in
   // the list and not worth taking up space open.
-  const [open, setOpen] = React.useState(assignments.length > 0);
+  const [open, setOpen] = React.useState(assignments.length > 0 || resources.length > 0);
   const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
 
   return (
@@ -204,27 +231,56 @@ function ModuleSection({
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
               {name}
             </span>
+            {/*
+              The assignment progress is the summary, and resources are counted beside it rather
+              than folded into it: "2 of 5 complete" is a claim about work, and a reading is not
+              work. A module holding only readings says so instead of reading as 0 of 0.
+            */}
             <span className="text-xs whitespace-nowrap text-muted-foreground">
-              {assignments.length === 0
-                ? 'Nothing yet'
-                : `${complete} of ${assignments.length} complete`}
+              {moduleSummary(assignments.length, complete, resources.length)}
             </span>
           </CollapsibleTrigger>
         </h2>
 
         <CollapsibleContent>
-          {assignments.length === 0 ? (
+          {assignments.length === 0 && resources.length === 0 ? (
             <p className="border-t border-border px-3 py-3 text-sm text-muted-foreground">
               Nothing has been handed out for this module yet.
             </p>
           ) : (
-            <ul className="divide-y divide-border border-t border-border">
-              {assignments.map((assignment) => (
-                <li key={assignment.id}>
-                  <AssignmentRow assignment={assignment} teaches={teaches} />
-                </li>
-              ))}
-            </ul>
+            <>
+              {assignments.length > 0 && (
+                <ul className="divide-y divide-border border-t border-border">
+                  {assignments.map((assignment) => (
+                    <li key={assignment.id}>
+                      <AssignmentRow assignment={assignment} teaches={teaches} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/*
+                Beneath the assignments, under a heading of their own, and never interleaved with
+                them. That is what makes the ordering question go away rather than needing an
+                answer: assignments sort by due date and resources alphabetically, and two
+                sequences cannot be merged into one without inventing a rule for comparing a
+                deadline to a title.
+              */}
+              {resources.length > 0 && (
+                <section className="border-t border-border">
+                  <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    Resources
+                  </h3>
+                  <ul className="divide-y divide-border">
+                    {resources.map((resource) => (
+                      <li key={resource.id}>
+                        <ResourceItem resource={resource} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
           )}
         </CollapsibleContent>
       </section>
@@ -1020,4 +1076,20 @@ function RoundSections({ round }: { round: FeedbackRound }) {
       ))}
     </div>
   );
+}
+
+/**
+ * "2 of 5 complete · 3 resources", or what is true when one half is empty.
+ *
+ * Two counts rather than one, because they answer different questions and only one of them is
+ * about work. Folding readings into the progress figure would make a module read as unfinished
+ * for holding a link.
+ */
+function moduleSummary(assignments: number, complete: number, resources: number): string {
+  const work = assignments === 0 ? null : `${complete} of ${assignments} complete`;
+  const reading =
+    resources === 0 ? null : `${resources} ${resources === 1 ? 'resource' : 'resources'}`;
+
+  if (!work && !reading) return 'Nothing yet';
+  return [work, reading].filter(Boolean).join(' · ');
 }

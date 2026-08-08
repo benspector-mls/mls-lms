@@ -32,6 +32,7 @@
     "verify:uploads": "tsx --conditions=react-server scripts/verify-uploads.ts",
     "verify:modules": "tsx --conditions=react-server scripts/verify-modules.ts",
     "verify:groups": "tsx --conditions=react-server scripts/verify-groups.ts",
+    "verify:resources": "tsx --conditions=react-server scripts/verify-resources.ts",
     "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",
     "verify:staff": "tsx --conditions=react-server scripts/verify-staff.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts"

@@ -6,9 +6,9 @@
 // the address is the only place the current course is recorded, so a link that omitted
 // it would land the reader somewhere the switcher could not describe.
 //
-// The six course-scoped views are the six sidebar items, and they are listed here in the
-// order the sidebar offers them. `sameViewInCourse` at the foot is what makes switching
-// cohort keep the view, and it has to know all six — a view missing from it silently
+// The seven course-scoped views are the seven sidebar items, and they are listed here in
+// the order the sidebar offers them. `sameViewInCourse` at the foot is what makes switching
+// cohort keep the view, and it has to know all seven — a view missing from it silently
 // falls back to the course address, which is a redirect, so the reader would land
 // somewhere they did not ask for and the switcher would look broken for that screen
 // alone.
@@ -37,6 +37,18 @@ export function newAssignmentHref(courseId: string): string {
 
 export function editAssignmentHref(courseId: string, assignmentId: string): string {
   return `/instructor/courses/${courseId}/assignments/${assignmentId}/edit`
+}
+
+/**
+ * Everything in the cohort that is not work: readings, notes, and videos.
+ *
+ * Beside the assignments list rather than under it, because the two are authored the same way
+ * and read in the same place — a module's accordion shows its assignments and then its
+ * resources — and a reader looking for "the things I put in this course" should not have to
+ * know which of them happen to be graded.
+ */
+export function courseResourcesHref(courseId: string): string {
+  return `/instructor/courses/${courseId}/resources`
 }
 
 export function gradebookHref(courseId: string): string {
@@ -107,6 +119,7 @@ export function sameViewInCourse(pathname: string, courseId: string): string {
 
   if (rest[0] === "triage") return triageHref(courseId)
   if (rest[0] === "assignments" && rest.length === 1) return courseAssignmentsHref(courseId)
+  if (rest[0] === "resources") return courseResourcesHref(courseId)
   if (rest[0] === "gradebook") return gradebookHref(courseId)
   if (rest[0] === "roster") return rosterHref(courseId)
   if (rest[0] === "modules") return modulesHref(courseId)

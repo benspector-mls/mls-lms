@@ -38,16 +38,20 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
   const { courseId } = await params;
   const queryClient = getQueryClient();
 
-  const [profile, course, assignments] = await Promise.all([
+  const [profile, course, assignments, resources] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.assignments.listForCourse.queryOptions({ courseId })),
+    // Its own read rather than part of the assignment list: a resource is a sibling of an
+    // assignment under a module, not a kind of assignment, and the two are merged on the page.
+    queryClient.fetchQuery(trpc.resources.listForCourse.queryOptions({ courseId })),
   ]);
 
   return (
     <StudentCourseDetail
       course={course}
       assignments={assignments}
+      resources={resources}
       githubLinked={Boolean(profile?.githubUsername)}
     />
   );

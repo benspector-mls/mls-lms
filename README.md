@@ -158,6 +158,7 @@ Verification scripts are re-runnable and are the fastest way to find out whether
 | `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
 | `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                              |
 | `npm run verify:groups`       | Student groups, and that filtering to one narrows all four screens to the same set of students                                    |
+| `npm run verify:resources`    | Readings, notes, and videos — including every URL shape the video embed refuses                                                   |
 | `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                       |
 | `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                      |
 | `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                          |
@@ -890,6 +891,30 @@ The last two are the pair that has to be kept apart from their neighbours. `need
 
 **Triage counts work the instructor has not done, which includes work not yet started.** Reports are generated *by* an instructor, so a submission with no draft at all is the first bucket rather than a footnote — an empty queue has to mean caught up, not merely nothing generated.
 
+### Resources: what is in a module that is not work
+
+Readings, notes, and videos. **Nothing here is graded, submitted, or in the gradebook**, and saying that plainly is most of the design — the value is that a student's course page becomes the whole of the course rather than only the parts that are marked.
+
+`Resource` is a **sibling of `Assignment` under `Module`**, not a shared parent both hang off. The tidier model is one "module item" that is either of them, and it is a much larger migration: `Assignment` is referenced by submissions, grading drafts, and test runs. The cost of the cheap version is real and paid in exactly three places — the student's course page, the Modules screen, and the Resources screen each merge two lists — rather than across the whole schema.
+
+Three kinds, named in the enum before any of them was built, the way `AssignmentKind` was:
+
+| Kind    | What it is                                        | Where it lives                              |
+| ------- | ------------------------------------------------- | ------------------------------------------- |
+| `LINK`  | A title, a URL, and one line about it              | `url`, `description`                        |
+| `TEXT`  | Markdown an instructor writes                      | `body`                                      |
+| `VIDEO` | A YouTube or Vimeo video, played on the page      | `videoProvider`, `videoId`, and a watch URL |
+
+**The video vocabulary is closed, and that is the one sharp edge here.** The obvious implementation accepts the embed HTML an instructor pastes, which puts an arbitrary iframe on a page every student in the cohort opens. Instead `parseVideoUrl` matches a URL against the shapes the two supported providers actually use, takes the id out of it, and stores provider and id; `videoEmbedUrl` builds the frame's address from those two and never from a string anybody typed. Anything unrecognised is refused when it is saved, where an instructor can fix it. Matching is on the **parsed host** rather than a substring, because `https://evil.example/youtube.com/watch?v=…` contains "youtube.com" and is not YouTube — `verify:resources` checks that one along with a subdomain trick, a lookalike host, a `javascript:` URL, and a traversal in place of an id.
+
+Three decisions that are absences rather than columns:
+
+- **No draft state.** An assignment has `distributedAt` because handing one out starts a clock and creates work; a link to a reading does neither, and a student seeing one early is not the problem an unfinished assignment is. So `resources.listForCourse` returns the same rows to a student and an instructor, which is the opposite of the assignment list beside it. Adding the column later is cheap; taking a publish step away once instructors rely on it is not.
+- **No `position`.** Assignments sort by due date with the undated last, resources alphabetically by title, and **resources never interleave with assignments** — they sit in a section beneath them. That is what makes the ordering question disappear rather than need an answer: two sequences are never merged, so nothing has to decide how a deadline compares to a title. Modules keep the only manual ordering in a course.
+- **No `courseId`.** Every query has a module to reach through, and nothing about a resource is unique per course, so the denormalized column would be one more thing that can come to disagree with the module it hangs off. It is also what makes the authorization check natural: a write names a module, and the module is what says which course to check.
+
+Removal is a plain confirmation rather than the typed-title one an assignment needs — that destroys submissions and released grades irreversibly, and this destroys a title and a URL. A resource cascades with its module for the same reason, where an assignment restricts: `modules.remove` refuses while assignments reference it because those carry grades, and refusing to remove an otherwise-empty module because somebody left a reading in it would be a guard against nothing.
+
 ### Groups, and grading a portion of a cohort
 
 A cohort is usually split between its instructors — the same fifteen students each, all term — and a group is how that is said. **A group is a named set of students and nothing else.** It has no instructor, grants no permission, and decides nothing about who may grade: an instructor picks one from the filter on grading triage, an assignment's queue, the gradebook, or the assignments list, and those four screens narrow to it. The overlap stops because the piles stop overlapping, not because anything is refused — a co-teacher covering for somebody else must still be able to approve their drafts.
@@ -920,6 +945,7 @@ Two things this is deliberately not yet, both on the roadmap: an assignment give
 | `/instructor/courses/[courseId]`                            | Nothing: redirects to that cohort's settings                           |
 | `/instructor/courses/[courseId]/triage`                     | What is waiting on the instructor in this cohort                       |
 | `/instructor/courses/[courseId]/assignments`                | Every assignment in the cohort, and where new ones are made            |
+| `/instructor/courses/[courseId]/resources`                  | Readings, notes, and videos, by module. Nothing here is graded         |
 | `/instructor/courses/[courseId]/gradebook`                  | Assignments × roster, each cell carrying its triage bucket             |
 | `/instructor/courses/[courseId]/roster`                     | Who is in the cohort, the join link, and the cohort's groups           |
 | `/instructor/courses/[courseId]/modules`                    | The order the cohort is taught in                                      |
@@ -931,9 +957,9 @@ Two things this is deliberately not yet, both on the roadmap: an assignment give
 | `/invite/[token]`                                           | Where an instructor invitation lands                                   |
 | `/co-teach/[token]`                                         | Where a cohort's co-teaching link lands                                |
 
-### A cohort's six views are six addresses
+### A cohort's seven views are seven addresses
 
-Triage, assignments, the gradebook, the roster, the modules, and the settings are the sidebar, in that order. They were tabs on one course page until that page had a heading, a cohort line, an outstanding count, a triage button, a tab bar, and a row of stat cards all competing for the same band of the screen — and none of it was the thing being read.
+Triage, assignments, resources, the gradebook, the roster, the modules, and the settings are the sidebar, in that order. They were tabs on one course page until that page had a heading, a cohort line, an outstanding count, a triage button, a tab bar, and a row of stat cards all competing for the same band of the screen — and none of it was the thing being read.
 
 **Each one being an address is what buys the rest.** The course switcher can keep the view across a change of cohort, because there is a view to name. A link can point at the roster rather than at a page plus a tab nobody can bookmark. And each screen fetches its own data, which is why `courses.gradebook` split into four: opening the roster used to fetch a term's worth of grading cells to display a list of names, and the assignments list derived its per-assignment counts by filtering those cells *inside a sort comparator*, so the filtering ran again for every comparison of every sort. `courses.roster`, `courses.assignmentsOverview`, `courses.settings`, and a narrowed `courses.gradebook` each answer one screen. The counts moved to the server with them and still come from `triageBucket`, so the "to grade" column cannot disagree with the pile triage lists.
 
@@ -945,7 +971,7 @@ Triage, assignments, the gradebook, the roster, the modules, and the settings ar
 
 **All courses sits in its own group above them, separated by a rule.** Everything below is scoped to one cohort and this is the way out of all of them; among them it read as a seventh view of the cohort you were already in.
 
-Switching cohort keeps the view rather than returning to a front page: triage becomes the other cohort's triage, the roster the other cohort's roster. That only holds for the six views every course has, so an assignment's queue, its edit form, and a student's record land on settings instead — each belongs to one cohort and cannot travel. `sameViewInCourse` is where that is decided, and a view missing from it does not fail: it falls through to settings, so switching cohort from the roster would silently land on settings and read as the switcher losing your place. All six are checked by `verify:enrollment` for that reason.
+Switching cohort keeps the view rather than returning to a front page: triage becomes the other cohort's triage, the roster the other cohort's roster. That only holds for the seven views every course has, so an assignment's queue, its edit form, and a student's record land on settings instead — each belongs to one cohort and cannot travel. `sameViewInCourse` is where that is decided, and a view missing from it does not fail: it falls through to settings, so switching cohort from the roster would silently land on settings and read as the switcher losing your place. All of them are checked by `verify:enrollment` for that reason.
 
 The breadcrumb names the cohort as plain text rather than as a link, because there is no course home for it to point at — the address it would use redirects, and a first step that lands somewhere the reader did not name is worse than one that only says where they are.
 
@@ -1037,6 +1063,12 @@ Every technical score across both pairs agrees with the instructor's. The one di
 The list now carries each module's assignments, so three more things are checked about them: they come back in **due-date order with the undated one last**, against a module whose rows were created out of order and whose undated assignment sorts first alphabetically, so neither insertion order nor the title could produce the expected answer; an unpublished assignment is returned to an instructor and **not to a student**, which is the reason that procedure reads the membership rather than discarding it; and `_count` deliberately disagrees with the length of that list, because removal is refused on drafts too and a count of only what the caller can see would offer a Remove button the procedure then refuses.
 
 One thing that verification taught rather than confirmed: **provoking a database constraint aborts the whole Postgres transaction**, so every check that trips a unique index or a foreign key needs a transaction of its own. Discovered by having the first duplicate-name check take eleven unrelated checks down with it.
+
+**Resources.** `verify:resources` is 61 checks, and the half that matters most is a pure function. **A video URL this application does not recognise must be refused rather than framed**, so `parseVideoUrl` is checked against every shape the two providers actually use — watch links, share links, shorts, the mobile host, Vimeo's channel and unlisted forms — and against twelve that must come back null: a host merely *containing* `youtube.com`, a subdomain trick, a lookalike host, a `javascript:` URL, a `data:` URL, another video service, a channel rather than a video, an id of the wrong length, and a traversal in place of one. Every one of those is a string a substring match would accept. The embed and watch addresses are checked to be rebuilt from the stored id rather than echoed from the paste, which is what collapses the twenty ways of writing one YouTube link into one and stops this application printing a link to something its own embed refused.
+
+The rest drives the procedures in a rolled-back transaction: resources come back alphabetically rather than in insertion order (created deliberately as Zebra, Apple, Mango so insertion order cannot produce the answer), a student sees exactly the same rows an instructor does because there is no draft state to filter on, changing a resource's kind clears the columns the old kind used, a module from another course is refused, and neither a student nor an instructor who does not teach the course can write anything. The last check is the cascade: a resource is deleted with its module, where an assignment would have refused the deletion.
+
+Writing it changed the code once. The spec's branches were not `.strict()`, so Zod silently stripped a stray key — a caller sending a link's fields under a note's kind would have seen it saved as something else with no error anywhere. `resourceColumns` nulls the column regardless, so nothing unclean could reach the database; strictness is what makes the caller's mistake visible instead of invisible. `assignmentSpecSchema` was already strict throughout, so this was a divergence rather than a decision.
 
 **Groups.** `verify:groups` is 43 checks, and most of them are not about the group table. A group is a named set of students used to split a cohort between its instructors, and what has to hold is that **filtering to one narrows grading triage, an assignment's queue, the gradebook, and the assignments list to the same set of people** — the day two of those disagree, one screen says an instructor is caught up while another says work is waiting, with nothing on either to reconcile them. So the strongest checks compare a filtered read against an unfiltered one: the group's pile plus everybody else's pile is exactly the whole pile, the gradebook narrows its cells and not only its rows, no per-assignment count exceeds the cohort's, and an out-of-group submission stays openable by link rather than being replaced by whichever student is at the top of the list. Around them: a group from another course matches nothing rather than everything, Ungrouped agrees with the picker's own figure, a removed student keeps their membership and stays out of the pile until they are restored, choosing a group is remembered and deleting it returns the instructor to all students, and a student can call none of it while an instructor who does not teach the course cannot either.
 

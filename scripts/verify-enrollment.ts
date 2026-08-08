@@ -241,6 +241,7 @@ async function main() {
         ["triage", links.triageHref(alpha), links.triageHref(beta)],
         ["the assignments list",
           links.courseAssignmentsHref(alpha), links.courseAssignmentsHref(beta)],
+        ["resources", links.courseResourcesHref(alpha), links.courseResourcesHref(beta)],
         ["the gradebook", links.gradebookHref(alpha), links.gradebookHref(beta)],
         ["the roster", links.rosterHref(alpha), links.rosterHref(beta)],
         ["modules", links.modulesHref(alpha), links.modulesHref(beta)],

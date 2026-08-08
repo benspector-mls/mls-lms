@@ -11,6 +11,7 @@ import {
   ClipboardList,
   GraduationCap,
   Layers,
+  Library,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -64,6 +65,7 @@ import { Separator } from "@/components/ui/separator"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   courseAssignmentsHref,
+  courseResourcesHref,
   courseSettingsHref,
   gradebookHref,
   gradingQueueHref,
@@ -166,6 +168,7 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
     else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" })
     else if (rest[0] === "roster") crumbs.push({ label: "Roster" })
     else if (rest[0] === "modules") crumbs.push({ label: "Modules" })
+    else if (rest[0] === "resources") crumbs.push({ label: "Resources" })
     else if (rest[0] === "settings") crumbs.push({ label: "Settings" })
     else if (rest[0] === "assignments") {
       // The list is a screen of its own now, so it is a step on the trail rather than a
@@ -322,6 +325,7 @@ function CourseSelector({
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
   { title: "Assignments", href: courseAssignmentsHref, icon: ClipboardList, segment: "assignments" },
+  { title: "Resources", href: courseResourcesHref, icon: Library, segment: "resources" },
   { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
   { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
   { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },

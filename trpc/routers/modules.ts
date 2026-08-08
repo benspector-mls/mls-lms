@@ -123,6 +123,23 @@ export const modulesRouter = createTRPCRouter({
               distributedAt: true,
             },
           },
+          /**
+           * What is in the module that is not work.
+           *
+           * Alphabetical, and **no publish filter** — unlike the assignments above. There is no
+           * draft state on a resource at all, so the same rows go to a student and an
+           * instructor. That is a decision rather than an omission: handing out an assignment
+           * starts a clock and creates work, and a link to a reading does neither.
+           *
+           * Titles and kinds only. This feeds the count and the non-interactive list on the
+           * Modules screen; the body of a note and the id of a video are what
+           * `resources.listForCourse` is for, and shipping a term's markdown to a screen that
+           * renders none of it would be a page of prose nobody asked for.
+           */
+          resources: {
+            orderBy: { title: 'asc' },
+            select: { id: true, title: true, kind: true },
+          },
         },
       });
     }),
