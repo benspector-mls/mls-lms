@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { GradingQueue } from "@/components/instructor/grading-queue";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { resolveGroup } from "@/lib/courses/resolve-group";
 import { requireCourseMatch } from "@/lib/instructor/course-scope";
 import { gradingQueueHref } from "@/lib/links";
@@ -27,17 +27,9 @@ export default function GradingQueuePage({
   searchParams: Promise<{ group?: string }>;
 }) {
   return (
-    <Suspense fallback={<QueueFallback />}>
+    <Suspense fallback={<PageFallback rows={8} />}>
       <Queue params={params} searchParams={searchParams} />
     </Suspense>
-  );
-}
-
-function QueueFallback() {
-  return (
-    <div className="p-4 md:p-6">
-      <ListSkeleton rows={8} />
-    </div>
   );
 }
 

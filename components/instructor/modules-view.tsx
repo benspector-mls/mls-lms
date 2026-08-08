@@ -1,7 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
@@ -15,6 +14,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { EmptyState } from "@/components/list-states";
 import { AssignmentKindBadge, ResourceKindBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -61,48 +61,31 @@ type Module = RouterOutputs["modules"]["listForCourse"][number];
 
 export function CourseModules({ courseId }: { courseId: string }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const router = useRouter();
+  const settled = useServerMutation();
   const modules = useQuery(trpc.modules.listForCourse.queryOptions({ courseId }));
 
   const [newName, setNewName] = React.useState("");
   const [renaming, setRenaming] = React.useState<string | null>(null);
 
-  /*
-    Both, because this screen's own list is a client query and the assignments it now shows come
-    from server-rendered screens elsewhere. `invalidateQueries` refreshes this list;
-    `router.refresh()` re-runs the server components so a module renamed here does not leave the
-    old name on the assignments screen until a manual reload.
-  */
-  function refreshEverything() {
-    void queryClient.invalidateQueries();
-    router.refresh();
-  }
-
-  const settled = {
-    onSuccess: () => refreshEverything(),
-    onError: (error: { message: string }) => toast.error(error.message),
-  };
-
-  const create = useMutation(trpc.modules.create.mutationOptions(settled));
+  const create = useMutation(trpc.modules.create.mutationOptions(settled()));
   const rename = useMutation(
-    trpc.modules.rename.mutationOptions({
-      ...settled,
-      onSuccess: () => {
-        setRenaming(null);
-        refreshEverything();
-      },
-    }),
+    trpc.modules.rename.mutationOptions(
+      settled({
+        onSuccess: () => {
+          setRenaming(null);
+        },
+      }),
+    ),
   );
-  const reorder = useMutation(trpc.modules.reorder.mutationOptions(settled));
+  const reorder = useMutation(trpc.modules.reorder.mutationOptions(settled()));
   const remove = useMutation(
-    trpc.modules.remove.mutationOptions({
-      ...settled,
-      onSuccess: (result) => {
-        toast.success(`Removed "${result.name}".`);
-        refreshEverything();
-      },
-    }),
+    trpc.modules.remove.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(`Removed "${result.name}".`);
+        },
+      }),
+    ),
   );
 
   const busy = create.isPending || rename.isPending || reorder.isPending || remove.isPending;

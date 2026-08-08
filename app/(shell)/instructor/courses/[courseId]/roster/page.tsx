@@ -2,7 +2,7 @@ import { Suspense } from "react";
 
 import { GroupManager } from "@/components/instructor/group-manager";
 import { CourseRoster } from "@/components/instructor/roster";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -17,17 +17,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  */
 export default function RosterPage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
-    <Suspense fallback={<RosterFallback />}>
+    <Suspense fallback={<PageFallback rows={6} width="5xl" />}>
       <Roster params={params} />
     </Suspense>
-  );
-}
-
-function RosterFallback() {
-  return (
-    <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
-      <ListSkeleton rows={6} />
-    </div>
   );
 }
 

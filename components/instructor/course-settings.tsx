@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { studentRepoName } from "@/lib/courses/cohort-slug";
+import { initials } from "@/lib/people";
 import { formatDate } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -207,7 +209,7 @@ function RepositoryNamingCard({ data }: { data: Data }) {
  */
 function CoTeachingCard({ data }: { data: Data }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
   const [copied, setCopied] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
 
@@ -219,47 +221,43 @@ function CoTeachingCard({ data }: { data: Data }) {
     ? `${origin}/co-teach/${data.course.coTeachToken}`
     : `/co-teach/${data.course.coTeachToken}`;
 
-  const settled = {
-    onError: (error: { message: string }) => toast.error(error.message),
-  };
-
   const regenerate = useMutation(
-    trpc.courses.regenerateCoTeachToken.mutationOptions({
-      ...settled,
-      onSuccess: () => {
-        toast.success("New co-teaching link. The old one no longer works.");
-        router.refresh();
-      },
-    }),
+    trpc.courses.regenerateCoTeachToken.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("New co-teaching link. The old one no longer works.");
+        },
+      }),
+    ),
   );
 
   const removeInstructor = useMutation(
-    trpc.courses.removeInstructor.mutationOptions({
-      ...settled,
-      onSuccess: (result) => {
-        /*
-          Who owns it now, when that changed. An owner who leaves without handing the cohort on
-          gives it to the longest-serving instructor left — the right default, and not a thing
-          anybody would guess, so it is said rather than left to be noticed.
-        */
-        toast.success(
-          result.newOwnerName
-            ? `${result.instructorName} no longer teaches this cohort. ${result.newOwnerName} owns it now.`
-            : `${result.instructorName} no longer teaches this cohort.`,
-        );
-        router.refresh();
-      },
-    }),
+    trpc.courses.removeInstructor.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          /*
+            Who owns it now, when that changed. An owner who leaves without handing the cohort on
+            gives it to the longest-serving instructor left — the right default, and not a thing
+            anybody would guess, so it is said rather than left to be noticed.
+          */
+          toast.success(
+            result.newOwnerName
+              ? `${result.instructorName} no longer teaches this cohort. ${result.newOwnerName} owns it now.`
+              : `${result.instructorName} no longer teaches this cohort.`,
+          );
+        },
+      }),
+    ),
   );
 
   const transfer = useMutation(
-    trpc.courses.transferOwnership.mutationOptions({
-      ...settled,
-      onSuccess: (result) => {
-        toast.success(`${result.ownerName} owns this cohort now.`);
-        router.refresh();
-      },
-    }),
+    trpc.courses.transferOwnership.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(`${result.ownerName} owns this cohort now.`);
+        },
+      }),
+    ),
   );
 
   const busy = regenerate.isPending || removeInstructor.isPending || transfer.isPending;
@@ -522,22 +520,22 @@ function ArchiveCard({
   ownerName: string;
 }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
   const [confirming, setConfirming] = React.useState(false);
 
   const setArchived = useMutation(
-    trpc.courses.setArchived.mutationOptions({
-      onSuccess: (result) => {
-        toast.success(
-          result.archivedAt === null
-            ? `${result.name} is active again.`
-            : `${result.name} is archived.`,
-        );
-        setConfirming(false);
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.courses.setArchived.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(
+            result.archivedAt === null
+              ? `${result.name} is active again.`
+              : `${result.name} is archived.`,
+          );
+          setConfirming(false);
+        },
+      }),
+    ),
   );
 
   return (
@@ -616,6 +614,7 @@ function ArchiveCard({
  */
 function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }) {
   const trpc = useTRPC();
+  const settled = useServerMutation();
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [typed, setTyped] = React.useState("");
@@ -628,34 +627,34 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
   });
 
   const remove = useMutation(
-    trpc.courses.remove.mutationOptions({
-      onSuccess: (result) => {
-        /*
-          What was destroyed, and what was not. The two leftovers are named rather than
-          implied — the repositories are still on GitHub and the files that would not go are
-          in a bucket nothing points at any more, so this message is the only record of either.
-        */
-        const parts = [
-          `${result.name} is gone`,
-          `${result.assignments} ${result.assignments === 1 ? "assignment" : "assignments"}`,
-          `${result.submissions} ${result.submissions === 1 ? "submission" : "submissions"}`,
-        ];
-        if (result.orphanedRepositories.length > 0) {
-          parts.push(
-            `${result.orphanedRepositories.length} GitHub ${
-              result.orphanedRepositories.length === 1 ? "repository is" : "repositories are"
-            } untouched`,
-          );
-        }
-        if (result.uploadsLeftBehind.length > 0) {
-          parts.push(`${result.uploadsLeftBehind.length} uploaded files could not be removed`);
-        }
-        toast.success(parts.join(" · "), { duration: 12_000 });
-        router.push("/courses");
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.courses.remove.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          /*
+            What was destroyed, and what was not. The two leftovers are named rather than
+            implied — the repositories are still on GitHub and the files that would not go are
+            in a bucket nothing points at any more, so this message is the only record of either.
+          */
+          const parts = [
+            `${result.name} is gone`,
+            `${result.assignments} ${result.assignments === 1 ? "assignment" : "assignments"}`,
+            `${result.submissions} ${result.submissions === 1 ? "submission" : "submissions"}`,
+          ];
+          if (result.orphanedRepositories.length > 0) {
+            parts.push(
+              `${result.orphanedRepositories.length} GitHub ${
+                result.orphanedRepositories.length === 1 ? "repository is" : "repositories are"
+              } untouched`,
+            );
+          }
+          if (result.uploadsLeftBehind.length > 0) {
+            parts.push(`${result.uploadsLeftBehind.length} uploaded files could not be removed`);
+          }
+          toast.success(parts.join(" · "), { duration: 12_000 });
+          router.push("/courses");
+        },
+      }),
+    ),
   );
 
   const ready = typed.trim() !== "" && impact.data?.cohortSlug === typed.trim().toLowerCase();
@@ -795,14 +794,4 @@ function Detail({ label, value }: { label: string; value: string }) {
       <dd className="min-w-0 break-words text-sm text-muted-foreground">{value}</dd>
     </div>
   );
-}
-
-function initials(name: string | null): string {
-  return (name ?? "?")
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }

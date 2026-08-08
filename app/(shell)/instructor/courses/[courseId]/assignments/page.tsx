@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { Plus } from "lucide-react";
 
 import { CourseAssignments } from "@/components/instructor/assignments-list";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { GroupPicker } from "@/components/instructor/group-picker";
@@ -30,17 +30,9 @@ export default function CourseAssignmentsPage({
   searchParams: Promise<{ group?: string }>;
 }) {
   return (
-    <Suspense fallback={<AssignmentsFallback />}>
+    <Suspense fallback={<PageFallback rows={8} width="6xl" />}>
       <Assignments params={params} searchParams={searchParams} />
     </Suspense>
-  );
-}
-
-function AssignmentsFallback() {
-  return (
-    <div className="mx-auto w-full max-w-6xl p-4 md:p-6">
-      <ListSkeleton rows={8} />
-    </div>
   );
 }
 

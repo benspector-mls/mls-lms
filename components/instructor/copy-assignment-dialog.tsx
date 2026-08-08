@@ -1,11 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -63,8 +63,7 @@ export function CopyAssignmentDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   const [targetCourseId, setTargetCourseId] = React.useState(courseId);
   const [targetModuleId, setTargetModuleId] = React.useState<string | null>(null);
@@ -108,27 +107,24 @@ export function CopyAssignmentDialog({
   }, [nameMatch?.id, targetCourseId]);
 
   const copy = useMutation(
-    trpc.assignments.duplicate.mutationOptions({
-      onSuccess: (result) => {
-        const into = targets.find((course) => course.id === targetCourseId);
-        toast.success(
-          into && into.id !== courseId
-            ? `Copied ${result.assignment.title} into ${into.name} · ${into.cohortTerm}. It is not visible to students yet.`
-            : `Copied ${result.assignment.title}. It is not visible to students yet.`,
-        );
-        if (result.warnings.length > 0) {
-          toast.warning(result.warnings.map((warning) => warning.message).join(" · "), {
-            duration: 12_000,
-          });
-        }
-        onOpenChange(false);
-        void queryClient.invalidateQueries();
-        // The assignments table is rendered by a server component, so invalidating the client
-        // cache alone leaves it as it was until a manual reload.
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.assignments.duplicate.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          const into = targets.find((course) => course.id === targetCourseId);
+          toast.success(
+            into && into.id !== courseId
+              ? `Copied ${result.assignment.title} into ${into.name} · ${into.cohortTerm}. It is not visible to students yet.`
+              : `Copied ${result.assignment.title}. It is not visible to students yet.`,
+          );
+          if (result.warnings.length > 0) {
+            toast.warning(result.warnings.map((warning) => warning.message).join(" · "), {
+              duration: 12_000,
+            });
+          }
+          onOpenChange(false);
+        },
+      }),
+    ),
   );
 
   const sameCourse = targetCourseId === courseId;

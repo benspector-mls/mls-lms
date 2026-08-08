@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { StudentOverview } from "@/components/instructor/student-overview";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -21,17 +21,9 @@ export default function StudentPage({
   params: Promise<{ courseId: string; studentId: string }>;
 }) {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<PageFallback rows={8} />}>
       <Student params={params} />
     </Suspense>
-  );
-}
-
-function Fallback() {
-  return (
-    <div className="p-4 md:p-6">
-      <ListSkeleton rows={8} />
-    </div>
   );
 }
 

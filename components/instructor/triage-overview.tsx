@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { GroupPicker } from "@/components/instructor/group-picker";
 import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
 import { gradingQueueHref } from "@/lib/links";
+import { initials } from "@/lib/people";
 import { flagMeta, formatRelative, scoreLabel } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -438,7 +439,7 @@ function TriageRow({ row, now }: { row: Row; now: Date }) {
       className="flex items-center gap-4 rounded-lg border border-transparent px-3 py-3 transition-colors hover:border-border hover:bg-muted/50"
     >
       <Avatar className="size-9">
-        <AvatarFallback className="text-xs">{initialsOf(row.student.displayName)}</AvatarFallback>
+        <AvatarFallback className="text-xs">{initials(row.student.displayName)}</AvatarFallback>
       </Avatar>
 
       <div className="min-w-0 flex-1">
@@ -527,14 +528,4 @@ function StatCard({
       </CardContent>
     </Card>
   );
-}
-
-function initialsOf(name: string | null): string {
-  if (!name) return "?";
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }

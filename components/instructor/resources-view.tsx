@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import * as React from "react";
 import { Library, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { ResourceDialog } from "@/components/instructor/resource-dialog";
 import { EmptyState } from "@/components/list-states";
 import { ResourceKindBadge } from "@/components/status-badge";
@@ -55,7 +55,7 @@ export function CourseResources({
   resources: Resource[];
 }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Resource | null>(null);
@@ -63,14 +63,14 @@ export function CourseResources({
   const [removing, setRemoving] = React.useState<Resource | null>(null);
 
   const remove = useMutation(
-    trpc.resources.remove.mutationOptions({
-      onError: (error) => toast.error(error.message),
-      onSuccess: (row) => {
-        toast.success(`Removed "${row.title}".`);
-        setRemoving(null);
-        router.refresh();
-      },
-    }),
+    trpc.resources.remove.mutationOptions(
+      settled({
+        onSuccess: (row) => {
+          toast.success(`Removed "${row.title}".`);
+          setRemoving(null);
+        },
+      }),
+    ),
   );
 
   function openNew(moduleId?: string) {

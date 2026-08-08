@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { TestRunPanel } from "@/components/instructor/test-run-panel";
 import { Markdown } from "@/components/markdown";
 import {
@@ -352,16 +353,16 @@ function CommentRecoveryNotice({
   grade: DraftList["grade"];
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const settled = useServerMutation();
 
   const retry = useMutation(
-    trpc.gradingDrafts.retryComment.mutationOptions({
-      onSuccess: () => {
-        toast.success("Comment posted to the pull request.");
-        void queryClient.invalidateQueries();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.gradingDrafts.retryComment.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Comment posted to the pull request.");
+        },
+      }),
+    ),
   );
 
   // Only a real failure. `not_applicable` — a hand-graded assignment with no pull request
@@ -411,16 +412,16 @@ function TestEvidence({
   now: Date;
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const settled = useServerMutation();
 
   const start = useMutation(
-    trpc.testRuns.start.mutationOptions({
-      onSuccess: () => {
-        toast.success("Test run finished.");
-        void queryClient.invalidateQueries();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.testRuns.start.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Test run finished.");
+        },
+      }),
+    ),
   );
 
   if (loading) return <Skeleton className="h-20 w-full" />;
@@ -717,16 +718,16 @@ function ManualReviewNotice({ draft, hasSections }: { draft: Draft; hasSections:
  */
 function useGenerateReport() {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const settled = useServerMutation();
 
   return useMutation(
-    trpc.gradingDrafts.generate.mutationOptions({
-      onSuccess: () => {
-        toast.success("Report generated. Nothing has been sent to the student.");
-        void queryClient.invalidateQueries();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.gradingDrafts.generate.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Report generated. Nothing has been sent to the student.");
+        },
+      }),
+    ),
   );
 }
 
@@ -740,14 +741,9 @@ function useGenerateReport() {
  */
 function HandGradePanel({ submission, data }: { submission: QueueSubmission; data: DraftList }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const settled = useServerMutation();
 
-  const start = useMutation(
-    trpc.gradingDrafts.startManual.mutationOptions({
-      onSuccess: () => void queryClient.invalidateQueries(),
-      onError: (error) => toast.error(error.message),
-    }),
-  );
+  const start = useMutation(trpc.gradingDrafts.startManual.mutationOptions(settled()));
 
   return (
     <Card>
@@ -890,6 +886,7 @@ function DraftEditor({
   manualOnly: boolean;
 }) {
   const trpc = useTRPC();
+  const settled = useServerMutation();
   const queryClient = useQueryClient();
   const actionsSlot = React.useContext(HeaderActionsSlot);
 
@@ -903,27 +900,28 @@ function DraftEditor({
 
   const updateSection = useMutation(trpc.gradingDrafts.updateSection.mutationOptions());
   const approve = useMutation(
-    trpc.gradingDrafts.approve.mutationOptions({
-      onSuccess: (result) => {
-        setConfirmOpen(false);
-        // Named outcomes, because "the comment did not post" is a warning on a repository
-        // assignment and a falsehood on one that never had a pull request.
-        if (result.delivery === "failed") {
-          toast.warning(`Grade recorded, but the comment did not post: ${result.commentError}`);
-        } else {
-          toast.success(
-            `Released ${result.finalScore}/${result.finalScorePossible} to ${
-              submission.student.displayName ?? "the student"
-            }.`,
-          );
-        }
-        void queryClient.invalidateQueries();
-      },
-      onError: (error) => {
-        setConfirmOpen(false);
-        toast.error(error.message);
-      },
-    }),
+    trpc.gradingDrafts.approve.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          setConfirmOpen(false);
+          // Named outcomes, because "the comment did not post" is a warning on a repository
+          // assignment and a falsehood on one that never had a pull request.
+          if (result.delivery === "failed") {
+            toast.warning(`Grade recorded, but the comment did not post: ${result.commentError}`);
+          } else {
+            toast.success(
+              `Released ${result.finalScore}/${result.finalScorePossible} to ${
+                submission.student.displayName ?? "the student"
+              }.`,
+            );
+          }
+        },
+        onError: (error) => {
+          setConfirmOpen(false);
+          toast.error(error.message);
+        },
+      }),
+    ),
   );
 
   const totalEarned = draft.sections.reduce((sum, s) => sum + (scores[s.id] ?? 0), 0);

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { triageHref } from "@/lib/links";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -16,17 +16,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  */
 export default function InstructorPage() {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<PageFallback rows={6} width="5xl" />}>
       <PickACourse />
     </Suspense>
-  );
-}
-
-function Fallback() {
-  return (
-    <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
-      <ListSkeleton rows={6} />
-    </div>
   );
 }
 

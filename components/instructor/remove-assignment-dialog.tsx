@@ -1,11 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,8 +51,7 @@ export function RemoveAssignmentDialog({
   onRemoved?: () => void;
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const router = useRouter();
+  const settled = useServerMutation();
   const [typed, setTyped] = React.useState("");
 
   const impact = useQuery({
@@ -61,33 +60,30 @@ export function RemoveAssignmentDialog({
   });
 
   const remove = useMutation(
-    trpc.assignments.remove.mutationOptions({
-      onSuccess: (result) => {
-        onOpenChange(false);
-        setTyped("");
-        toast.success(
-          result.submissions === 0
-            ? `Removed ${result.title}.`
-            : `Removed ${result.title}, along with ${result.submissions} submission(s) and ` +
-                `${result.drafts} report(s).`,
-        );
-        if (result.orphanedRepositories.length > 0) {
-          // Said plainly, because nothing else will say it: these still exist on GitHub and
-          // nothing in the application refers to them any more.
-          toast.warning(
-            `${result.orphanedRepositories.length} student repositor(y/ies) are still on ` +
-              `GitHub and are no longer tracked here: ${result.orphanedRepositories.join(", ")}`,
-            { duration: 15_000 },
+    trpc.assignments.remove.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          onOpenChange(false);
+          setTyped("");
+          toast.success(
+            result.submissions === 0
+              ? `Removed ${result.title}.`
+              : `Removed ${result.title}, along with ${result.submissions} submission(s) and ` +
+                  `${result.drafts} report(s).`,
           );
-        }
-        void queryClient.invalidateQueries();
-        // The course page's assignment list comes from a server component, so invalidating the
-        // client cache alone leaves the removed row on screen until a manual reload.
-        router.refresh();
-        onRemoved?.();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+          if (result.orphanedRepositories.length > 0) {
+            // Said plainly, because nothing else will say it: these still exist on GitHub and
+            // nothing in the application refers to them any more.
+            toast.warning(
+              `${result.orphanedRepositories.length} student repositor(y/ies) are still on ` +
+                `GitHub and are no longer tracked here: ${result.orphanedRepositories.join(", ")}`,
+              { duration: 15_000 },
+            );
+          }
+          onRemoved?.();
+        },
+      }),
+    ),
   );
 
   const matches = typed === title;

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
   Check,
@@ -16,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { INVITE_LIFETIME_DAYS } from "@/lib/staff/invite";
+import { initials } from "@/lib/people";
 import { formatDate, formatRelative } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -117,19 +118,19 @@ export function StaffAdmin({
 
 function PeopleTab({ people }: { people: People }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   const setAdmin = useMutation(
-    trpc.staff.setAdmin.mutationOptions({
-      onSuccess: (result) => {
-        const who = result.displayName ?? result.email ?? "That account";
-        toast.success(
-          result.role === "ADMIN" ? `${who} is now an admin.` : `${who} is an instructor again.`,
-        );
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.staff.setAdmin.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          const who = result.displayName ?? result.email ?? "That account";
+          toast.success(
+            result.role === "ADMIN" ? `${who} is now an admin.` : `${who} is an instructor again.`,
+          );
+        },
+      }),
+    ),
   );
 
   if (people.people.length === 0) {
@@ -259,29 +260,29 @@ function PeopleTab({ people }: { people: People }) {
 
 function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   /** The one just generated, so it can be copied without hunting for it in the table. */
   const [fresh, setFresh] = React.useState<string | null>(null);
 
   const create = useMutation(
-    trpc.staff.createInvite.mutationOptions({
-      onSuccess: (result) => {
-        setFresh(result.token);
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.staff.createInvite.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          setFresh(result.token);
+        },
+      }),
+    ),
   );
 
   const revoke = useMutation(
-    trpc.staff.revokeInvite.mutationOptions({
-      onSuccess: () => {
-        toast.success("Invitation deleted. That link no longer works.");
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.staff.revokeInvite.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Invitation deleted. That link no longer works.");
+        },
+      }),
+    ),
   );
 
   const busy = create.isPending || revoke.isPending;
@@ -481,13 +482,4 @@ function useInviteLink(token: string): string {
   const [origin, setOrigin] = React.useState("");
   React.useEffect(() => setOrigin(window.location.origin), []);
   return origin ? `${origin}/invite/${token}` : `/invite/${token}`;
-}
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }

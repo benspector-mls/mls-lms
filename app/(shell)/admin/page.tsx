@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { StaffAdmin } from "@/components/admin/staff-admin";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
@@ -18,17 +18,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  */
 export default function AdminPage() {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<PageFallback rows={6} width="4xl" />}>
       <Staff />
     </Suspense>
-  );
-}
-
-function Fallback() {
-  return (
-    <div className="mx-auto w-full max-w-4xl p-4 md:p-6">
-      <ListSkeleton rows={6} />
-    </div>
   );
 }
 

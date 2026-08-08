@@ -73,6 +73,7 @@ import {
   sameViewInCourse,
   triageHref,
 } from "@/lib/links";
+import { initials } from "@/lib/people";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
@@ -108,15 +109,6 @@ function useActiveCourseId(): string | null {
   // The student side has carried it all along: /courses/[courseId].
   if (segments[0] === "courses" && segments[1]) return segments[1];
   return null;
-}
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }
 
 // ---------------------------------------------------------------------------

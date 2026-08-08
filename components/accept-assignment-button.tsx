@@ -2,9 +2,9 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
-import { useRouter } from "next/navigation";
 import * as React from "react";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { useTRPC } from "@/trpc/client";
@@ -29,7 +29,7 @@ export function AcceptAssignmentButton({
   kind: AssignmentKind;
 }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   /*
     Held so the link can be offered when the tab could not be opened. A pop-up blocker
@@ -40,18 +40,19 @@ export function AcceptAssignmentButton({
   const [copyUrl, setCopyUrl] = React.useState<string | null>(null);
 
   const accept = useMutation(
-    trpc.assignments.accept.mutationOptions({
-      onSuccess: (result) => {
-        if (result.copyUrl) {
-          setCopyUrl(result.copyUrl);
-          const opened = window.open(result.copyUrl, "_blank", "noopener,noreferrer");
-          if (opened) opened.focus();
-        }
-        // Re-renders the server component, so the row picks up its new status and its
-        // repository or document link.
-        router.refresh();
-      },
-    }),
+    trpc.assignments.accept.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          if (result.copyUrl) {
+            setCopyUrl(result.copyUrl);
+            const opened = window.open(result.copyUrl, "_blank", "noopener,noreferrer");
+            if (opened) opened.focus();
+          }
+          // `useServerMutation` re-renders the server component after this, so the row picks
+          // up its new status and its repository or document link.
+        },
+      }),
+    ),
   );
 
   return (

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { Gradebook } from "@/components/instructor/gradebook";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { GroupPicker } from "@/components/instructor/group-picker";
 import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
@@ -23,17 +23,9 @@ export default function GradebookPage({
   searchParams: Promise<{ group?: string }>;
 }) {
   return (
-    <Suspense fallback={<GradebookFallback />}>
+    <Suspense fallback={<PageFallback rows={10} />}>
       <FullGradebook params={params} searchParams={searchParams} />
     </Suspense>
-  );
-}
-
-function GradebookFallback() {
-  return (
-    <div className="p-4 md:p-6">
-      <ListSkeleton rows={10} />
-    </div>
   );
 }
 

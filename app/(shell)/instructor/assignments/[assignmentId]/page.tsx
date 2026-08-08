@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { gradingQueueHref } from "@/lib/links";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -20,17 +20,9 @@ export default function LegacyGradingQueuePage({
   searchParams: Promise<{ submission?: string }>;
 }) {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<PageFallback rows={8} />}>
       <ToCourseScopedQueue params={params} searchParams={searchParams} />
     </Suspense>
-  );
-}
-
-function Fallback() {
-  return (
-    <div className="p-4 md:p-6">
-      <ListSkeleton rows={8} />
-    </div>
   );
 }
 

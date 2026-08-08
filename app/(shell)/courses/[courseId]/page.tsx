@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { StudentCourseDetail } from "@/components/student/course-detail";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -15,17 +15,9 @@ export default function CourseAssignmentsPage({
   params: Promise<{ courseId: string }>;
 }) {
   return (
-    <Suspense fallback={<CourseFallback />}>
+    <Suspense fallback={<PageFallback rows={6} width="4xl" />}>
       <CourseDetail params={params} />
     </Suspense>
-  );
-}
-
-function CourseFallback() {
-  return (
-    <div className="mx-auto w-full max-w-4xl p-4 md:p-6">
-      <ListSkeleton rows={6} />
-    </div>
   );
 }
 

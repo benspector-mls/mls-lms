@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as React from "react";
 import { Check, Copy, GitBranch, RotateCcw, UserMinus, Users } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { EmptyState } from "@/components/list-states";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import type { EnrollmentStatus } from "@/lib/generated/prisma/enums";
 import { studentHref } from "@/lib/links";
+import { initials } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -41,40 +42,35 @@ type Data = RouterOutputs["courses"]["roster"];
 
 export function CourseRoster({ data }: { data: Data }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
   const courseId = data.course.id;
 
-  const settled = {
-    onSuccess: () => router.refresh(),
-    onError: (error: { message: string }) => toast.error(error.message),
-  };
-
   const remove = useMutation(
-    trpc.enrollments.remove.mutationOptions({
-      ...settled,
-      onSuccess: (result) => {
-        toast.success(`Removed ${result.studentName} from the cohort.`);
-        router.refresh();
-      },
-    }),
+    trpc.enrollments.remove.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(`Removed ${result.studentName} from the cohort.`);
+        },
+      }),
+    ),
   );
   const restore = useMutation(
-    trpc.enrollments.restore.mutationOptions({
-      ...settled,
-      onSuccess: (result) => {
-        toast.success(`${result.studentName} is back in the cohort.`);
-        router.refresh();
-      },
-    }),
+    trpc.enrollments.restore.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(`${result.studentName} is back in the cohort.`);
+        },
+      }),
+    ),
   );
   const regenerate = useMutation(
-    trpc.courses.regenerateJoinToken.mutationOptions({
-      ...settled,
-      onSuccess: () => {
-        toast.success("New join link. The old one no longer works.");
-        router.refresh();
-      },
-    }),
+    trpc.courses.regenerateJoinToken.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("New join link. The old one no longer works.");
+        },
+      }),
+    ),
   );
 
   const busy = remove.isPending || restore.isPending || regenerate.isPending;
@@ -361,14 +357,4 @@ function EnrollmentBadge({ status }: { status: EnrollmentStatus }) {
       {meta[status].label}
     </Badge>
   );
-}
-
-function initials(name: string | null): string {
-  return (name ?? "?")
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }

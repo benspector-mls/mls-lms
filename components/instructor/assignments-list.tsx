@@ -1,7 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
 import {
@@ -24,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CopyAssignmentDialog } from "@/components/instructor/copy-assignment-dialog";
 import { RemoveAssignmentDialog } from "@/components/instructor/remove-assignment-dialog";
 import { EmptyState } from "@/components/list-states";
@@ -758,45 +758,29 @@ function AssignmentActions({
   hasSubmissions: boolean;
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const router = useRouter();
+  const settled = useServerMutation();
   const [removing, setRemoving] = React.useState(false);
   const [copying, setCopying] = React.useState(false);
-
-  /*
-    Both, and both are needed for different halves of this screen.
-
-    This screen's assignments are fetched by a *server* component and passed down as a prop, so
-    the browser's query cache never held them — `invalidateQueries` has nothing to invalidate
-    and the row went on showing "Draft" until the page was reloaded by hand. `router.refresh()`
-    re-runs the server component, which is what updates them. `invalidateQueries` is still right
-    for the parts that *are* client queries, the module list among them, since duplicating or
-    removing an assignment changes its module's count.
-  */
-  const settled = () => {
-    void queryClient.invalidateQueries();
-    router.refresh();
-  };
 
   const published = assignment.distributedAt !== null;
 
   const publish = useMutation(
-    trpc.assignments.publish.mutationOptions({
-      onSuccess: () => {
-        toast.success(`${assignment.title} is now visible to students.`);
-        settled();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.assignments.publish.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success(`${assignment.title} is now visible to students.`);
+        },
+      }),
+    ),
   );
   const unpublish = useMutation(
-    trpc.assignments.unpublish.mutationOptions({
-      onSuccess: () => {
-        toast.success(`${assignment.title} is hidden from students. Their work is untouched.`);
-        settled();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.assignments.unpublish.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success(`${assignment.title} is hidden from students. Their work is untouched.`);
+        },
+      }),
+    ),
   );
   const busy = publish.isPending || unpublish.isPending;
 

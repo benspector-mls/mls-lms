@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { TriageOverview } from "@/components/instructor/triage-overview";
 import { resolveGroup } from "@/lib/courses/resolve-group";
 import { getQueryClient, trpc } from "@/trpc/server";
@@ -25,17 +25,9 @@ export default function TriagePage({
   searchParams: Promise<{ group?: string }>;
 }) {
   return (
-    <Suspense fallback={<TriageFallback />}>
+    <Suspense fallback={<PageFallback rows={6} width="5xl" />}>
       <Triage params={params} searchParams={searchParams} />
     </Suspense>
-  );
-}
-
-function TriageFallback() {
-  return (
-    <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
-      <ListSkeleton rows={6} />
-    </div>
   );
 }
 

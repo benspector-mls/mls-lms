@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -71,7 +71,7 @@ export function ResourceDialog({
   defaultModuleId?: string;
 }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   const [kind, setKind] = React.useState<ResourceKind>("LINK");
   const [moduleId, setModuleId] = React.useState("");
@@ -107,33 +107,25 @@ export function ResourceDialog({
     setBody("");
   }, [open, resource, defaultModuleId, modules]);
 
-  const settled = {
-    onError: (error: { message: string }) => toast.error(error.message),
-    onSuccess: () => {
-      onOpenChange(false);
-      router.refresh();
-    },
-  };
-
   const create = useMutation(
-    trpc.resources.create.mutationOptions({
-      ...settled,
-      onSuccess: (row) => {
-        toast.success(`Added "${row.title}".`);
-        onOpenChange(false);
-        router.refresh();
-      },
-    }),
+    trpc.resources.create.mutationOptions(
+      settled({
+        onSuccess: (row) => {
+          toast.success(`Added "${row.title}".`);
+          onOpenChange(false);
+        },
+      }),
+    ),
   );
   const update = useMutation(
-    trpc.resources.update.mutationOptions({
-      ...settled,
-      onSuccess: (row) => {
-        toast.success(`Saved "${row.title}".`);
-        onOpenChange(false);
-        router.refresh();
-      },
-    }),
+    trpc.resources.update.mutationOptions(
+      settled({
+        onSuccess: (row) => {
+          toast.success(`Saved "${row.title}".`);
+          onOpenChange(false);
+        },
+      }),
+    ),
   );
 
   const busy = create.isPending || update.isPending;

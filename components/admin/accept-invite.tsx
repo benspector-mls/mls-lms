@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDate } from "@/lib/status";
@@ -31,26 +32,28 @@ export function AcceptInvite({
   preview: RouterOutputs["staff"]["previewInvite"];
 }) {
   const trpc = useTRPC();
+  const settled = useServerMutation();
   const router = useRouter();
 
   const redeem = useMutation(
-    trpc.staff.redeemInvite.mutationOptions({
-      onSuccess: (result) => {
-        toast.success(
-          result.alreadyRedeemed
-            ? "You already have instructor access."
-            : "You are now an instructor.",
-        );
-        /*
-          `refresh()` as well as the push, because the sidebar reads the role from the profile and
-          it was fetched before this changed. Without it the instructor navigation would not appear
-          until a manual reload, which reads as the invitation not having worked.
-        */
-        router.refresh();
-        router.push("/courses");
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+    trpc.staff.redeemInvite.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(
+            result.alreadyRedeemed
+              ? "You already have instructor access."
+              : "You are now an instructor.",
+          );
+          /*
+            A push, and `useServerMutation` supplies the refresh that has to go with it: the
+            sidebar reads the role off the profile, and it was fetched before this changed.
+            Without the refresh the instructor navigation would not appear until a manual reload,
+            which reads as the invitation not having worked.
+          */
+          router.push("/courses");
+        },
+      }),
+    ),
   );
 
   if (!preview) {

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { CourseSettings } from "@/components/instructor/course-settings";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -12,17 +12,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  */
 export default function CourseSettingsPage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
-    <Suspense fallback={<SettingsFallback />}>
+    <Suspense fallback={<PageFallback rows={5} width="3xl" />}>
       <Settings params={params} />
     </Suspense>
-  );
-}
-
-function SettingsFallback() {
-  return (
-    <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
-      <ListSkeleton rows={5} />
-    </div>
   );
 }
 

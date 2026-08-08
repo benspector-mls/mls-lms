@@ -3,6 +3,8 @@
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import * as React from "react";
 import {
   ArrowLeft,
@@ -638,13 +640,11 @@ function SubmitWorkForm({
   resubmitting: boolean;
 }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
   const [url, setUrl] = React.useState(currentUrl ?? "");
 
   const submit = useMutation(
-    trpc.submissions.submitWork.mutationOptions({
-      onSuccess: () => router.refresh(),
-    }),
+    trpc.submissions.submitWork.mutationOptions(settled({ onError: shownInPlace })),
   );
 
   return (
@@ -825,12 +825,10 @@ function UploadWorkForm({
  */
 function RequestReviewButton({ submissionId }: { submissionId: string }) {
   const trpc = useTRPC();
-  const router = useRouter();
+  const settled = useServerMutation();
 
   const declare = useMutation(
-    trpc.submissions.declareResubmission.mutationOptions({
-      onSuccess: () => router.refresh(),
-    }),
+    trpc.submissions.declareResubmission.mutationOptions(settled({ onError: shownInPlace })),
   );
 
   return (

@@ -46,23 +46,15 @@ export const personNameSelect = {
 } satisfies Prisma.ProfileSelect;
 
 /**
- * Whatever this person is best called, for a message somebody has to act on.
+ * Whatever this person is best called, re-exported from `lib/people.ts` so a procedure can take
+ * it from the same module as the select it has to agree with.
  *
- * Beside the select it reads, because the two have to agree: the fallback chain is only as good
- * as the columns fetched, and a caller selecting `displayName` alone would fall all the way
- * through for everybody whose name is unset.
- *
- * **`fallback` is required rather than defaulted**, because there is no answer that suits every
- * caller: one of these messages is about an instructor and another is about a student, and a
- * default would have quietly called one of them by the other's name. It was written out three
- * times before this, and the third copy was the one that differed.
+ * It lives there rather than here because the browser asks the same question — every roster row
+ * and every avatar — and this module imports Prisma's generated types and belongs to the
+ * transport layer, so a component reaching for it would be reaching across two boundaries to
+ * borrow four lines with no imports of their own.
  */
-export function displayNameOf(
-  user: { displayName: string | null; email: string | null; githubUsername: string | null },
-  fallback: string,
-): string {
-  return user.displayName ?? user.githubUsername ?? user.email ?? fallback;
-}
+export { displayNameOf } from "@/lib/people";
 
 /**
  * A cohort, as every screen that names one reads it.

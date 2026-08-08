@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { courseHref, studentHref } from "@/lib/links";
+import { initials } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -328,14 +329,4 @@ function NotStartedRow({ row }: { row: Row }) {
       </div>
     </li>
   );
-}
-
-function initials(name: string | null): string {
-  return (name ?? "?")
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }

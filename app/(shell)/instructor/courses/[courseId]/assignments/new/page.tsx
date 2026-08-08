@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { AssignmentForm } from "@/components/instructor/assignment-form";
-import { ListSkeleton } from "@/components/list-states";
+import { PageFallback } from "@/components/list-states";
 
 /**
  * Creating an assignment.
@@ -11,17 +11,9 @@ import { ListSkeleton } from "@/components/list-states";
  */
 export default function NewAssignmentPage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<PageFallback rows={6} width="3xl" />}>
       <NewAssignment params={params} />
     </Suspense>
-  );
-}
-
-function Fallback() {
-  return (
-    <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
-      <ListSkeleton rows={6} />
-    </div>
   );
 }
 

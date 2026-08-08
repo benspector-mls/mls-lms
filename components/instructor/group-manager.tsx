@@ -6,6 +6,7 @@ import * as React from "react";
 import { ChevronDown, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,26 +42,22 @@ export function GroupManager({
   memberships: Memberships;
 }) {
   const trpc = useTRPC();
+  const settled = useServerMutation();
   const router = useRouter();
 
   const [creating, setCreating] = React.useState(false);
   const [newName, setNewName] = React.useState("");
 
-  const settled = {
-    onSuccess: () => router.refresh(),
-    onError: (error: { message: string }) => toast.error(error.message),
-  };
-
   const create = useMutation(
-    trpc.groups.create.mutationOptions({
-      ...settled,
-      onSuccess: (group) => {
-        toast.success(`Created "${group.name}".`);
-        setNewName("");
-        setCreating(false);
-        router.refresh();
-      },
-    }),
+    trpc.groups.create.mutationOptions(
+      settled({
+        onSuccess: (group) => {
+          toast.success(`Created "${group.name}".`);
+          setNewName("");
+          setCreating(false);
+        },
+      }),
+    ),
   );
 
   const busy = create.isPending;
