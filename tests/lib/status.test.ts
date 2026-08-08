@@ -1,0 +1,302 @@
+import {
+  ASSIGNMENT_KIND_META,
+  CONFIDENCE_META,
+  completionMeta,
+  DRAFT_STATUS_META,
+  draftStatusAddsSomething,
+  FLAG_META,
+  flagMeta,
+  formatDuration,
+  formatPercent,
+  formatRelative,
+  scoreLabel,
+  scorePercent,
+  sectionLabel,
+  shortSha,
+  STUDENT_STATUS_META,
+  SUBMISSION_STATUS_META,
+  TONE_CLASSES,
+  TONE_DOT,
+} from "@/lib/status";
+import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
+
+/**
+ * The single source of presentation truth.
+ *
+ * The same submission status is drawn on the student's assignment list, the instructor's triage,
+ * and the gradebook. What these cases hold is not the wording — that changes — but the rules the
+ * wording has to obey, and one of them cost a real defect: green means the work met the
+ * completion threshold, and nothing else.
+ */
+
+describe("green means one thing", () => {
+  it("is not the tone of a finished grading run", () => {
+    /*
+      GRADED and APPROVED were both `success`, which put a green pill beside a 9/15 and said
+      the opposite of the truth. Grading being finished, feedback being released, and work
+      being complete are three different facts and one colour cannot say all of them.
+    */
+    expect(SUBMISSION_STATUS_META.GRADED.tone).not.toBe("success");
+    expect(DRAFT_STATUS_META.APPROVED.tone).not.toBe("success");
+    expect(STUDENT_STATUS_META.GRADED.tone).not.toBe("success");
+  });
+
+  it("survives only where the question is about evidence rather than about the student", () => {
+    // Both instructor-only, and both sit among other flag badges, which is what keeps them
+    // from reading as a grade.
+    expect(FLAG_META.TEST_EVIDENCE.tone).toBe("success");
+    expect(CONFIDENCE_META.HIGH.tone).toBe("success");
+  });
+
+  it("is not the tone of any submission status, in either vocabulary", () => {
+    for (const meta of Object.values(SUBMISSION_STATUS_META)) expect(meta.tone).not.toBe("success");
+    for (const meta of Object.values(STUDENT_STATUS_META)) expect(meta.tone).not.toBe("success");
+  });
+});
+
+describe("the student vocabulary is narrower on purpose", () => {
+  it.each(["SUBMITTED", "DRAFT_READY", "NEEDS_MANUAL_REVIEW", "GRADING_FAILED"] as const)(
+    "reads %s as Submitted",
+    (status) => {
+      // A student has no use for the state of a grading run, and "grading failed" invites a
+      // question no student can answer.
+      expect(STUDENT_STATUS_META[status].label).toBe("Submitted");
+    },
+  );
+
+  it("never shows a student the word failed", () => {
+    for (const meta of Object.values(STUDENT_STATUS_META)) {
+      expect(meta.label.toLowerCase()).not.toContain("fail");
+    }
+  });
+
+  it("covers every status the instructor vocabulary does", () => {
+    // Both are Record<SubmissionStatus, …>, so a new enum value is a compile error rather than
+    // a screen rendering a raw database string. This holds it at runtime too.
+    const statuses = Object.keys(SUBMISSION_STATUS_META) as SubmissionStatus[];
+    for (const status of statuses) expect(STUDENT_STATUS_META[status]).toBeDefined();
+  });
+});
+
+describe("completionMeta", () => {
+  it("says Complete for work that met the threshold", () => {
+    expect(completionMeta(true)).toEqual({
+      label: "Complete",
+      className: expect.stringContaining("emerald"),
+    });
+  });
+
+  it("says Incomplete for work that did not", () => {
+    expect(completionMeta(false)?.label).toBe("Incomplete");
+  });
+
+  it("is null when nothing has been graded", () => {
+    // So no caller can render "Incomplete" for work nobody has looked at.
+    expect(completionMeta(null)).toBeNull();
+    expect(completionMeta(undefined)).toBeNull();
+  });
+});
+
+describe("draftStatusAddsSomething", () => {
+  it("is false for APPROVED, which says nothing the submission does not", () => {
+    // Approving is the only thing that sets a submission to GRADED, so showing both is the
+    // same fact twice in two words.
+    expect(draftStatusAddsSomething("APPROVED")).toBe(false);
+  });
+
+  it("is false for SUPERSEDED, which is history rather than a state to act on", () => {
+    expect(draftStatusAddsSomething("SUPERSEDED")).toBe(false);
+  });
+
+  it.each(["GENERATING", "READY", "NEEDS_MANUAL_REVIEW", "FAILED"] as const)(
+    "is true for %s, which the submission badge cannot carry",
+    (status) => {
+      expect(draftStatusAddsSomething(status)).toBe(true);
+    },
+  );
+});
+
+describe("flagMeta", () => {
+  it("renders an unrecognised code as itself rather than dropping it", () => {
+    // A flag the interface has not been taught about is still information.
+    expect(flagMeta("SOMETHING_NEW").label).toBe("SOMETHING_NEW");
+  });
+
+  it("opens every writing and technical flag with why points came off", () => {
+    // The thing the labels never said: each records why the student *lost* points, and a
+    // section at full marks carries none.
+    for (const [code, meta] of Object.entries(FLAG_META)) {
+      if (meta.kind === "writing" || meta.kind === "technical") {
+        expect(meta.description.startsWith("Points came off")).toBe(true);
+      }
+      expect(meta.label.length).toBeGreaterThan(0);
+      expect(meta.description.length).toBeGreaterThan(0);
+      expect(code).toMatch(/^[A-Z_]+$/);
+    }
+  });
+
+  it("marks the test-evidence faults as faults and the ordinary ones as not", () => {
+    // Four outcomes rather than two, because "this assignment has no suite" and "it has one
+    // and none of it ran" are opposite situations.
+    expect(FLAG_META.TEST_EVIDENCE.fault).toBe(false);
+    expect(FLAG_META.NO_TESTS_EXPECTED.fault).toBe(false);
+    expect(FLAG_META.TEST_RUN_MISSING.fault).toBe(true);
+    expect(FLAG_META.TEST_MATCH_MISSING.fault).toBe(true);
+  });
+
+  it("still decodes LOW_CONFIDENCE, which older drafts have stored", () => {
+    // Nothing writes it any more, but this map decodes *stored* flags. Without the entry a
+    // raw LOW_CONFIDENCE string would render as a badge.
+    expect(flagMeta("LOW_CONFIDENCE").label).toBe("Low confidence");
+  });
+});
+
+describe("every tone has a class and a dot", () => {
+  it.each(Object.keys(TONE_CLASSES))("%s", (tone) => {
+    expect(TONE_DOT[tone as keyof typeof TONE_DOT]).toBeDefined();
+  });
+
+  it("is used by every status map", () => {
+    const tones = new Set(Object.keys(TONE_CLASSES));
+    const maps = [SUBMISSION_STATUS_META, STUDENT_STATUS_META, DRAFT_STATUS_META, CONFIDENCE_META];
+    for (const map of maps) {
+      for (const meta of Object.values(map)) expect(tones.has(meta.tone)).toBe(true);
+    }
+    for (const meta of Object.values(FLAG_META)) expect(tones.has(meta.tone)).toBe(true);
+  });
+});
+
+describe("ASSIGNMENT_KIND_META", () => {
+  it("describes all four kinds", () => {
+    expect(Object.keys(ASSIGNMENT_KIND_META).sort()).toEqual([
+      "EXTERNAL_URL",
+      "FILE_UPLOAD",
+      "GOOGLE_DRIVE",
+      "REPO",
+    ]);
+  });
+
+  it("says how the work is handed in rather than restating the label", () => {
+    for (const [kind, meta] of Object.entries(ASSIGNMENT_KIND_META)) {
+      expect(meta.description.toLowerCase()).toContain("handed in");
+      expect(meta.description).not.toContain(meta.label);
+      expect(kind).toMatch(/^[A-Z_]+$/);
+    }
+  });
+
+  it("gives a kind no tone, because a kind is not a state", () => {
+    // It does not change, nothing is waiting on it, and colouring it would make a permanent
+    // property of an assignment look like something needing attention.
+    for (const meta of Object.values(ASSIGNMENT_KIND_META)) {
+      expect(meta).not.toHaveProperty("tone");
+    }
+  });
+});
+
+describe("formatRelative", () => {
+  const now = new Date("2026-08-08T12:00:00Z");
+
+  it.each([
+    ["30 seconds ago", 30_000, "1 min ago"],
+    ["5 minutes ago", 5 * 60_000, "5 mins ago"],
+    ["3 hours ago", 3 * 3_600_000, "3 hrs ago"],
+    ["2 days ago", 2 * 86_400_000, "2 days ago"],
+  ])("reads %s", (_label, ago, expected) => {
+    expect(formatRelative(new Date(now.getTime() - ago), now)).toBe(expected);
+  });
+
+  it("singularises one", () => {
+    expect(formatRelative(new Date(now.getTime() - 3_600_000), now)).toBe("1 hr ago");
+    expect(formatRelative(new Date(now.getTime() - 86_400_000), now)).toBe("1 day ago");
+  });
+
+  it("reads a future instant as ahead rather than as negative", () => {
+    expect(formatRelative(new Date(now.getTime() + 2 * 86_400_000), now)).toBe("in 2 days");
+  });
+
+  it("never says 0 mins ago", () => {
+    // Rounding to zero would read as no time at all having passed.
+    expect(formatRelative(new Date(now.getTime() - 1000), now)).toBe("1 min ago");
+  });
+
+  it("takes the reference instant rather than reading the clock", () => {
+    /*
+      Reading the clock during render is what makes server and client output differ, which
+      React reports as a hydration mismatch — and a cached render has no meaningful "now".
+      The same arguments must give the same answer every time.
+    */
+    const date = new Date(now.getTime() - 7_200_000);
+    expect(formatRelative(date, now)).toBe(formatRelative(date, now));
+  });
+
+  it("is an em dash for no date", () => {
+    expect(formatRelative(null, now)).toBe("—");
+    expect(formatRelative(undefined, now)).toBe("—");
+  });
+});
+
+describe("scores, where null is never zero", () => {
+  it("shows a score out of its possible", () => {
+    expect(scoreLabel(11, 15)).toBe("11/15");
+  });
+
+  it("shows an em dash rather than 0 when nothing is graded", () => {
+    expect(scoreLabel(null, 15)).toBe("—");
+    expect(scoreLabel(11, null)).toBe("—");
+  });
+
+  it("shows a real zero as a real zero", () => {
+    expect(scoreLabel(0, 15)).toBe("0/15");
+  });
+
+  it("computes a percentage", () => {
+    expect(scorePercent(11, 15)).toBeCloseTo(11 / 15);
+    expect(formatPercent(scorePercent(11, 15))).toBe("73%");
+  });
+
+  it("refuses to divide by zero", () => {
+    expect(scorePercent(0, 0)).toBeNull();
+    expect(formatPercent(null)).toBe("—");
+  });
+});
+
+describe("shortSha", () => {
+  it("takes the first seven characters", () => {
+    expect(shortSha("0123456789abcdef")).toBe("0123456");
+  });
+
+  it("is an em dash for no commit", () => {
+    expect(shortSha(null)).toBe("—");
+  });
+});
+
+describe("formatDuration", () => {
+  it.each([
+    [450, "450 ms"],
+    [4_500, "4.5 s"],
+    [42_000, "42 s"],
+    [95_000, "1m 35s"],
+  ])("formats %i as %s", (ms, expected) => {
+    expect(formatDuration(ms)).toBe(expected);
+  });
+
+  it("is an em dash for no duration", () => {
+    expect(formatDuration(null)).toBe("—");
+  });
+});
+
+describe("sectionLabel", () => {
+  it.each([
+    ["short_response", "Short response"],
+    ["coding_algorithm", "Algorithm fluency"],
+    ["coding_sql", "SQL fluency"],
+    ["coding_frontend", "Frontend"],
+  ])("names %s", (type, expected) => {
+    expect(sectionLabel(type)).toBe(expected);
+  });
+
+  it("renders an unknown type as words rather than as a database value", () => {
+    // An instructor-authored section type will arrive here before this map learns about it.
+    expect(sectionLabel("group_presentation")).toBe("Group presentation");
+  });
+});
