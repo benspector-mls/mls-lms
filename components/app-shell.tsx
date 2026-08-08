@@ -316,6 +316,8 @@ function CourseSwitcher({
  */
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
+  { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
+  { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },
   {
     title: "Assignments",
     href: courseAssignmentsHref,
@@ -323,9 +325,7 @@ const COURSE_VIEWS = [
     segment: "assignments",
   },
   { title: "Resources", href: courseResourcesHref, icon: Library, segment: "resources" },
-  { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
   { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
-  { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },
   { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
 ] as const;
 
