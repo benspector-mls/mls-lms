@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { CopyAssignmentDialog } from '@/components/instructor/copy-assignment-dialog';
 import { RemoveAssignmentDialog } from '@/components/instructor/remove-assignment-dialog';
 import { EmptyState } from '@/components/list-states';
 import { AssignmentKindBadge } from '@/components/status-badge';
@@ -730,11 +731,17 @@ export function CourseAssignments({ data }: { data: Data }) {
 }
 
 /**
- * Edit, publish, duplicate, and remove, for one assignment.
+ * Edit, publish, copy, and remove, for one assignment.
  *
  * Publishing is the action most often wanted and is offered directly; the rest sit behind the
  * menu. Removing is last and separated, because it is the one action here that destroys
  * student work — the dialog it opens states exactly what would go.
+ *
+ * Copying opens a dialog rather than acting on the spot. It used to duplicate into this course
+ * immediately, with a repository name built out of the assignment's human title — which is not a
+ * legal repository name the moment a title contains a space, so the one thing that menu item did
+ * was the one thing it could not do. Where a copy goes is a question with two parts, and both
+ * have answers only a person has.
  */
 function AssignmentActions({
   assignment,
@@ -749,6 +756,7 @@ function AssignmentActions({
   const queryClient = useQueryClient();
   const router = useRouter();
   const [removing, setRemoving] = React.useState(false);
+  const [copying, setCopying] = React.useState(false);
 
   /*
     Both, and both are needed for different halves of this screen.
@@ -785,17 +793,7 @@ function AssignmentActions({
       onError: (error) => toast.error(error.message),
     }),
   );
-  const duplicate = useMutation(
-    trpc.assignments.duplicate.mutationOptions({
-      onSuccess: (result) => {
-        toast.success(`Copied to ${result.assignment.title}. It is not visible to students yet.`);
-        settled();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
-  const busy = publish.isPending || unpublish.isPending || duplicate.isPending;
+  const busy = publish.isPending || unpublish.isPending;
 
   return (
     <>
@@ -832,20 +830,9 @@ function AssignmentActions({
               Publish
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onClick={() =>
-              duplicate.mutate({
-                assignmentId: assignment.id,
-                targetCourseId: courseId,
-                // Into the same course, so the name has to differ. Copying to another cohort
-                // keeps the name and is what the procedure is really for; that needs a course
-                // picker, which waits for course creation to exist.
-                assignmentRepoName: `${assignment.title}-copy`,
-              })
-            }
-          >
+          <DropdownMenuItem onClick={() => setCopying(true)}>
             <Copy data-icon="inline-start" />
-            Duplicate here
+            Copy to…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setRemoving(true)}>
@@ -854,6 +841,15 @@ function AssignmentActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <CopyAssignmentDialog
+        assignmentId={assignment.id}
+        title={assignment.title}
+        moduleName={assignment.module.name}
+        courseId={courseId}
+        open={copying}
+        onOpenChange={setCopying}
+      />
 
       <RemoveAssignmentDialog
         assignmentId={assignment.id}

@@ -1070,10 +1070,35 @@ async function procedures() {
         renameRefused, "PRECONDITION_FAILED");
 
       // --- duplicate ---------------------------------------------------------
+      /*
+        A copy beside the original, with no name given.
+
+        The interface used to supply one built out of the assignment's human title, which is not
+        a legal repository name the moment a title contains a space — so the one menu item that
+        needed a name was the one that could not produce one. Derived in the procedure now, and
+        checked twice because the second copy is where a fixed `-copy` suffix would collide with
+        the first.
+      */
+      const beside = await inTx.assignments.duplicate({
+        assignmentId: seeded.id,
+        targetCourseId: seeded.courseId,
+      });
+      check("a copy beside the original is given a repository name of its own",
+        beside.assignment.assignmentRepoName, `${seeded.assignmentRepoName}-copy`);
+      const besideAgain = await inTx.assignments.duplicate({
+        assignmentId: seeded.id,
+        targetCourseId: seeded.courseId,
+      });
+      check("...and a second one does not collide with the first",
+        besideAgain.assignment.assignmentRepoName, `${seeded.assignmentRepoName}-copy-2`);
+
+      // A name given rather than derived, which is still allowed: the derivation above is the
+      // default, not the only way in. Deliberately not `-copy`, which the two copies above have
+      // taken — a check that collides with the fixture beside it is measuring the fixture.
       const copy = await inTx.assignments.duplicate({
         assignmentId: seeded.id,
         targetCourseId: seeded.courseId,
-        assignmentRepoName: "swe-1-3-node-modules-copy",
+        assignmentRepoName: "swe-1-3-node-modules-named-by-hand",
       });
       check("a duplicate carries the same sections",
         JSON.stringify(
@@ -1096,6 +1121,128 @@ async function procedures() {
       }
       check("a duplicate colliding with an existing repository name is refused",
         dupCollision, "BAD_REQUEST");
+
+      /*
+        --- copying, which is what `duplicate` was actually written for -------
+
+        The procedure has taken a `targetCourseId` since it was written and the interface
+        hardcoded the current course, so the cross-cohort case was reachable only by writing the
+        call. What the checks below are really about is the **module**, because that is the part
+        two courses cannot agree on by construction: a module belongs to one course, so a copy
+        has to be told or has to guess, and guessing wrong looks exactly like guessing right.
+      */
+      const code = async (run: () => Promise<unknown>) => {
+        try {
+          await run();
+          return "accepted";
+        } catch (err) {
+          return (err as { code?: string }).code ?? String(err);
+        }
+      };
+
+      // --- into another cohort ---
+      const targetCourse = await inTx.courses.create({
+        name: "Verify Copy Target",
+        cohortTerm: "Cohort Copy A",
+      });
+      const seededModuleName = (await tx.module.findUnique({
+        where: { id: seeded.moduleId },
+        select: { name: true },
+      }))!.name;
+
+      check("copying into a cohort with no module of that name is refused",
+        await code(() => inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: targetCourse.course.id,
+        })),
+        "BAD_REQUEST");
+      check("...and nothing was written there",
+        await tx.assignment.count({ where: { courseId: targetCourse.course.id } }), 0);
+
+      /*
+        Named explicitly, which is the case the name match cannot serve: two cohorts whose
+        module sequences have diverged. Without it, copying into such a cohort fails on every
+        assignment and the only way through is renaming a module to match.
+      */
+      const differentlyNamed = await inTx.modules.create({
+        courseId: targetCourse.course.id,
+        name: "Week One",
+      });
+      const named = await inTx.assignments.duplicate({
+        assignmentId: seeded.id,
+        targetCourseId: targetCourse.course.id,
+        targetModuleId: differentlyNamed.id,
+      });
+      check("naming the module copies it into a cohort whose modules are named differently",
+        named.assignment.moduleId, differentlyNamed.id);
+      /*
+        The repository name comes across unchanged, which is the half worth checking rather than
+        assuming. `@@unique([courseId, assignmentRepoName])` is per course, and the generated
+        repositories still differ because the cohort's short name prefixes every one of them —
+        so renaming here would break the correspondence between two cohorts of one program for
+        no reason.
+      */
+      check("...keeping the repository name, because the cohort's short name tells them apart",
+        named.assignment.assignmentRepoName, seeded.assignmentRepoName);
+      check("...and arriving unpublished", named.assignment.distributedAt, null);
+
+      /*
+        A module id is a parameter anybody can pass, so it is checked against the target course
+        rather than merely looked up. Without that, a copy could be filed under a third cohort's
+        module — which no screen would show and no constraint would catch, since `moduleId` is a
+        foreign key to modules rather than to modules *of this course*.
+      */
+      check("a module from another cohort is refused",
+        await code(() => inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: targetCourse.course.id,
+          targetModuleId: seeded.moduleId,
+        })),
+        "BAD_REQUEST");
+
+      /*
+        The same assignment cannot land in one course twice, because the copy keeps its
+        repository name and two assignments in a course cannot share one. Worth checking rather
+        than discovering: it is the reason the check below needs a second cohort.
+      */
+      check("copying the same assignment into that cohort again is refused",
+        await code(() => inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: targetCourse.course.id,
+          targetModuleId: differentlyNamed.id,
+        })),
+        "BAD_REQUEST");
+
+      /*
+        Matched by name when nobody says otherwise, which is the ordinary case: a cohort copied
+        from last term's has last term's module names.
+      */
+      const secondTarget = await inTx.courses.create({
+        name: "Verify Copy Target Two",
+        cohortTerm: "Cohort Copy B",
+      });
+      const sameName = await inTx.modules.create({
+        courseId: secondTarget.course.id,
+        name: seededModuleName,
+      });
+      const matched = await inTx.assignments.duplicate({
+        assignmentId: seeded.id,
+        targetCourseId: secondTarget.course.id,
+      });
+      check("a module of the same name is matched without being asked for",
+        matched.assignment.moduleId, sameName.id);
+
+      // An archived cohort takes nothing new, the same rule as a student joining one. It
+      // matters because archived cohorts are in the course list now, so one is a thing somebody
+      // can be looking at when they reach for a copy.
+      await inTx.courses.setArchived({ courseId: targetCourse.course.id, archived: true });
+      check("copying into an archived cohort is refused",
+        await code(() => inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: targetCourse.course.id,
+          targetModuleId: differentlyNamed.id,
+        })),
+        "PRECONDITION_FAILED");
 
       // --- removalImpact and remove -----------------------------------------
       const impact = await inTx.assignments.removalImpact({ assignmentId: seeded.id });
@@ -1139,6 +1286,15 @@ async function procedures() {
     { title: seeded.title, published: seeded.distributedAt !== null });
   check("no authored rows survived the rollback",
     await db.assignment.count({ where: { assignmentRepoName: { contains: "-authored" } } }), 0);
+  /*
+    Nor the cohorts the copy checks created, which is a separate claim from the assignments.
+
+    Those checks copy *into* new courses, so a rollback that left the courses behind would leave
+    the seeded assignment duplicated into cohorts nobody made — and a course is the one thing
+    here whose leftovers are visible to every instructor rather than only to a query.
+  */
+  check("...nor the cohorts the copy checks created",
+    await db.course.count({ where: { name: { startsWith: "Verify Copy Target" } } }), 0);
 
   /*
     The one thing this script writes outside a transaction, removed.

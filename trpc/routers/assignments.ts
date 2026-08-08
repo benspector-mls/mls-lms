@@ -942,6 +942,13 @@ export const assignmentsRouter = createTRPCRouter({
     .input(z.object({
       assignmentId: z.string().uuid(),
       targetCourseId: z.string().uuid(),
+      /**
+       * Where it lands in the target course. Optional, and when it is absent the module is
+       * matched across courses by name — which is right when two cohorts of the same program
+       * share a module sequence and useless when they have diverged. Naming it is what the
+       * copy dialog does, so the case the matching cannot serve stops being a refusal.
+       */
+      targetModuleId: z.string().uuid().optional(),
       assignmentRepoName: z.string().min(1).optional(),
       dueAt: z.date().nullable().optional(),
     }))
@@ -956,9 +963,30 @@ export const assignmentsRouter = createTRPCRouter({
       await assertTeaches(ctx, source.courseId);
       await assertTeaches(ctx, input.targetCourseId);
 
+      /*
+        An archived cohort takes nothing new, the same rule as a student joining one or an
+        instructor being added to one. It matters more now than it did: the course list returns
+        archived cohorts, so they are a thing somebody can be looking at when they reach for a
+        copy, and a finished term quietly gaining an assignment is a change nobody would see.
+      */
+      const target = await ctx.db.course.findUnique({
+        where: { id: input.targetCourseId },
+        select: { name: true, archivedAt: true },
+      });
+      if (!target) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'That course does not exist.' });
+      }
+      if (target.archivedAt !== null) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `${target.name} is archived, so nothing new can be added to it.`,
+        });
+      }
+
       return copyAssignmentInto(ctx.db, {
         source,
         targetCourseId: input.targetCourseId,
+        targetModuleId: input.targetModuleId,
         assignmentRepoName: input.assignmentRepoName,
         dueAt: input.dueAt ?? null,
       });
@@ -1123,6 +1151,7 @@ export async function copyAssignmentInto(
   params: {
     source: CopyableAssignment;
     targetCourseId: string;
+    targetModuleId?: string;
     assignmentRepoName?: string;
     dueAt: Date | null;
   },
@@ -1130,14 +1159,26 @@ export async function copyAssignmentInto(
   const { source, targetCourseId } = params;
 
       /*
+        Where the copy lands, in three cases.
+
         A module belongs to one course, so copying into a *different* course cannot reuse the
-        source's module. Matched by name, which is the only thing the two courses can agree
-        about, and refused when the target has no module of that name rather than guessing —
-        filing a copied assignment under whichever module happened to be first would be a
-        wrong answer that looks like a right one.
+        source's module. When the caller names one, that is the answer — and it is checked
+        against the target course rather than merely looked up, because a module id is a
+        parameter anybody can pass and one belonging to a third cohort would otherwise file the
+        assignment somewhere the caller never chose.
+
+        When nobody names one, it is matched by name, which is the only thing two courses can
+        agree about — and refused when the target has none, rather than filing the copy under
+        whichever module happened to be first, which is a wrong answer that looks like a right
+        one. Naming the module is how the copy dialog serves two cohorts whose module sequences
+        have diverged, which is exactly the case that matching cannot.
       */
-      const targetModule =
-        targetCourseId === source.courseId
+      const targetModule = params.targetModuleId
+        ? await db.module.findFirst({
+            where: { id: params.targetModuleId, courseId: targetCourseId },
+            select: { id: true },
+          })
+        : targetCourseId === source.courseId
           ? { id: source.moduleId }
           : await db.module.findFirst({
               where: { courseId: targetCourseId, name: source.module.name },
@@ -1147,11 +1188,28 @@ export async function copyAssignmentInto(
       if (!targetModule) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message:
-            `The target course has no module called "${source.module.name}". Create it there ` +
-            `first, so the copy has somewhere to go.`,
+          message: params.targetModuleId
+            ? 'That module is not in the course you are copying into.'
+            : `The target course has no module called "${source.module.name}". Create it ` +
+              `there first, or say which module the copy should go in.`,
         });
       }
+
+      /*
+        Copying inside one course has to rename the repository, and the name is derived here
+        rather than asked for.
+
+        `@@unique([courseId, assignmentRepoName])` is per course, so a copy into *another*
+        cohort keeps the name — the repositories still differ, because the cohort's short name
+        prefixes every one of them. Only a copy beside the original collides, and the caller
+        that used to invent a name for it built one out of the assignment's human title, which
+        is not a legal repository name the moment a title contains a space.
+      */
+      const assignmentRepoName =
+        params.assignmentRepoName ??
+        (targetCourseId === source.courseId && source.assignmentRepoName !== null
+          ? await freeRepoNameIn(db, targetCourseId, source.assignmentRepoName)
+          : source.assignmentRepoName);
 
       const draft = {
         kind: source.kind,
@@ -1162,7 +1220,7 @@ export async function copyAssignmentInto(
         templateRepo: source.templateRepo,
         answerKeyRepo: source.answerKeyRepo,
         answerKeyDir: source.answerKeyDir,
-        assignmentRepoName: params.assignmentRepoName ?? source.assignmentRepoName,
+        assignmentRepoName,
         githubOrg: source.githubOrg,
         templateRef: source.templateRef,
         runnerPreset: source.runnerPreset,
@@ -1195,4 +1253,37 @@ export async function copyAssignmentInto(
       });
 
   return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+}
+
+/**
+ * A repository name free in this course, starting from `${base}-copy`.
+ *
+ * For the one case that has to rename: a copy sitting beside its original. `-copy-2` and up
+ * exist because duplicating twice is a thing people do, and a second attempt failing on a
+ * constraint would be a refusal with nothing for the caller to do about it.
+ *
+ * Bounded rather than looping until it finds one. Ten copies of a single assignment in one
+ * cohort is not a thing anybody is doing on purpose, and a loop with no ceiling around a
+ * database query is a worse failure than the refusal.
+ */
+async function freeRepoNameIn(
+  db: typeof import('@/lib/prisma').db,
+  courseId: string,
+  base: string,
+): Promise<string> {
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const candidate = attempt === 1 ? `${base}-copy` : `${base}-copy-${attempt}`;
+    const taken = await db.assignment.findFirst({
+      where: { courseId, assignmentRepoName: candidate },
+      select: { id: true },
+    });
+    if (!taken) return candidate;
+  }
+
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message:
+      `This course already holds ten copies of "${base}". Give the next one a repository ` +
+      `name of its own, or remove the ones that are not being used.`,
+  });
 }
