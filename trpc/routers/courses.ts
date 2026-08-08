@@ -16,7 +16,9 @@ import {
 import { assertOwnsCourse, ownerOf } from "@/lib/courses/ownership";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
+import { removeSubmissionUploads } from "@/lib/uploads/storage";
 
+import { copyAssignmentInto, copyableAssignmentSelect } from "./assignments";
 import {
   type AuthedCtx,
   courseProcedure,
@@ -727,8 +729,6 @@ export const coursesRouter = createTRPCRouter({
       const failed: { title: string; reason: string }[] = [];
 
       if (source) {
-        const { copyAssignmentInto, copyableAssignmentSelect } = await import("./assignments");
-
         for (const assignmentId of source.assignmentIds) {
           const original = await ctx.db.assignment.findUnique({
             where: { id: assignmentId },
@@ -928,7 +928,6 @@ export const coursesRouter = createTRPCRouter({
       let uploadsRemoved = 0;
       let uploadsLeftBehind: string[] = [];
       if (uploadPaths.length > 0) {
-        const { removeSubmissionUploads } = await import("@/lib/uploads/storage");
         const result = await removeSubmissionUploads(uploadPaths);
         uploadsRemoved = result.removed;
         uploadsLeftBehind = result.leftBehind;

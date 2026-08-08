@@ -4,29 +4,23 @@ import { z } from "zod";
 import type { Db } from "@/lib/prisma";
 
 import {
-  assertKindImplemented,
-  copyUrlFromTemplate,
-  NotRepositoryBackedError,
-  repositorySource,
-  UnsupportedAssignmentKindError,
-} from "@/lib/assignments/spec";
+  acceptableAssignmentSelect,
+  acceptDriveAssignment,
+  acceptRepoAssignment,
+  type Accepted,
+} from "@/lib/assignments/accept";
+import { detectRunnerPreset, NOT_A_REPOSITORY } from "@/lib/assignments/detect";
+import { normalizeRepoRef } from "@/lib/assignments/repo-ref";
+import { assertKindImplemented } from "@/lib/assignments/spec";
 import {
   hasErrors,
   validateAssignmentDraft,
   type ValidationFinding,
 } from "@/lib/assignments/validate";
-import { studentRepoName } from "@/lib/courses/cohort-slug";
 import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/courses/membership";
 import { teachableAssignment } from "@/lib/courses/scope";
 import { effectiveSection } from "@/lib/grade/approve";
-import { getConfiguredInstallationId, isGithubAppConfigured } from "@/lib/github/app-client";
-import {
-  addCollaborator,
-  generateRepoFromTemplate,
-  getRepo,
-  removeClassroomWorkflow,
-  waitForRepoContent,
-} from "@/lib/github/repos";
+import { listAnswerKeyEntries, listAnswerKeys, MAX_ANSWER_KEYS } from "@/lib/grade/assets";
 
 import {
   courseProcedure,
@@ -274,19 +268,15 @@ export const assignmentsRouter = createTRPCRouter({
     }),
 
   /**
-   * Accepts an assignment: creates the student's repository from the template,
-   * grants access, removes the legacy Classroom workflow, and records the
-   * submission.
+   * Accepts an assignment.
    *
-   * Ordering note: the repository is created before the submission row is
-   * written, because the row stores the repository's URL. That means a failure
-   * partway through can leave a repository on GitHub with no matching row. The
-   * recovery for that is below — an existing repository is reused rather than
-   * treated as an error.
+   * Authorize, load, dispatch on kind. **What accepting *is* depends on the kind**, and the two
+   * kinds that have one are `lib/assignments/accept.ts` — one of them talks to GitHub five times
+   * and this is not the layer that should read as though it does.
    */
   accept: studentProcedure
     .input(z.object({ assignmentId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }): Promise<Accepted> => {
       const student = ctx.profile;
 
       /*
@@ -297,17 +287,7 @@ export const assignmentsRouter = createTRPCRouter({
       */
       const assignment = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
-        select: {
-          id: true,
-          courseId: true,
-          kind: true,
-          templateRepo: true,
-          assignmentRepoName: true,
-          githubOrg: true,
-          templateDriveUrl: true,
-          // The cohort's short name, which prefixes the repository this creates.
-          course: { select: { cohortSlug: true } },
-        },
+        select: acceptableAssignmentSelect,
       });
 
       if (!assignment) {
@@ -321,275 +301,32 @@ export const assignmentsRouter = createTRPCRouter({
       await assertActiveStudent(ctx, assignment.courseId);
 
       /*
-        What accepting *is* depends on the kind, and this is where that stops being
-        incidental.
+        A `switch` over every kind rather than the ifs this was, so a fifth kind is a compile
+        error here rather than a request that quietly falls through to the repository path.
 
-        For a Drive assignment it is being sent to Google's own copy prompt: no repository, no
-        collaborators, no credentials, and nothing created on this side beyond the row
-        recording that the student started. For a repository it is generating one from the
-        template, which is everything below. FILE_UPLOAD and EXTERNAL_URL reach neither — they
-        have no Accept at all, because there is nothing to hand out, and the refusal below is
-        what a request arriving anyway is answered with.
+        FILE_UPLOAD and EXTERNAL_URL have no Accept at all, because there is nothing to hand
+        out. The refusal is what a request arriving anyway is answered with — the button is not
+        drawn for them, so reaching this means something else did.
       */
-      if (assignment.kind === "GOOGLE_DRIVE") {
-        if (!assignment.templateDriveUrl) {
+      switch (assignment.kind) {
+        case "GOOGLE_DRIVE":
+          return acceptDriveAssignment(ctx.db, { assignment, studentId: student.id });
+
+        case "REPO":
+          return acceptRepoAssignment(ctx.db, { assignment, student });
+
+        case "FILE_UPLOAD":
+        case "EXTERNAL_URL":
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message:
-              "This assignment has no template document, so there is nothing to copy. " +
-              "Contact your instructor.",
+              assignment.kind === "FILE_UPLOAD"
+                ? "This assignment is not accepted — there is nothing to hand out. Upload your " +
+                  "work and submit it when you are ready."
+                : "This assignment is not accepted — there is nothing to hand out. Make your " +
+                  "work, then submit the link to it when you are ready.",
           });
-        }
-
-        // Upserted rather than created, so pressing Accept twice is the same as pressing it
-        // once: the copy prompt is idempotent on Google's side too — a second press makes a
-        // second copy, which is the student's business and not a state this owns.
-        const submission = await ctx.db.submission.upsert({
-          where: {
-            assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id },
-          },
-          create: {
-            assignmentId: assignment.id,
-            studentId: student.id,
-            status: "ACCEPTED",
-            lastActivityAt: new Date(),
-          },
-          update: {},
-        });
-
-        return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl) };
       }
-
-      if (assignment.kind === "FILE_UPLOAD" || assignment.kind === "EXTERNAL_URL") {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            assignment.kind === "FILE_UPLOAD"
-              ? "This assignment is not accepted — there is nothing to hand out. Upload your " +
-                "work and submit it when you are ready."
-              : "This assignment is not accepted — there is nothing to hand out. Make your " +
-                "work, then submit the link to it when you are ready.",
-        });
-      }
-
-      if (!student.githubUsername) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "Link your GitHub account before accepting an assignment. Your repository is named after your GitHub username.",
-        });
-      }
-
-      if (!isGithubAppConfigured()) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "The GitHub App is not configured on this deployment. See the GitHub App setup section of the README.",
-        });
-      }
-
-      let source;
-      try {
-        source = repositorySource(assignment);
-      } catch (err) {
-        // Worded for the person who hits it rather than for a stack trace. Reaching this
-        // with a kind that has no repository means the branches above missed one, which is a
-        // defect rather than something a student can act on; a misconfigured REPO row is the
-        // ordinary case, where an instructor set up the assignment without a template, org,
-        // or repository name.
-        if (
-          err instanceof NotRepositoryBackedError ||
-          err instanceof UnsupportedAssignmentKindError
-        ) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "This assignment is not accepted this way. Contact your instructor.",
-            cause: err,
-          });
-        }
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Source repository not found for this assignment. Contact your instructor.",
-          cause: err,
-        });
-      }
-
-      // Already accepted. Return the existing submission rather than creating a
-      // second repository.
-      const existing = await ctx.db.submission.findUnique({
-        where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
-      });
-      if (existing?.repoFullName) {
-        return { submission: existing, copyUrl: null };
-      }
-
-      const installationId = getConfiguredInstallationId();
-      /*
-        `{cohortSlug}-{assignmentRepoName}-{github login}`, built in one place.
-
-        The cohort in the name is what keeps two courses running the same program apart on
-        GitHub, so a student repeating a module gets a fresh repository rather than wanting the
-        one their previous cohort holds.
-      */
-      const repoName = studentRepoName({
-        cohortSlug: assignment.course.cohortSlug,
-        assignmentRepoName: source.assignmentRepoName,
-        githubLogin: student.githubUsername,
-      });
-      const [templateOwner, templateRepoName] = source.templateRepo.split("/");
-
-      if (!templateOwner || !templateRepoName) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Assignment templateRepo must be in "owner/repo" form, got "${source.templateRepo}".`,
-        });
-      }
-
-      /*
-        The same repository name in two cohorts, for the same student.
-
-        A generated repository is `{assignmentRepoName}-{github login}` with no course in it, so
-        two courses holding an assignment of the same name in the same organization would want
-        one repository for two submissions. `@@unique([courseId, assignmentRepoName])` does not
-        catch this — it is per course, and the collision domain is the organization.
-
-        **Different students never collide**, which is why reusing `swe-1-4-loops` for a new
-        cohort every term is fine and normal. This only fires when one person is in both, which
-        happens when a cohort is copied and tested, and when a student repeats a module.
-
-        Checked here, before anything touches GitHub, because the failure without it is ugly:
-        `generate` fails on the taken name, the catch reuses the existing repository — correct
-        for retrying a half-finished accept — collaborators are added, and only then does
-        `repo_full_name @unique` refuse the write, with a Prisma constraint error reaching a
-        student. The database is what makes that safe rather than silently wrong; this is what
-        makes it legible.
-      */
-      const repoFullNameToCreate = `${source.githubOrg}/${repoName}`;
-      const claimed = await ctx.db.submission.findUnique({
-        where: { repoFullName: repoFullNameToCreate },
-        select: {
-          assignment: { select: { title: true, course: { select: { name: true } } } },
-        },
-      });
-
-      if (claimed) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            `You already have the repository ${repoFullNameToCreate}, for ` +
-            `"${claimed.assignment.title}" in ${claimed.assignment.course.name}. One ` +
-            `repository cannot serve two courses, so this assignment needs a different ` +
-            `repository name — ask your instructor to change it.`,
-        });
-      }
-
-      // A repository with this name can already exist on GitHub without a
-      // matching submission row: a previous attempt may have created the
-      // repository and then failed before the database write, or a local reseed
-      // may have cleared submissions without touching GitHub. Reuse it instead of
-      // failing on the name collision.
-      let repo;
-      try {
-        repo = await generateRepoFromTemplate(installationId, {
-          templateOwner,
-          templateRepo: templateRepoName,
-          owner: source.githubOrg,
-          name: repoName,
-        });
-      } catch (err) {
-        const existingRepo = await getRepo(installationId, {
-          owner: source.githubOrg,
-          repo: repoName,
-        });
-        if (!existingRepo) throw err;
-        repo = existingRepo;
-      }
-
-      await addCollaborator(installationId, {
-        owner: source.githubOrg,
-        repo: repoName,
-        username: student.githubUsername,
-        permission: "push",
-      });
-
-      // Every instructor on the course is added, so no repository ever needs
-      // manual permission changes.
-      const instructors = await ctx.db.courseInstructor.findMany({
-        where: { courseId: assignment.courseId },
-        select: { user: { select: { githubUsername: true, email: true } } },
-      });
-
-      for (const { user } of instructors) {
-        if (!user.githubUsername) {
-          // An instructor who has not linked GitHub cannot be added. This must
-          // not fail the student's accept — they would be blocked by someone
-          // else's incomplete setup.
-          console.warn(
-            `accept: skipping collaborator invite for ${user.email ?? "an instructor"} — no GitHub account linked`,
-          );
-          continue;
-        }
-        await addCollaborator(installationId, {
-          owner: source.githubOrg,
-          repo: repoName,
-          username: user.githubUsername,
-          permission: "push",
-        });
-      }
-
-      /*
-        The copy is asynchronous, so the tree is not readable the moment `generate` returns.
-
-        Waiting here rather than inside `removeClassroomWorkflow` because this is the only
-        caller that has just created the repository — everything else reads one that has
-        existed for days. A repository still empty after the wait is reported and not
-        treated as a failure: it exists, the student can work in it, and refusing their
-        accept over a workflow file whose results nothing trusts would be the worse trade.
-      */
-      const landed = await waitForRepoContent(installationId, {
-        owner: source.githubOrg,
-        repo: repoName,
-      });
-
-      const workflow = landed
-        ? await removeClassroomWorkflow(installationId, {
-            owner: source.githubOrg,
-            repo: repoName,
-          })
-        : ("repository-empty" as const);
-
-      if (workflow === "repository-empty") {
-        console.warn(
-          `accept: ${source.githubOrg}/${repoName} had no content after waiting, so a ` +
-            `classroom.yml may have been left in it. The template is ` +
-            `${source.templateRepo}.`,
-        );
-      }
-
-      const repoFullName = `${source.githubOrg}/${repoName}`;
-
-      const submission = await ctx.db.submission.upsert({
-        where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
-        create: {
-          assignmentId: assignment.id,
-          studentId: student.id,
-          status: "ACCEPTED",
-          repoFullName,
-          repoUrl: repo.html_url,
-          repoGithubLoginAtCreation: student.githubUsername,
-        },
-        update: {
-          status: "ACCEPTED",
-          repoFullName,
-          repoUrl: repo.html_url,
-          repoGithubLoginAtCreation: student.githubUsername,
-        },
-      });
-
-      // The same shape every kind returns, so the button has one result to handle rather
-      // than a union it has to narrow. Null here because a repository is opened from the
-      // row's own link, not by being sent somewhere on acceptance.
-      return { submission, copyUrl: null };
     }),
   // =====================================================================================
   // Authoring
@@ -741,7 +478,6 @@ export const assignmentsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ input }) => {
-      const { listAnswerKeyEntries } = await import("@/lib/grade/assets");
       return { entries: await listAnswerKeyEntries(input.answerKeyRepo, input.dir) };
     }),
 
@@ -761,7 +497,6 @@ export const assignmentsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ input }) => {
-      const { listAnswerKeys, MAX_ANSWER_KEYS } = await import("@/lib/grade/assets");
       const set = await listAnswerKeys(input.answerKeyRepo, input.dir);
       return { ...set, limit: MAX_ANSWER_KEYS };
     }),
@@ -778,9 +513,6 @@ export const assignmentsRouter = createTRPCRouter({
   inferFromTemplate: courseProcedure
     .input(z.object({ templateRepo: z.string().min(3) }))
     .query(async ({ input }) => {
-      const { normalizeRepoRef } = await import("@/lib/assignments/repo-ref");
-      const { detectRunnerPreset, NOT_A_REPOSITORY } = await import("@/lib/assignments/detect");
-
       const fullName = normalizeRepoRef(input.templateRepo);
       return fullName ? detectRunnerPreset(fullName) : NOT_A_REPOSITORY;
     }),

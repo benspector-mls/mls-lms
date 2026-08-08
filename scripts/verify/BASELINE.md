@@ -18,7 +18,9 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:assets` | 62 | GitHub |
 | `verify:e2b` | 8 | a real E2B sandbox |
 
-`verify:resubmission` is not in the table because it takes a repository substring as an argument and refuses without one. `calibrate` is not a check script: it grades a sample and prints a comparison for a person to read.
+`verify:resubmission` is not in the table because it takes a repository substring as an argument and refuses without one. It also has no fixed count: **it fails unless the repository it is pointed at holds a commit newer than the one it was graded on**, which is state a person stages by pushing and letting the webhook record it — the script says so in its own header, since item 4 is checked here rather than performed. A run reporting `FAIL the new commit was recorded  head X, graded X` is that missing fixture and not a regression. The way to tell them apart is to run the same command on the previous commit; a real regression fails there too.
+
+`calibrate` is not a check script: it grades a sample and prints a comparison for a person to read.
 
 **The README's figures are older than these.** It records 43 for groups and 61 for resources where they now report 46 and 64 — the scripts grew and the prose did not. That is the whole reason this file exists: the number to compare against is the one the script prints today, not the one somebody wrote down once.
 
