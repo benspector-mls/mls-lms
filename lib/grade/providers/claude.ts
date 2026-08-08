@@ -23,7 +23,7 @@ import { gradingReportSchema, parseGradingReport } from "../schema";
  * dominant cost factor, well ahead of which model tier is chosen.
  */
 
-const DEFAULT_MODEL = "claude-opus-5";
+const DEFAULT_MODEL = "claude-sonnet-5";
 
 /**
  * Grading is judgment over fixed inputs, which is what the effort parameter is for.
