@@ -4,8 +4,8 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 
 | Script | `ok` | Needs |
 | --- | --- | --- |
-| `verify:sandbox` | 41 | nothing |
-| `verify:grade` | 101 | nothing |
+| `verify:sandbox` | 41 | nothing — **now `tests/lib/sandbox/sandbox-logic.test.ts`** |
+| `verify:grade` | 101 | nothing — **now three suites under `tests/lib/grade/`** |
 | `verify:modules` | 35 | the database |
 | `verify:groups` | 46 | the database |
 | `verify:resources` | 64 | the database |
@@ -21,6 +21,8 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 `verify:resubmission` is not in the table because it takes a repository substring as an argument and refuses without one. It also has no fixed count: **it fails unless the repository it is pointed at holds a commit newer than the one it was graded on**, which is state a person stages by pushing and letting the webhook record it — the script says so in its own header, since item 4 is checked here rather than performed. A run reporting `FAIL the new commit was recorded  head X, graded X` is that missing fixture and not a regression. The way to tell them apart is to run the same command on the previous commit; a real regression fails there too.
 
 `calibrate` is not a check script: it grades a sample and prints a comparison for a person to read.
+
+**The first two rows are history rather than instructions.** `verify:sandbox` and `verify:grade` needed nothing — no database, no repository, no model — which is exactly what makes them unit tests rather than scripts, so their 142 assertions are now Jest cases and both scripts are gone. Nothing was dropped in the move: the sandbox suite carries 41 assertions and the three grading suites carry the other 101, in 100 cases, the one difference being that `hasTestEvidence`'s pair of checks share a case. The rows stay in the table because they are what the counts below were compared against, and because the next reader should know where those numbers went.
 
 **The README's figures are older than these.** It records 43 for groups and 61 for resources where they now report 46 and 64 — the scripts grew and the prose did not. That is the whole reason this file exists: the number to compare against is the one the script prints today, not the one somebody wrote down once.
 

@@ -5,7 +5,7 @@
  *   npm run calibrate -- 2       # one pair
  *
  * This is Phase 3 verification item 7, and it measures the only thing the automatic
- * checks cannot. `verify:grade` proves a report is internally consistent — that its
+ * checks cannot. `tests/lib/grade/` proves a report is internally consistent — that its
  * arithmetic adds up and that it does not contradict a test run. It cannot prove the
  * score is the one a Marcy instructor would have given, because nothing in the
  * pipeline knows what that is. These pairs do.
