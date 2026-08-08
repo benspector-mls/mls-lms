@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
-import { AlertTriangle, Loader2, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogClose,
@@ -16,11 +16,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useTRPC } from '@/trpc/client';
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useTRPC } from "@/trpc/client";
 
 /**
  * Removing an assignment, which is the one irreversible action in the application.
@@ -53,7 +53,7 @@ export function RemoveAssignmentDialog({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [typed, setTyped] = React.useState('');
+  const [typed, setTyped] = React.useState("");
 
   const impact = useQuery({
     ...trpc.assignments.removalImpact.queryOptions({ assignmentId }),
@@ -64,19 +64,19 @@ export function RemoveAssignmentDialog({
     trpc.assignments.remove.mutationOptions({
       onSuccess: (result) => {
         onOpenChange(false);
-        setTyped('');
+        setTyped("");
         toast.success(
           result.submissions === 0
             ? `Removed ${result.title}.`
             : `Removed ${result.title}, along with ${result.submissions} submission(s) and ` +
-              `${result.drafts} report(s).`,
+                `${result.drafts} report(s).`,
         );
         if (result.orphanedRepositories.length > 0) {
           // Said plainly, because nothing else will say it: these still exist on GitHub and
           // nothing in the application refers to them any more.
           toast.warning(
             `${result.orphanedRepositories.length} student repositor(y/ies) are still on ` +
-              `GitHub and are no longer tracked here: ${result.orphanedRepositories.join(', ')}`,
+              `GitHub and are no longer tracked here: ${result.orphanedRepositories.join(", ")}`,
             { duration: 15_000 },
           );
         }
@@ -97,7 +97,7 @@ export function RemoveAssignmentDialog({
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
-        if (!next) setTyped('');
+        if (!next) setTyped("");
       }}
     >
       <DialogContent>

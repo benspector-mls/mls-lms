@@ -16,9 +16,7 @@
  * text while the column still says 30 would hand the student one figure and the
  * gradebook another.
  */
-export function statedScoreInText(
-  markdown: string,
-): { earned: number; possible: number } | null {
+export function statedScoreInText(markdown: string): { earned: number; possible: number } | null {
   const match = markdown.match(/^#{1,3}\s.*?Score:\s*([\d.]+)\s*\/\s*([\d.]+)/im);
   return match ? { earned: Number(match[1]), possible: Number(match[2]) } : null;
 }

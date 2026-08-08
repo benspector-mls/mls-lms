@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
 import {
   Archive,
   Check,
@@ -14,13 +14,13 @@ import {
   ShieldCheck,
   Trash2,
   UserMinus,
-} from 'lucide-react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { toast } from "sonner";
 
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -28,11 +28,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { studentRepoName } from '@/lib/courses/cohort-slug';
-import { formatDate } from '@/lib/status';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/table";
+import { studentRepoName } from "@/lib/courses/cohort-slug";
+import { formatDate } from "@/lib/status";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * The cohort itself: what it is called, how its repositories are named, who teaches it, and
@@ -48,7 +48,7 @@ import type { RouterOutputs } from '@/trpc/types';
  * own screens.
  */
 
-type Data = RouterOutputs['courses']['settings'];
+type Data = RouterOutputs["courses"]["settings"];
 
 export function CourseSettings({ data }: { data: Data }) {
   const archived = data.course.archivedAt !== null;
@@ -65,9 +65,9 @@ export function CourseSettings({ data }: { data: Data }) {
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
             This cohort is archived. It is off everyone&apos;s active course list and its
-            submissions are out of grading triage. Everything stays readable to the people who
-            were in it — the gradebook, and every assignment&apos;s own queue — and nothing new
-            can be handed in.
+            submissions are out of grading triage. Everything stays readable to the people who were
+            in it — the gradebook, and every assignment&apos;s own queue — and nothing new can be
+            handed in.
           </p>
         </div>
       )}
@@ -96,8 +96,8 @@ export function CourseSettings({ data }: { data: Data }) {
 /** Whoever the cohort belongs to, for the sentences that have to name them. */
 function ownerNameIn(data: Data): string {
   const owner = data.course.instructors.find((row) => row.user.id === data.ownerId);
-  if (!owner) return 'its owner';
-  return owner.user.displayName ?? owner.user.githubUsername ?? owner.user.email ?? 'its owner';
+  if (!owner) return "its owner";
+  return owner.user.displayName ?? owner.user.githubUsername ?? owner.user.email ?? "its owner";
 }
 
 /**
@@ -115,8 +115,8 @@ function ownerNameIn(data: Data): string {
 function RepositoryNamingCard({ data }: { data: Data }) {
   const example = studentRepoName({
     cohortSlug: data.course.cohortSlug,
-    assignmentRepoName: 'swe-1-4-loops',
-    githubLogin: 'student',
+    assignmentRepoName: "swe-1-4-loops",
+    githubLogin: "student",
   });
 
   return (
@@ -124,9 +124,9 @@ function RepositoryNamingCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Short name</h2>
         <p className="text-xs text-muted-foreground">
-          Every repository this cohort generates is named after it. It carries the course and
-          the term, which is what keeps two programs starting the same season — and two cohorts
-          of the same program — apart on GitHub.
+          Every repository this cohort generates is named after it. It carries the course and the
+          term, which is what keeps two programs starting the same season — and two cohorts of the
+          same program — apart on GitHub.
         </p>
       </div>
 
@@ -145,8 +145,8 @@ function RepositoryNamingCard({ data }: { data: Data }) {
         </span>
         <code className="font-mono text-xs break-all">{example}</code>
         <span className="text-xs text-muted-foreground">
-          The short name, then the assignment&apos;s repository name, then the student&apos;s
-          GitHub login.
+          The short name, then the assignment&apos;s repository name, then the student&apos;s GitHub
+          login.
         </span>
       </div>
 
@@ -157,15 +157,14 @@ function RepositoryNamingCard({ data }: { data: Data }) {
       <p className="text-xs text-muted-foreground">
         {data.acceptedCount > 0 ? (
           <>
-            It cannot be changed. {data.acceptedCount}{' '}
-            {data.acceptedCount === 1 ? 'repository has' : 'repositories have'} already been
+            It cannot be changed. {data.acceptedCount}{" "}
+            {data.acceptedCount === 1 ? "repository has" : "repositories have"} already been
             generated under it, and renaming here would not rename any of them.
           </>
         ) : (
           <>
-            It is settled when the course is created and cannot be changed afterwards. Nothing
-            has been generated under it yet, so a cohort created by mistake is best created
-            again.
+            It is settled when the course is created and cannot be changed afterwards. Nothing has
+            been generated under it yet, so a cohort created by mistake is best created again.
           </>
         )}
       </p>
@@ -174,7 +173,7 @@ function RepositoryNamingCard({ data }: { data: Data }) {
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
           <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">
-            {data.githubOrgs.length > 1 ? 'Organizations' : 'Organization'}
+            {data.githubOrgs.length > 1 ? "Organizations" : "Organization"}
           </span>
           {data.githubOrgs.map((org) => (
             <code key={org} className="font-mono text-xs">
@@ -214,7 +213,7 @@ function CoTeachingCard({ data }: { data: Data }) {
 
   // Built in the browser, because the server rendering this has no reliable idea what host the
   // instructor is looking at — a preview deployment and production share the same code.
-  const [origin, setOrigin] = React.useState('');
+  const [origin, setOrigin] = React.useState("");
   React.useEffect(() => setOrigin(window.location.origin), []);
   const link = origin
     ? `${origin}/co-teach/${data.course.coTeachToken}`
@@ -228,7 +227,7 @@ function CoTeachingCard({ data }: { data: Data }) {
     trpc.courses.regenerateCoTeachToken.mutationOptions({
       ...settled,
       onSuccess: () => {
-        toast.success('New co-teaching link. The old one no longer works.');
+        toast.success("New co-teaching link. The old one no longer works.");
         router.refresh();
       },
     }),
@@ -271,8 +270,8 @@ function CoTeachingCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Instructors</h2>
         <p className="text-xs text-muted-foreground">
-          Everyone here can author assignments in this cohort, read every student&apos;s work,
-          and approve grades.
+          Everyone here can author assignments in this cohort, read every student&apos;s work, and
+          approve grades.
         </p>
       </div>
 
@@ -289,7 +288,7 @@ function CoTeachingCard({ data }: { data: Data }) {
           <TableBody>
             {data.course.instructors.map((row) => {
               const name =
-                row.user.displayName ?? row.user.githubUsername ?? row.user.email ?? 'Unnamed';
+                row.user.displayName ?? row.user.githubUsername ?? row.user.email ?? "Unnamed";
               const isCaller = row.user.id === data.callerId;
               const isOwner = row.user.id === data.ownerId;
 
@@ -328,7 +327,7 @@ function CoTeachingCard({ data }: { data: Data }) {
                           )}
                         </span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {row.user.email ?? '—'}
+                          {row.user.email ?? "—"}
                         </span>
                       </div>
                     </div>
@@ -385,7 +384,7 @@ function CoTeachingCard({ data }: { data: Data }) {
                           }
                         >
                           <UserMinus data-icon="inline-start" />
-                          {isCaller ? 'Leave' : 'Remove'}
+                          {isCaller ? "Leave" : "Remove"}
                         </Button>
                       )}
                     </div>
@@ -408,9 +407,9 @@ function CoTeachingCard({ data }: { data: Data }) {
           cohort on does not leave it ownerless.
         */
         <p className="text-xs text-muted-foreground">
-          The owner archives this cohort and decides who else teaches it. Only they can leave it
-          — anybody else here can be removed by anyone. If the owner leaves without handing it
-          on, the cohort goes to the longest-serving instructor left.
+          The owner archives this cohort and decides who else teaches it. Only they can leave it —
+          anybody else here can be removed by anyone. If the owner leaves without handing it on, the
+          cohort goes to the longest-serving instructor left.
         </p>
       )}
 
@@ -422,8 +421,8 @@ function CoTeachingCard({ data }: { data: Data }) {
           </span>
           <span className="text-xs text-muted-foreground">
             Send this to a colleague who should teach this cohort with you. It works only for
-            accounts that are already instructors — if they have never signed in here, an admin
-            has to send them an instructor invitation from the Staff screen first.
+            accounts that are already instructors — if they have never signed in here, an admin has
+            to send them an instructor invitation from the Staff screen first.
           </span>
         </div>
 
@@ -441,7 +440,7 @@ function CoTeachingCard({ data }: { data: Data }) {
             }}
           >
             {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? "Copied" : "Copy"}
           </Button>
         </div>
 
@@ -452,17 +451,17 @@ function CoTeachingCard({ data }: { data: Data }) {
           why a student's code will not open.
         */}
         <p className="text-xs text-muted-foreground">
-          An instructor added now is a collaborator on repositories generated from now on. The
-          ones students already accepted keep the collaborators they were created with, so they
-          need adding on GitHub by hand.
+          An instructor added now is a collaborator on repositories generated from now on. The ones
+          students already accepted keep the collaborators they were created with, so they need
+          adding on GitHub by hand.
         </p>
 
         {confirming ? (
           <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
             <span className="text-xs text-amber-700 dark:text-amber-300">
               The current link stops working immediately. Instructors already on this cohort are
-              unaffected — anyone you have sent it to and who has not used it yet will need the
-              new link.
+              unaffected — anyone you have sent it to and who has not used it yet will need the new
+              link.
             </span>
             <div className="flex gap-2">
               <Button
@@ -544,11 +543,11 @@ function ArchiveCard({
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">{archived ? 'Reopen' : 'Archive'} this cohort</h2>
+        <h2 className="text-sm font-medium">{archived ? "Reopen" : "Archive"} this cohort</h2>
         <p className="text-xs text-muted-foreground">
           {archived
             ? `${name} is archived. Reopening puts it back on everyone's active course list and lets work be handed in again.`
-            : 'Archiving takes the cohort off everyone’s active course list and its submissions out of grading triage. Students keep reading their feedback, and nothing new can be handed in. It is reversible.'}
+            : "Archiving takes the cohort off everyone’s active course list and its submissions out of grading triage. Students keep reading their feedback, and nothing new can be handed in. It is reversible."}
         </p>
       </div>
 
@@ -559,8 +558,8 @@ function ArchiveCard({
           who to ask.
         */
         <p className="text-xs text-muted-foreground">
-          Only {ownerName} can {archived ? 'reopen' : 'archive'} this cohort, because they own
-          it. Everything else on this screen is yours as much as theirs.
+          Only {ownerName} can {archived ? "reopen" : "archive"} this cohort, because they own it.
+          Everything else on this screen is yours as much as theirs.
         </p>
       ) : archived ? (
         <Button
@@ -619,7 +618,7 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
   const trpc = useTRPC();
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const [typed, setTyped] = React.useState('');
+  const [typed, setTyped] = React.useState("");
 
   // Only when asked for. It counts a term's worth of submissions, and this card sits at the
   // bottom of a screen most people open for the co-teaching link.
@@ -638,28 +637,28 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
         */
         const parts = [
           `${result.name} is gone`,
-          `${result.assignments} ${result.assignments === 1 ? 'assignment' : 'assignments'}`,
-          `${result.submissions} ${result.submissions === 1 ? 'submission' : 'submissions'}`,
+          `${result.assignments} ${result.assignments === 1 ? "assignment" : "assignments"}`,
+          `${result.submissions} ${result.submissions === 1 ? "submission" : "submissions"}`,
         ];
         if (result.orphanedRepositories.length > 0) {
           parts.push(
             `${result.orphanedRepositories.length} GitHub ${
-              result.orphanedRepositories.length === 1 ? 'repository is' : 'repositories are'
+              result.orphanedRepositories.length === 1 ? "repository is" : "repositories are"
             } untouched`,
           );
         }
         if (result.uploadsLeftBehind.length > 0) {
           parts.push(`${result.uploadsLeftBehind.length} uploaded files could not be removed`);
         }
-        toast.success(parts.join(' · '), { duration: 12_000 });
-        router.push('/courses');
+        toast.success(parts.join(" · "), { duration: 12_000 });
+        router.push("/courses");
         router.refresh();
       },
       onError: (error) => toast.error(error.message),
     }),
   );
 
-  const ready = typed.trim() !== '' && impact.data?.cohortSlug === typed.trim().toLowerCase();
+  const ready = typed.trim() !== "" && impact.data?.cohortSlug === typed.trim().toLowerCase();
 
   if (!open) {
     return (
@@ -668,8 +667,8 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
           <h2 className="text-sm font-medium">Delete this cohort</h2>
           <p className="text-xs text-muted-foreground">
             Permanent. {name} and everything in it — assignments, submissions, grades, and the
-            feedback that was given — go, and the database&apos;s own backups are the only way
-            back. Archiving is the reversible version and this cohort is already archived.
+            feedback that was given — go, and the database&apos;s own backups are the only way back.
+            Archiving is the reversible version and this cohort is already archived.
           </p>
         </div>
         <Button
@@ -690,8 +689,8 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Delete {name}?</h2>
         <p className="text-xs text-muted-foreground">
-          There is no undo and no recovery path here. The database&apos;s own backups are the
-          only way back.
+          There is no undo and no recovery path here. The database&apos;s own backups are the only
+          way back.
         </p>
       </div>
 
@@ -700,10 +699,10 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
       ) : impact.data ? (
         <>
           <dl className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
-            <Detail label="Students" value={countLabel(impact.data.enrollments, 'enrollment')} />
+            <Detail label="Students" value={countLabel(impact.data.enrollments, "enrollment")} />
             <Detail
               label="Assignments"
-              value={`${impact.data.assignments} in ${countLabel(impact.data.modules, 'module')}`}
+              value={`${impact.data.assignments} in ${countLabel(impact.data.modules, "module")}`}
             />
             <Detail
               label="Submissions"
@@ -711,10 +710,10 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
             />
             <Detail
               label="Also"
-              value={`${countLabel(impact.data.drafts, 'grading draft')}, ${countLabel(
+              value={`${countLabel(impact.data.drafts, "grading draft")}, ${countLabel(
                 impact.data.testRuns,
-                'test run',
-              )}, ${countLabel(impact.data.uploadedFiles, 'uploaded file')}`}
+                "test run",
+              )}, ${countLabel(impact.data.uploadedFiles, "uploaded file")}`}
             />
             {/*
               Named rather than counted silently, because this is the one thing here that
@@ -725,8 +724,8 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
               label="Left alone"
               value={
                 impact.data.repositories > 0
-                  ? `${countLabel(impact.data.repositories, 'GitHub repository')}, which stay exactly as they are`
-                  : 'No GitHub repositories were ever generated'
+                  ? `${countLabel(impact.data.repositories, "GitHub repository")}, which stay exactly as they are`
+                  : "No GitHub repositories were ever generated"
               }
             />
           </dl>
@@ -751,7 +750,7 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
         </>
       ) : (
         <p className="text-xs text-destructive">
-          {impact.error?.message ?? 'Could not read what deleting this would destroy.'}
+          {impact.error?.message ?? "Could not read what deleting this would destroy."}
         </p>
       )}
 
@@ -772,7 +771,7 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
           disabled={remove.isPending}
           onClick={() => {
             setOpen(false);
-            setTyped('');
+            setTyped("");
           }}
         >
           Keep it
@@ -799,11 +798,11 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function initials(name: string | null): string {
-  return (name ?? '?')
-    .split(' ')
+  return (name ?? "?")
+    .split(" ")
     .map((part) => part[0])
     .filter(Boolean)
     .slice(0, 2)
-    .join('')
+    .join("")
     .toUpperCase();
 }

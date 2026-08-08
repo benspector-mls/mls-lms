@@ -183,7 +183,9 @@ function parsePytestJson(raw: string): NormalizedResults {
             ? "skipped"
             : "failed",
       // pytest reports seconds; everything else here is milliseconds.
-      ...(typeof test.duration === "number" ? { durationMs: Math.round(test.duration * 1000) } : {}),
+      ...(typeof test.duration === "number"
+        ? { durationMs: Math.round(test.duration * 1000) }
+        : {}),
       ...(failureMessage ? { failureMessage } : {}),
     };
   });

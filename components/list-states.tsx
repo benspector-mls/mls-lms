@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { AlertTriangle, Inbox, RotateCw } from "lucide-react"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import * as React from "react";
+import { AlertTriangle, Inbox, RotateCw } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
@@ -13,10 +13,7 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
         Loading…
       </span>
       {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className="flex items-center gap-4 rounded-lg border border-border px-4 py-3"
-        >
+        <div key={i} className="flex items-center gap-4 rounded-lg border border-border px-4 py-3">
           <Skeleton className="size-9 rounded-md" />
           <div className="flex flex-1 flex-col gap-2">
             <Skeleton className="h-3.5 w-1/3" />
@@ -27,7 +24,7 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 /**
@@ -50,11 +47,11 @@ export function EmptyState({
   action,
   className,
 }: {
-  title: string
-  description?: string
-  icon?: React.ReactNode
-  action?: React.ReactNode
-  className?: string
+  title: string;
+  description?: string;
+  icon?: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
 }) {
   return (
     <div
@@ -76,7 +73,7 @@ export function EmptyState({
       </div>
       {action}
     </div>
-  )
+  );
 }
 
 export function ErrorState({
@@ -85,10 +82,10 @@ export function ErrorState({
   onRetry,
   className,
 }: {
-  title?: string
-  description?: string
-  onRetry?: () => void
-  className?: string
+  title?: string;
+  description?: string;
+  onRetry?: () => void;
+  className?: string;
 }) {
   return (
     <div
@@ -103,9 +100,7 @@ export function ErrorState({
       </div>
       <div className="flex flex-col gap-1">
         <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="mx-auto max-w-sm text-sm text-muted-foreground text-balance">
-          {description}
-        </p>
+        <p className="mx-auto max-w-sm text-sm text-muted-foreground text-balance">{description}</p>
       </div>
       {onRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry}>
@@ -114,5 +109,5 @@ export function ErrorState({
         </Button>
       ) : null}
     </div>
-  )
+  );
 }

@@ -1,9 +1,9 @@
-import { redirect } from 'next/navigation';
-import { Suspense } from 'react';
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { ListSkeleton } from '@/components/list-states';
-import { gradingQueueHref } from '@/lib/links';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { ListSkeleton } from "@/components/list-states";
+import { gradingQueueHref } from "@/lib/links";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * The grading queue's old address, which named the assignment and not the course.

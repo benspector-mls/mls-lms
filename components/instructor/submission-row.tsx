@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { DraftStatusBadge, SubmissionStatusBadge } from '@/components/status-badge';
-import { Badge } from '@/components/ui/badge';
-import { completionMeta, draftStatusAddsSomething, formatRelative } from '@/lib/status';
-import { cn } from '@/lib/utils';
-import type { RouterOutputs } from '@/trpc/types';
+import { DraftStatusBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { completionMeta, draftStatusAddsSomething, formatRelative } from "@/lib/status";
+import { cn } from "@/lib/utils";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * One selectable submission in a two-pane list.
@@ -19,7 +19,7 @@ import type { RouterOutputs } from '@/trpc/types';
  * about; the row says what state it is in.
  */
 
-type QueueRow = RouterOutputs['submissions']['listForAssignment']['submissions'][number];
+type QueueRow = RouterOutputs["submissions"]["listForAssignment"]["submissions"][number];
 
 export function SubmissionRow({
   row,
@@ -49,10 +49,10 @@ export function SubmissionRow({
         type="button"
         onClick={onSelect}
         className={cn(
-          'flex w-full flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-colors',
+          "flex w-full flex-col gap-2 rounded-md border px-3 py-2.5 text-left transition-colors",
           active
-            ? 'border-primary/40 bg-primary/5'
-            : 'border-transparent hover:border-border hover:bg-muted/50',
+            ? "border-primary/40 bg-primary/5"
+            : "border-transparent hover:border-border hover:bg-muted/50",
         )}
       >
         <div className="flex items-center gap-2.5">
@@ -69,10 +69,10 @@ export function SubmissionRow({
             anymore.
           */}
 
-          {row.status === 'GRADED' && row.finalScore != null && (
+          {row.status === "GRADED" && row.finalScore != null && (
             <span
               className={cn(
-                'shrink-0 text-sm font-semibold tabular-nums',
+                "shrink-0 text-sm font-semibold tabular-nums",
                 // From `completionMeta`, so this screen, the review pane, and the student's own
                 // page cannot disagree about what green means or which shade of it.
                 completionMeta(row.isComplete)?.className,
@@ -101,7 +101,7 @@ export function SubmissionRow({
               Report out of date
             </Badge>
           )}
-          {row.bucket === 'comment_not_posted' && (
+          {row.bucket === "comment_not_posted" && (
             <Badge
               variant="outline"
               className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"

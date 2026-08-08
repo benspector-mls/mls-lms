@@ -1,5 +1,5 @@
-import Link from 'next/link';
-import type * as React from 'react';
+import Link from "next/link";
+import type * as React from "react";
 import {
   AlertTriangle,
   Archive,
@@ -15,20 +15,20 @@ import {
   RotateCcw,
   Sparkles,
   XCircle,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { EmptyState } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { FlagBadge } from '@/components/status-badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { GroupPicker } from '@/components/instructor/group-picker';
-import { groupSelectionLabel, parseGroupSelection } from '@/lib/courses/groups';
-import { gradingQueueHref } from '@/lib/links';
-import { flagMeta, formatRelative, scoreLabel } from '@/lib/status';
-import { cn } from '@/lib/utils';
-import type { RouterOutputs } from '@/trpc/types';
+import { EmptyState } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { FlagBadge } from "@/components/status-badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { GroupPicker } from "@/components/instructor/group-picker";
+import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
+import { gradingQueueHref } from "@/lib/links";
+import { flagMeta, formatRelative, scoreLabel } from "@/lib/status";
+import { cn } from "@/lib/utils";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * What is waiting on the instructor in one cohort.
@@ -42,29 +42,29 @@ import type { RouterOutputs } from '@/trpc/types';
  * interleaved has no state in which the screen is empty and no order in which to work it.
  */
 
-type Triage = RouterOutputs['submissions']['triage'];
-type Row = Triage['submissions'][number];
+type Triage = RouterOutputs["submissions"]["triage"];
+type Row = Triage["submissions"][number];
 
 /**
  * The buckets that represent work. `generating` is not among them — a run already in
  * flight needs waiting on rather than doing, and it sits at the foot of the screen.
  */
 type BucketKey =
-  | 'needs_report'
-  | 'needs_manual_grade'
-  | 'draft_ready'
-  | 'needs_manual_review'
-  | 'grading_failed'
-  | 'comment_not_posted';
+  | "needs_report"
+  | "needs_manual_grade"
+  | "draft_ready"
+  | "needs_manual_review"
+  | "grading_failed"
+  | "comment_not_posted";
 
 /** Every bucket that counts toward "how much is left", in the order they are worked. */
 const WORK_BUCKETS: BucketKey[] = [
-  'needs_report',
-  'needs_manual_grade',
-  'draft_ready',
-  'needs_manual_review',
-  'grading_failed',
-  'comment_not_posted',
+  "needs_report",
+  "needs_manual_grade",
+  "draft_ready",
+  "needs_manual_review",
+  "grading_failed",
+  "comment_not_posted",
 ];
 
 const BUCKET_META: Record<
@@ -78,27 +78,27 @@ const BUCKET_META: Record<
   }
 > = {
   needs_report: {
-    label: 'No report yet',
+    label: "No report yet",
     description:
-      'Submitted work with no current report. Generating one is the first step; a draft describing code the student has since replaced counts as none.',
+      "Submitted work with no current report. Generating one is the first step; a draft describing code the student has since replaced counts as none.",
     icon: FileText,
-    tone: 'text-sky-600 dark:text-sky-400',
-    accent: 'bg-sky-500/10',
+    tone: "text-sky-600 dark:text-sky-400",
+    accent: "bg-sky-500/10",
   },
   needs_manual_grade: {
-    label: 'To grade by hand',
+    label: "To grade by hand",
     description:
-      'Submitted work on an assignment the pipeline cannot grade — a document or an upload. Read the work, write the feedback, and release it the same way.',
+      "Submitted work on an assignment the pipeline cannot grade — a document or an upload. Read the work, write the feedback, and release it the same way.",
     icon: PencilLine,
-    tone: 'text-violet-600 dark:text-violet-400',
-    accent: 'bg-violet-500/10',
+    tone: "text-violet-600 dark:text-violet-400",
+    accent: "bg-violet-500/10",
   },
   draft_ready: {
-    label: 'Drafts ready to review',
-    description: 'A report was produced. Read it, edit what you disagree with, then approve.',
+    label: "Drafts ready to review",
+    description: "A report was produced. Read it, edit what you disagree with, then approve.",
     icon: Sparkles,
-    tone: 'text-primary',
-    accent: 'bg-primary/10',
+    tone: "text-primary",
+    accent: "bg-primary/10",
   },
   /*
     Distinct from `needs_manual_grade` above, and the labels have to keep them apart: this
@@ -107,27 +107,27 @@ const BUCKET_META: Record<
     cross-check finding that does not exist.
   */
   needs_manual_review: {
-    label: 'Held for review',
+    label: "Held for review",
     description:
-      'A report was produced but something in it could not be verified, so it is held rather than offered for approval. Check it before releasing.',
+      "A report was produced but something in it could not be verified, so it is held rather than offered for approval. Check it before releasing.",
     icon: AlertTriangle,
-    tone: 'text-amber-600 dark:text-amber-400',
-    accent: 'bg-amber-500/10',
+    tone: "text-amber-600 dark:text-amber-400",
+    accent: "bg-amber-500/10",
   },
   grading_failed: {
-    label: 'Grading failed',
-    description: 'The pipeline errored before producing a report. Run it again or grade by hand.',
+    label: "Grading failed",
+    description: "The pipeline errored before producing a report. Run it again or grade by hand.",
     icon: XCircle,
-    tone: 'text-destructive',
-    accent: 'bg-destructive/10',
+    tone: "text-destructive",
+    accent: "bg-destructive/10",
   },
   comment_not_posted: {
-    label: 'Approved, never delivered',
+    label: "Approved, never delivered",
     description:
-      'The grade is recorded but the comment never reached the pull request, so the student has not been told. Post it again.',
+      "The grade is recorded but the comment never reached the pull request, so the student has not been told. Post it again.",
     icon: MessageSquareOff,
-    tone: 'text-amber-600 dark:text-amber-400',
-    accent: 'bg-amber-500/10',
+    tone: "text-amber-600 dark:text-amber-400",
+    accent: "bg-amber-500/10",
   },
 };
 
@@ -165,7 +165,7 @@ export function TriageOverview({
 }) {
   const selection = parseGroupSelection(groups.group);
   const buckets = bucketize(triage.submissions);
-  const generating = triage.submissions.filter((row) => row.bucket === 'generating');
+  const generating = triage.submissions.filter((row) => row.bucket === "generating");
 
   // The whole of what is left. Every bucket counts toward it, so the number at the top
   // of the screen and the piles below it are the same claim stated two ways.
@@ -187,12 +187,12 @@ export function TriageOverview({
             the selected students only, so a screen that said "Caught up" without naming what it
             was caught up on would be making a claim about the cohort that it has not checked.
           */
-          ...(selection.kind === 'all' ? [] : [groupSelectionLabel(selection, groups.groups)]),
+          ...(selection.kind === "all" ? [] : [groupSelectionLabel(selection, groups.groups)]),
           remaining === 0
-            ? 'Caught up'
-            : `${remaining} ${remaining === 1 ? 'submission' : 'submissions'} left to grade`,
+            ? "Caught up"
+            : `${remaining} ${remaining === 1 ? "submission" : "submissions"} left to grade`,
           `${triage.gradedCount} approved`,
-        ].join(' · ')}
+        ].join(" · ")}
         /*
           The picker is the only action. There was a button back to the course page, which existed
           because the cohort's other views were tabs on it and this screen was the one place
@@ -218,8 +218,8 @@ export function TriageOverview({
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This cohort is archived, so nothing here is waiting on you. Its submissions and
-            feedback stay readable in the gradebook and in every assignment&apos;s own queue.
+            This cohort is archived, so nothing here is waiting on you. Its submissions and feedback
+            stay readable in the gradebook and in every assignment&apos;s own queue.
           </p>
         </div>
       )}
@@ -237,14 +237,24 @@ export function TriageOverview({
           icon={FileText}
           tone="text-sky-600 dark:text-sky-400"
         />
-        <StatCard label="Ready to review" value={buckets.draft_ready.length} icon={Sparkles} tone="text-primary" />
+        <StatCard
+          label="Ready to review"
+          value={buckets.draft_ready.length}
+          icon={Sparkles}
+          tone="text-primary"
+        />
         <StatCard
           label="Held for review"
           value={buckets.needs_manual_review.length}
           icon={AlertTriangle}
           tone="text-amber-600 dark:text-amber-400"
         />
-        <StatCard label="Failed runs" value={buckets.grading_failed.length} icon={XCircle} tone="text-destructive" />
+        <StatCard
+          label="Failed runs"
+          value={buckets.grading_failed.length}
+          icon={XCircle}
+          tone="text-destructive"
+        />
       </div>
 
       {remaining === 0 ? (
@@ -267,11 +277,19 @@ export function TriageOverview({
             otherwise show a permanently empty pile for a kind of work it never has.
           */}
           {buckets.needs_manual_grade.length > 0 && (
-            <TriageBucket bucketKey="needs_manual_grade" rows={buckets.needs_manual_grade} now={now} />
+            <TriageBucket
+              bucketKey="needs_manual_grade"
+              rows={buckets.needs_manual_grade}
+              now={now}
+            />
           )}
           <TriageBucket bucketKey="draft_ready" rows={buckets.draft_ready} now={now} />
           <div className="grid gap-4 lg:grid-cols-2">
-            <TriageBucket bucketKey="needs_manual_review" rows={buckets.needs_manual_review} now={now} />
+            <TriageBucket
+              bucketKey="needs_manual_review"
+              rows={buckets.needs_manual_review}
+              now={now}
+            />
             <TriageBucket bucketKey="grading_failed" rows={buckets.grading_failed} now={now} />
           </div>
           {/*
@@ -280,7 +298,11 @@ export function TriageOverview({
             reads as being caught up.
           */}
           {buckets.comment_not_posted.length > 0 && (
-            <TriageBucket bucketKey="comment_not_posted" rows={buckets.comment_not_posted} now={now} />
+            <TriageBucket
+              bucketKey="comment_not_posted"
+              rows={buckets.comment_not_posted}
+              now={now}
+            />
           )}
         </div>
       )}
@@ -334,15 +356,7 @@ function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
   return buckets;
 }
 
-function TriageBucket({
-  bucketKey,
-  rows,
-  now,
-}: {
-  bucketKey: BucketKey;
-  rows: Row[];
-  now: Date;
-}) {
+function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Row[]; now: Date }) {
   const meta = BUCKET_META[bucketKey];
   const Icon = meta.icon;
 
@@ -352,11 +366,11 @@ function TriageBucket({
         <div className="flex items-start gap-3">
           <div
             className={cn(
-              'flex size-9 shrink-0 items-center justify-center rounded-lg',
+              "flex size-9 shrink-0 items-center justify-center rounded-lg",
               meta.accent,
             )}
           >
-            <Icon className={cn('size-5', meta.tone)} />
+            <Icon className={cn("size-5", meta.tone)} />
           </div>
           <div className="flex-1">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -399,7 +413,7 @@ function TriageRow({ row, now }: { row: Row; now: Date }) {
     ? [...new Set(draft.sections.flatMap((s) => s.flags))].filter((code) => flagMeta(code).fault)
     : [];
 
-  const lowConfidence = draft?.sections.some((s) => s.confidence === 'LOW') ?? false;
+  const lowConfidence = draft?.sections.some((s) => s.confidence === "LOW") ?? false;
 
   // Two columns compared, no API call: the student has pushed past what was graded.
   const revised =
@@ -429,12 +443,12 @@ function TriageRow({ row, now }: { row: Row; now: Date }) {
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
-          {row.student.displayName ?? row.student.email ?? 'Unknown student'}
+          {row.student.displayName ?? row.student.email ?? "Unknown student"}
         </p>
         <p className="truncate text-sm text-muted-foreground">{row.assignment.title}</p>
 
         <div className="mt-1 flex flex-wrap items-center gap-1.5 empty:mt-0">
-          {row.bucket === 'generating' && (
+          {row.bucket === "generating" && (
             <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
               <Loader2 className="size-3" />
               Generating
@@ -505,7 +519,7 @@ function StatCard({
   return (
     <Card>
       <CardContent className="flex items-center gap-3 py-4">
-        <Icon className={cn('size-5', tone)} />
+        <Icon className={cn("size-5", tone)} />
         <div>
           <p className="text-2xl leading-none font-semibold tabular-nums">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{label}</p>
@@ -516,11 +530,11 @@ function StatCard({
 }
 
 function initialsOf(name: string | null): string {
-  if (!name) return '?';
+  if (!name) return "?";
   return name
-    .split(' ')
+    .split(" ")
     .map((part) => part[0])
-    .join('')
+    .join("")
     .slice(0, 2)
     .toUpperCase();
 }

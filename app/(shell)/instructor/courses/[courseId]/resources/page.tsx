@@ -1,9 +1,9 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { CourseResources } from '@/components/instructor/resources-view';
-import { ListSkeleton } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { CourseResources } from "@/components/instructor/resources-view";
+import { ListSkeleton } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Everything in the cohort that is not work: readings, notes, and videos.
@@ -18,11 +18,7 @@ import { getQueryClient, trpc } from '@/trpc/server';
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
-export default function CourseResourcesPage({
-  params,
-}: {
-  params: Promise<{ courseId: string }>;
-}) {
+export default function CourseResourcesPage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
     <Suspense fallback={<ResourcesFallback />}>
       <Resources params={params} />
@@ -55,7 +51,7 @@ async function Resources({ params }: { params: Promise<{ courseId: string }> }) 
         title="Resources"
         description={
           resources.length === 0
-            ? 'Readings, notes, and videos — nothing here is graded'
+            ? "Readings, notes, and videos — nothing here is graded"
             : `${resources.length} in this cohort · nothing here is graded`
         }
       />

@@ -99,9 +99,7 @@ export function mimeTypesFor(acceptedTypes: readonly string[]): string[] {
 
 /** What a file input's `accept` attribute should hold. Extensions, for the reason below. */
 export function acceptAttributeFor(acceptedTypes: readonly string[]): string {
-  return [
-    ...new Set(acceptedTypes.filter(isUploadFileTypeKey).flatMap(extensionsOf)),
-  ].join(",");
+  return [...new Set(acceptedTypes.filter(isUploadFileTypeKey).flatMap(extensionsOf))].join(",");
 }
 
 /**
@@ -125,7 +123,9 @@ export function contentTypeFor(extension: string): string | null {
 
 /** "PDF or Images", for telling a student what they may hand in. */
 export function describeAcceptedTypes(acceptedTypes: readonly string[]): string {
-  const labels = acceptedTypes.filter(isUploadFileTypeKey).map((key) => UPLOAD_FILE_TYPES[key].label);
+  const labels = acceptedTypes
+    .filter(isUploadFileTypeKey)
+    .map((key) => UPLOAD_FILE_TYPES[key].label);
   if (labels.length === 0) return "nothing yet";
   if (labels.length === 1) return labels[0];
   return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;

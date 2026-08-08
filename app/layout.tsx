@@ -13,8 +13,7 @@ const defaultUrl = process.env.VERCEL_URL
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
   title: "Marcy LMS",
-  description:
-    "Assignments and instructor-approved grading for The Marcy Lab School.",
+  description: "Assignments and instructor-approved grading for The Marcy Lab School.",
 };
 
 /**

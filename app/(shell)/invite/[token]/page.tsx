@@ -1,7 +1,7 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { AcceptInvite } from '@/components/admin/accept-invite';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { AcceptInvite } from "@/components/admin/accept-invite";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Where an instructor invitation lands.

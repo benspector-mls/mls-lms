@@ -1,17 +1,17 @@
-import Link from 'next/link';
-import { Suspense } from 'react';
-import { Plus } from 'lucide-react';
+import Link from "next/link";
+import { Suspense } from "react";
+import { Plus } from "lucide-react";
 
-import { CourseAssignments } from '@/components/instructor/assignments-list';
-import { ListSkeleton } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { buttonVariants } from '@/components/ui/button';
-import { GroupPicker } from '@/components/instructor/group-picker';
-import { groupSelectionLabel, parseGroupSelection } from '@/lib/courses/groups';
-import { resolveGroup } from '@/lib/courses/resolve-group';
-import { newAssignmentHref } from '@/lib/links';
-import { cn } from '@/lib/utils';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { CourseAssignments } from "@/components/instructor/assignments-list";
+import { ListSkeleton } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { buttonVariants } from "@/components/ui/button";
+import { GroupPicker } from "@/components/instructor/group-picker";
+import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
+import { resolveGroup } from "@/lib/courses/resolve-group";
+import { newAssignmentHref } from "@/lib/links";
+import { cn } from "@/lib/utils";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Every assignment in one cohort, and where new ones are made.
@@ -69,7 +69,7 @@ async function Assignments({
           figure in the table below *is* narrowed, which is what has to be said out loud.
         */
         description={
-          selection.kind === 'all'
+          selection.kind === "all"
             ? `${data.assignments.length} in this cohort`
             : `${data.assignments.length} in this cohort · to grade counted for ${groupSelectionLabel(selection, groups.groups)}`
         }
@@ -81,7 +81,7 @@ async function Assignments({
               groups={groups.groups}
               ungroupedCount={groups.ungroupedCount}
             />
-            <Link href={newAssignmentHref(courseId)} className={cn(buttonVariants({ size: 'sm' }))}>
+            <Link href={newAssignmentHref(courseId)} className={cn(buttonVariants({ size: "sm" }))}>
               <Plus data-icon="inline-start" />
               New assignment
             </Link>

@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { redirect } from "next/navigation";
 
 /**
  * There is no landing page. Everyone who reaches this application already has an
@@ -7,5 +7,5 @@ import { redirect } from 'next/navigation';
  * they are not signed in yet.
  */
 export default function Home() {
-  redirect('/courses');
+  redirect("/courses");
 }

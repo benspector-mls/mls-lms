@@ -1,7 +1,7 @@
-import { redirect } from 'next/navigation';
-import { Suspense } from 'react';
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { courseSettingsHref } from '@/lib/links';
+import { courseSettingsHref } from "@/lib/links";
 
 /**
  * The bare course address, which is a redirect rather than a screen.
@@ -34,11 +34,7 @@ export default function InstructorCoursePage({
 // `Promise<never>` rather than an inferred `Promise<void>`: `redirect` throws rather than
 // returning, and without the annotation TypeScript decides this component resolves to `void`,
 // which is not a `ReactNode` and fails the JSX check.
-async function ToSettings({
-  params,
-}: {
-  params: Promise<{ courseId: string }>;
-}): Promise<never> {
+async function ToSettings({ params }: { params: Promise<{ courseId: string }> }): Promise<never> {
   const { courseId } = await params;
   redirect(courseSettingsHref(courseId));
 }

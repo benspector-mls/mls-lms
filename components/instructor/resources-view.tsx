@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
-import { Library, Pencil, Plus, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { Library, Pencil, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { ResourceDialog } from '@/components/instructor/resource-dialog';
-import { EmptyState } from '@/components/list-states';
-import { ResourceKindBadge } from '@/components/status-badge';
-import { Button } from '@/components/ui/button';
+import { ResourceDialog } from "@/components/instructor/resource-dialog";
+import { EmptyState } from "@/components/list-states";
+import { ResourceKindBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +17,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/dialog";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Everything in the cohort that is not work, grouped by module.
@@ -39,8 +39,8 @@ import type { RouterOutputs } from '@/trpc/types';
  * assignments.
  */
 
-type Modules = RouterOutputs['modules']['listForCourse'];
-type Resource = RouterOutputs['resources']['listForCourse'][number];
+type Modules = RouterOutputs["modules"]["listForCourse"];
+type Resource = RouterOutputs["resources"]["listForCourse"][number];
 
 export function CourseResources({
   modules,
@@ -116,8 +116,8 @@ export function CourseResources({
               <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{row.name}</h2>
               <span className="text-xs whitespace-nowrap text-muted-foreground">
                 {rows.length === 0
-                  ? 'Nothing yet'
-                  : `${rows.length} ${rows.length === 1 ? 'resource' : 'resources'}`}
+                  ? "Nothing yet"
+                  : `${rows.length} ${rows.length === 1 ? "resource" : "resources"}`}
               </span>
               <Button variant="ghost" size="sm" onClick={() => openNew(row.id)}>
                 <Plus data-icon="inline-start" />
@@ -193,8 +193,8 @@ export function CourseResources({
           <DialogHeader>
             <DialogTitle>Remove this resource?</DialogTitle>
             <DialogDescription>
-              &ldquo;{removing?.title}&rdquo; comes off the course page for everyone in the
-              cohort. Nothing else changes — a resource has no submissions and no grades.
+              &ldquo;{removing?.title}&rdquo; comes off the course page for everyone in the cohort.
+              Nothing else changes — a resource has no submissions and no grades.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -1,8 +1,8 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { ListSkeleton } from '@/components/list-states';
-import { StudentOverview } from '@/components/instructor/student-overview';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { ListSkeleton } from "@/components/list-states";
+import { StudentOverview } from "@/components/instructor/student-overview";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * One student's record within one cohort.
@@ -35,11 +35,7 @@ function Fallback() {
   );
 }
 
-async function Student({
-  params,
-}: {
-  params: Promise<{ courseId: string; studentId: string }>;
-}) {
+async function Student({ params }: { params: Promise<{ courseId: string; studentId: string }> }) {
   const { courseId, studentId } = await params;
 
   /*

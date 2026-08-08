@@ -1,9 +1,9 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import * as React from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   BookOpen,
@@ -17,7 +17,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
-} from "lucide-react"
+} from "lucide-react";
 
 import {
   Sidebar,
@@ -33,7 +33,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
   SidebarSeparator,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -41,7 +41,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+} from "@/components/ui/breadcrumb";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,8 +50,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Select,
   SelectContent,
@@ -59,9 +59,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { ThemeToggle } from "@/components/theme-toggle"
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   courseAssignmentsHref,
   courseResourcesHref,
@@ -72,10 +72,10 @@ import {
   rosterHref,
   sameViewInCourse,
   triageHref,
-} from "@/lib/links"
-import { createClient } from "@/lib/supabase/client"
-import { cn } from "@/lib/utils"
-import { useTRPC } from "@/trpc/client"
+} from "@/lib/links";
+import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
 
 /**
  * What the sidebar offers, which is not the same question as which page you are on.
@@ -86,7 +86,7 @@ import { useTRPC } from "@/trpc/client"
  * looking at their own course list would lose it. The role comes from the profile, and
  * the procedures enforce it independently.
  */
-type Role = "student" | "instructor"
+type Role = "student" | "instructor";
 
 /**
  * Which cohort the reader is in, according to the address and nothing else.
@@ -100,14 +100,14 @@ type Role = "student" | "instructor"
  * term's cohort while you graded this term's work.
  */
 function useActiveCourseId(): string | null {
-  const segments = usePathname().split("/").filter(Boolean)
+  const segments = usePathname().split("/").filter(Boolean);
 
   if (segments[0] === "instructor" && segments[1] === "courses" && segments[2]) {
-    return segments[2]
+    return segments[2];
   }
   // The student side has carried it all along: /courses/[courseId].
-  if (segments[0] === "courses" && segments[1]) return segments[1]
-  return null
+  if (segments[0] === "courses" && segments[1]) return segments[1];
+  return null;
 }
 
 function initials(name: string) {
@@ -116,7 +116,7 @@ function initials(name: string) {
     .map((p) => p[0])
     .slice(0, 2)
     .join("")
-    .toUpperCase()
+    .toUpperCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -124,31 +124,29 @@ function initials(name: string) {
 // ---------------------------------------------------------------------------
 
 interface Crumb {
-  label: string
-  href?: string
+  label: string;
+  href?: string;
 }
 
-function useBreadcrumbs(
-  courses: { id: string; name: string; cohortTerm: string }[],
-): Crumb[] {
-  const trpc = useTRPC()
-  const pathname = usePathname()
-  const segments = pathname.split("/").filter(Boolean)
+function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string }[]): Crumb[] {
+  const trpc = useTRPC();
+  const pathname = usePathname();
+  const segments = pathname.split("/").filter(Boolean);
 
   // ["instructor", "courses", <courseId>, ...rest]
-  const inCourse = segments[0] === "instructor" && segments[1] === "courses" && segments[2]
-  const rest = inCourse ? segments.slice(3) : []
+  const inCourse = segments[0] === "instructor" && segments[1] === "courses" && segments[2];
+  const rest = inCourse ? segments.slice(3) : [];
 
   // The assignment routes: .../assignments/<id> and .../assignments/<id>/edit. "new" is a
   // sibling of the ids rather than one of them, so it is excluded here and named below.
-  const assignmentId = rest[0] === "assignments" && rest[1] !== "new" ? rest[1] : undefined
+  const assignmentId = rest[0] === "assignments" && rest[1] !== "new" ? rest[1] : undefined;
 
   // Only fetched where the path names an assignment, because the title is the one label on
   // these screens the course list in memory cannot supply.
   const assignment = useQuery({
     ...trpc.assignments.get.queryOptions({ assignmentId: assignmentId ?? "" }),
     enabled: Boolean(assignmentId),
-  })
+  });
 
   /*
     The cohort as well as the name, for the reason the switcher carries it: a program runs
@@ -163,12 +161,12 @@ function useBreadcrumbs(
     alongside it, which is why the fallback is the bare word rather than a half-built label.
   */
   const courseLabel = (id: string) => {
-    const course = courses.find((c) => c.id === id)
-    return course ? `${course.name} (${course.cohortTerm})` : "Course"
-  }
+    const course = courses.find((c) => c.id === id);
+    return course ? `${course.name} (${course.cohortTerm})` : "Course";
+  };
 
   if (inCourse) {
-    const courseId = segments[2]
+    const courseId = segments[2];
     /*
       The cohort first on every instructor screen, because it is what every one of them is
       scoped to — and a trail that did not start there would leave the same question the
@@ -178,43 +176,43 @@ function useBreadcrumbs(
       point at redirects to Settings, and a breadcrumb whose first step lands somewhere the
       reader did not name is worse than one that only says where they are.
     */
-    const crumbs: Crumb[] = [{ label: courseLabel(courseId) }]
+    const crumbs: Crumb[] = [{ label: courseLabel(courseId) }];
 
-    if (rest[0] === "triage") crumbs.push({ label: "Grading triage" })
-    else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" })
-    else if (rest[0] === "roster") crumbs.push({ label: "Roster" })
-    else if (rest[0] === "modules") crumbs.push({ label: "Modules" })
-    else if (rest[0] === "resources") crumbs.push({ label: "Resources" })
-    else if (rest[0] === "settings") crumbs.push({ label: "Settings" })
+    if (rest[0] === "triage") crumbs.push({ label: "Grading triage" });
+    else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
+    else if (rest[0] === "roster") crumbs.push({ label: "Roster" });
+    else if (rest[0] === "modules") crumbs.push({ label: "Modules" });
+    else if (rest[0] === "resources") crumbs.push({ label: "Resources" });
+    else if (rest[0] === "settings") crumbs.push({ label: "Settings" });
     else if (rest[0] === "assignments") {
       // The list is a screen of its own now, so it is a step on the trail rather than a
       // heading the deeper screens skip past.
       const listCrumb: Crumb = {
         label: "Assignments",
         href: rest.length > 1 ? courseAssignmentsHref(courseId) : undefined,
-      }
-      crumbs.push(listCrumb)
+      };
+      crumbs.push(listCrumb);
 
-      if (rest[1] === "new") crumbs.push({ label: "New assignment" })
+      if (rest[1] === "new") crumbs.push({ label: "New assignment" });
       else if (rest[1]) {
         crumbs.push({
           label: assignment.data ? `Grading · ${assignment.data.title}` : "Grading queue",
           href: rest[2] === "edit" ? gradingQueueHref(courseId, rest[1]) : undefined,
-        })
-        if (rest[2] === "edit") crumbs.push({ label: "Edit" })
+        });
+        if (rest[2] === "edit") crumbs.push({ label: "Edit" });
       }
-    } else if (rest[0] === "students") crumbs.push({ label: "Student record" })
+    } else if (rest[0] === "students") crumbs.push({ label: "Student record" });
 
-    return crumbs
+    return crumbs;
   }
 
   // `/instructor` itself, which shows nothing and redirects into a cohort's triage.
-  if (segments[0] === "instructor") return [{ label: "Grading triage" }]
+  if (segments[0] === "instructor") return [{ label: "Grading triage" }];
 
   if (segments[0] === "courses" && segments[1]) {
-    return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }]
+    return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }];
   }
-  return [{ label: "Courses" }]
+  return [{ label: "Courses" }];
 }
 
 // ---------------------------------------------------------------------------
@@ -232,15 +230,15 @@ function useBreadcrumbs(
 function CourseSwitcher({
   courses,
 }: {
-  courses: { id: string; name: string; cohortTerm: string; archivedAt: Date | null }[]
+  courses: { id: string; name: string; cohortTerm: string; archivedAt: Date | null }[];
 }) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const activeCourseId = useActiveCourseId()
+  const router = useRouter();
+  const pathname = usePathname();
+  const activeCourseId = useActiveCourseId();
 
   // Nothing to select between and nothing to say, which is where anybody starts before their
   // first cohort exists.
-  if (courses.length === 0) return null
+  if (courses.length === 0) return null;
 
   /*
     Only a course this switcher can actually label. An id it has no row for would otherwise
@@ -248,7 +246,7 @@ function CourseSwitcher({
     read as a bare uuid. That used to happen on every archived cohort, because `listMine` left
     them out and their screens stayed reachable.
   */
-  const selected = courses.some((c) => c.id === activeCourseId) ? activeCourseId : null
+  const selected = courses.some((c) => c.id === activeCourseId) ? activeCourseId : null;
 
   /*
     Archived cohorts last, and labelled, rather than mixed in by date.
@@ -259,10 +257,10 @@ function CourseSwitcher({
   const ordered = [
     ...courses.filter((c) => c.archivedAt == null),
     ...courses.filter((c) => c.archivedAt != null),
-  ]
+  ];
 
   const label = (c: (typeof courses)[number]) =>
-    c.archivedAt != null ? `${c.name} · ${c.cohortTerm} · Archived` : `${c.name} · ${c.cohortTerm}`
+    c.archivedAt != null ? `${c.name} · ${c.cohortTerm} · Archived` : `${c.name} · ${c.cohortTerm}`;
 
   return (
     <Select
@@ -275,7 +273,7 @@ function CourseSwitcher({
       onValueChange={(id) => {
         // Typed as nullable because `value` is: the trigger sits on a placeholder wherever
         // the address names no cohort, and clearing the selection is not a navigation.
-        if (id) router.push(sameViewInCourse(pathname, id))
+        if (id) router.push(sameViewInCourse(pathname, id));
       }}
       /*
         Without this the trigger renders the *value* — a course id — rather than the name,
@@ -310,7 +308,7 @@ function CourseSwitcher({
         </SelectGroup>
       </SelectContent>
     </Select>
-  )
+  );
 }
 
 /**
@@ -326,26 +324,31 @@ function CourseSwitcher({
  */
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
-  { title: "Assignments", href: courseAssignmentsHref, icon: ClipboardList, segment: "assignments" },
+  {
+    title: "Assignments",
+    href: courseAssignmentsHref,
+    icon: ClipboardList,
+    segment: "assignments",
+  },
   { title: "Resources", href: courseResourcesHref, icon: Library, segment: "resources" },
   { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
   { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
   { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },
   { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
-] as const
+] as const;
 
 function MainNav({
   role,
   isAdmin,
   courses,
 }: {
-  role: Role
-  isAdmin: boolean
+  role: Role;
+  isAdmin: boolean;
   /** A student's sidebar *is* this list, so it comes down rather than being fetched twice. */
-  courses: StudentCourse[]
+  courses: StudentCourse[];
 }) {
-  const pathname = usePathname()
-  const activeCourseId = useActiveCourseId()
+  const pathname = usePathname();
+  const activeCourseId = useActiveCourseId();
 
   if (role === "student") {
     return (
@@ -353,7 +356,7 @@ function MainNav({
         <StudentCourses courses={courses} pathname={pathname} />
         <AdminGroup isAdmin={isAdmin} pathname={pathname} />
       </>
-    )
+    );
   }
 
   /*
@@ -371,7 +374,7 @@ function MainNav({
     which is how this went wrong in the first place. "All courses" is always there, and the bare
     `/instructor` still resolves to a real cohort's triage for anybody who types it.
   */
-  const navCourseId = pathname.startsWith("/instructor/") ? activeCourseId : null
+  const navCourseId = pathname.startsWith("/instructor/") ? activeCourseId : null;
 
   return (
     <>
@@ -422,17 +425,17 @@ function MainNav({
 
       <AdminGroup isAdmin={isAdmin} pathname={pathname} />
     </>
-  )
+  );
 }
 
 /** What the student sidebar needs from `courses.listMine`. */
 type StudentCourse = {
-  id: string
-  name: string
-  cohortTerm: string
-  archivedAt: Date | null
-  enrolledAs: "ACTIVE" | "REMOVED" | null
-}
+  id: string;
+  name: string;
+  cohortTerm: string;
+  archivedAt: Date | null;
+  enrolledAs: "ACTIVE" | "REMOVED" | null;
+};
 
 /**
  * A student's courses, each one a link.
@@ -452,22 +455,16 @@ type StudentCourse = {
  * removal being a status rather than a deletion is for — and one sitting here unlabelled among
  * the ones they are in would be the sidebar telling them something false.
  */
-function StudentCourses({
-  courses,
-  pathname,
-}: {
-  courses: StudentCourse[]
-  pathname: string
-}) {
+function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathname: string }) {
   /*
     Current cohorts first, finished ones after, newest-first within each — the same ordering the
     instructor switcher applies and for the same reason: this is a list of places to work, and
     the ones still running are what it should open on. `listMine` is already newest-first, so
     partitioning preserves that.
   */
-  const current = courses.filter((c) => c.archivedAt == null && c.enrolledAs !== "REMOVED")
-  const past = courses.filter((c) => c.archivedAt != null || c.enrolledAs === "REMOVED")
-  const ordered = [...current, ...past]
+  const current = courses.filter((c) => c.archivedAt == null && c.enrolledAs !== "REMOVED");
+  const past = courses.filter((c) => c.archivedAt != null || c.enrolledAs === "REMOVED");
+  const ordered = [...current, ...past];
 
   return (
     <SidebarGroup>
@@ -486,7 +483,7 @@ function StudentCourses({
           </SidebarMenuItem>
         ) : (
           ordered.map((course) => {
-            const note = courseNote(course)
+            const note = courseNote(course);
 
             return (
               <SidebarMenuItem key={course.id}>
@@ -511,12 +508,12 @@ function StudentCourses({
                   </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            )
+            );
           })
         )}
       </SidebarMenu>
     </SidebarGroup>
-  )
+  );
 }
 
 /**
@@ -526,9 +523,9 @@ function StudentCourses({
  * cohort that ended is something everybody in it shares, and having left one is not.
  */
 function courseNote(course: StudentCourse): string | null {
-  if (course.enrolledAs === "REMOVED") return "No longer enrolled"
-  if (course.archivedAt != null) return "Archived"
-  return null
+  if (course.enrolledAs === "REMOVED") return "No longer enrolled";
+  if (course.archivedAt != null) return "Archived";
+  return null;
 }
 
 /**
@@ -545,11 +542,11 @@ function courseNote(course: StudentCourse): string | null {
  * from three different places and belongs to none of them.
  */
 function isActiveView(pathname: string, courseId: string, segment: string): boolean {
-  const base = `/instructor/courses/${courseId}`
+  const base = `/instructor/courses/${courseId}`;
 
-  if (segment === "settings" && pathname === base) return true
+  if (segment === "settings" && pathname === base) return true;
 
-  return pathname === `${base}/${segment}` || pathname.startsWith(`${base}/${segment}/`)
+  return pathname === `${base}/${segment}` || pathname.startsWith(`${base}/${segment}/`);
 }
 
 /**
@@ -562,7 +559,7 @@ function isActiveView(pathname: string, courseId: string, segment: string): bool
  * the thing worth avoiding here; the refusal itself is not this file's job.
  */
 function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string }) {
-  if (!isAdmin) return null
+  if (!isAdmin) return null;
 
   return (
     <SidebarGroup>
@@ -581,25 +578,25 @@ function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string 
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarGroup>
-  )
+  );
 }
 
 function UserMenu({
   person,
 }: {
-  person: { displayName: string | null; email: string | null; githubUsername: string | null }
+  person: { displayName: string | null; email: string | null; githubUsername: string | null };
 }) {
-  const router = useRouter()
+  const router = useRouter();
 
   // Signing out clears the Supabase session cookie; the redirect is a fallback for the
   // rare case the proxy has already served this page from cache.
   const signOut = async () => {
-    await createClient().auth.signOut()
-    router.push("/auth/login")
-    router.refresh()
-  }
+    await createClient().auth.signOut();
+    router.push("/auth/login");
+    router.refresh();
+  };
 
-  const name = person.displayName ?? person.email ?? "Your account"
+  const name = person.displayName ?? person.email ?? "Your account";
 
   return (
     <DropdownMenu>
@@ -622,11 +619,7 @@ function UserMenu({
         </div>
         <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        className="w-(--anchor-width) min-w-56"
-        side="top"
-        align="start"
-      >
+      <DropdownMenuContent className="w-(--anchor-width) min-w-56" side="top" align="start">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
             <span className="text-xs font-normal text-muted-foreground">
@@ -648,7 +641,7 @@ function UserMenu({
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -700,7 +693,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-x-hidden">{children}</main>
       </SidebarInset>
     </SidebarProvider>
-  )
+  );
 }
 
 /** The sidebar's shape while the profile and course list are in flight. */
@@ -712,7 +705,7 @@ function ShellSidebarFallback() {
       </SidebarHeader>
       <SidebarContent />
     </Sidebar>
-  )
+  );
 }
 
 function ShellBrand() {
@@ -727,24 +720,24 @@ function ShellBrand() {
         </p>
       </div>
     </div>
-  )
+  );
 }
 
 function ShellSidebar() {
-  const trpc = useTRPC()
-  const { data: profile } = useSuspenseQuery(trpc.me.queryOptions())
-  const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions())
+  const trpc = useTRPC();
+  const { data: profile } = useSuspenseQuery(trpc.me.queryOptions());
+  const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions());
 
   // Read from the profile rather than the URL. A student who typed an instructor
   // address would otherwise be shown instructor navigation, and every page behind it
   // would refuse them — which is a worse answer than not offering the link.
   const role: Role =
-    profile?.role === "INSTRUCTOR" || profile?.role === "ADMIN" ? "instructor" : "student"
+    profile?.role === "INSTRUCTOR" || profile?.role === "ADMIN" ? "instructor" : "student";
 
   // Separate from `role` rather than a third value in it, because an admin is an instructor who
   // can also do one more thing. Folding it into `role` would make every `role === "instructor"`
   // check in here silently exclude admins.
-  const isAdmin = profile?.role === "ADMIN"
+  const isAdmin = profile?.role === "ADMIN";
 
   return (
     <Sidebar collapsible="icon">
@@ -768,19 +761,19 @@ function ShellSidebar() {
         {profile && <UserMenu person={profile} />}
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }
 
 function ShellBreadcrumb() {
-  const trpc = useTRPC()
-  const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions())
-  const crumbs = useBreadcrumbs(courses)
+  const trpc = useTRPC();
+  const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions());
+  const crumbs = useBreadcrumbs(courses);
 
   return (
     <Breadcrumb className="min-w-0 flex-1">
       <BreadcrumbList>
         {crumbs.map((crumb, i) => {
-          const isLast = i === crumbs.length - 1
+          const isLast = i === crumbs.length - 1;
           return (
             <React.Fragment key={`${crumb.label}-${i}`}>
               <BreadcrumbItem className={cn(i > 0 && "hidden md:block")}>
@@ -792,13 +785,11 @@ function ShellBreadcrumb() {
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
-              {!isLast && (
-                <BreadcrumbSeparator className={cn(i > 0 && "hidden md:block")} />
-              )}
+              {!isLast && <BreadcrumbSeparator className={cn(i > 0 && "hidden md:block")} />}
             </React.Fragment>
-          )
+          );
         })}
       </BreadcrumbList>
     </Breadcrumb>
-  )
+  );
 }

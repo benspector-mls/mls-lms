@@ -76,8 +76,10 @@ export async function listRepoDirectory(
     if (!Array.isArray(data)) return null;
 
     return data
-      .filter((entry): entry is typeof entry & { type: "file" | "dir" } =>
-        entry.type === "file" || entry.type === "dir")
+      .filter(
+        (entry): entry is typeof entry & { type: "file" | "dir" } =>
+          entry.type === "file" || entry.type === "dir",
+      )
       .map((entry) => ({ name: entry.name, type: entry.type }));
   } catch {
     return null;

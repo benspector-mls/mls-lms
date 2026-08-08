@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
+import { useMutation } from "@tanstack/react-query";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import * as React from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -17,36 +17,32 @@ import {
   ListChecks,
   RotateCcw,
   Wrench,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { AcceptAssignmentButton } from '@/components/accept-assignment-button';
-import { EmptyState } from '@/components/list-states';
-import { ResourceItem } from '@/components/resource-item';
-import { Markdown } from '@/components/markdown';
-import { PageHeader } from '@/components/page-header';
-import { AssignmentKindBadge, SubmissionStatusBadge } from '@/components/status-badge';
-import { UploadedFileRow } from '@/components/uploaded-file';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { Separator } from '@/components/ui/separator';
-import { isLinkSubmitted } from '@/lib/assignments/spec';
-import type { AssignmentKind } from '@/lib/generated/prisma/enums';
-import { gradingQueueHref } from '@/lib/links';
+import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
+import { EmptyState } from "@/components/list-states";
+import { ResourceItem } from "@/components/resource-item";
+import { Markdown } from "@/components/markdown";
+import { PageHeader } from "@/components/page-header";
+import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { UploadedFileRow } from "@/components/uploaded-file";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Separator } from "@/components/ui/separator";
+import { isLinkSubmitted } from "@/lib/assignments/spec";
+import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { gradingQueueHref } from "@/lib/links";
 import {
   acceptAttributeFor,
   checkUpload,
   describeAcceptedTypes,
   formatBytes,
   MAX_UPLOAD_BYTES,
-} from '@/lib/uploads/file-types';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/lib/uploads/file-types";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 import {
   completionMeta,
   formatDate,
@@ -54,8 +50,8 @@ import {
   scorePercent,
   sectionLabel,
   shortSha,
-} from '@/lib/status';
-import { cn } from '@/lib/utils';
+} from "@/lib/status";
+import { cn } from "@/lib/utils";
 
 /**
  * A student's assignments for one course.
@@ -66,10 +62,10 @@ import { cn } from '@/lib/utils';
  * you got, when it is due — and opens for the feedback itself.
  */
 
-type Course = RouterOutputs['courses']['get'];
-type Assignment = RouterOutputs['assignments']['listForCourse'][number];
-type Submission = Assignment['submissions'][number];
-type Resource = RouterOutputs['resources']['listForCourse'][number];
+type Course = RouterOutputs["courses"]["get"];
+type Assignment = RouterOutputs["assignments"]["listForCourse"][number];
+type Submission = Assignment["submissions"][number];
+type Resource = RouterOutputs["resources"]["listForCourse"][number];
 
 export function StudentCourseDetail({
   course,
@@ -97,8 +93,8 @@ export function StudentCourseDetail({
       <Link
         href="/courses"
         className={cn(
-          buttonVariants({ variant: 'ghost', size: 'sm' }),
-          '-ml-2 w-fit text-muted-foreground',
+          buttonVariants({ variant: "ghost", size: "sm" }),
+          "-ml-2 w-fit text-muted-foreground",
         )}
       >
         <ArrowLeft data-icon="inline-start" />
@@ -124,9 +120,9 @@ export function StudentCourseDetail({
           <CardContent className="py-4 text-sm">
             <p className="font-medium">Your GitHub account is not linked</p>
             <p className="mt-1 text-muted-foreground">
-              Accepting an assignment creates a repository named after your GitHub
-              username, so you need to sign in with GitHub at least once first. Sign out,
-              then choose &ldquo;Sign in with GitHub&rdquo;.
+              Accepting an assignment creates a repository named after your GitHub username, so you
+              need to sign in with GitHub at least once first. Sign out, then choose &ldquo;Sign in
+              with GitHub&rdquo;.
             </p>
           </CardContent>
         </Card>
@@ -183,7 +179,8 @@ function groupByModule(course: Course, assignments: Assignment[], resources: Res
   for (const assignment of assignments) {
     const existing = groups.get(assignment.module.id);
     if (existing) existing.rows.push(assignment);
-    else groups.set(assignment.module.id, { ...assignment.module, rows: [assignment], resources: [] });
+    else
+      groups.set(assignment.module.id, { ...assignment.module, rows: [assignment], resources: [] });
   }
 
   // Already in title order from the procedure, so pushing preserves it. Ordering resources
@@ -228,9 +225,7 @@ function ModuleSection({
               aria-hidden="true"
               className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
             />
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-              {name}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{name}</span>
             {/*
               The assignment progress is the summary, and resources are counted beside it rather
               than folded into it: "2 of 5 complete" is a claim about work, and a reading is not
@@ -288,19 +283,13 @@ function ModuleSection({
   );
 }
 
-function AssignmentRow({
-  assignment,
-  teaches,
-}: {
-  assignment: Assignment;
-  teaches: boolean;
-}) {
+function AssignmentRow({ assignment, teaches }: { assignment: Assignment; teaches: boolean }) {
   const [open, setOpen] = React.useState(false);
 
   // listForCourse scopes the relation to the caller, so this is the student's own
   // submission or nothing at all.
   const submission = assignment.submissions[0] ?? null;
-  const status = submission?.status ?? 'NOT_STARTED';
+  const status = submission?.status ?? "NOT_STARTED";
 
   const summary = (
     <RowSummary
@@ -309,9 +298,9 @@ function AssignmentRow({
       // Rendered inside the left half rather than appended to the row, so a row with a
       // button has the same right-hand columns as one without.
       action={
-        !submission || status === 'NOT_STARTED' ? (
+        !submission || status === "NOT_STARTED" ? (
           // Neither of these has anything to hand out, so there is nothing for Accept to do.
-          assignment.kind === 'FILE_UPLOAD' || assignment.kind === 'EXTERNAL_URL' ? null : (
+          assignment.kind === "FILE_UPLOAD" || assignment.kind === "EXTERNAL_URL" ? null : (
             <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
           )
         ) : null
@@ -328,7 +317,7 @@ function AssignmentRow({
     first thing that happens to it is the student submitting. Its row therefore opens like
     any other rather than carrying a button, and what it opens into says so.
   */
-  if ((!submission || status === 'NOT_STARTED') && assignment.kind !== 'FILE_UPLOAD') {
+  if ((!submission || status === "NOT_STARTED") && assignment.kind !== "FILE_UPLOAD") {
     return (
       <div className="flex items-center gap-x-3 px-3 py-2.5">
         <span aria-hidden="true" className="size-4 shrink-0" />
@@ -387,7 +376,7 @@ function RowSummary({
   /** Sits beside the title. Absent on most rows. */
   action?: React.ReactNode;
 }) {
-  const status = submission?.status ?? 'NOT_STARTED';
+  const status = submission?.status ?? "NOT_STARTED";
   const graded = submission?.finalScore != null;
   const percent = scorePercent(submission?.finalScore, submission?.finalScorePossible);
   // Null until something is graded, so an ungraded row cannot read as "Incomplete".
@@ -426,7 +415,7 @@ function RowSummary({
         */}
         <span
           className={cn(
-            'flex w-24 items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums sm:w-28',
+            "flex w-24 items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums sm:w-28",
             verdict?.className,
           )}
         >
@@ -442,7 +431,7 @@ function RowSummary({
               <span className="font-medium">
                 {submission?.finalScore}/{submission?.finalScorePossible}
               </span>
-              <span className={verdict ? undefined : 'text-muted-foreground'}>
+              <span className={verdict ? undefined : "text-muted-foreground"}>
                 {formatPercent(percent)}
               </span>
             </>
@@ -452,7 +441,7 @@ function RowSummary({
         </span>
 
         <span className="w-24 text-right text-xs whitespace-nowrap text-muted-foreground">
-          {assignment.dueAt ? `Due ${formatDate(assignment.dueAt)}` : 'No due date'}
+          {assignment.dueAt ? `Due ${formatDate(assignment.dueAt)}` : "No due date"}
         </span>
       </span>
     </>
@@ -475,7 +464,7 @@ function AssignmentDetail({
   submission: Submission | null;
 }) {
   const rounds = submission ? feedbackRounds(submission) : [];
-  const status = submission?.status ?? 'NOT_STARTED';
+  const status = submission?.status ?? "NOT_STARTED";
   const revised =
     submission != null &&
     submission.gradedHeadSha != null &&
@@ -483,10 +472,10 @@ function AssignmentDetail({
     submission.headSha !== submission.gradedHeadSha;
 
   const inQueue =
-    status === 'SUBMITTED' ||
-    status === 'DRAFT_READY' ||
-    status === 'NEEDS_MANUAL_REVIEW' ||
-    status === 'GRADING_FAILED';
+    status === "SUBMITTED" ||
+    status === "DRAFT_READY" ||
+    status === "NEEDS_MANUAL_REVIEW" ||
+    status === "GRADING_FAILED";
 
   return (
     <div className="flex flex-col gap-4">
@@ -503,13 +492,12 @@ function AssignmentDetail({
         </div>
       )}
 
-      {assignment.kind === 'REPO' && status === 'ACCEPTED' && (
+      {assignment.kind === "REPO" && status === "ACCEPTED" && (
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="mb-2 text-sm font-medium">How to submit</p>
           <ol className="ml-4 list-decimal text-sm text-muted-foreground [&>li]:mt-1">
             <li>
-              Commit and push your work to the <code>draft</code> branch of your
-              repository.
+              Commit and push your work to the <code>draft</code> branch of your repository.
             </li>
             <li>
               Open a pull request from <code>draft</code> into <code>main</code>.
@@ -524,12 +512,12 @@ function AssignmentDetail({
         something inferred. Offered until the work is in the queue, and again after a grade,
         since revising the document and asking for another look is this kind's resubmission.
       */}
-      {isLinkSubmitted(assignment.kind) && !inQueue && status !== 'RESUBMITTED' && (
+      {isLinkSubmitted(assignment.kind) && !inQueue && status !== "RESUBMITTED" && (
         <SubmitWorkForm
           assignmentId={assignment.id}
           kind={assignment.kind}
           currentUrl={submission?.submittedUrl ?? null}
-          resubmitting={status === 'GRADED'}
+          resubmitting={status === "GRADED"}
         />
       )}
 
@@ -538,11 +526,11 @@ function AssignmentDetail({
           href={submission.submittedUrl}
           target="_blank"
           rel="noreferrer"
-          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'self-start')}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
         >
           <FileText data-icon="inline-start" />
-          {assignment.kind === 'GOOGLE_DRIVE' ? 'The file you submitted' : 'The work you submitted'}
-          {submission.isLate ? ' (late)' : ''}
+          {assignment.kind === "GOOGLE_DRIVE" ? "The file you submitted" : "The work you submitted"}
+          {submission.isLate ? " (late)" : ""}
           <ExternalLink data-icon="inline-end" />
         </a>
       )}
@@ -552,11 +540,11 @@ function AssignmentDetail({
         work is in the queue, and again after a grade, since uploading a revised file is this
         kind's resubmission.
       */}
-      {assignment.kind === 'FILE_UPLOAD' && !inQueue && status !== 'RESUBMITTED' && (
+      {assignment.kind === "FILE_UPLOAD" && !inQueue && status !== "RESUBMITTED" && (
         <UploadWorkForm
           assignmentId={assignment.id}
           acceptedFileTypes={assignment.acceptedFileTypes}
-          resubmitting={status === 'GRADED'}
+          resubmitting={status === "GRADED"}
         />
       )}
 
@@ -583,20 +571,20 @@ function AssignmentDetail({
           <Clock className="size-4" />
           <AlertTitle>Waiting on your instructor</AlertTitle>
           <AlertDescription>
-            {assignment.kind === 'REPO'
-              ? 'Your pull request is in. Feedback appears here once it is released.'
-              : 'Your work is in. Feedback appears here once it is released.'}
+            {assignment.kind === "REPO"
+              ? "Your pull request is in. Feedback appears here once it is released."
+              : "Your work is in. Feedback appears here once it is released."}
           </AlertDescription>
         </Alert>
       )}
 
-      {status === 'RESUBMITTED' ? (
+      {status === "RESUBMITTED" ? (
         <Alert>
           <RotateCcw className="size-4" />
           <AlertTitle>Your revision is being reviewed</AlertTitle>
           <AlertDescription>
-            You asked for another look. Your most recent feedback is below; a new review
-            will be added when it is ready.
+            You asked for another look. Your most recent feedback is below; a new review will be
+            added when it is ready.
           </AlertDescription>
         </Alert>
       ) : revised ? (
@@ -605,9 +593,9 @@ function AssignmentDetail({
           <AlertTitle>You have pushed changes since this feedback</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-3">
             <p>
-              The feedback below describes commit {shortSha(submission.gradedHeadSha)};
-              your repository is now at {shortSha(submission.headSha)}. Pushing on its own
-              does not ask for another review — say so when you are finished.
+              The feedback below describes commit {shortSha(submission.gradedHeadSha)}; your
+              repository is now at {shortSha(submission.headSha)}. Pushing on its own does not ask
+              for another review — say so when you are finished.
             </p>
             <RequestReviewButton submissionId={submission.id} />
           </AlertDescription>
@@ -651,7 +639,7 @@ function SubmitWorkForm({
 }) {
   const trpc = useTRPC();
   const router = useRouter();
-  const [url, setUrl] = React.useState(currentUrl ?? '');
+  const [url, setUrl] = React.useState(currentUrl ?? "");
 
   const submit = useMutation(
     trpc.submissions.submitWork.mutationOptions({
@@ -668,25 +656,25 @@ function SubmitWorkForm({
       }}
     >
       <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
-        {kind === 'GOOGLE_DRIVE'
+        {kind === "GOOGLE_DRIVE"
           ? resubmitting
-            ? 'Submit your revised file'
-            : 'Submit your file'
+            ? "Submit your revised file"
+            : "Submit your file"
           : resubmitting
-            ? 'Submit the link to your revised work'
-            : 'Submit the link to your work'}
+            ? "Submit the link to your revised work"
+            : "Submit the link to your work"}
       </label>
       <p className="text-sm text-muted-foreground">
-        {kind === 'GOOGLE_DRIVE' ? (
+        {kind === "GOOGLE_DRIVE" ? (
           <>
-            Paste the link to <strong>your own copy</strong>, and make sure your instructor can
-            open it.
+            Paste the link to <strong>your own copy</strong>, and make sure your instructor can open
+            it.
           </>
         ) : (
           <>
-            Paste the link to your finished work, and{' '}
-            <strong>check that the sharing settings let your instructor open it</strong> — a
-            private link looks like nothing was submitted.
+            Paste the link to your finished work, and{" "}
+            <strong>check that the sharing settings let your instructor open it</strong> — a private
+            link looks like nothing was submitted.
           </>
         )}
       </p>
@@ -698,14 +686,14 @@ function SubmitWorkForm({
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           placeholder={
-            kind === 'GOOGLE_DRIVE'
-              ? 'https://docs.google.com/document/d/… or /presentation/d/…'
-              : 'https://www.canva.com/design/… or https://www.loom.com/share/…'
+            kind === "GOOGLE_DRIVE"
+              ? "https://docs.google.com/document/d/… or /presentation/d/…"
+              : "https://www.canva.com/design/… or https://www.loom.com/share/…"
           }
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
-        <Button size="sm" type="submit" disabled={submit.isPending || url.trim() === ''}>
-          {submit.isPending ? 'Submitting…' : resubmitting ? 'Submit again' : 'Submit'}
+        <Button size="sm" type="submit" disabled={submit.isPending || url.trim() === ""}>
+          {submit.isPending ? "Submitting…" : resubmitting ? "Submit again" : "Submit"}
         </Button>
       </div>
       {submit.error && (
@@ -766,23 +754,23 @@ function UploadWorkForm({
 
     try {
       const body = new FormData();
-      body.set('assignmentId', assignmentId);
-      body.set('file', file);
+      body.set("assignmentId", assignmentId);
+      body.set("file", file);
 
-      const response = await fetch('/api/submissions/upload', { method: 'POST', body });
+      const response = await fetch("/api/submissions/upload", { method: "POST", body });
 
       if (!response.ok) {
         // The route answers with a message written for a student on every refusal it makes,
         // so this shows what came back rather than a status code.
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(payload?.error ?? 'That upload did not go through. Try again.');
+        setError(payload?.error ?? "That upload did not go through. Try again.");
         return;
       }
 
       setFile(null);
       router.refresh();
     } catch {
-      setError('That upload did not go through — check your connection and try again.');
+      setError("That upload did not go through — check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -794,7 +782,7 @@ function UploadWorkForm({
       onSubmit={upload}
     >
       <label className="text-sm font-medium" htmlFor={inputId}>
-        {resubmitting ? 'Upload your revised file' : 'Upload your file'}
+        {resubmitting ? "Upload your revised file" : "Upload your file"}
       </label>
       <p className="text-sm text-muted-foreground">
         {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)}. Your
@@ -810,7 +798,7 @@ function UploadWorkForm({
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
         <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
-          {busy ? 'Uploading…' : resubmitting ? 'Upload again' : 'Upload'}
+          {busy ? "Uploading…" : resubmitting ? "Upload again" : "Upload"}
         </Button>
       </div>
       {file && !error && (
@@ -853,7 +841,7 @@ function RequestReviewButton({ submissionId }: { submissionId: string }) {
         disabled={declare.isPending}
         onClick={() => declare.mutate({ submissionId })}
       >
-        {declare.isPending ? 'Sending…' : 'Ask for another review'}
+        {declare.isPending ? "Sending…" : "Ask for another review"}
       </Button>
       {declare.error && (
         <p className="text-sm text-destructive" role="alert">
@@ -874,7 +862,7 @@ function RepoLinks({ submission }: { submission: Submission }) {
           href={submission.repoUrl}
           target="_blank"
           rel="noreferrer"
-          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           <GitBranch data-icon="inline-start" />
           Your repository
@@ -886,10 +874,10 @@ function RepoLinks({ submission }: { submission: Submission }) {
           href={submission.prUrl}
           target="_blank"
           rel="noreferrer"
-          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
         >
           <GitPullRequest data-icon="inline-start" />
-          Your pull request{submission.isLate ? ' (late)' : ''}
+          Your pull request{submission.isLate ? " (late)" : ""}
           <ExternalLink data-icon="inline-end" />
         </a>
       )}
@@ -938,14 +926,14 @@ function feedbackRounds(submission: Submission): FeedbackRound[] {
 
   return [
     {
-      key: 'submission',
+      key: "submission",
       number: 1,
       gradedAt: submission.gradedAt,
       earned: submission.finalScore,
       possible: submission.finalScorePossible,
       sections: [
         {
-          sectionType: 'feedback',
+          sectionType: "feedback",
           reportMarkdown: submission.feedbackMarkdown,
           scoreEarned: submission.finalScore,
           scorePossible: submission.finalScorePossible,
@@ -996,7 +984,7 @@ function FeedbackRoundCard({
     <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium">
-          {multiRound ? `Review ${round.number}` : 'Instructor feedback'}
+          {multiRound ? `Review ${round.number}` : "Instructor feedback"}
         </span>
         {round.gradedAt && (
           <span className="text-xs text-muted-foreground">{formatDate(round.gradedAt)}</span>
@@ -1088,8 +1076,8 @@ function RoundSections({ round }: { round: FeedbackRound }) {
 function moduleSummary(assignments: number, complete: number, resources: number): string {
   const work = assignments === 0 ? null : `${complete} of ${assignments} complete`;
   const reading =
-    resources === 0 ? null : `${resources} ${resources === 1 ? 'resource' : 'resources'}`;
+    resources === 0 ? null : `${resources} ${resources === 1 ? "resource" : "resources"}`;
 
-  if (!work && !reading) return 'Nothing yet';
-  return [work, reading].filter(Boolean).join(' · ');
+  if (!work && !reading) return "Nothing yet";
+  return [work, reading].filter(Boolean).join(" · ");
 }

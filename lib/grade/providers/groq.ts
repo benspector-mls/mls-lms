@@ -31,7 +31,7 @@ export function createGroqGenerator(): ReportGenerator {
   if (!apiKey) {
     throw new ProviderError(
       "GROQ_API_KEY is not set. Create one at https://console.groq.com/keys and add " +
-      "it to .env.local — see .env.example.",
+        "it to .env.local — see .env.example.",
     );
   }
 
@@ -90,7 +90,7 @@ export function createGroqGenerator(): ReportGenerator {
         // from a schema violation because the fix is different: raise the limit.
         throw new ProviderError(
           "Groq stopped at the token limit, so the report is incomplete. The " +
-          "submission may be too large, or max_tokens too low.",
+            "submission may be too large, or max_tokens too low.",
         );
       }
       if (!content) {
@@ -101,10 +101,9 @@ export function createGroqGenerator(): ReportGenerator {
       try {
         parsed = JSON.parse(content);
       } catch (err) {
-        throw new ProviderError(
-          "Groq's response was not valid JSON despite the strict schema.",
-          { cause: err },
-        );
+        throw new ProviderError("Groq's response was not valid JSON despite the strict schema.", {
+          cause: err,
+        });
       }
 
       return {

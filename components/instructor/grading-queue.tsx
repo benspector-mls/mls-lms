@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import { useRouter, useSearchParams } from 'next/navigation';
-import * as React from 'react';
-import { Inbox, Search, UserMinus, Users } from 'lucide-react';
+import { useRouter, useSearchParams } from "next/navigation";
+import * as React from "react";
+import { Inbox, Search, UserMinus, Users } from "lucide-react";
 
-import { GradingReview } from '@/components/instructor/grading-review';
-import { GroupPicker } from '@/components/instructor/group-picker';
-import { SubmissionRow } from '@/components/instructor/submission-row';
-import { studentHref } from '@/lib/links';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
-import type { RouterOutputs } from '@/trpc/types';
+import { GradingReview } from "@/components/instructor/grading-review";
+import { GroupPicker } from "@/components/instructor/group-picker";
+import { SubmissionRow } from "@/components/instructor/submission-row";
+import { studentHref } from "@/lib/links";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Every submission for one assignment, with the selected one open beside the list.
@@ -21,10 +21,10 @@ import type { RouterOutputs } from '@/trpc/types';
  * how the triage screen sends you here.
  */
 
-type Data = RouterOutputs['submissions']['listForAssignment'];
-type Row = Data['submissions'][number];
+type Data = RouterOutputs["submissions"]["listForAssignment"];
+type Row = Data["submissions"][number];
 
-type Filter = 'needs_review' | 'graded' | 'all';
+type Filter = "needs_review" | "graded" | "all";
 
 export function GradingQueue({
   data,
@@ -47,10 +47,10 @@ export function GradingQueue({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const selectedId = searchParams.get('submission');
+  const selectedId = searchParams.get("submission");
 
-  const [filter, setFilter] = React.useState<Filter>('needs_review');
-  const [query, setQuery] = React.useState('');
+  const [filter, setFilter] = React.useState<Filter>("needs_review");
+  const [query, setQuery] = React.useState("");
 
   /*
     A student who has not opened a pull request is not in the queue. They have not done
@@ -58,7 +58,7 @@ export function GradingQueue({
     instructor goes to see who has not started.
   */
   const submissions = data.submissions.filter(
-    (row) => row.status !== 'NOT_STARTED' && row.status !== 'ACCEPTED',
+    (row) => row.status !== "NOT_STARTED" && row.status !== "ACCEPTED",
   );
 
   /*
@@ -66,11 +66,11 @@ export function GradingQueue({
     field. A submission cannot be outstanding work on one screen and finished on the
     other.
   */
-  const needsReview = (row: Row) => row.bucket !== null && row.bucket !== 'generating';
+  const needsReview = (row: Row) => row.bucket !== null && row.bucket !== "generating";
 
   const counts = {
     needs_review: submissions.filter(needsReview).length,
-    graded: submissions.filter((row) => row.status === 'GRADED').length,
+    graded: submissions.filter((row) => row.status === "GRADED").length,
     all: submissions.length,
   };
 
@@ -79,16 +79,16 @@ export function GradingQueue({
   const term = query.trim().toLowerCase();
   const filtered = submissions
     .filter((row) => {
-      if (filter === 'needs_review') return needsReview(row);
-      if (filter === 'graded') return row.status === 'GRADED';
+      if (filter === "needs_review") return needsReview(row);
+      if (filter === "graded") return row.status === "GRADED";
       return true;
     })
     .filter(
       (row) =>
         !term ||
-        (row.student.displayName ?? '').toLowerCase().includes(term) ||
-        (row.student.githubUsername ?? '').toLowerCase().includes(term) ||
-        (row.student.email ?? '').toLowerCase().includes(term),
+        (row.student.displayName ?? "").toLowerCase().includes(term) ||
+        (row.student.githubUsername ?? "").toLowerCase().includes(term) ||
+        (row.student.email ?? "").toLowerCase().includes(term),
     );
 
   /*
@@ -116,7 +116,7 @@ export function GradingQueue({
 
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
-    params.set('submission', id);
+    params.set("submission", id);
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
@@ -156,10 +156,12 @@ export function GradingQueue({
               {(
                 [
                   {
-                    key: 'needs_review', label: `To do`, count: counts.needs_review
+                    key: "needs_review",
+                    label: `To do`,
+                    count: counts.needs_review,
                   },
-                  { key: 'graded', label: `Graded`, count: counts.graded },
-                  { key: 'all', label: `All`, count: counts.all },
+                  { key: "graded", label: `Graded`, count: counts.graded },
+                  { key: "all", label: `All`, count: counts.all },
                 ] as { key: Filter; label: string; count: number }[]
               ).map((tab) => (
                 <button
@@ -167,13 +169,14 @@ export function GradingQueue({
                   type="button"
                   onClick={() => setFilter(tab.key)}
                   className={cn(
-                    'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                    "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
                     filter === tab.key
-                      ? 'bg-card text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {tab.label}<br />({tab.count})
+                  {tab.label}
+                  <br />({tab.count})
                 </button>
               ))}
             </div>
@@ -185,9 +188,9 @@ export function GradingQueue({
                 <Inbox className="size-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing here</p>
                 <p className="text-xs text-muted-foreground">
-                  {filter === 'needs_review'
-                    ? 'Every submission for this assignment has been dealt with.'
-                    : 'No submissions match.'}
+                  {filter === "needs_review"
+                    ? "Every submission for this assignment has been dealt with."
+                    : "No submissions match."}
                 </p>
               </div>
             ) : (
@@ -200,7 +203,7 @@ export function GradingQueue({
                       row.student.displayName ??
                       row.student.githubUsername ??
                       row.student.email ??
-                      'Unknown student'
+                      "Unknown student"
                     }
                     active={selected?.id === row.id}
                     onSelect={() => select(row.id)}
@@ -224,7 +227,7 @@ export function GradingQueue({
           */}
           {asideReason && selected && (
             <div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/60 px-4 py-2.5 text-sm">
-              {asideReason === 'removed' ? (
+              {asideReason === "removed" ? (
                 <UserMinus className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               ) : (
                 <Users className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -234,11 +237,11 @@ export function GradingQueue({
                   {selected.student.displayName ??
                     selected.student.githubUsername ??
                     selected.student.email ??
-                    'This student'}
-                </span>{' '}
-                {asideReason === 'removed'
-                  ? 'has been removed from this cohort, so this is not in the queue beside it. Their work stays readable here and in the gradebook.'
-                  : 'is not in the group you are filtered to, so this is not in the queue beside it. Switch to All students to work it alongside the rest.'}
+                    "This student"}
+                </span>{" "}
+                {asideReason === "removed"
+                  ? "has been removed from this cohort, so this is not in the queue beside it. Their work stays readable here and in the gradebook."
+                  : "is not in the group you are filtered to, so this is not in the queue beside it. Switch to All students to work it alongside the rest."}
               </p>
             </div>
           )}
@@ -280,4 +283,3 @@ export function GradingQueue({
     </div>
   );
 }
-

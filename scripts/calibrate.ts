@@ -110,7 +110,7 @@ async function main() {
     if (submission === null || expectedMarkdown === null) {
       console.error(
         `Calibration pair ${pair.n} is missing from grading-toolkit/ — expected ` +
-        `${pair.submissionFile} and ${pair.reportFile}.`,
+          `${pair.submissionFile} and ${pair.reportFile}.`,
       );
       process.exit(1);
     }
@@ -162,23 +162,37 @@ async function main() {
     const totalDelta = expected.total ? actual.scoreEarned - expected.total.earned : null;
 
     console.log(`${"═".repeat(74)}`);
-    console.log(`Pair ${pair.n}${pair.n === "1" ? "  (exemplar — shown to the model)" : "  (held out)"}`);
+    console.log(
+      `Pair ${pair.n}${pair.n === "1" ? "  (exemplar — shown to the model)" : "  (held out)"}`,
+    );
     console.log(`${"═".repeat(74)}`);
     console.log(`                  instructor      model`);
-    console.log(`  total           ${formatPair(expected.total).padEnd(15)} ${actual.scoreEarned}/${actual.scorePossible}` +
-      (totalDelta === null ? "" : `   (${totalDelta >= 0 ? "+" : ""}${totalDelta})`));
-    console.log(`  technical       ${formatPair(expected.technical).padEnd(15)} ${formatPair(actualTechnical)}`);
-    console.log(`  writing         ${formatPair(expected.writing).padEnd(15)} ${formatPair(actualWriting)}`);
+    console.log(
+      `  total           ${formatPair(expected.total).padEnd(15)} ${actual.scoreEarned}/${actual.scorePossible}` +
+        (totalDelta === null ? "" : `   (${totalDelta >= 0 ? "+" : ""}${totalDelta})`),
+    );
+    console.log(
+      `  technical       ${formatPair(expected.technical).padEnd(15)} ${formatPair(actualTechnical)}`,
+    );
+    console.log(
+      `  writing         ${formatPair(expected.writing).padEnd(15)} ${formatPair(actualWriting)}`,
+    );
     // The instructor column is "—" whenever the sample report carries no flag text,
     // which is now always: flags moved out of student-facing reports entirely, so a
     // report can no longer say what its flags should have been.
-    console.log(`  MECHANICAL      ${(expected.mechanicalErrorsFlag === null ? "—" : String(expected.mechanicalErrorsFlag)).padEnd(15)} ${actualFlag}`);
-    console.log(`  flags raised    ${"".padEnd(15)} ${actual.flags.length > 0 ? actual.flags.join(", ") : "none"}`);
+    console.log(
+      `  MECHANICAL      ${(expected.mechanicalErrorsFlag === null ? "—" : String(expected.mechanicalErrorsFlag)).padEnd(15)} ${actualFlag}`,
+    );
+    console.log(
+      `  flags raised    ${"".padEnd(15)} ${actual.flags.length > 0 ? actual.flags.join(", ") : "none"}`,
+    );
     console.log(`  confidence      ${"".padEnd(15)} ${actual.confidence}`);
-    console.log(`  cross-check     ${"".padEnd(15)} ` +
-      (check.needsManualReview
-        ? `WOULD BE HELD: ${check.findings.map((f) => f.code).join(", ")}`
-        : "passes"));
+    console.log(
+      `  cross-check     ${"".padEnd(15)} ` +
+        (check.needsManualReview
+          ? `WOULD BE HELD: ${check.findings.map((f) => f.code).join(", ")}`
+          : "passes"),
+    );
 
     // Reported separately from the score comparison, and first, because it changes
     // what the comparison means. A held report is not a wrong grade — it is one the
@@ -197,8 +211,10 @@ async function main() {
         const match = items.find((item) => new RegExp(`\\b${number}\\b`).test(item.label));
         const actualText = match ? `${match.scoreEarned}/${match.scorePossible}` : "not found";
         const agrees = match && match.scoreEarned === question.earned;
-        console.log(`    ${agrees ? " " : "≠"} ${question.label.padEnd(38)} ` +
-          `${`${question.earned}/${question.possible}`.padEnd(8)} ${actualText}`);
+        console.log(
+          `    ${agrees ? " " : "≠"} ${question.label.padEnd(38)} ` +
+            `${`${question.earned}/${question.possible}`.padEnd(8)} ${actualText}`,
+        );
         if (!agrees) mismatches++;
       }
     }
@@ -213,8 +229,10 @@ async function main() {
     // indistinguishable from agreement without seeing the underlying items.
     console.log(`\n  rubric items the model returned:`);
     for (const item of items) {
-      console.log(`    ${`${item.scoreEarned}/${item.scorePossible}`.padEnd(8)} ` +
-        `${item.label}  [${item.criterion}]`);
+      console.log(
+        `    ${`${item.scoreEarned}/${item.scorePossible}`.padEnd(8)} ` +
+          `${item.label}  [${item.criterion}]`,
+      );
     }
 
     if (actual.instructorNotes.length > 0) {
@@ -229,9 +247,14 @@ async function main() {
   // score is not a failure, and treating it as one would invite tuning the prompt
   // until the number matched rather than reading the reports. A person decides.
   console.log(`${"═".repeat(74)}`);
-  console.log(mismatches === 0
-    ? "Every compared figure agreed."
-    : `${mismatches} figure(s) differ. Read both reports above before changing anything.`);
+  console.log(
+    mismatches === 0
+      ? "Every compared figure agreed."
+      : `${mismatches} figure(s) differ. Read both reports above before changing anything.`,
+  );
 }
 
-main().catch((err) => { console.error("\n", err); process.exit(1); });
+main().catch((err) => {
+  console.error("\n", err);
+  process.exit(1);
+});

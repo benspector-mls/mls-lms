@@ -1,9 +1,9 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { ListSkeleton } from '@/components/list-states';
-import { TriageOverview } from '@/components/instructor/triage-overview';
-import { resolveGroup } from '@/lib/courses/resolve-group';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { ListSkeleton } from "@/components/list-states";
+import { TriageOverview } from "@/components/instructor/triage-overview";
+import { resolveGroup } from "@/lib/courses/resolve-group";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * What is waiting on the instructor in one cohort.

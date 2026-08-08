@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 // A client component because the tooltips are. `triage-overview.tsx` is a server component and
 // renders these badges, which is allowed — a server component may render a client one — but the
@@ -11,18 +11,18 @@ import {
   NotebookText,
   PlayCircle,
   Upload,
-} from 'lucide-react';
-import type * as React from 'react';
+} from "lucide-react";
+import type * as React from "react";
 
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   AssignmentKind,
   GradingDraftStatus,
   ResourceKind,
   SubmissionStatus,
-} from '@/lib/generated/prisma/enums';
-import { RESOURCE_KIND_LABEL } from '@/lib/resources/spec';
+} from "@/lib/generated/prisma/enums";
+import { RESOURCE_KIND_LABEL } from "@/lib/resources/spec";
 import {
   ASSIGNMENT_KIND_META,
   CONFIDENCE_META,
@@ -33,8 +33,8 @@ import {
   TONE_CLASSES,
   TONE_DOT,
   type StatusMeta,
-} from '@/lib/status';
-import { cn } from '@/lib/utils';
+} from "@/lib/status";
+import { cn } from "@/lib/utils";
 
 /**
  * Wraps a badge in its own explanation.
@@ -78,14 +78,14 @@ function BadgeShell({ meta, className }: { meta: StatusMeta; className?: string 
     <WithExplanation description={meta.description}>
       <span
         className={cn(
-          'inline-flex cursor-help items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+          "inline-flex cursor-help items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
           TONE_CLASSES[meta.tone],
           className,
         )}
       >
         <span
           aria-hidden="true"
-          className={cn('size-1.5 shrink-0 rounded-full', TONE_DOT[meta.tone])}
+          className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[meta.tone])}
         />
         {meta.label}
       </span>
@@ -104,7 +104,7 @@ export function ConfidenceBadge({
   confidence,
   className,
 }: {
-  confidence: 'HIGH' | 'LOW';
+  confidence: "HIGH" | "LOW";
   className?: string;
 }) {
   return <BadgeShell meta={CONFIDENCE_META[confidence]} className={className} />;
@@ -117,15 +117,15 @@ export function ConfidenceBadge({
  */
 export function SubmissionStatusBadge({
   status,
-  audience = 'instructor',
+  audience = "instructor",
   className,
 }: {
   status: SubmissionStatus;
-  audience?: 'instructor' | 'student';
+  audience?: "instructor" | "student";
   className?: string;
 }) {
   const meta =
-    audience === 'student' ? STUDENT_STATUS_META[status] : SUBMISSION_STATUS_META[status];
+    audience === "student" ? STUDENT_STATUS_META[status] : SUBMISSION_STATUS_META[status];
   return <BadgeShell meta={meta} className={className} />;
 }
 
@@ -170,11 +170,7 @@ export function AssignmentKindBadge({
   const Icon = KIND_ICON[kind];
 
   return (
-    <Badge
-      variant="secondary"
-      title={meta.description}
-      className={cn('font-normal', className)}
-    >
+    <Badge variant="secondary" title={meta.description} className={cn("font-normal", className)}>
       <Icon data-icon="inline-start" />
       {meta.label}
     </Badge>
@@ -195,17 +191,11 @@ const RESOURCE_KIND_ICON: Record<ResourceKind, React.ElementType> = {
  * word instead — and the words are the ones the authoring form offers, from one map, so a
  * resource is not a "Note" on one screen and "Rich text" on the next.
  */
-export function ResourceKindBadge({
-  kind,
-  className,
-}: {
-  kind: ResourceKind;
-  className?: string;
-}) {
+export function ResourceKindBadge({ kind, className }: { kind: ResourceKind; className?: string }) {
   const Icon = RESOURCE_KIND_ICON[kind];
 
   return (
-    <Badge variant="secondary" className={cn('font-normal', className)}>
+    <Badge variant="secondary" className={cn("font-normal", className)}>
       <Icon data-icon="inline-start" />
       {RESOURCE_KIND_LABEL[kind]}
     </Badge>
@@ -225,9 +215,9 @@ export function FlagBadge({ code, className }: { code: string; className?: strin
     <WithExplanation description={meta.description}>
       <span
         className={cn(
-          'inline-flex cursor-help items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+          "inline-flex cursor-help items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
           TONE_CLASSES[meta.tone],
-          meta.fault && 'font-semibold',
+          meta.fault && "font-semibold",
           className,
         )}
       >

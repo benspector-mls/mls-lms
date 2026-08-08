@@ -30,9 +30,8 @@ function check(label: string, pass: boolean, detail = "") {
 }
 
 async function main() {
-  const { createSandbox, killSandbox, revokeNetworkAccess, runCommand } = await import(
-    "../lib/sandbox/e2b"
-  );
+  const { createSandbox, killSandbox, revokeNetworkAccess, runCommand } =
+    await import("../lib/sandbox/e2b");
   const { Sandbox } = await import("e2b");
 
   // Set here so the probe can prove these specific names do not appear inside.
@@ -59,7 +58,11 @@ async function main() {
       "CANARY_SECRET",
     ].filter((name) => env.stdout.includes(`${name}=`));
 
-    check("no credential env vars reach the sandbox", leaked.length === 0, `leaked: ${leaked.join(", ")}`);
+    check(
+      "no credential env vars reach the sandbox",
+      leaked.length === 0,
+      `leaked: ${leaked.join(", ")}`,
+    );
     check(
       "the canary value itself is absent",
       !env.stdout.includes("canary-must-not-appear-in-sandbox"),
@@ -92,11 +95,17 @@ async function main() {
       command: "while true; do :; done",
       timeoutMs: 5_000,
     });
-    check("an endless command is killed", spin.timedOut, `exitCode ${spin.exitCode}, timedOut ${spin.timedOut}`);
+    check(
+      "an endless command is killed",
+      spin.timedOut,
+      `exitCode ${spin.exitCode}, timedOut ${spin.timedOut}`,
+    );
     check("the kill is reported as exit 124", spin.exitCode === 124, `exitCode ${spin.exitCode}`);
     check(
       "the sandbox still responds after a killed command",
-      (await runCommand(handle, { command: "echo alive", timeoutMs: 15_000 })).stdout.includes("alive"),
+      (await runCommand(handle, { command: "echo alive", timeoutMs: 15_000 })).stdout.includes(
+        "alive",
+      ),
     );
   } finally {
     await killSandbox(handle);

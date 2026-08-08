@@ -1,5 +1,5 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
 import {
   inviteExpiry,
@@ -8,9 +8,9 @@ import {
   newInviteToken,
   raiseRole,
   type StaffRole,
-} from '@/lib/staff/invite';
+} from "@/lib/staff/invite";
 
-import { adminProcedure, createTRPCRouter, profileProcedure } from '../init';
+import { adminProcedure, createTRPCRouter, profileProcedure } from "../init";
 
 /**
  * Who may teach, and who may decide that.
@@ -39,9 +39,9 @@ export const staffRouter = createTRPCRouter({
    */
   people: adminProcedure.query(async ({ ctx }) => {
     const people = await ctx.db.profile.findMany({
-      where: { role: { in: ['INSTRUCTOR', 'ADMIN'] } },
+      where: { role: { in: ["INSTRUCTOR", "ADMIN"] } },
       // Admins first, then by name: the top of this list is who can act on it.
-      orderBy: [{ role: 'desc' }, { displayName: 'asc' }, { email: 'asc' }],
+      orderBy: [{ role: "desc" }, { displayName: "asc" }, { email: "asc" }],
       select: {
         id: true,
         email: true,
@@ -57,7 +57,7 @@ export const staffRouter = createTRPCRouter({
         */
         instructorOf: {
           select: { course: { select: { id: true, name: true, cohortTerm: true } } },
-          orderBy: { course: { createdAt: 'desc' } },
+          orderBy: { course: { createdAt: "desc" } },
         },
       },
     });
@@ -66,7 +66,7 @@ export const staffRouter = createTRPCRouter({
       Counted here so the screen never has to work it out. It is what `setAdmin` refuses on, and a
       button that offers an action the procedure will refuse is worse than no button.
     */
-    const adminCount = people.filter((person) => person.role === 'ADMIN').length;
+    const adminCount = people.filter((person) => person.role === "ADMIN").length;
 
     return {
       people: people.map(({ instructorOf, ...person }) => ({
@@ -87,7 +87,7 @@ export const staffRouter = createTRPCRouter({
    */
   invites: adminProcedure.query(async ({ ctx }) => {
     const invites = await ctx.db.instructorInvite.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         token: true,
@@ -137,13 +137,13 @@ export const staffRouter = createTRPCRouter({
       });
 
       if (!invite) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'That invitation no longer exists.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "That invitation no longer exists." });
       }
 
       if (invite.redeemedAt !== null) {
-        const who = invite.redeemedBy?.displayName ?? 'somebody';
+        const who = invite.redeemedBy?.displayName ?? "somebody";
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
             `${who} has already used this invitation, so it is a record rather than a live ` +
             `link — it cannot be used again. Change their role on this screen to take their ` +
@@ -172,19 +172,19 @@ export const staffRouter = createTRPCRouter({
       });
 
       if (!target) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'That account no longer exists.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
       }
 
-      if (target.role === 'STUDENT') {
+      if (target.role === "STUDENT") {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
-            'That account is a student. Send them an instructor invitation instead — staff ' +
-            'access is granted through an invitation so that there is a record of it.',
+            "That account is a student. Send them an instructor invitation instead — staff " +
+            "access is granted through an invitation so that there is a record of it.",
         });
       }
 
-      const next: StaffRole = input.admin ? 'ADMIN' : 'INSTRUCTOR';
+      const next: StaffRole = input.admin ? "ADMIN" : "INSTRUCTOR";
 
       // Already there. Returned in the same shape as the update below, so a caller never has to
       // ask which branch answered.
@@ -208,14 +208,14 @@ export const staffRouter = createTRPCRouter({
         revoking the only other one while also being the only other one is the same arithmetic.
       */
       if (!input.admin) {
-        const admins = await ctx.db.profile.count({ where: { role: 'ADMIN' } });
+        const admins = await ctx.db.profile.count({ where: { role: "ADMIN" } });
         if (admins <= 1) {
           throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
+            code: "PRECONDITION_FAILED",
             message:
-              'This is the only admin account. Removing it would leave nobody able to invite ' +
-              'staff or grant admin, and no way to fix it except editing the database. Make ' +
-              'somebody else an admin first.',
+              "This is the only admin account. Removing it would leave nobody able to invite " +
+              "staff or grant admin, and no way to fix it except editing the database. Make " +
+              "somebody else an admin first.",
           });
         }
       }
@@ -283,8 +283,8 @@ export const staffRouter = createTRPCRouter({
 
       if (!invite) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'This invitation link is not valid. Ask whoever sent it for a new one.',
+          code: "NOT_FOUND",
+          message: "This invitation link is not valid. Ask whoever sent it for a new one.",
         });
       }
 
@@ -298,11 +298,11 @@ export const staffRouter = createTRPCRouter({
 
       if (!inviteIsUsable(invite, now)) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
             invite.redeemedAt !== null
-              ? 'This invitation has already been used. Ask for a new one.'
-              : 'This invitation has expired. Ask for a new one.',
+              ? "This invitation has already been used. Ask for a new one."
+              : "This invitation has expired. Ask for a new one.",
         });
       }
 
@@ -314,12 +314,12 @@ export const staffRouter = createTRPCRouter({
       // Somebody else took it between the read above and this write.
       if (claimed.count === 0) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This invitation has already been used. Ask for a new one.',
+          code: "PRECONDITION_FAILED",
+          message: "This invitation has already been used. Ask for a new one.",
         });
       }
 
-      const role = raiseRole(ctx.profile.role as StaffRole, 'INSTRUCTOR');
+      const role = raiseRole(ctx.profile.role as StaffRole, "INSTRUCTOR");
 
       // Skipped entirely when the caller already outranks it, so an admin redeeming one does not
       // even write to their own row.

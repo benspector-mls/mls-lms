@@ -61,7 +61,10 @@ function isEmptyRepositoryError(err: unknown): boolean {
   return typeof message === "string" && /repository is empty/i.test(message);
 }
 
-const sleep = (ms: number) => new Promise((resolve) => { setTimeout(resolve, ms); });
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 /**
  * Waits until a generated repository has content, or gives up.

@@ -71,7 +71,7 @@ export function storageClient(): StorageClient {
   if (!url || !serviceRoleKey) {
     throw new UploadStorageError(
       "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are both required to store " +
-      "or read an uploaded submission.",
+        "or read an uploaded submission.",
     );
   }
 
@@ -93,10 +93,7 @@ export function storageClient(): StorageClient {
  * A generated segment rather than a fixed name, so re-uploading writes a new object instead of
  * overwriting the one an instructor may be part-way through reading.
  */
-export function submissionUploadPath(params: {
-  submissionId: string;
-  extension: string;
-}): string {
+export function submissionUploadPath(params: { submissionId: string; extension: string }): string {
   return `${params.submissionId}/${randomUUID()}${params.extension}`;
 }
 
@@ -115,9 +112,7 @@ export async function storeSubmissionUpload(params: {
   // Checked again here rather than trusting the caller. This is the last point before bytes
   // are written and it costs one comparison; the bucket's own limit is the guarantee behind it.
   if (params.bytes.byteLength > MAX_UPLOAD_BYTES) {
-    throw new UploadStorageError(
-      `That file is larger than the ${MAX_UPLOAD_BYTES} byte limit.`,
-    );
+    throw new UploadStorageError(`That file is larger than the ${MAX_UPLOAD_BYTES} byte limit.`);
   }
 
   const path = submissionUploadPath(params);
@@ -161,9 +156,7 @@ export async function signedDownloadUrl(params: {
     .createSignedUrl(
       params.path,
       inline ? INLINE_PREVIEW_TTL_SECONDS : SIGNED_URL_TTL_SECONDS,
-      inline
-        ? {}
-        : { download: params.filename ? safeDownloadName(params.filename) : true },
+      inline ? {} : { download: params.filename ? safeDownloadName(params.filename) : true },
     );
 
   if (error || !data?.signedUrl) {
@@ -197,9 +190,7 @@ export async function submissionUploadExists(path: string): Promise<boolean> {
 
 /** Removes one stored object. Used by the verification script and by course removal below. */
 export async function removeSubmissionUpload(path: string): Promise<void> {
-  const { error } = await storageClient()
-    .from(SUBMISSION_UPLOAD_BUCKET)
-    .remove([path]);
+  const { error } = await storageClient().from(SUBMISSION_UPLOAD_BUCKET).remove([path]);
 
   if (error) {
     throw new UploadStorageError(`Could not remove ${path}: ${error.message}`);

@@ -38,7 +38,7 @@ export function requireE2bApiKey(): string {
   if (!key) {
     throw new Error(
       "E2B_API_KEY is not set. Create one at https://e2b.dev/dashboard and add it " +
-      "to .env.local — see .env.example.",
+        "to .env.local — see .env.example.",
     );
   }
   return key;
@@ -108,7 +108,7 @@ export async function uploadAndExtract(
   if (extract.exitCode !== 0) {
     throw new Error(
       `Could not extract the archive into ${params.destDir} ` +
-      `(exit ${extract.exitCode}): ${extract.stderr.slice(0, 500)}`,
+        `(exit ${extract.exitCode}): ${extract.stderr.slice(0, 500)}`,
     );
   }
 }
@@ -187,10 +187,7 @@ export async function revokeNetworkAccess(handle: SandboxHandle): Promise<void> 
 }
 
 /** Returns null when the file does not exist, which a crashed suite produces. */
-export async function readTextFile(
-  handle: SandboxHandle,
-  path: string,
-): Promise<string | null> {
+export async function readTextFile(handle: SandboxHandle, path: string): Promise<string | null> {
   try {
     return await handle.sandbox.files.read(path, { format: "text" });
   } catch {

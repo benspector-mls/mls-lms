@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
-import { Copy, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { Copy, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogClose,
@@ -15,17 +15,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useTRPC } from '@/trpc/client';
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useTRPC } from "@/trpc/client";
 
 /**
  * Copying an assignment into another cohort, or beside itself in this one.
@@ -117,7 +117,7 @@ export function CopyAssignmentDialog({
             : `Copied ${result.assignment.title}. It is not visible to students yet.`,
         );
         if (result.warnings.length > 0) {
-          toast.warning(result.warnings.map((warning) => warning.message).join(' · '), {
+          toast.warning(result.warnings.map((warning) => warning.message).join(" · "), {
             duration: 12_000,
           });
         }
@@ -147,8 +147,8 @@ export function CopyAssignmentDialog({
           <DialogTitle>Copy {title}</DialogTitle>
           <DialogDescription>
             The copy arrives unpublished, with no due date and no submissions. Everything the
-            assignment is comes across — both repositories, the answer key folder, the runner,
-            the sections, and the point values.
+            assignment is comes across — both repositories, the answer key folder, the runner, the
+            sections, and the point values.
           </DialogDescription>
         </DialogHeader>
 
@@ -191,7 +191,7 @@ export function CopyAssignmentDialog({
                         <span className="truncate">{course.name}</span>
                         <span className="truncate text-xs text-muted-foreground">
                           {course.cohortTerm}
-                          {course.id === courseId ? ' · this one' : ''}
+                          {course.id === courseId ? " · this one" : ""}
                         </span>
                       </span>
                     </SelectItem>
@@ -205,10 +205,10 @@ export function CopyAssignmentDialog({
               */}
               {sameCourse && (
                 <p className="text-xs text-muted-foreground">
-                  This is the cohort it is already in, so the copy gets a repository name of its
-                  own ending in <span className="font-mono whitespace-nowrap">-copy</span>.
-                  Copying into another cohort keeps the name, because that cohort&apos;s short
-                  name already tells the repositories apart.
+                  This is the cohort it is already in, so the copy gets a repository name of its own
+                  ending in <span className="font-mono whitespace-nowrap">-copy</span>. Copying into
+                  another cohort keeps the name, because that cohort&apos;s short name already tells
+                  the repositories apart.
                 </p>
               )}
             </div>
@@ -219,8 +219,8 @@ export function CopyAssignmentDialog({
                 <Skeleton className="h-9 w-full" />
               ) : modules.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  That cohort has no modules yet, so there is nowhere for the copy to go. Create
-                  one there first.
+                  That cohort has no modules yet, so there is nowhere for the copy to go. Create one
+                  there first.
                 </p>
               ) : (
                 <Select

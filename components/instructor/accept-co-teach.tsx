@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { ArrowRight, Check, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Check, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { courseSettingsHref, triageHref } from '@/lib/links';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { courseSettingsHref, triageHref } from "@/lib/links";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Taking up a co-teaching link.
@@ -29,7 +29,7 @@ export function AcceptCoTeach({
   preview,
 }: {
   token: string;
-  preview: RouterOutputs['courses']['previewCoTeach'];
+  preview: RouterOutputs["courses"]["previewCoTeach"];
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -38,9 +38,7 @@ export function AcceptCoTeach({
     trpc.courses.acceptCoTeach.mutationOptions({
       onSuccess: (result) => {
         toast.success(
-          result.added
-            ? `You now teach ${result.name}.`
-            : `You already teach ${result.name}.`,
+          result.added ? `You now teach ${result.name}.` : `You already teach ${result.name}.`,
         );
         // Into the cohort's triage, which is what a new co-teacher wants first: what is waiting.
         router.push(triageHref(result.courseId));
@@ -56,8 +54,7 @@ export function AcceptCoTeach({
           <TriangleAlert className="size-8 text-amber-600 dark:text-amber-400" />
           <h1 className="text-lg font-semibold">This co-teaching link does not work</h1>
           <p className="text-sm text-muted-foreground">
-            It may have been replaced with a newer one. Ask whoever sent it for the current
-            link.
+            It may have been replaced with a newer one. Ask whoever sent it for the current link.
           </p>
         </div>
       </Shell>
@@ -101,8 +98,8 @@ export function AcceptCoTeach({
               account.
             </p>
             <p className="text-sm text-muted-foreground">
-              An admin has to send you an instructor invitation first. Once you have used that,
-              come back to this link and it will work.
+              An admin has to send you an instructor invitation first. Once you have used that, come
+              back to this link and it will work.
             </p>
           </div>
         ) : preview.archived ? (
@@ -112,8 +109,8 @@ export function AcceptCoTeach({
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Taking this up lets you author assignments in this cohort, read every
-              student&apos;s work, and approve grades.
+              Taking this up lets you author assignments in this cohort, read every student&apos;s
+              work, and approve grades.
             </p>
             <Button disabled={accept.isPending} onClick={() => accept.mutate({ token })}>
               {accept.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}

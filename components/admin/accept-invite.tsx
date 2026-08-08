@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { ArrowRight, Check, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Check, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { formatDate } from '@/lib/status';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { formatDate } from "@/lib/status";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Accepting an instructor invitation.
@@ -28,7 +28,7 @@ export function AcceptInvite({
   preview,
 }: {
   token: string;
-  preview: RouterOutputs['staff']['previewInvite'];
+  preview: RouterOutputs["staff"]["previewInvite"];
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -38,8 +38,8 @@ export function AcceptInvite({
       onSuccess: (result) => {
         toast.success(
           result.alreadyRedeemed
-            ? 'You already have instructor access.'
-            : 'You are now an instructor.',
+            ? "You already have instructor access."
+            : "You are now an instructor.",
         );
         /*
           `refresh()` as well as the push, because the sidebar reads the role from the profile and
@@ -47,7 +47,7 @@ export function AcceptInvite({
           until a manual reload, which reads as the invitation not having worked.
         */
         router.refresh();
-        router.push('/courses');
+        router.push("/courses");
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -73,7 +73,7 @@ export function AcceptInvite({
           <Check className="size-4" />
           You already have instructor access.
         </p>
-        <Button onClick={() => router.push('/courses')}>
+        <Button onClick={() => router.push("/courses")}>
           Go to your courses
           <ArrowRight data-icon="inline-end" />
         </Button>
@@ -81,7 +81,7 @@ export function AcceptInvite({
     );
   }
 
-  if (preview.state === 'redeemed') {
+  if (preview.state === "redeemed") {
     return (
       <Shell>
         <TriangleAlert className="size-8 text-amber-600 dark:text-amber-400" />
@@ -93,7 +93,7 @@ export function AcceptInvite({
     );
   }
 
-  if (preview.state === 'expired') {
+  if (preview.state === "expired") {
     return (
       <Shell>
         <TriangleAlert className="size-8 text-amber-600 dark:text-amber-400" />
@@ -110,7 +110,7 @@ export function AcceptInvite({
     "become an instructor" is that it would take something away. The person most likely to click a
     link to see what it does is the admin who just generated it.
   */
-  const alreadyStaff = preview.yourRole === 'ADMIN' || preview.yourRole === 'INSTRUCTOR';
+  const alreadyStaff = preview.yourRole === "ADMIN" || preview.yourRole === "INSTRUCTOR";
 
   return (
     <Shell>
@@ -127,9 +127,8 @@ export function AcceptInvite({
 
       {alreadyStaff && (
         <p className="text-sm text-muted-foreground">
-          You already have{' '}
-          {preview.yourRole === 'ADMIN' ? 'admin' : 'instructor'} access, and accepting will not
-          change it.
+          You already have {preview.yourRole === "ADMIN" ? "admin" : "instructor"} access, and
+          accepting will not change it.
         </p>
       )}
 

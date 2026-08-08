@@ -37,7 +37,13 @@ import { config as loadEnv } from "dotenv";
 import { AssignmentKind, parseAssignmentSpec } from "../lib/assignments/spec";
 import { slugifyCohort } from "../lib/courses/cohort-slug";
 import { newJoinToken } from "../lib/courses/join-token";
-import { PrismaClient, Prisma, Role, EnrollmentStatus, RubricScaleType } from "../lib/generated/prisma/client";
+import {
+  PrismaClient,
+  Prisma,
+  Role,
+  EnrollmentStatus,
+  RubricScaleType,
+} from "../lib/generated/prisma/client";
 
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
@@ -54,7 +60,9 @@ const STUDENT_EMAIL = process.env.SEED_STUDENT_EMAIL ?? "ben@marcylabschool.org"
 
 /** Use the sandbox organization, never the production one, until verified. */
 const GITHUB_ORG = process.env.SEED_GITHUB_ORG ?? "marcy-lms-test";
-const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO ? `${GITHUB_ORG}/${process.env.SEED_TEMPLATE_REPO}` : `${GITHUB_ORG}/swe-1-4-loops`;
+const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO
+  ? `${GITHUB_ORG}/${process.env.SEED_TEMPLATE_REPO}`
+  : `${GITHUB_ORG}/swe-1-4-loops`;
 
 /**
  * The repository name is the template repository's name, so a student's
@@ -174,7 +182,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
         // person: the madlib challenge is one exercise but seven checklist-like
         // steps, and grading it as seven questions would make it worth 24 rather
         // than 6.
-        // Confirmed 6 points — there are only 2 real questions even though each 
+        // Confirmed 6 points — there are only 2 real questions even though each
         // may have multiple tests or steps
         pointValue: 6,
         rubricId: rubricId("CODING_ALGORITHM_FLUENCY"),
@@ -219,11 +227,11 @@ const SPEC = SEED_ASSIGNMENTS[ASSIGNMENT_REPO_NAME];
 if (!SPEC) {
   throw new Error(
     `No seed definition for template repository "${ASSIGNMENT_REPO_NAME}".\n` +
-    `  Known: ${Object.keys(SEED_ASSIGNMENTS).join(", ")}\n` +
-    `  Add an entry to SEED_ASSIGNMENTS in prisma/seed.ts naming its answer-key\n` +
-    `  directory, point value, runner preset, and gradable sections. Seeding it with\n` +
-    `  another assignment's sections would load the wrong answer keys and apply the\n` +
-    `  wrong rubric, so this fails rather than guessing.`,
+      `  Known: ${Object.keys(SEED_ASSIGNMENTS).join(", ")}\n` +
+      `  Add an entry to SEED_ASSIGNMENTS in prisma/seed.ts naming its answer-key\n` +
+      `  directory, point value, runner preset, and gradable sections. Seeding it with\n` +
+      `  another assignment's sections would load the wrong answer keys and apply the\n` +
+      `  wrong rubric, so this fails rather than guessing.`,
   );
 }
 
@@ -246,7 +254,7 @@ const ANSWER_KEY_REPO = process.env.GRADING_ASSETS_REPO;
 if (!ANSWER_KEY_REPO) {
   throw new Error(
     "GRADING_ASSETS_REPO must be set — the seeded assignment names it as the repository " +
-    "its reference solutions live in. See .env.example.",
+      "its reference solutions live in. See .env.example.",
   );
 }
 
@@ -324,7 +332,8 @@ const RUBRICS = [
         label: "Query Task",
         max_points: 1,
         perQuestion: true,
-        description: "One point per correct query result set. Schema design tasks are checkbox-based.",
+        description:
+          "One point per correct query result set. Schema design tasks are checkbox-based.",
       },
     ],
   },
@@ -344,9 +353,9 @@ async function requireProfile(email: string, role: Role) {
   if (!profile) {
     throw new Error(
       `No profile found for ${email}.\n\n` +
-      `Profiles are created by Supabase Auth when someone logs in — this script cannot create them.\n` +
-      `Log in as ${email} at least once, then run the seed again.\n` +
-      `To use different accounts, set SEED_INSTRUCTOR_EMAIL and SEED_STUDENT_EMAIL.`,
+        `Profiles are created by Supabase Auth when someone logs in — this script cannot create them.\n` +
+        `Log in as ${email} at least once, then run the seed again.\n` +
+        `To use different accounts, set SEED_INSTRUCTOR_EMAIL and SEED_STUDENT_EMAIL.`,
     );
   }
 
@@ -369,7 +378,9 @@ async function requireProfile(email: string, role: Role) {
   }
 
   if (profile.role !== role) {
-    console.log(`  left ${email} as ${profile.role}, which is above the ${role} this seed asks for`);
+    console.log(
+      `  left ${email} as ${profile.role}, which is above the ${role} this seed asks for`,
+    );
   }
   return profile;
 }
@@ -416,17 +427,17 @@ async function main() {
   if (!student.githubUsername) {
     console.warn(
       `\n  WARNING: ${STUDENT_EMAIL} has no GitHub identity linked.\n` +
-      `  Accepting an assignment will fail, because the repository name and the\n` +
-      `  collaborator invitation both need a GitHub login. Sign in with GitHub as\n` +
-      `  this account, or set SEED_STUDENT_EMAIL to an account that has.\n`,
+        `  Accepting an assignment will fail, because the repository name and the\n` +
+        `  collaborator invitation both need a GitHub login. Sign in with GitHub as\n` +
+        `  this account, or set SEED_STUDENT_EMAIL to an account that has.\n`,
     );
   }
 
   if (!instructor.githubUsername) {
     console.warn(
       `  Note: ${INSTRUCTOR_EMAIL} has no GitHub identity linked, so this instructor\n` +
-      `  will be skipped when adding collaborators. Accepting an assignment still\n` +
-      `  works; the instructor just will not have repository access until they link it.\n`,
+        `  will be skipped when adding collaborators. Accepting an assignment still\n` +
+        `  works; the instructor just will not have repository access until they link it.\n`,
     );
   }
 
@@ -450,7 +461,7 @@ async function main() {
   if (legacy) {
     console.log(
       `  removing the old seed course with the invalid id ${LEGACY_COURSE_ID}\n` +
-      `    (${legacy._count.assignments} assignment(s), ${legacy._count.enrollments} enrollment(s), and any submissions)`,
+        `    (${legacy._count.assignments} assignment(s), ${legacy._count.enrollments} enrollment(s), and any submissions)`,
     );
     await prisma.course.delete({ where: { id: LEGACY_COURSE_ID } });
   }
@@ -570,7 +581,7 @@ async function main() {
     if (!id) {
       throw new Error(
         `No module for answer key directory "${keyDir}". Add it to MODULE_FOR_KEY_DIR, or to ` +
-        `MODULE_NAMES if the course should have a module it does not.`,
+          `MODULE_NAMES if the course should have a module it does not.`,
       );
     }
     return id;
@@ -601,7 +612,9 @@ async function main() {
     */
     update: {},
   });
-  console.log(`Student: ${STUDENT_EMAIL}${student.githubUsername ? ` (${student.githubUsername})` : ""}`);
+  console.log(
+    `Student: ${STUDENT_EMAIL}${student.githubUsername ? ` (${student.githubUsername})` : ""}`,
+  );
 
   // ---- Assignment ---------------------------------------------------------
   //
@@ -696,9 +709,7 @@ async function main() {
     */
     update: {},
   });
-  console.log(
-    `Assignment: ${assignment.title} — template ${assignment.templateRepo}`,
-  );
+  console.log(`Assignment: ${assignment.title} — template ${assignment.templateRepo}`);
   console.log(
     `  student repositories will be named ${course.cohortSlug}-${ASSIGNMENT_REPO_NAME}-{github login}`,
   );

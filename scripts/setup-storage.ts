@@ -39,7 +39,7 @@ async function main() {
     console.log(`  public:          ${existing.public}`);
     console.log(
       `  file size limit: ${existing.file_size_limit ?? "none"}` +
-      (existing.file_size_limit ? ` (${formatBytes(Number(existing.file_size_limit))})` : ""),
+        (existing.file_size_limit ? ` (${formatBytes(Number(existing.file_size_limit))})` : ""),
     );
     console.log(`  allowed types:   ${existing.allowed_mime_types?.join(", ") ?? "any"}`);
 
@@ -49,8 +49,8 @@ async function main() {
     if (existing.public) {
       console.error(
         `\nThis bucket is PUBLIC, which would publish every submission in it. Make it private ` +
-        `in the Supabase dashboard, or delete it and re-run this script if nothing has been ` +
-        `uploaded yet.`,
+          `in the Supabase dashboard, or delete it and re-run this script if nothing has been ` +
+          `uploaded yet.`,
       );
       process.exit(1);
     }
@@ -73,7 +73,7 @@ async function main() {
       if (limit !== MAX_UPLOAD_BYTES) {
         console.log(
           `\nUpdating the size limit from ${limit || "none"} to ${MAX_UPLOAD_BYTES} ` +
-          `(${formatBytes(MAX_UPLOAD_BYTES)}) to match MAX_UPLOAD_BYTES.`,
+            `(${formatBytes(MAX_UPLOAD_BYTES)}) to match MAX_UPLOAD_BYTES.`,
         );
       }
       // Named rather than counted. A type the bucket was missing is a file kind students could
@@ -123,7 +123,7 @@ async function main() {
   console.log(`  allowed types:   ${allowedMimeTypes.join(", ")}`);
   console.log(
     `\nNo policies were added for anon or authenticated, which is what keeps the browser out ` +
-    `of it entirely. Every read goes through a server-signed URL.`,
+      `of it entirely. Every read goes through a server-signed URL.`,
   );
 }
 

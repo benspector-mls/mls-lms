@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   ChevronRight,
@@ -11,20 +11,20 @@ import {
   Plus,
   Trash2,
   X,
-} from 'lucide-react';
-import * as React from 'react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import * as React from "react";
+import { toast } from "sonner";
 
-import { EmptyState } from '@/components/list-states';
-import { AssignmentKindBadge, ResourceKindBadge } from '@/components/status-badge';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import { formatDate } from '@/lib/status';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+import { EmptyState } from "@/components/list-states";
+import { AssignmentKindBadge, ResourceKindBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatDate } from "@/lib/status";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * The course's shape: every module, in order, holding what is in it.
@@ -57,7 +57,7 @@ import type { RouterOutputs } from '@/trpc/types';
  * request can carry anything the browser did not send.
  */
 
-type Module = RouterOutputs['modules']['listForCourse'][number];
+type Module = RouterOutputs["modules"]["listForCourse"][number];
 
 export function CourseModules({ courseId }: { courseId: string }) {
   const trpc = useTRPC();
@@ -65,7 +65,7 @@ export function CourseModules({ courseId }: { courseId: string }) {
   const router = useRouter();
   const modules = useQuery(trpc.modules.listForCourse.queryOptions({ courseId }));
 
-  const [newName, setNewName] = React.useState('');
+  const [newName, setNewName] = React.useState("");
   const [renaming, setRenaming] = React.useState<string | null>(null);
 
   /*
@@ -136,7 +136,7 @@ export function CourseModules({ courseId }: { courseId: string }) {
           event.preventDefault();
           const name = newName.trim();
           if (!name) return;
-          create.mutate({ courseId, name }, { onSuccess: () => setNewName('') });
+          create.mutate({ courseId, name }, { onSuccess: () => setNewName("") });
         }}
       >
         <Input
@@ -146,7 +146,7 @@ export function CourseModules({ courseId }: { courseId: string }) {
           className="max-w-sm"
           aria-label="New module name"
         />
-        <Button type="submit" size="sm" disabled={busy || newName.trim() === ''}>
+        <Button type="submit" size="sm" disabled={busy || newName.trim() === ""}>
           {create.isPending ? (
             <Loader2 data-icon="inline-start" className="animate-spin" />
           ) : (
@@ -185,8 +185,8 @@ export function CourseModules({ courseId }: { courseId: string }) {
 
       <p className="text-sm text-muted-foreground">
         This is the course as your students meet it, in the order they meet it. Assignments are
-        listed by due date and are not editable here — open the Assignments screen to change one.
-        A module holding work cannot be removed until the assignments in it are moved elsewhere.
+        listed by due date and are not editable here — open the Assignments screen to change one. A
+        module holding work cannot be removed until the assignments in it are moved elsewhere.
       </p>
     </div>
   );
@@ -262,8 +262,8 @@ function ModuleSection({
               className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
-                const value = new FormData(event.currentTarget).get('name');
-                if (typeof value !== 'string' || value.trim() === '') return;
+                const value = new FormData(event.currentTarget).get("name");
+                if (typeof value !== "string" || value.trim() === "") return;
                 onRename(value.trim());
               }}
             >
@@ -340,43 +340,43 @@ function ModuleSection({
             </p>
           ) : (
             <>
-            {row.assignments.length > 0 && (
-            <ul className="divide-y divide-border border-t border-border">
-              {row.assignments.map((assignment) => (
-                <li
-                  key={assignment.id}
-                  className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="truncate font-medium">{assignment.title}</span>
-                    <AssignmentKindBadge kind={assignment.kind} className="mx-1" />
-                    {assignment.distributedAt === null && (
-                      <Badge
-                        variant="outline"
-                        className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-                      >
-                        Draft
-                      </Badge>
-                    )}
-                  </div>
-                  {/* Why a module can look full here and empty to the cohort. */}
-                  <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-                    {assignment.pointValue} pts
-                  </span>
-                  {/*
+              {row.assignments.length > 0 && (
+                <ul className="divide-y divide-border border-t border-border">
+                  {row.assignments.map((assignment) => (
+                    <li
+                      key={assignment.id}
+                      className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="truncate font-medium">{assignment.title}</span>
+                        <AssignmentKindBadge kind={assignment.kind} className="mx-1" />
+                        {assignment.distributedAt === null && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+                          >
+                            Draft
+                          </Badge>
+                        )}
+                      </div>
+                      {/* Why a module can look full here and empty to the cohort. */}
+                      <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                        {assignment.pointValue} pts
+                      </span>
+                      {/*
                     The due date is the ordering, so it is on every row including the undated
                     ones — a blank where the sort key should be reads as missing data rather
                     than as the reason that row is at the bottom.
                   */}
-                  <span className="w-28 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
-                    {assignment.dueAt ? formatDate(assignment.dueAt) : 'No due date'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            )}
+                      <span className="w-28 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
+                        {assignment.dueAt ? formatDate(assignment.dueAt) : "No due date"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
-            {/*
+              {/*
               Beneath the assignments and never interleaved with them, which is the same shape
               the student's course page uses — and the reason neither has an ordering problem:
               assignments sort by due date, resources alphabetically, and the two sequences are
@@ -387,24 +387,24 @@ function ModuleSection({
               editing one that looked different from the first would be two answers to one
               question.
             */}
-            {row.resources.length > 0 && (
-              <section className="border-t border-border">
-                <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Resources
-                </h3>
-                <ul className="divide-y divide-border">
-                  {row.resources.map((resource) => (
-                    <li
-                      key={resource.id}
-                      className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{resource.title}</span>
-                      <ResourceKindBadge kind={resource.kind} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+              {row.resources.length > 0 && (
+                <section className="border-t border-border">
+                  <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    Resources
+                  </h3>
+                  <ul className="divide-y divide-border">
+                    {row.resources.map((resource) => (
+                      <li
+                        key={resource.id}
+                        className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
+                      >
+                        <span className="min-w-0 flex-1 truncate">{resource.title}</span>
+                        <ResourceKindBadge kind={resource.kind} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </>
           )}
         </CollapsibleContent>
@@ -423,8 +423,8 @@ function ModuleSection({
  */
 function moduleSummary(total: number, drafts: number, resources: number): string {
   const parts: string[] = [];
-  if (total > 0) parts.push(total === 1 ? '1 assignment' : `${total} assignments`);
-  if (drafts > 0) parts.push(`${drafts} draft${drafts === 1 ? '' : 's'}`);
-  if (resources > 0) parts.push(resources === 1 ? '1 resource' : `${resources} resources`);
-  return parts.length === 0 ? 'Nothing yet' : parts.join(' · ');
+  if (total > 0) parts.push(total === 1 ? "1 assignment" : `${total} assignments`);
+  if (drafts > 0) parts.push(`${drafts} draft${drafts === 1 ? "" : "s"}`);
+  if (resources > 0) parts.push(resources === 1 ? "1 resource" : `${resources} resources`);
+  return parts.length === 0 ? "Nothing yet" : parts.join(" · ");
 }

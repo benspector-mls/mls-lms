@@ -1,9 +1,9 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { assertCourseMember, assertTeaches } from '@/lib/courses/membership';
+import { assertCourseMember, assertTeaches } from "@/lib/courses/membership";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 /**
  * The modules of a course: create, rename, reorder, remove.
@@ -22,7 +22,7 @@ import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init
  */
 
 /** Trimmed, because " Mod 4" and "Mod 4" are the same module to everyone but the database. */
-const moduleName = z.string().trim().min(1, 'A module needs a name.').max(120);
+const moduleName = z.string().trim().min(1, "A module needs a name.").max(120);
 
 /**
  * The module, if the caller teaches the course it belongs to.
@@ -32,7 +32,7 @@ const moduleName = z.string().trim().min(1, 'A module needs a name.').max(120);
  * row is read.
  */
 async function loadTeachableModule(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   moduleId: string,
 ) {
   const found = await ctx.db.module.findUnique({
@@ -40,7 +40,7 @@ async function loadTeachableModule(
     select: { id: true, courseId: true, name: true, position: true },
   });
 
-  if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'Module not found.' });
+  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Module not found." });
   await assertTeaches(ctx, found.courseId);
   return found;
 }
@@ -48,9 +48,9 @@ async function loadTeachableModule(
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string): never {
   const code = (err as { code?: string }).code;
-  if (code === 'P2002') {
+  if (code === "P2002") {
     throw new TRPCError({
-      code: 'CONFLICT',
+      code: "CONFLICT",
       message: `This course already has a module called "${name}".`,
     });
   }
@@ -83,13 +83,13 @@ export const modulesRouter = createTRPCRouter({
         a leak that no screen would reveal because a student's own page reads a different
         procedure. Same rule and same shape as `assignments.listForCourse`.
       */
-      const teaches = membership.as !== 'student';
+      const teaches = membership.as !== "student";
 
       return ctx.db.module.findMany({
         where: { courseId: input.courseId },
         // Name as the tie-break, so two modules that somehow share a position still have a
         // stable order rather than one that changes between requests.
-        orderBy: [{ position: 'asc' }, { name: 'asc' }],
+        orderBy: [{ position: "asc" }, { name: "asc" }],
         select: {
           id: true,
           name: true,
@@ -113,7 +113,7 @@ export const modulesRouter = createTRPCRouter({
            */
           assignments: {
             where: teaches ? {} : { distributedAt: { not: null } },
-            orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { title: 'asc' }],
+            orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { title: "asc" }],
             select: {
               id: true,
               title: true,
@@ -137,7 +137,7 @@ export const modulesRouter = createTRPCRouter({
            * renders none of it would be a page of prose nobody asked for.
            */
           resources: {
-            orderBy: { title: 'asc' },
+            orderBy: { title: "asc" },
             select: { id: true, title: true, kind: true },
           },
         },
@@ -152,7 +152,7 @@ export const modulesRouter = createTRPCRouter({
 
       const last = await ctx.db.module.findFirst({
         where: { courseId: input.courseId },
-        orderBy: { position: 'desc' },
+        orderBy: { position: "desc" },
         select: { position: true },
       });
 
@@ -222,17 +222,14 @@ export const modulesRouter = createTRPCRouter({
 
       const sent = new Set(input.moduleIds);
       if (sent.size !== input.moduleIds.length) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'That order lists a module twice.' });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That order lists a module twice." });
       }
-      if (
-        sent.size !== existing.length ||
-        !existing.every((moduleRow) => sent.has(moduleRow.id))
-      ) {
+      if (sent.size !== existing.length || !existing.every((moduleRow) => sent.has(moduleRow.id))) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
-            'That order does not list exactly this course’s modules. Reload the page and try ' +
-            'again — someone may have added or removed one.',
+            "That order does not list exactly this course’s modules. Reload the page and try " +
+            "again — someone may have added or removed one.",
         });
       }
 
@@ -287,10 +284,10 @@ export const modulesRouter = createTRPCRouter({
 
       if (assignments > 0) {
         throw new TRPCError({
-          code: 'CONFLICT',
+          code: "CONFLICT",
           message:
             `"${found.name}" still holds ${assignments} ` +
-            `${assignments === 1 ? 'assignment' : 'assignments'}. Move them to another module ` +
+            `${assignments === 1 ? "assignment" : "assignments"}. Move them to another module ` +
             `first — removing this would leave them belonging to nothing.`,
         });
       }

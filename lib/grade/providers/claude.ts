@@ -105,16 +105,16 @@ export function createClaudeGenerator(): ReportGenerator {
         if (response.stop_reason === "refusal") {
           throw new ProviderError(
             `Claude declined to produce this report` +
-            `${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. ` +
-            `The submission's content may have tripped a safety classifier — an ` +
-            `instructor should read it directly.`,
+              `${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. ` +
+              `The submission's content may have tripped a safety classifier — an ` +
+              `instructor should read it directly.`,
           );
         }
         if (response.stop_reason === "max_tokens") {
           throw new ProviderError(
             `Claude hit the ${MAX_TOKENS} token limit, so the report is incomplete. ` +
-            `Raise MAX_TOKENS in lib/grade/providers/claude.ts, or reduce how much ` +
-            `of the submission is sent.`,
+              `Raise MAX_TOKENS in lib/grade/providers/claude.ts, or reduce how much ` +
+              `of the submission is sent.`,
           );
         }
 

@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { ExternalLink } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
+import { useMutation } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
+import { useRouter } from "next/navigation";
+import * as React from "react";
 
-import { Button } from '@/components/ui/button';
-import type { AssignmentKind } from '@/lib/generated/prisma/enums';
-import { useTRPC } from '@/trpc/client';
+import { Button } from "@/components/ui/button";
+import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { useTRPC } from "@/trpc/client";
 
 /**
  * Accepting an assignment creates something, so it is a mutation the student triggers
@@ -44,7 +44,7 @@ export function AcceptAssignmentButton({
       onSuccess: (result) => {
         if (result.copyUrl) {
           setCopyUrl(result.copyUrl);
-          const opened = window.open(result.copyUrl, '_blank', 'noopener,noreferrer');
+          const opened = window.open(result.copyUrl, "_blank", "noopener,noreferrer");
           if (opened) opened.focus();
         }
         // Re-renders the server component, so the row picks up its new status and its
@@ -56,18 +56,14 @@ export function AcceptAssignmentButton({
 
   return (
     <>
-      <Button
-        size="sm"
-        onClick={() => accept.mutate({ assignmentId })}
-        disabled={accept.isPending}
-      >
+      <Button size="sm" onClick={() => accept.mutate({ assignmentId })} disabled={accept.isPending}>
         {accept.isPending
-          ? kind === 'GOOGLE_DRIVE'
-            ? 'Opening Google Drive…'
-            : 'Creating repository…'
-          : kind === 'GOOGLE_DRIVE'
-            ? 'Accept and take your copy'
-            : 'Accept'}
+          ? kind === "GOOGLE_DRIVE"
+            ? "Opening Google Drive…"
+            : "Creating repository…"
+          : kind === "GOOGLE_DRIVE"
+            ? "Accept and take your copy"
+            : "Accept"}
       </Button>
 
       {copyUrl && (

@@ -1,6 +1,6 @@
-import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server';
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 
-import type { AppRouter } from './routers/_app';
+import type { AppRouter } from "./routers/_app";
 
 /**
  * The shapes the procedures actually return, for components to take as props.

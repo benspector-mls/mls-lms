@@ -138,9 +138,11 @@ async function main() {
       });
       check("a name is trimmed", trimmed.name, "Mod 97 - Padded");
 
-      check("a blank name is refused",
+      check(
+        "a blank name is refused",
         await refusal(() => asInstructor.modules.create({ courseId: course.id, name: "   " })),
-        "BAD_REQUEST");
+        "BAD_REQUEST",
+      );
 
       // --- renaming ---------------------------------------------------------
       //
@@ -159,44 +161,59 @@ async function main() {
       await asInstructor.modules.reorder({ courseId: course.id, moduleIds: reversed });
 
       const afterReorder = await asInstructor.modules.listForCourse({ courseId: course.id });
-      check("reordering rewrites every position from the list",
-        afterReorder.map((row) => row.id), reversed);
-      check("...as a dense sequence from zero",
+      check(
+        "reordering rewrites every position from the list",
+        afterReorder.map((row) => row.id),
+        reversed,
+      );
+      check(
+        "...as a dense sequence from zero",
         afterReorder.map((row) => row.position),
-        reversed.map((_, index) => index));
+        reversed.map((_, index) => index),
+      );
 
       /*
         A partial list is refused. Sending only the modules that moved would leave the omitted
         ones holding stale positions — an order nobody asked for, and one that would look like
         the reorder half worked.
       */
-      check("a partial order is refused",
+      check(
+        "a partial order is refused",
         await refusal(() =>
-          asInstructor.modules.reorder({ courseId: course.id, moduleIds: [first.id] })),
-        "BAD_REQUEST");
-      check("an order listing a module twice is refused",
+          asInstructor.modules.reorder({ courseId: course.id, moduleIds: [first.id] }),
+        ),
+        "BAD_REQUEST",
+      );
+      check(
+        "an order listing a module twice is refused",
         await refusal(() =>
           asInstructor.modules.reorder({
             courseId: course.id,
             moduleIds: [...reversed, first.id],
-          })),
-        "BAD_REQUEST");
+          }),
+        ),
+        "BAD_REQUEST",
+      );
 
       // --- removing ---------------------------------------------------------
-      check("an empty module can be removed",
+      check(
+        "an empty module can be removed",
         (await asInstructor.modules.remove({ moduleId: trimmed.id })).name,
-        "Mod 97 - Padded");
+        "Mod 97 - Padded",
+      );
 
       // The case this whole guard exists for. The seeded course has assignments in a module,
       // and removing it would leave them belonging to nothing.
-      const withWork = (
-        await asInstructor.modules.listForCourse({ courseId: course.id })
-      ).find((row) => row._count.assignments > 0);
+      const withWork = (await asInstructor.modules.listForCourse({ courseId: course.id })).find(
+        (row) => row._count.assignments > 0,
+      );
 
       if (withWork) {
-        check("a module holding assignments cannot be removed",
+        check(
+          "a module holding assignments cannot be removed",
           await refusal(() => asInstructor.modules.remove({ moduleId: withWork.id })),
-          "CONFLICT");
+          "CONFLICT",
+        );
 
         // The database saying the same thing is checked below, in a transaction of its own.
       } else {
@@ -204,23 +221,35 @@ async function main() {
       }
 
       // --- who may do any of this ------------------------------------------
-      check("a student cannot create a module",
+      check(
+        "a student cannot create a module",
         await refusal(() => asStudent.modules.create({ courseId: course.id, name: "Nope" })),
-        "FORBIDDEN");
-      check("a student cannot rename one",
+        "FORBIDDEN",
+      );
+      check(
+        "a student cannot rename one",
         await refusal(() => asStudent.modules.rename({ moduleId: second.id, name: "Nope" })),
-        "FORBIDDEN");
-      check("a student cannot reorder them",
+        "FORBIDDEN",
+      );
+      check(
+        "a student cannot reorder them",
         await refusal(() =>
-          asStudent.modules.reorder({ courseId: course.id, moduleIds: reversed })),
-        "FORBIDDEN");
-      check("a student cannot remove one",
+          asStudent.modules.reorder({ courseId: course.id, moduleIds: reversed }),
+        ),
+        "FORBIDDEN",
+      );
+      check(
+        "a student cannot remove one",
         await refusal(() => asStudent.modules.remove({ moduleId: second.id })),
-        "FORBIDDEN");
+        "FORBIDDEN",
+      );
 
       // A student may *read* them, because their own course page groups assignments by module.
-      check("a student can read the list",
-        (await asStudent.modules.listForCourse({ courseId: course.id })).length > 0, true);
+      check(
+        "a student can read the list",
+        (await asStudent.modules.listForCourse({ courseId: course.id })).length > 0,
+        true,
+      );
 
       /*
         ---- What the list now carries, and who may see it --------------------
@@ -294,9 +323,11 @@ async function main() {
         dated yet at the top of the module. Alphabetically "A - no due date" comes first, so
         this ordering is only correct if the title is the tie-break rather than the key.
       */
-      check("a module's assignments come back in due-date order",
+      check(
+        "a module's assignments come back in due-date order",
         orderingModule.assignments.map((row) => row.id),
-        [earliest.id, middle.id, undated.id]);
+        [earliest.id, middle.id, undated.id],
+      );
 
       // The draft filter, which is the reason this procedure reads the membership at all.
       const draftAssignment = await tx.assignment.create({
@@ -317,25 +348,37 @@ async function main() {
       const asInstructorSees = (
         await asInstructor.modules.listForCourse({ courseId: course.id })
       ).find((row) => row.id === draftHome.id)!;
-      const asStudentSees = (
-        await asStudent.modules.listForCourse({ courseId: course.id })
-      ).find((row) => row.id === draftHome.id)!;
+      const asStudentSees = (await asStudent.modules.listForCourse({ courseId: course.id })).find(
+        (row) => row.id === draftHome.id,
+      )!;
 
-      check("an instructor sees an unpublished assignment in the module",
-        asInstructorSees.assignments.some((row) => row.id === draftAssignment.id), true);
-      check("...and a student does not",
-        asStudentSees.assignments.some((row) => row.id === draftAssignment.id), false);
+      check(
+        "an instructor sees an unpublished assignment in the module",
+        asInstructorSees.assignments.some((row) => row.id === draftAssignment.id),
+        true,
+      );
+      check(
+        "...and a student does not",
+        asStudentSees.assignments.some((row) => row.id === draftAssignment.id),
+        false,
+      );
       // The other three are published, so the student's list is short by exactly the draft.
-      check("...and sees everything else in it",
-        asStudentSees.assignments.length, asInstructorSees.assignments.length - 1);
+      check(
+        "...and sees everything else in it",
+        asStudentSees.assignments.length,
+        asInstructorSees.assignments.length - 1,
+      );
 
       /*
         The count is deliberately *not* the length of the list. It decides whether Remove is
         offered, and the foreign key refuses on every assignment including drafts — so a count
         narrowed to what the caller can see would offer a button the procedure then refuses.
       */
-      check("the count includes drafts, because removal is refused on them too",
-        asInstructorSees._count.assignments, 4);
+      check(
+        "the count includes drafts, because removal is refused on them too",
+        asInstructorSees._count.assignments,
+        4,
+      );
 
       /*
         And an empty module is in what the student's page is built from. Their course page
@@ -348,8 +391,11 @@ async function main() {
         name: "Mod 94 - Nothing In It",
       });
       const asSeenByStudent = await asStudent.courses.get({ courseId: course.id });
-      check("an empty module still reaches the student's course page",
-        asSeenByStudent.modules.some((row) => row.id === emptyOne.id), true);
+      check(
+        "an empty module still reaches the student's course page",
+        asSeenByStudent.modules.some((row) => row.id === emptyOne.id),
+        true,
+      );
 
       /*
         An instructor of a different course is the check the role alone cannot make. INSTRUCTOR
@@ -386,10 +432,13 @@ async function main() {
 
       if (outsider) {
         const asOutsider = createCaller({ db: tx, user: { id: outsider.id } } as never);
-        check("an instructor who does not teach the course cannot rename its modules",
+        check(
+          "an instructor who does not teach the course cannot rename its modules",
           await refusal(() =>
-            asOutsider.modules.rename({ moduleId: second.id, name: "Not yours" })),
-          "FORBIDDEN");
+            asOutsider.modules.rename({ moduleId: second.id, name: "Not yours" }),
+          ),
+          "FORBIDDEN",
+        );
       } else {
         console.log("skip  an instructor who does not teach the course — only one is seeded");
       }
@@ -400,13 +449,16 @@ async function main() {
         data: { courseId: otherCourse.id, name: "Mod 1 - Elsewhere", position: 0 },
         select: { id: true },
       });
-      check("another course's module cannot be ordered into this one",
+      check(
+        "another course's module cannot be ordered into this one",
         await refusal(() =>
           asInstructor.modules.reorder({
             courseId: course.id,
             moduleIds: [...reversed.filter((id) => id !== trimmed.id), elsewhereModule.id],
-          })),
-        "BAD_REQUEST");
+          }),
+        ),
+        "BAD_REQUEST",
+      );
 
       throw new Error("ROLLBACK");
     });
@@ -425,25 +477,27 @@ async function main() {
       courseId: course.id,
       name: "Mod 96 - Duplicate Target",
     });
-    check("a duplicate name in one course is refused",
-      await refusal(() =>
-        asInstructor.modules.create({ courseId: course.id, name: made.name })),
-      "CONFLICT");
+    check(
+      "a duplicate name in one course is refused",
+      await refusal(() => asInstructor.modules.create({ courseId: course.id, name: made.name })),
+      "CONFLICT",
+    );
   });
 
   await inOwnTransaction(db, async (tx) => {
     const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-    const existingName = (
-      await asInstructor.modules.listForCourse({ courseId: course.id })
-    )[0];
+    const existingName = (await asInstructor.modules.listForCourse({ courseId: course.id }))[0];
     const other = await asInstructor.modules.create({
       courseId: course.id,
       name: "Mod 95 - To Be Renamed",
     });
-    check("renaming onto an existing name is refused",
+    check(
+      "renaming onto an existing name is refused",
       await refusal(() =>
-        asInstructor.modules.rename({ moduleId: other.id, name: existingName.name })),
-      "CONFLICT");
+        asInstructor.modules.rename({ moduleId: other.id, name: existingName.name }),
+      ),
+      "CONFLICT",
+    );
   });
 
   /*
@@ -471,8 +525,11 @@ async function main() {
       check("the foreign key refuses removing a module with assignments", "accepted", "refused");
     } catch (err) {
       const name = (err as Error).message === "DELETED" ? "accepted" : (err as Error).name;
-      check("the foreign key refuses removing a module with assignments",
-        name, "PrismaClientKnownRequestError");
+      check(
+        "the foreign key refuses removing a module with assignments",
+        name,
+        "PrismaClientKnownRequestError",
+      );
     }
   }
 
@@ -556,16 +613,25 @@ async function main() {
       });
 
       check("re-seeding after a rename creates nothing", after.length, SEED_MODULE_NAMES.length);
-      check("...and does not resurrect the old name",
-        after.some((row) => row.name === "Mod 1 - JavaScript Fundamentals"), false);
-      check("...and leaves the rename standing",
-        after.find((row) => row.position === 1)?.name, "Mod 1 - JS Fundamentals");
+      check(
+        "...and does not resurrect the old name",
+        after.some((row) => row.name === "Mod 1 - JavaScript Fundamentals"),
+        false,
+      );
+      check(
+        "...and leaves the rename standing",
+        after.find((row) => row.position === 1)?.name,
+        "Mod 1 - JS Fundamentals",
+      );
       /*
         The half that makes the fix worth anything. If position 1 resolved to a new row, the seed
         would go on working and quietly file every new assignment in the impostor.
       */
-      check("...and position 1 still resolves to the renamed module, so assignments land in it",
-        second.get(1), target!.id);
+      check(
+        "...and position 1 still resolves to the renamed module, so assignments land in it",
+        second.get(1),
+        target!.id,
+      );
 
       throw new Error("ROLLBACK");
     });
@@ -578,8 +644,11 @@ async function main() {
     where: { name: { in: ["Mod 98 - Renamed", "Mod 99 - Verify Two", "Mod 97 - Padded"] } },
   });
   check("no modules survived the rollback", leftover, 0);
-  check("...nor the course the re-seed check made",
-    await db.course.count({ where: { cohortSlug: "verify-reseed" } }), 0);
+  check(
+    "...nor the course the re-seed check made",
+    await db.course.count({ where: { cohortSlug: "verify-reseed" } }),
+    0,
+  );
 
   return report();
 }
@@ -600,7 +669,8 @@ function skip(reason: string) {
 function report() {
   if (failures > 0) console.log(`\n${failures} FAILED`);
   else if (skips.length === 0) console.log("\nAll checks passed.");
-  else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+  else
+    console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
 
   if (failures > 0 || skips.length > 0) process.exitCode = 1;
 }

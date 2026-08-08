@@ -1,25 +1,21 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { isManualOnly } from '@/lib/assignments/spec';
-import {
-  cohortSlugProblem,
-  MAX_COHORT_SLUG,
-  suggestCohortSlug,
-} from '@/lib/courses/cohort-slug';
-import { newJoinToken } from '@/lib/courses/join-token';
-import { groupSelectionInput, parseGroupSelection } from '@/lib/courses/groups';
+import { isManualOnly } from "@/lib/assignments/spec";
+import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
+import { newJoinToken } from "@/lib/courses/join-token";
+import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
 import {
   assertTeaches,
   enrollmentsIn,
   removedStudentIds,
   selectedStudentIds,
-} from '@/lib/courses/membership';
-import { assertOwnsCourse, ownerOf } from '@/lib/courses/ownership';
-import { undeliveredApprovalWhere } from '@/lib/grade/approve';
-import { triageBucket } from '@/lib/grade/triage';
+} from "@/lib/courses/membership";
+import { assertOwnsCourse, ownerOf } from "@/lib/courses/ownership";
+import { undeliveredApprovalWhere } from "@/lib/grade/approve";
+import { triageBucket } from "@/lib/grade/triage";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 export const coursesRouter = createTRPCRouter({
   /**
@@ -39,7 +35,7 @@ export const coursesRouter = createTRPCRouter({
    * course from an old one — filter on `archivedAt` themselves.
    */
   listMine: profileProcedure.query(async ({ ctx }) => {
-    const isAdmin = ctx.profile.role === 'ADMIN';
+    const isAdmin = ctx.profile.role === "ADMIN";
 
     /*
       Every enrollment status, not just ACTIVE.
@@ -59,7 +55,7 @@ export const coursesRouter = createTRPCRouter({
               { instructors: { some: { userId: ctx.profile.id } } },
             ],
           },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         name: true,
@@ -74,7 +70,7 @@ export const coursesRouter = createTRPCRouter({
         _count: {
           select: {
             assignments: true,
-            enrollments: { where: { status: 'ACTIVE' } },
+            enrollments: { where: { status: "ACTIVE" } },
           },
         },
         // The caller's own enrollment, so a card can say they have left this one.
@@ -122,7 +118,7 @@ export const coursesRouter = createTRPCRouter({
           cohortTerm: true,
           archivedAt: true,
           modules: {
-            orderBy: [{ position: 'asc' }, { name: 'asc' }],
+            orderBy: [{ position: "asc" }, { name: "asc" }],
             select: { id: true, name: true, position: true },
           },
           instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
@@ -130,10 +126,10 @@ export const coursesRouter = createTRPCRouter({
       });
 
       if (!course) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
       }
 
-      const isAdmin = ctx.profile.role === 'ADMIN';
+      const isAdmin = ctx.profile.role === "ADMIN";
 
       if (!isAdmin && course.instructors.length === 0) {
         // Every status, not just ACTIVE: a removed student keeps reading the course and the
@@ -145,8 +141,8 @@ export const coursesRouter = createTRPCRouter({
 
         if (!enrollment) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You are not a member of this course.',
+            code: "FORBIDDEN",
+            message: "You are not a member of this course.",
           });
         }
       }
@@ -192,12 +188,12 @@ export const coursesRouter = createTRPCRouter({
       });
 
       if (!course) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
       }
 
       const enrollments = await ctx.db.enrollment.findMany({
         where: { courseId: course.id },
-        orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+        orderBy: [{ status: "asc" }, { createdAt: "asc" }],
         select: {
           id: true,
           status: true,
@@ -247,19 +243,19 @@ export const coursesRouter = createTRPCRouter({
           // the modules that happen to hold an assignment — filtering to an empty module is a
           // legitimate way to find out that it is empty.
           modules: {
-            orderBy: [{ position: 'asc' }, { name: 'asc' }],
+            orderBy: [{ position: "asc" }, { name: "asc" }],
             select: { id: true, name: true, position: true },
           },
         },
       });
 
       if (!course) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
       }
 
       const assignments = await ctx.db.assignment.findMany({
         where: { courseId: course.id },
-        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+        orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
         select: {
           id: true,
           title: true,
@@ -301,8 +297,8 @@ export const coursesRouter = createTRPCRouter({
         if (!entry) continue;
         if (cell.finalScore != null) entry.graded += 1;
         // "Handed in": accepting an assignment is not submitting it.
-        if (cell.status !== 'NOT_STARTED' && cell.status !== 'ACCEPTED') entry.submitted += 1;
-        if (cell.bucket !== null && cell.bucket !== 'generating') entry.outstanding += 1;
+        if (cell.status !== "NOT_STARTED" && cell.status !== "ACCEPTED") entry.submitted += 1;
+        if (cell.bucket !== null && cell.bucket !== "generating") entry.outstanding += 1;
       }
 
       return {
@@ -350,7 +346,7 @@ export const coursesRouter = createTRPCRouter({
           */
           coTeachToken: true,
           instructors: {
-            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
             select: {
               id: true,
               isPrimary: true,
@@ -364,7 +360,7 @@ export const coursesRouter = createTRPCRouter({
       });
 
       if (!course) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
       }
 
       /*
@@ -375,8 +371,8 @@ export const coursesRouter = createTRPCRouter({
       const orgRows = await ctx.db.assignment.findMany({
         where: { courseId: course.id, githubOrg: { not: null } },
         select: { githubOrg: true },
-        distinct: ['githubOrg'],
-        orderBy: { githubOrg: 'asc' },
+        distinct: ["githubOrg"],
+        orderBy: { githubOrg: "asc" },
       });
 
       // Whether the short name is still theoretically free, which it is not once a repository
@@ -399,7 +395,9 @@ export const coursesRouter = createTRPCRouter({
 
       return {
         course,
-        githubOrgs: orgRows.map((row) => row.githubOrg).filter((org): org is string => org !== null),
+        githubOrgs: orgRows
+          .map((row) => row.githubOrg)
+          .filter((org): org is string => org !== null),
         acceptedCount,
         /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
         callerId: ctx.profile.id,
@@ -414,7 +412,7 @@ export const coursesRouter = createTRPCRouter({
          * way would hide the Archive button from the one reader who is the recovery path when
          * an owner has left.
          */
-        callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === 'ADMIN',
+        callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === "ADMIN",
       };
     }),
 
@@ -452,13 +450,13 @@ export const coursesRouter = createTRPCRouter({
       });
 
       if (!course) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
       }
 
       const [assignments, enrollments] = await Promise.all([
         ctx.db.assignment.findMany({
           where: { courseId: course.id },
-          orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+          orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
           select: {
             id: true,
             title: true,
@@ -486,7 +484,7 @@ export const coursesRouter = createTRPCRouter({
         */
         ctx.db.enrollment.findMany({
           where: enrollmentsIn(course.id, selection),
-          orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+          orderBy: [{ status: "asc" }, { createdAt: "asc" }],
           select: {
             id: true,
             status: true,
@@ -503,7 +501,7 @@ export const coursesRouter = createTRPCRouter({
       // its complement have to cover the roster.
       const removed = new Set(
         enrollments
-          .filter((enrollment) => enrollment.status !== 'ACTIVE')
+          .filter((enrollment) => enrollment.status !== "ACTIVE")
           .map((enrollment) => enrollment.student.id),
       );
 
@@ -520,7 +518,7 @@ export const coursesRouter = createTRPCRouter({
         enrollment row stays where it was rather than vanishing from their own gradebook.
       */
       const visible =
-        selection.kind === 'all'
+        selection.kind === "all"
           ? null
           : new Set(enrollments.map((enrollment) => enrollment.student.id));
 
@@ -538,8 +536,8 @@ export const coursesRouter = createTRPCRouter({
           a pair of filters naming both values would silently drop an `AUDITING` student from the
           roster and the gradebook alike, which is the kind of absence nothing reports.
         */
-        activeEnrollments: enrollments.filter((enrollment) => enrollment.status === 'ACTIVE'),
-        removedEnrollments: enrollments.filter((enrollment) => enrollment.status !== 'ACTIVE'),
+        activeEnrollments: enrollments.filter((enrollment) => enrollment.status === "ACTIVE"),
+        removedEnrollments: enrollments.filter((enrollment) => enrollment.status !== "ACTIVE"),
         /**
          * One entry per submission by a student **currently in the cohort**.
          *
@@ -594,27 +592,30 @@ export const coursesRouter = createTRPCRouter({
    * it looks entirely normal until they try.
    */
   create: instructorProcedure
-    .input(z.object({
-      name: z.string().trim().min(1, 'A course needs a name.').max(200),
-      cohortTerm: z.string().trim().min(1, 'A course needs a term.').max(120),
-      /**
-       * The cohort's short name, which prefixes every repository it generates.
-       *
-       * Optional, and derived from the term when absent — so a caller that does not care gets
-       * `fall-2026` and the form can offer `f26` instead. Validated rather than slugified on
-       * arrival: silently rewriting somebody's `F26` to `f26` is fine, but silently rewriting
-       * `spring/26` to `spring-26` would put a name they did not choose into every repository.
-       */
-      cohortSlug: z.string().trim().toLowerCase().max(MAX_COHORT_SLUG).optional(),
-      /** Copies its modules and, unpublished, its assignments. */
-      copyFromCourseId: z.string().uuid().optional(),
-    }))
+    .input(
+      z.object({
+        name: z.string().trim().min(1, "A course needs a name.").max(200),
+        cohortTerm: z.string().trim().min(1, "A course needs a term.").max(120),
+        /**
+         * The cohort's short name, which prefixes every repository it generates.
+         *
+         * Optional, and derived from the term when absent — so a caller that does not care gets
+         * `fall-2026` and the form can offer `f26` instead. Validated rather than slugified on
+         * arrival: silently rewriting somebody's `F26` to `f26` is fine, but silently rewriting
+         * `spring/26` to `spring-26` would put a name they did not choose into every repository.
+         */
+        cohortSlug: z.string().trim().toLowerCase().max(MAX_COHORT_SLUG).optional(),
+        /** Copies its modules and, unpublished, its assignments. */
+        copyFromCourseId: z.string().uuid().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const cohortSlug =
-        input.cohortSlug || suggestCohortSlug({ courseName: input.name, cohortTerm: input.cohortTerm });
+        input.cohortSlug ||
+        suggestCohortSlug({ courseName: input.name, cohortTerm: input.cohortTerm });
       const slugProblem = cohortSlugProblem(cohortSlug);
       if (slugProblem) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: slugProblem });
+        throw new TRPCError({ code: "BAD_REQUEST", message: slugProblem });
       }
 
       /*
@@ -631,7 +632,7 @@ export const coursesRouter = createTRPCRouter({
 
       if (input.copyFromCourseId) {
         const teachesSource =
-          ctx.profile.role === 'ADMIN' ||
+          ctx.profile.role === "ADMIN" ||
           (await ctx.db.courseInstructor.findFirst({
             where: { courseId: input.copyFromCourseId, userId: ctx.profile.id },
             select: { id: true },
@@ -639,24 +640,24 @@ export const coursesRouter = createTRPCRouter({
 
         if (!teachesSource) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You can only copy from a course you teach.',
+            code: "FORBIDDEN",
+            message: "You can only copy from a course you teach.",
           });
         }
 
         const found = await ctx.db.course.findUnique({
           where: { id: input.copyFromCourseId },
           select: {
-            modules: { orderBy: { position: 'asc' }, select: { name: true, position: true } },
+            modules: { orderBy: { position: "asc" }, select: { name: true, position: true } },
             assignments: {
-              orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+              orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
               select: { id: true },
             },
           },
         });
 
         if (!found) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'That course does not exist.' });
+          throw new TRPCError({ code: "NOT_FOUND", message: "That course does not exist." });
         }
 
         source = {
@@ -692,9 +693,9 @@ export const coursesRouter = createTRPCRouter({
               collides is two cohorts of the *same* program in the same term, and a raw
               constraint error would name a column rather than the thing to change.
             */
-            if ((err as { code?: string }).code === 'P2002') {
+            if ((err as { code?: string }).code === "P2002") {
               throw new TRPCError({
-                code: 'CONFLICT',
+                code: "CONFLICT",
                 message:
                   `Another course already uses "${cohortSlug}" as its short name. Every ` +
                   `cohort needs its own, because it prefixes the repository names — pick ` +
@@ -732,7 +733,7 @@ export const coursesRouter = createTRPCRouter({
       const failed: { title: string; reason: string }[] = [];
 
       if (source) {
-        const { copyAssignmentInto, copyableAssignmentSelect } = await import('./assignments');
+        const { copyAssignmentInto, copyableAssignmentSelect } = await import("./assignments");
 
         for (const assignmentId of source.assignmentIds) {
           const original = await ctx.db.assignment.findUnique({
@@ -787,7 +788,7 @@ export const coursesRouter = createTRPCRouter({
   setArchived: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), archived: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await assertOwnsCourse(ctx, input.courseId, input.archived ? 'archive' : 'reopen');
+      await assertOwnsCourse(ctx, input.courseId, input.archived ? "archive" : "reopen");
 
       return ctx.db.course.update({
         where: { id: input.courseId },
@@ -812,7 +813,7 @@ export const coursesRouter = createTRPCRouter({
   removalImpact: instructorProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const course = await assertArchivedAndOwned(ctx, input.courseId, 'delete');
+      const course = await assertArchivedAndOwned(ctx, input.courseId, "delete");
 
       const [enrollments, assignments, modules, instructors, submissions] = await Promise.all([
         ctx.db.enrollment.count({ where: { courseId: course.id } }),
@@ -887,11 +888,11 @@ export const coursesRouter = createTRPCRouter({
   remove: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), confirmCohortSlug: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const course = await assertArchivedAndOwned(ctx, input.courseId, 'delete');
+      const course = await assertArchivedAndOwned(ctx, input.courseId, "delete");
 
       if (input.confirmCohortSlug.trim().toLowerCase() !== course.cohortSlug) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
             `Type the cohort's short name exactly to delete it. Expected "${course.cohortSlug}" ` +
             `— every cohort of this program is called "${course.name}", so the short name is ` +
@@ -933,7 +934,7 @@ export const coursesRouter = createTRPCRouter({
       let uploadsRemoved = 0;
       let uploadsLeftBehind: string[] = [];
       if (uploadPaths.length > 0) {
-        const { removeSubmissionUploads } = await import('@/lib/uploads/storage');
+        const { removeSubmissionUploads } = await import("@/lib/uploads/storage");
         const result = await removeSubmissionUploads(uploadPaths);
         uploadsRemoved = result.removed;
         uploadsLeftBehind = result.leftBehind;
@@ -1060,7 +1061,7 @@ export const coursesRouter = createTRPCRouter({
         archived: course.archivedAt !== null,
         primaryInstructor: course.instructors[0]?.user.displayName ?? null,
         /** Whether this account may hold the grant at all — staff only. */
-        eligible: ctx.profile.role === 'INSTRUCTOR' || ctx.profile.role === 'ADMIN',
+        eligible: ctx.profile.role === "INSTRUCTOR" || ctx.profile.role === "ADMIN",
         /** So the screen says "you already teach this" rather than offering to join again. */
         alreadyTeaches: already !== null,
       };
@@ -1091,10 +1092,10 @@ export const coursesRouter = createTRPCRouter({
       */
       if (!course) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
+          code: "NOT_FOUND",
           message:
-            'That co-teaching link does not work. It may have been replaced — ask whoever ' +
-            'sent it for the current one.',
+            "That co-teaching link does not work. It may have been replaced — ask whoever " +
+            "sent it for the current one.",
         });
       }
 
@@ -1105,9 +1106,9 @@ export const coursesRouter = createTRPCRouter({
         instructor could hand out staff access to anybody by forwarding a course link, with no
         admin involved and no record of it beyond a `CourseInstructor` row.
       */
-      if (ctx.profile.role !== 'INSTRUCTOR' && ctx.profile.role !== 'ADMIN') {
+      if (ctx.profile.role !== "INSTRUCTOR" && ctx.profile.role !== "ADMIN") {
         throw new TRPCError({
-          code: 'FORBIDDEN',
+          code: "FORBIDDEN",
           message:
             `This link adds an instructor to ${course.name}, and your account is not an ` +
             `instructor account. An admin has to send you an instructor invitation first — ` +
@@ -1117,7 +1118,7 @@ export const coursesRouter = createTRPCRouter({
 
       if (course.archivedAt !== null) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message: `${course.name} is archived, so it is not taking new instructors.`,
         });
       }
@@ -1133,7 +1134,7 @@ export const coursesRouter = createTRPCRouter({
       });
       if (enrolled) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
             `You are enrolled as a student in ${course.name}, so you cannot also teach it. ` +
             `Ask an instructor to remove your enrollment first.`,
@@ -1223,18 +1224,18 @@ export const coursesRouter = createTRPCRouter({
 
       if (!row) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'That person does not teach this course.',
+          code: "NOT_FOUND",
+          message: "That person does not teach this course.",
         });
       }
 
       if (instructors.length <= 1) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
-            'This is the only instructor on the course. Add another one first — a course ' +
-            'with no instructors cannot be authored in or graded, and only a database edit ' +
-            'would bring it back.',
+            "This is the only instructor on the course. Add another one first — a course " +
+            "with no instructors cannot be authored in or graded, and only a database edit " +
+            "would bring it back.",
         });
       }
 
@@ -1252,10 +1253,10 @@ export const coursesRouter = createTRPCRouter({
         owner &&
         owner.userId === input.userId &&
         !callerIsOwner &&
-        ctx.profile.role !== 'ADMIN'
+        ctx.profile.role !== "ADMIN"
       ) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
+          code: "FORBIDDEN",
           message:
             `${displayNameOf(row.user)} owns this cohort, so only they can leave it. If they ` +
             `should hand it on, they can transfer it to somebody else first.`,
@@ -1272,8 +1273,7 @@ export const coursesRouter = createTRPCRouter({
         default and it is not a thing anybody would guess, so the screen says whose it is now.
       */
       const remaining = instructors.filter((instructor) => instructor.id !== row.id);
-      const successor =
-        owner?.userId === input.userId ? ownerOf(remaining) : null;
+      const successor = owner?.userId === input.userId ? ownerOf(remaining) : null;
 
       return {
         courseId: input.courseId,
@@ -1303,7 +1303,7 @@ export const coursesRouter = createTRPCRouter({
   transferOwnership: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertOwnsCourse(ctx, input.courseId, 'hand on');
+      await assertOwnsCourse(ctx, input.courseId, "hand on");
 
       const target = await ctx.db.courseInstructor.findUnique({
         where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
@@ -1316,16 +1316,16 @@ export const coursesRouter = createTRPCRouter({
 
       if (!target) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
+          code: "NOT_FOUND",
           message:
-            'That person does not teach this course, so they cannot own it. Send them the ' +
-            'co-teaching link first.',
+            "That person does not teach this course, so they cannot own it. Send them the " +
+            "co-teaching link first.",
         });
       }
 
       if (target.isPrimary) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message: `${displayNameOf(target.user)} already owns this cohort.`,
         });
       }
@@ -1355,7 +1355,7 @@ function displayNameOf(user: {
   email: string | null;
   githubUsername: string | null;
 }): string {
-  return user.displayName ?? user.githubUsername ?? user.email ?? 'that instructor';
+  return user.displayName ?? user.githubUsername ?? user.email ?? "that instructor";
 }
 
 /**
@@ -1371,7 +1371,7 @@ function displayNameOf(user: {
  * them. Filtering here would take that decision away from both.
  */
 async function courseCells(
-  db: typeof import('@/lib/prisma').db,
+  db: typeof import("@/lib/prisma").db,
   courseId: string,
   assignments: { id: string; sections: unknown }[],
 ) {
@@ -1389,7 +1389,7 @@ async function courseCells(
       finalScorePossible: true,
       isComplete: true,
       gradingDrafts: {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: 1,
         select: { status: true, headSha: true },
       },
@@ -1399,7 +1399,7 @@ async function courseCells(
   const undelivered = await db.gradingDraft.findMany({
     where: undeliveredApprovalWhere({ assignment: { courseId } }),
     select: { submissionId: true },
-    distinct: ['submissionId'],
+    distinct: ["submissionId"],
   });
   const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
@@ -1441,7 +1441,7 @@ async function courseCells(
  * anything that cannot be undone.
  */
 async function assertArchivedAndOwned(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   courseId: string,
   action: string,
 ) {
@@ -1451,14 +1451,14 @@ async function assertArchivedAndOwned(
   });
 
   if (!course) {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+    throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
   }
 
   await assertOwnsCourse(ctx, courseId, action);
 
   if (course.archivedAt === null) {
     throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
+      code: "PRECONDITION_FAILED",
       message:
         `${course.name} is still running, so it cannot be deleted. Archive it first — that ` +
         `takes it off everyone's list and can be undone, which this cannot.`,
@@ -1467,4 +1467,3 @@ async function assertArchivedAndOwned(
 
   return course;
 }
-

@@ -1,23 +1,19 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
-import { ChevronDown, Pencil, Plus, Trash2, Users } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { ChevronDown, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Making groups, naming them, and choosing who is in each.
@@ -32,8 +28,8 @@ import type { RouterOutputs } from '@/trpc/types';
  * the same shape, and so is the audience of an assignment given to part of a cohort.
  */
 
-type Groups = RouterOutputs['groups']['listForCourse'];
-type Memberships = RouterOutputs['groups']['membershipsForCourse'];
+type Groups = RouterOutputs["groups"]["listForCourse"];
+type Memberships = RouterOutputs["groups"]["membershipsForCourse"];
 
 export function GroupManager({
   courseId,
@@ -48,7 +44,7 @@ export function GroupManager({
   const router = useRouter();
 
   const [creating, setCreating] = React.useState(false);
-  const [newName, setNewName] = React.useState('');
+  const [newName, setNewName] = React.useState("");
 
   const settled = {
     onSuccess: () => router.refresh(),
@@ -60,7 +56,7 @@ export function GroupManager({
       ...settled,
       onSuccess: (group) => {
         toast.success(`Created "${group.name}".`);
-        setNewName('');
+        setNewName("");
         setCreating(false);
         router.refresh();
       },
@@ -81,8 +77,8 @@ export function GroupManager({
             <CardDescription className="mt-1">
               A named set of this cohort&apos;s students. Pick one from the filter on triage, an
               assignment&apos;s queue, the gradebook, or the assignments list to work only their
-              submissions — which is how a cohort is split between two instructors without either
-              of them grading the same work twice. A student can be in more than one.
+              submissions — which is how a cohort is split between two instructors without either of
+              them grading the same work twice. A student can be in more than one.
             </CardDescription>
           </div>
           {!creating && (
@@ -120,7 +116,7 @@ export function GroupManager({
               variant="ghost"
               onClick={() => {
                 setCreating(false);
-                setNewName('');
+                setNewName("");
               }}
             >
               Cancel
@@ -151,7 +147,7 @@ export function GroupManager({
         */}
         {data.ungroupedCount > 0 && data.groups.length > 0 && (
           <p className="pt-1 text-xs text-muted-foreground">
-            {data.ungroupedCount} {data.ungroupedCount === 1 ? 'student is' : 'students are'} in no
+            {data.ungroupedCount} {data.ungroupedCount === 1 ? "student is" : "students are"} in no
             group. They are still in every unfiltered count, and in nobody&apos;s group filter.
           </p>
         )}
@@ -166,7 +162,7 @@ function GroupRow({
   memberships,
   onChanged,
 }: {
-  group: Groups['groups'][number];
+  group: Groups["groups"][number];
   memberships: Memberships;
   onChanged: () => void;
 }) {
@@ -224,7 +220,7 @@ function GroupRow({
         */
         toast.success(
           `Removed "${removed.name}". Its ${removed.memberCount} ` +
-            `${removed.memberCount === 1 ? 'student stays' : 'students stay'} in the cohort.`,
+            `${removed.memberCount === 1 ? "student stays" : "students stay"} in the cohort.`,
         );
         onChanged();
       },
@@ -237,7 +233,7 @@ function GroupRow({
       onSuccess: (result) => {
         toast.success(
           `"${group.name}" now holds ${result.memberCount} ` +
-            `${result.memberCount === 1 ? 'student' : 'students'}.`,
+            `${result.memberCount === 1 ? "student" : "students"}.`,
         );
         onChanged();
       },
@@ -296,8 +292,8 @@ function GroupRow({
             <CollapsibleTrigger className="flex flex-1 items-center gap-2 text-left text-sm font-medium">
               <ChevronDown
                 className={cn(
-                  'size-4 shrink-0 text-muted-foreground transition-transform',
-                  open && 'rotate-180',
+                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                  open && "rotate-180",
                 )}
               />
               {group.name}
@@ -366,7 +362,7 @@ function GroupRow({
                     entry.student.displayName ??
                     entry.student.githubUsername ??
                     entry.student.email ??
-                    'Unnamed';
+                    "Unnamed";
 
                   return (
                     <li key={entry.enrollmentId}>
@@ -396,11 +392,9 @@ function GroupRow({
                 <Button
                   size="sm"
                   disabled={!dirty || save.isPending}
-                  onClick={() =>
-                    save.mutate({ groupId: group.id, enrollmentIds: [...draft] })
-                  }
+                  onClick={() => save.mutate({ groupId: group.id, enrollmentIds: [...draft] })}
                 >
-                  {save.isPending ? 'Saving…' : 'Save members'}
+                  {save.isPending ? "Saving…" : "Save members"}
                 </Button>
                 {dirty && (
                   <Button size="sm" variant="ghost" onClick={() => setDraft(membersOf())}>

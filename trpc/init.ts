@@ -1,9 +1,9 @@
-import { initTRPC, TRPCError } from '@trpc/server';
-import { cache } from 'react';
-import superjson from 'superjson';
+import { initTRPC, TRPCError } from "@trpc/server";
+import { cache } from "react";
+import superjson from "superjson";
 
-import { db } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { db } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * Built once per request and handed to every procedure.
@@ -64,8 +64,8 @@ export const baseProcedure = t.procedure;
 export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.user) {
     throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'You must be signed in to do that.',
+      code: "UNAUTHORIZED",
+      message: "You must be signed in to do that.",
     });
   }
 
@@ -89,9 +89,8 @@ export const profileProcedure = protectedProcedure.use(async ({ ctx, next }) => 
 
   if (!profile) {
     throw new TRPCError({
-      code: 'INTERNAL_SERVER_ERROR',
-      message:
-        'Your account has no profile record. This should not happen — please report it.',
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Your account has no profile record. This should not happen — please report it.",
     });
   }
 
@@ -106,12 +105,12 @@ export const profileProcedure = protectedProcedure.use(async ({ ctx, next }) => 
  * is the only thing enforcing authorization, so the check must be impossible to
  * skip by accident.
  */
-function requireRole(...roles: Array<'STUDENT' | 'INSTRUCTOR' | 'ADMIN'>) {
+function requireRole(...roles: Array<"STUDENT" | "INSTRUCTOR" | "ADMIN">) {
   return profileProcedure.use(async ({ ctx, next }) => {
     if (!roles.includes(ctx.profile.role)) {
       throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: `This action requires one of these roles: ${roles.join(', ')}.`,
+        code: "FORBIDDEN",
+        message: `This action requires one of these roles: ${roles.join(", ")}.`,
       });
     }
     return next({ ctx });
@@ -121,10 +120,10 @@ function requireRole(...roles: Array<'STUDENT' | 'INSTRUCTOR' | 'ADMIN'>) {
 /** Students only. Admins are deliberately excluded: accepting an assignment
  *  creates a repository named after the caller's GitHub login, which only makes
  *  sense for an actual student. */
-export const studentProcedure = requireRole('STUDENT');
+export const studentProcedure = requireRole("STUDENT");
 
 /** Instructors and admins. */
-export const instructorProcedure = requireRole('INSTRUCTOR', 'ADMIN');
+export const instructorProcedure = requireRole("INSTRUCTOR", "ADMIN");
 
 /**
  * Admins only. Who may teach, and who may decide that.
@@ -139,4 +138,4 @@ export const instructorProcedure = requireRole('INSTRUCTOR', 'ADMIN');
  * else: an instructor deciding who else becomes an instructor is the escalation this exists to
  * prevent.
  */
-export const adminProcedure = requireRole('ADMIN');
+export const adminProcedure = requireRole("ADMIN");

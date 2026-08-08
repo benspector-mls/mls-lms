@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import * as React from 'react';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import * as React from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -21,15 +21,15 @@ import {
   Search,
   Trash2,
   X,
-} from 'lucide-react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { toast } from "sonner";
 
-import { CopyAssignmentDialog } from '@/components/instructor/copy-assignment-dialog';
-import { RemoveAssignmentDialog } from '@/components/instructor/remove-assignment-dialog';
-import { EmptyState } from '@/components/list-states';
-import { AssignmentKindBadge } from '@/components/status-badge';
-import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
+import { CopyAssignmentDialog } from "@/components/instructor/copy-assignment-dialog";
+import { RemoveAssignmentDialog } from "@/components/instructor/remove-assignment-dialog";
+import { EmptyState } from "@/components/list-states";
+import { AssignmentKindBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -40,8 +40,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -49,12 +49,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { editAssignmentHref, gradingQueueHref, newAssignmentHref } from '@/lib/links';
-import { ASSIGNMENT_KIND_META, formatDate } from '@/lib/status';
-import { cn } from '@/lib/utils';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/table";
+import { editAssignmentHref, gradingQueueHref, newAssignmentHref } from "@/lib/links";
+import { ASSIGNMENT_KIND_META, formatDate } from "@/lib/status";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Every assignment in one cohort: what has been set, and how much of each is left to grade.
@@ -65,8 +65,8 @@ import type { RouterOutputs } from '@/trpc/types';
  * counting sat inside a sort comparator, so it ran again for every comparison of every sort.
  */
 
-type Data = RouterOutputs['courses']['assignmentsOverview'];
-type Assignment = Data['assignments'][number];
+type Data = RouterOutputs["courses"]["assignmentsOverview"];
+type Assignment = Data["assignments"][number];
 
 /**
  * The kinds the filter can offer, in enum order.
@@ -74,7 +74,7 @@ type Assignment = Data['assignments'][number];
  * All four, including `EXTERNAL_URL`. A kind missing from this list is a kind an instructor
  * cannot filter to, which reads as the filter being broken rather than as a list being short.
  */
-const KIND_ORDER = ['REPO', 'GOOGLE_DRIVE', 'FILE_UPLOAD', 'EXTERNAL_URL'] as const;
+const KIND_ORDER = ["REPO", "GOOGLE_DRIVE", "FILE_UPLOAD", "EXTERNAL_URL"] as const;
 
 /**
  * Course order: the order the modules are taught in, which is neither alphabetical nor by
@@ -97,24 +97,24 @@ function compareByModule(a: Assignment, b: Assignment): number {
  * due date" is not earlier or later than every date, it is outside the ordering, and negating
  * the comparator would march every undated assignment to the top of the list.
  */
-function compareOn(key: SortKey, dir: 'asc' | 'desc', a: Assignment, b: Assignment): number {
-  const sign = dir === 'asc' ? 1 : -1;
+function compareOn(key: SortKey, dir: "asc" | "desc", a: Assignment, b: Assignment): number {
+  const sign = dir === "asc" ? 1 : -1;
 
   switch (key) {
-    case 'title':
+    case "title":
       return sign * a.title.localeCompare(b.title);
-    case 'module':
+    case "module":
       return sign * compareByModule(a, b);
-    case 'due': {
+    case "due": {
       if (!a.dueAt || !b.dueAt) {
         if (!a.dueAt && !b.dueAt) return 0;
         return a.dueAt ? -1 : 1;
       }
       return sign * (a.dueAt.getTime() - b.dueAt.getTime());
     }
-    case 'graded':
+    case "graded":
       return sign * (a.counts.graded - b.counts.graded);
-    case 'to_grade':
+    case "to_grade":
       return sign * (a.counts.outstanding - b.counts.outstanding);
   }
 }
@@ -131,19 +131,19 @@ function SortableHead({
   sortKey,
   sorts,
   onSort,
-  align = 'left',
+  align = "left",
   className,
 }: {
   label: string;
   sortKey: SortKey;
   sorts: SortEntry[];
   onSort: (key: SortKey) => void;
-  align?: 'left' | 'right';
+  align?: "left" | "right";
   className?: string;
 }) {
   const index = sorts.findIndex((entry) => entry.key === sortKey);
   const active = index === -1 ? null : sorts[index];
-  const Arrow = active?.dir === 'desc' ? ArrowDown : ArrowUp;
+  const Arrow = active?.dir === "desc" ? ArrowDown : ArrowUp;
 
   return (
     <TableHead className={className}>
@@ -152,8 +152,8 @@ function SortableHead({
         onClick={() => onSort(sortKey)}
         aria-label={`Sort by ${label}`}
         className={cn(
-          'group inline-flex items-center gap-1 rounded-md py-0.5 text-inherit transition-colors hover:text-foreground',
-          align === 'right' && 'ml-auto flex-row-reverse',
+          "group inline-flex items-center gap-1 rounded-md py-0.5 text-inherit transition-colors hover:text-foreground",
+          align === "right" && "ml-auto flex-row-reverse",
         )}
       >
         {label}
@@ -185,7 +185,7 @@ function SortableHead({
  */
 type FilterState = {
   modules: string[];
-  kinds: Assignment['kind'][];
+  kinds: Assignment["kind"][];
   /** `yyyy-mm-dd`, as the date input gives it. */
   dueFrom: string | null;
   dueTo: string | null;
@@ -236,7 +236,7 @@ function AssignmentFilterMenu({
   onChange,
 }: {
   modules: { id: string; name: string }[];
-  kindsInUse: readonly Assignment['kind'][];
+  kindsInUse: readonly Assignment["kind"][];
   filters: FilterState;
   onChange: (next: FilterState) => void;
 }) {
@@ -254,7 +254,7 @@ function AssignmentFilterMenu({
           <button
             type="button"
             className={cn(
-              buttonVariants({ variant: count > 0 ? 'secondary' : 'outline', size: 'sm' }),
+              buttonVariants({ variant: count > 0 ? "secondary" : "outline", size: "sm" }),
             )}
           >
             <Filter data-icon="inline-start" />
@@ -347,7 +347,7 @@ function AssignmentFilterMenu({
             Due date
             {(filters.dueFrom || filters.dueTo) && (
               <span className="ml-1 text-xs text-muted-foreground">
-                {filters.dueFrom && filters.dueTo ? 'range' : filters.dueFrom ? 'from' : 'until'}
+                {filters.dueFrom && filters.dueTo ? "range" : filters.dueFrom ? "from" : "until"}
               </span>
             )}
           </DropdownMenuSubTrigger>
@@ -362,7 +362,7 @@ function AssignmentFilterMenu({
                 Due on or after
                 <Input
                   type="date"
-                  value={filters.dueFrom ?? ''}
+                  value={filters.dueFrom ?? ""}
                   onChange={(event) =>
                     onChange({ ...filters, dueFrom: event.target.value || null })
                   }
@@ -372,13 +372,13 @@ function AssignmentFilterMenu({
                 Due on or before
                 <Input
                   type="date"
-                  value={filters.dueTo ?? ''}
+                  value={filters.dueTo ?? ""}
                   onChange={(event) => onChange({ ...filters, dueTo: event.target.value || null })}
                 />
               </label>
               <p className="text-xs text-muted-foreground">
-                Either can be left empty. Assignments with no due date are hidden while a date
-                is set.
+                Either can be left empty. Assignments with no due date are hidden while a date is
+                set.
               </p>
               {(filters.dueFrom || filters.dueTo) && (
                 <button
@@ -408,9 +408,9 @@ function AssignmentFilterMenu({
 }
 
 /** What the table can be narrowed to. Every one of these is a question about a whole cohort. */
-type AssignmentFilter = 'all' | 'to_grade' | 'published' | 'draft';
+type AssignmentFilter = "all" | "to_grade" | "published" | "draft";
 /** Which column a sort is on. Every data column in the table is one. */
-type SortKey = 'title' | 'module' | 'due' | 'graded' | 'to_grade';
+type SortKey = "title" | "module" | "due" | "graded" | "to_grade";
 
 /**
  * A stack of sorts, most recently clicked first.
@@ -420,7 +420,7 @@ type SortKey = 'title' | 'module' | 'due' | 'graded' | 'to_grade';
  * date and then module, which is the reverse of the order they apply in — and the ordinal on
  * each header is what makes that legible rather than something to work out.
  */
-type SortEntry = { key: SortKey; dir: 'asc' | 'desc' };
+type SortEntry = { key: SortKey; dir: "asc" | "desc" };
 
 /**
  * Which way a column runs when it is first clicked.
@@ -429,12 +429,12 @@ type SortEntry = { key: SortKey; dir: 'asc' | 'desc' };
  * with the most of it; text and dates start ascending, where the first row is the answer to
  * "which is earliest" or "what begins with A".
  */
-const FIRST_DIRECTION: Record<SortKey, 'asc' | 'desc'> = {
-  title: 'asc',
-  module: 'asc',
-  due: 'asc',
-  graded: 'desc',
-  to_grade: 'desc',
+const FIRST_DIRECTION: Record<SortKey, "asc" | "desc"> = {
+  title: "asc",
+  module: "asc",
+  due: "asc",
+  graded: "desc",
+  to_grade: "desc",
 };
 
 /** How deep the stack goes. Past three, nobody can say what order they asked for. */
@@ -442,9 +442,9 @@ const SORT_DEPTH = 3;
 
 export function CourseAssignments({ data }: { data: Data }) {
   const courseId = data.course.id;
-  const [query, setQuery] = React.useState('');
+  const [query, setQuery] = React.useState("");
   const [filters, setFilters] = React.useState<FilterState>(NO_FILTERS);
-  const [filter, setFilter] = React.useState<AssignmentFilter>('all');
+  const [filter, setFilter] = React.useState<AssignmentFilter>("all");
   const [sorts, setSorts] = React.useState<SortEntry[]>([]);
 
   /** Clicking a header: flip it if it is already the active sort, else make it the active one. */
@@ -452,7 +452,7 @@ export function CourseAssignments({ data }: { data: Data }) {
     setSorts((prev) => {
       // Already the primary sort, so this is a request to reverse it.
       if (prev[0]?.key === key) {
-        return [{ key, dir: prev[0].dir === 'asc' ? 'desc' : 'asc' }, ...prev.slice(1)];
+        return [{ key, dir: prev[0].dir === "asc" ? "desc" : "asc" }, ...prev.slice(1)];
       }
 
       const rest = prev.filter((entry) => entry.key !== key);
@@ -492,9 +492,9 @@ export function CourseAssignments({ data }: { data: Data }) {
       if (filters.kinds.length > 0 && !filters.kinds.includes(assignment.kind)) return false;
       if (!withinDueRange(assignment.dueAt, filters.dueFrom, filters.dueTo)) return false;
       if (term && !assignment.title.toLowerCase().includes(term)) return false;
-      if (filter === 'published') return assignment.distributedAt !== null;
-      if (filter === 'draft') return assignment.distributedAt === null;
-      if (filter === 'to_grade') return assignment.counts.outstanding > 0;
+      if (filter === "published") return assignment.distributedAt !== null;
+      if (filter === "draft") return assignment.distributedAt === null;
+      if (filter === "to_grade") return assignment.counts.outstanding > 0;
       return true;
     })
     .sort((a, b) => {
@@ -569,10 +569,10 @@ export function CourseAssignments({ data }: { data: Data }) {
       <div className="flex items-center gap-1 self-start rounded-lg bg-muted p-1">
         {(
           [
-            { key: 'all', label: `All (${data.assignments.length})` },
-            { key: 'to_grade', label: `To grade (${toGradeCount})` },
-            { key: 'published', label: `Published (${data.assignments.length - draftCount})` },
-            { key: 'draft', label: `Drafts (${draftCount})` },
+            { key: "all", label: `All (${data.assignments.length})` },
+            { key: "to_grade", label: `To grade (${toGradeCount})` },
+            { key: "published", label: `Published (${data.assignments.length - draftCount})` },
+            { key: "draft", label: `Drafts (${draftCount})` },
           ] as { key: AssignmentFilter; label: string }[]
         ).map((tab) => (
           <button
@@ -580,10 +580,10 @@ export function CourseAssignments({ data }: { data: Data }) {
             type="button"
             onClick={() => setFilter(tab.key)}
             className={cn(
-              'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+              "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
               filter === tab.key
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {tab.label}
@@ -599,14 +599,14 @@ export function CourseAssignments({ data }: { data: Data }) {
           // The way out, from where the problem is seen. A hidden filter is easy to forget
           // about, and an empty table is exactly when it matters that it is set.
           action={
-            activeFilterCount(filters) > 0 || query !== '' ? (
+            activeFilterCount(filters) > 0 || query !== "" ? (
               <button
                 type="button"
                 onClick={() => {
                   setFilters(NO_FILTERS);
-                  setQuery('');
+                  setQuery("");
                 }}
-                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
                 <X data-icon="inline-start" />
                 Clear the search and filters
@@ -619,7 +619,12 @@ export function CourseAssignments({ data }: { data: Data }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <SortableHead label="Assignment" sortKey="title" sorts={sorts} onSort={toggleSort} />
+                <SortableHead
+                  label="Assignment"
+                  sortKey="title"
+                  sorts={sorts}
+                  onSort={toggleSort}
+                />
                 <SortableHead
                   label="Module"
                   sortKey="module"
@@ -837,7 +842,7 @@ function AssignmentActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setRemoving(true)}>
             <Trash2 data-icon="inline-start" />
-            {hasSubmissions ? 'Remove, with student work' : 'Remove'}
+            {hasSubmissions ? "Remove, with student work" : "Remove"}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

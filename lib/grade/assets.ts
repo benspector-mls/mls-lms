@@ -144,10 +144,7 @@ function splitRepo(repoFullName: string, describeField: string): { owner: string
  * only. It is rarely needed now and kept because a deployment that has it set should not
  * start behaving differently.
  */
-async function installationFor(
-  owner: string,
-  override?: string,
-): Promise<number> {
+async function installationFor(owner: string, override?: string): Promise<number> {
   if (override) {
     const parsed = Number(override);
     if (Number.isNaN(parsed)) {
@@ -164,10 +161,10 @@ async function installationFor(
   if (found === null) {
     throw new GradingAssetsError(
       `The GitHub App is not installed on ${owner}, so nothing in that organization can ` +
-      `be read — including a private repository somebody has otherwise granted access to. ` +
-      `Install it there. ` +
-      `\`npx tsx --conditions=react-server scripts/list-installations.ts\` prints the ` +
-      `installations that do exist.`,
+        `be read — including a private repository somebody has otherwise granted access to. ` +
+        `Install it there. ` +
+        `\`npx tsx --conditions=react-server scripts/list-installations.ts\` prints the ` +
+        `installations that do exist.`,
     );
   }
 
@@ -207,10 +204,10 @@ async function assetSource(
     } catch (err) {
       throw new GradingAssetsError(
         `Could not reach ${repoFullName}: ` +
-        `${err instanceof Error ? err.message : String(err)}.\n` +
-        `Installation ${installationId} may not cover that repository. A GitHub App is ` +
-        `installed per organization, and an installation on one organization grants no ` +
-        `access to a private repository in another.`,
+          `${err instanceof Error ? err.message : String(err)}.\n` +
+          `Installation ${installationId} may not cover that repository. A GitHub App is ` +
+          `installed per organization, and an installation on one organization grants no ` +
+          `access to a private repository in another.`,
       );
     }
   }
@@ -270,9 +267,9 @@ async function programAssetSource(): Promise<AssetSource> {
   if (process.env.GRADING_ASSETS_PATH) {
     throw new GradingAssetsError(
       "GRADING_ASSETS_PATH is set, but the local-clone source has been removed — assets " +
-      "are read from the repository over the API in every environment. Delete the line " +
-      "from .env.local. To iterate on the rubric, push to a branch and set " +
-      "GRADING_ASSETS_REF to it.",
+        "are read from the repository over the API in every environment. Delete the line " +
+        "from .env.local. To iterate on the rubric, push to a branch and set " +
+        "GRADING_ASSETS_REF to it.",
     );
   }
 
@@ -280,7 +277,7 @@ async function programAssetSource(): Promise<AssetSource> {
   if (!repoFullName) {
     throw new GradingAssetsError(
       "GRADING_ASSETS_REPO is not set, so there is no rubric to grade against. Set it to " +
-      "owner/repo — see .env.example.",
+        "owner/repo — see .env.example.",
     );
   }
 
@@ -308,9 +305,7 @@ async function answerKeySource(answerKeyRepo: string): Promise<AssetSource> {
 async function readRequired(source: AssetSource, relativePath: string): Promise<string> {
   const content = await source.read(relativePath);
   if (content === null) {
-    throw new GradingAssetsError(
-      `Missing grading asset ${relativePath} in ${source.describe}.`,
-    );
+    throw new GradingAssetsError(`Missing grading asset ${relativePath} in ${source.describe}.`);
   }
   return content;
 }
@@ -365,7 +360,7 @@ export function extractRubricSection(rubric: string, heading: string): string {
   if (start === -1) {
     throw new GradingAssetsError(
       `rubric.md has no "## ${heading}" section. The rubric's headings may have been ` +
-      `renamed — see SECTION_ASSETS in lib/grade/assets.ts.`,
+        `renamed — see SECTION_ASSETS in lib/grade/assets.ts.`,
     );
   }
 
@@ -398,7 +393,7 @@ function repoPathIn(relativePath: string): string {
   if (normalized.startsWith("..") || normalized.startsWith("/") || path.isAbsolute(relativePath)) {
     throw new GradingAssetsError(
       `Answer key path ${JSON.stringify(relativePath)} escapes the repository. ` +
-      `Fix assignment.answerKeyDir.`,
+        `Fix assignment.answerKeyDir.`,
     );
   }
   // `path.posix.normalize("")` is ".", and the contents endpoint wants an empty string for
@@ -503,7 +498,8 @@ export async function listAnswerKeyEntries(
   // Directories first, alphabetical within each, so a listing reads as something to
   // navigate rather than as whatever order the API happened to return.
   return [...entries].sort((a, b) =>
-    a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1);
+    a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1,
+  );
 }
 
 /** What one answer key directory resolves to: the files that will be read, and what was not. */
@@ -532,10 +528,7 @@ export type AnswerKeySet = {
  * byte-identical between runs — which is what makes provider caching possible and what makes
  * two reports of the same submission comparable.
  */
-export async function listAnswerKeys(
-  answerKeyRepo: string,
-  dir: string,
-): Promise<AnswerKeySet> {
+export async function listAnswerKeys(answerKeyRepo: string, dir: string): Promise<AnswerKeySet> {
   const source = await answerKeySource(answerKeyRepo);
 
   // Bounded so that pointing an assignment at a large directory cannot turn one keystroke in
@@ -551,7 +544,8 @@ export async function listAnswerKeys(
 
   async function walk(relative: string, entries: AssetEntry[], depth: number): Promise<void> {
     const sorted = [...entries].sort((a, b) =>
-      a.type === b.type ? a.name.localeCompare(b.name) : a.type === "file" ? -1 : 1);
+      a.type === b.type ? a.name.localeCompare(b.name) : a.type === "file" ? -1 : 1,
+    );
 
     for (const entry of sorted) {
       const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
@@ -601,7 +595,11 @@ export async function checkAnswerKeyDir(
   }
 
   if (set.missing) {
-    return { ok: false, reason: `There is no ${dir || "root directory"} in ${answerKeyRepo}.`, set };
+    return {
+      ok: false,
+      reason: `There is no ${dir || "root directory"} in ${answerKeyRepo}.`,
+      set,
+    };
   }
   if (set.paths.length === 0) {
     return {
@@ -609,8 +607,9 @@ export async function checkAnswerKeyDir(
       reason:
         `${dir || answerKeyRepo} holds no files that can be used as reference solutions` +
         (set.excluded.length > 0
-          ? ` — ${set.excluded.length} were skipped as ${
-              [...new Set(set.excluded.map((entry) => entry.reason))].join(", ")}.`
+          ? ` — ${set.excluded.length} were skipped as ${[
+              ...new Set(set.excluded.map((entry) => entry.reason)),
+            ].join(", ")}.`
           : "."),
       set,
     };
@@ -647,7 +646,7 @@ export async function loadGradingAssets(params: {
   if (params.answerKeyDir !== null && !params.answerKeyRepo) {
     throw new GradingAssetsError(
       `This assignment names an answer key directory (${JSON.stringify(params.answerKeyDir)}) ` +
-      `but no repository to read it from. Set answerKeyRepo on the assignment.`,
+        `but no repository to read it from. Set answerKeyRepo on the assignment.`,
     );
   }
 

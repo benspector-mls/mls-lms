@@ -1,4 +1,4 @@
-import type { GradingDraftStatus, SubmissionStatus } from '@/lib/generated/prisma/enums';
+import type { GradingDraftStatus, SubmissionStatus } from "@/lib/generated/prisma/enums";
 
 /**
  * Which pile of outstanding work a submission belongs in.
@@ -12,13 +12,13 @@ import type { GradingDraftStatus, SubmissionStatus } from '@/lib/generated/prism
  */
 
 export type TriageBucket =
-  | 'needs_report'
-  | 'needs_manual_grade'
-  | 'draft_ready'
-  | 'needs_manual_review'
-  | 'grading_failed'
-  | 'comment_not_posted'
-  | 'generating';
+  | "needs_report"
+  | "needs_manual_grade"
+  | "draft_ready"
+  | "needs_manual_review"
+  | "grading_failed"
+  | "comment_not_posted"
+  | "generating";
 
 /**
  * The bucket, or null if the submission needs nobody.
@@ -54,16 +54,16 @@ export function triageBucket(
     what happens next is usually that they push again and a new draft is generated, which
     would bury the undelivered one behind it forever.
   */
-  if (hasUndeliveredApproval) return 'comment_not_posted';
+  if (hasUndeliveredApproval) return "comment_not_posted";
 
   // A draft describing a commit the student has pushed past is not a report on the work
   // in front of the instructor, so it is not read here at all — the submission falls
   // through to needing a new one.
   if (draft && !draftIsStale) {
-    if (draft.status === 'READY') return 'draft_ready';
-    if (draft.status === 'NEEDS_MANUAL_REVIEW') return 'needs_manual_review';
-    if (draft.status === 'FAILED') return 'grading_failed';
-    if (draft.status === 'GENERATING') return 'generating';
+    if (draft.status === "READY") return "draft_ready";
+    if (draft.status === "NEEDS_MANUAL_REVIEW") return "needs_manual_review";
+    if (draft.status === "FAILED") return "grading_failed";
+    if (draft.status === "GENERATING") return "generating";
   }
 
   /*
@@ -74,14 +74,14 @@ export function triageBucket(
     A student who pushed after being graded without declaring it ready is deliberately
     not here: pushing is not asking, and their submission is still GRADED.
   */
-  if (submissionStatus === 'SUBMITTED' || submissionStatus === 'RESUBMITTED') {
+  if (submissionStatus === "SUBMITTED" || submissionStatus === "RESUBMITTED") {
     /*
       The same pile of work, distinguished because the action differs and only one of them
       exists. `needs_report` offers to generate one; an assignment nothing can generate a
       report for must not show that button, and calling this work "no report yet" would
       describe it by the thing that is never going to happen to it.
     */
-    return isManualOnly ? 'needs_manual_grade' : 'needs_report';
+    return isManualOnly ? "needs_manual_grade" : "needs_report";
   }
 
   return null;
@@ -89,5 +89,5 @@ export function triageBucket(
 
 /** True for every bucket that counts as work remaining. A run in flight does not. */
 export function isOutstanding(bucket: TriageBucket | null): boolean {
-  return bucket !== null && bucket !== 'generating';
+  return bucket !== null && bucket !== "generating";
 }

@@ -2,7 +2,7 @@ import type {
   AssignmentKind,
   GradingDraftStatus,
   SubmissionStatus,
-} from '@/lib/generated/prisma/enums';
+} from "@/lib/generated/prisma/enums";
 
 /**
  * How every status, flag, and number is presented. One place, because the same
@@ -10,7 +10,7 @@ import type {
  * list, and the gradebook, and those three must never disagree about what it means.
  */
 
-export type StatusTone = 'neutral' | 'info' | 'pending' | 'review' | 'danger' | 'success';
+export type StatusTone = "neutral" | "info" | "pending" | "review" | "danger" | "success";
 
 export interface StatusMeta {
   label: string;
@@ -20,40 +20,40 @@ export interface StatusMeta {
 
 /** What an instructor sees for a submission status: the real state of the queue. */
 export const SUBMISSION_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
-  NOT_STARTED: { label: 'Not started', tone: 'neutral', description: 'No repository created yet.' },
+  NOT_STARTED: { label: "Not started", tone: "neutral", description: "No repository created yet." },
   ACCEPTED: {
-    label: 'Accepted',
-    tone: 'info',
-    description: 'Repository created; no pull request opened yet.',
+    label: "Accepted",
+    tone: "info",
+    description: "Repository created; no pull request opened yet.",
   },
   SUBMITTED: {
-    label: 'Submitted',
-    tone: 'pending',
-    description: 'Pull request open, awaiting grading.',
+    label: "Submitted",
+    tone: "pending",
+    description: "Pull request open, awaiting grading.",
   },
   DRAFT_READY: {
-    label: 'Draft ready',
-    tone: 'review',
-    description: 'A draft is waiting for your review.',
+    label: "Draft ready",
+    tone: "review",
+    description: "A draft is waiting for your review.",
   },
   // Blue, not green. Green means "met the completion threshold" everywhere else in the
   // interface, and a 9/15 released with a green pill reads as a pass. Grading being finished
   // and the work being complete are different facts, and one colour cannot say both.
-  GRADED: { label: 'Graded', tone: 'info', description: 'Approved and sent to the student.' },
+  GRADED: { label: "Graded", tone: "info", description: "Approved and sent to the student." },
   RESUBMITTED: {
-    label: 'Resubmitted',
-    tone: 'review',
-    description: 'The student asked for another review.',
+    label: "Resubmitted",
+    tone: "review",
+    description: "The student asked for another review.",
   },
   GRADING_FAILED: {
-    label: 'Grading failed',
-    tone: 'danger',
-    description: 'The pipeline errored before a draft was produced.',
+    label: "Grading failed",
+    tone: "danger",
+    description: "The pipeline errored before a draft was produced.",
   },
   NEEDS_MANUAL_REVIEW: {
-    label: 'Needs manual review',
-    tone: 'danger',
-    description: 'No confident draft could be produced.',
+    label: "Needs manual review",
+    tone: "danger",
+    description: "No confident draft could be produced.",
   },
 };
 
@@ -67,64 +67,76 @@ export const SUBMISSION_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
  */
 export const STUDENT_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
   NOT_STARTED: {
-    label: 'Not started',
-    tone: 'neutral',
-    description: 'Accept the assignment to create your repository.',
+    label: "Not started",
+    tone: "neutral",
+    description: "Accept the assignment to create your repository.",
   },
   ACCEPTED: {
-    label: 'Accepted',
-    tone: 'info',
-    description: 'Work on the draft branch and open a pull request to submit.',
+    label: "Accepted",
+    tone: "info",
+    description: "Work on the draft branch and open a pull request to submit.",
   },
   SUBMITTED: {
-    label: 'Submitted',
-    tone: 'pending',
-    description: 'Your pull request is with your instructor.',
+    label: "Submitted",
+    tone: "pending",
+    description: "Your pull request is with your instructor.",
   },
   DRAFT_READY: {
-    label: 'Submitted',
-    tone: 'pending',
-    description: 'Your pull request is with your instructor.',
+    label: "Submitted",
+    tone: "pending",
+    description: "Your pull request is with your instructor.",
   },
   NEEDS_MANUAL_REVIEW: {
-    label: 'Submitted',
-    tone: 'pending',
-    description: 'Your pull request is with your instructor.',
+    label: "Submitted",
+    tone: "pending",
+    description: "Your pull request is with your instructor.",
   },
   GRADING_FAILED: {
-    label: 'Submitted',
-    tone: 'pending',
-    description: 'Your pull request is with your instructor.',
+    label: "Submitted",
+    tone: "pending",
+    description: "Your pull request is with your instructor.",
   },
   RESUBMITTED: {
-    label: 'Awaiting another review',
-    tone: 'review',
-    description: 'You have asked for another look.',
+    label: "Awaiting another review",
+    tone: "review",
+    description: "You have asked for another look.",
   },
   /*
     Blue, for the reason the instructor's GRADED is. "Your feedback is ready to read" is not
     "you passed" — the score beside it says that, in green or red — and a green pill on work
     below the threshold told the student the opposite of the truth.
   */
-  GRADED: { label: 'Graded', tone: 'info', description: 'Your feedback is ready to read.' },
+  GRADED: { label: "Graded", tone: "info", description: "Your feedback is ready to read." },
 };
 
 export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
-  GENERATING: { label: 'Generating', tone: 'pending', description: 'The grading run is in progress.' },
-  READY: { label: 'Ready for review', tone: 'review', description: 'A proposal awaiting your approval.' },
-  NEEDS_MANUAL_REVIEW: {
-    label: 'Needs manual review',
-    tone: 'danger',
-    description: 'No confident draft could be produced.',
+  GENERATING: {
+    label: "Generating",
+    tone: "pending",
+    description: "The grading run is in progress.",
   },
-  FAILED: { label: 'Failed', tone: 'danger', description: 'The grading pipeline errored.' },
-  SUPERSEDED: { label: 'Superseded', tone: 'neutral', description: 'A newer draft replaced this one.' },
+  READY: {
+    label: "Ready for review",
+    tone: "review",
+    description: "A proposal awaiting your approval.",
+  },
+  NEEDS_MANUAL_REVIEW: {
+    label: "Needs manual review",
+    tone: "danger",
+    description: "No confident draft could be produced.",
+  },
+  FAILED: { label: "Failed", tone: "danger", description: "The grading pipeline errored." },
+  SUPERSEDED: {
+    label: "Superseded",
+    tone: "neutral",
+    description: "A newer draft replaced this one.",
+  },
   /*
     Blue rather than green, for the reason `GRADED` is: approving is what releases feedback, not
     a statement that the work passed. Green means the completion threshold was met — see
     `completionMeta` — and a green "Approved" beside a 9/15 said otherwise.
   */
-  APPROVED: { label: 'Approved', tone: 'info', description: 'Sent to the student.' },
+  APPROVED: { label: "Approved", tone: "info", description: "Sent to the student." },
 };
 
 /**
@@ -132,7 +144,7 @@ export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
  * approve past, as opposed to the ones that are neutral facts about the run.
  */
 
-export type FlagKind = 'writing' | 'technical' | 'test' | 'pipeline';
+export type FlagKind = "writing" | "technical" | "test" | "pipeline";
 
 export interface FlagMeta {
   label: string;
@@ -145,91 +157,87 @@ export interface FlagMeta {
 export const FLAG_META: Record<string, FlagMeta> = {
   // Writing quality — one per rubric band the student lost points in.
   MECHANICAL: {
-    label: 'Mechanical',
-    kind: 'writing',
-    tone: 'neutral',
+    label: "Mechanical",
+    kind: "writing",
+    tone: "neutral",
     fault: false,
-    description:
-      'Points came off for spelling, grammar, or punctuation.',
+    description: "Points came off for spelling, grammar, or punctuation.",
   },
   CLARITY: {
-    label: 'Clarity',
-    kind: 'writing',
-    tone: 'neutral',
+    label: "Clarity",
+    kind: "writing",
+    tone: "neutral",
     fault: false,
     description:
-      'Points came off because the writing was vague, contradictory, or more involved than it needed to be.',
+      "Points came off because the writing was vague, contradictory, or more involved than it needed to be.",
   },
   MARKDOWN: {
-    label: 'Markdown',
-    kind: 'writing',
-    tone: 'neutral',
+    label: "Markdown",
+    kind: "writing",
+    tone: "neutral",
     fault: false,
     description:
-      'Points came off because the markdown does not render, or because formatting would have helped and was not used.',
+      "Points came off because the markdown does not render, or because formatting would have helped and was not used.",
   },
   STRUCTURE: {
-    label: 'Structure',
-    kind: 'writing',
-    tone: 'neutral',
+    label: "Structure",
+    kind: "writing",
+    tone: "neutral",
     fault: false,
-    description:
-      'Points came off for unclear structure or poor flow.',
+    description: "Points came off for unclear structure or poor flow.",
   },
   // Technical score.
   INCOMPLETE: {
-    label: 'Incomplete',
-    kind: 'technical',
-    tone: 'neutral',
+    label: "Incomplete",
+    kind: "technical",
+    tone: "neutral",
     fault: false,
     description:
-      'Points came off because part of the assignment was not attempted or was left unfinished.',
+      "Points came off because part of the assignment was not attempted or was left unfinished.",
   },
   UNDERSTANDING: {
-    label: 'Understanding',
-    kind: 'technical',
-    tone: 'neutral',
+    label: "Understanding",
+    kind: "technical",
+    tone: "neutral",
     fault: false,
-    description:
-      'Points came off for a gap, an inaccuracy, or a misunderstanding of the concept.',
+    description: "Points came off for a gap, an inaccuracy, or a misunderstanding of the concept.",
   },
   TERMINOLOGY: {
-    label: 'Terminology',
-    kind: 'technical',
-    tone: 'neutral',
+    label: "Terminology",
+    kind: "technical",
+    tone: "neutral",
     fault: false,
-    description:
-      'Points came off for missing or misused terminology.',
+    description: "Points came off for missing or misused terminology.",
   },
   // Test evidence — exactly one of these per section, always.
   TEST_EVIDENCE: {
-    label: 'Checked against tests',
-    kind: 'test',
-    tone: 'success',
+    label: "Checked against tests",
+    kind: "test",
+    tone: "success",
     fault: false,
     description:
       "The report's claims about which tests passed were checked against a real run at this commit.",
   },
   NO_TESTS_EXPECTED: {
-    label: 'No tests by design',
-    kind: 'test',
-    tone: 'neutral',
+    label: "No tests by design",
+    kind: "test",
+    tone: "neutral",
     fault: false,
     description:
-      'This section has no test suite, so the score rests on the rubric and a reading of the work. Ordinary for short response and frontend assignments.',
+      "This section has no test suite, so the score rests on the rubric and a reading of the work. Ordinary for short response and frontend assignments.",
   },
   TEST_RUN_MISSING: {
-    label: 'Test run missing',
-    kind: 'test',
-    tone: 'danger',
+    label: "Test run missing",
+    kind: "test",
+    tone: "danger",
     fault: true,
     description:
-      'This section expects test results and none exist at this commit, so it was graded without evidence it should have had. Run the tests and generate the report again.',
+      "This section expects test results and none exist at this commit, so it was graded without evidence it should have had. Run the tests and generate the report again.",
   },
   TEST_MATCH_MISSING: {
-    label: 'No matching tests',
-    kind: 'test',
-    tone: 'danger',
+    label: "No matching tests",
+    kind: "test",
+    tone: "danger",
     fault: true,
     description:
       "The suite ran, but this section's test name pattern matched none of it. Either the pattern is wrong or the tests it names do not exist.",
@@ -245,73 +253,71 @@ export const FLAG_META: Record<string, FlagMeta> = {
     the raw string `LOW_CONFIDENCE` as a badge.
   */
   LOW_CONFIDENCE: {
-    label: 'Low confidence',
-    kind: 'pipeline',
-    tone: 'pending',
+    label: "Low confidence",
+    kind: "pipeline",
+    tone: "pending",
     fault: false,
-    description: 'Recorded by an older grading run. The confidence pill says the same thing.',
+    description: "Recorded by an older grading run. The confidence pill says the same thing.",
   },
   ARITHMETIC_MISMATCH: {
-    label: 'Arithmetic mismatch',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Arithmetic mismatch",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
-    description:
-      'The rubric items do not add up to the section score, so one of the two is wrong.',
+    description: "The rubric items do not add up to the section score, so one of the two is wrong.",
   },
   REPORT_TEXT_SCORE_MISMATCH: {
-    label: 'Report/score mismatch',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Report/score mismatch",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
     description:
-      'The score written in the report text is not the score being recorded. The student reads the prose; the gradebook reads the number.',
+      "The score written in the report text is not the score being recorded. The student reads the prose; the gradebook reads the number.",
   },
   INTERNAL_LABEL_IN_REPORT: {
-    label: 'Internal label in report',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Internal label in report",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
     description:
-      'An internal flag code was left in the report text, which the student would read. Remove it before approving.',
+      "An internal flag code was left in the report text, which the student would read. Remove it before approving.",
   },
   TEST_CLAIM_CONTRADICTION: {
-    label: 'Test claim contradiction',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Test claim contradiction",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
-    description:
-      'The report says a test passed that the recorded run says failed, or the reverse.',
+    description: "The report says a test passed that the recorded run says failed, or the reverse.",
   },
   UNKNOWN_TEST_CLAIMED: {
-    label: 'Unknown test claimed',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Unknown test claimed",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
-    description: 'The report cites a test that was not in the run.',
+    description: "The report cites a test that was not in the run.",
   },
   FULL_CREDIT_DESPITE_FAILURES: {
-    label: 'Full credit despite failures',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Full credit despite failures",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
     description:
-      'Full marks were given on a criterion while tests were failing. Withholding points when tests pass is a legitimate judgment; this is the reverse.',
+      "Full marks were given on a criterion while tests were failing. Withholding points when tests pass is a legitimate judgment; this is the reverse.",
   },
   PROTECTED_PATHS_CHANGED: {
-    label: 'Protected paths changed',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Protected paths changed",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
     description:
       "The pull request changes test or configuration files. The template's tests were used instead so the score is unaffected — but the change is worth a look.",
   },
   SCORE_OUT_OF_RANGE: {
-    label: 'Score out of range',
-    kind: 'pipeline',
-    tone: 'danger',
+    label: "Score out of range",
+    kind: "pipeline",
+    tone: "danger",
     fault: true,
-    description: 'The section score is below zero or above its maximum.',
+    description: "The section score is below zero or above its maximum.",
   },
 };
 
@@ -323,8 +329,8 @@ export function flagMeta(code: string): FlagMeta {
   return (
     FLAG_META[code] ?? {
       label: code,
-      kind: 'pipeline',
-      tone: 'neutral',
+      kind: "pipeline",
+      tone: "neutral",
       fault: false,
       description: code,
     }
@@ -332,12 +338,12 @@ export function flagMeta(code: string): FlagMeta {
 }
 
 export const TONE_CLASSES: Record<StatusTone, string> = {
-  neutral: 'border-border bg-muted text-muted-foreground',
-  info: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
-  pending: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-  review: 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
-  danger: 'border-destructive/40 bg-destructive/10 text-destructive dark:text-red-300',
-  success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  neutral: "border-border bg-muted text-muted-foreground",
+  info: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  pending: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  review: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  danger: "border-destructive/40 bg-destructive/10 text-destructive dark:text-red-300",
+  success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 };
 
 /**
@@ -354,7 +360,7 @@ export const TONE_CLASSES: Record<StatusTone, string> = {
  * the queue and the review header cannot come to disagree about it.
  */
 export function draftStatusAddsSomething(status: GradingDraftStatus): boolean {
-  return status !== 'APPROVED' && status !== 'SUPERSEDED';
+  return status !== "APPROVED" && status !== "SUPERSEDED";
 }
 
 /**
@@ -373,17 +379,17 @@ export function completionMeta(
   if (isComplete == null) return null;
 
   return isComplete
-    ? { label: 'Complete', className: 'text-emerald-700 dark:text-emerald-400' }
-    : { label: 'Incomplete', className: 'text-destructive dark:text-red-400' };
+    ? { label: "Complete", className: "text-emerald-700 dark:text-emerald-400" }
+    : { label: "Incomplete", className: "text-destructive dark:text-red-400" };
 }
 
 export const TONE_DOT: Record<StatusTone, string> = {
-  neutral: 'bg-muted-foreground/50',
-  info: 'bg-sky-500',
-  pending: 'bg-amber-500',
-  review: 'bg-violet-500',
-  danger: 'bg-destructive',
-  success: 'bg-emerald-500',
+  neutral: "bg-muted-foreground/50",
+  info: "bg-sky-500",
+  pending: "bg-amber-500",
+  review: "bg-violet-500",
+  danger: "bg-destructive",
+  success: "bg-emerald-500",
 };
 
 /**
@@ -397,21 +403,22 @@ export const TONE_DOT: Record<StatusTone, string> = {
  * The descriptions are what the badge carries as a tooltip, so they say how the work is handed
  * in rather than restating the label.
  */
-export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; description: string }> = {
-  REPO: {
-    label: 'Code',
-    description: 'Handed in as a pull request from your own copy of a repository.',
-  },
-  GOOGLE_DRIVE: {
-    label: 'Google Drive',
-    description: 'Handed in as a link to your own copy of a Doc, Sheet, or Slides deck.',
-  },
-  FILE_UPLOAD: { label: 'File', description: 'Handed in as an uploaded file.' },
-  EXTERNAL_URL: {
-    label: 'Link',
-    description: 'Made somewhere else — Canva, Loom, a deployed site — and handed in as a link.',
-  },
-};
+export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; description: string }> =
+  {
+    REPO: {
+      label: "Code",
+      description: "Handed in as a pull request from your own copy of a repository.",
+    },
+    GOOGLE_DRIVE: {
+      label: "Google Drive",
+      description: "Handed in as a link to your own copy of a Doc, Sheet, or Slides deck.",
+    },
+    FILE_UPLOAD: { label: "File", description: "Handed in as an uploaded file." },
+    EXTERNAL_URL: {
+      label: "Link",
+      description: "Made somewhere else — Canva, Loom, a deployed site — and handed in as a link.",
+    },
+  };
 
 /**
  * How sure the model was about a section, as a `StatusMeta` so it renders through the same
@@ -424,19 +431,19 @@ export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; descr
  * to hedge, and directs a genuine boundary case into `instructorNotes` naming both bands. If
  * that rule ever changes, this text has to change with it.
  */
-export const CONFIDENCE_META: Record<'HIGH' | 'LOW', StatusMeta> = {
+export const CONFIDENCE_META: Record<"HIGH" | "LOW", StatusMeta> = {
   HIGH: {
-    label: 'High confidence',
-    tone: 'success',
-    description: 'The model reported no reservations about this section’s score.',
+    label: "High confidence",
+    tone: "success",
+    description: "The model reported no reservations about this section’s score.",
   },
   LOW: {
-    label: 'Low confidence',
-    tone: 'pending',
+    label: "Low confidence",
+    tone: "pending",
     description:
-      'The model could not assess something: a file it needed was absent, the code could not ' +
-      'be read, the rubric does not cover what was submitted, or the reference solutions were ' +
-      'missing. It does not hold the draft back, but read this section closely.',
+      "The model could not assess something: a file it needed was absent, the code could not " +
+      "be read, the rubric does not cover what was submitted, or the reference solutions were " +
+      "missing. It does not hold the draft back, but read this section closely.",
   },
 };
 
@@ -448,10 +455,10 @@ export const CONFIDENCE_META: Record<'HIGH' | 'LOW', StatusMeta> = {
  * section rather than per assignment.
  */
 const SECTION_LABELS: Record<string, string> = {
-  short_response: 'Short response',
-  coding_algorithm: 'Algorithm fluency',
-  coding_sql: 'SQL fluency',
-  coding_frontend: 'Frontend',
+  short_response: "Short response",
+  coding_algorithm: "Algorithm fluency",
+  coding_sql: "SQL fluency",
+  coding_frontend: "Frontend",
 };
 
 export function sectionLabel(sectionType: string): string {
@@ -460,7 +467,7 @@ export function sectionLabel(sectionType: string): string {
 
   // A section type the interface has not been taught about still needs to read as
   // words rather than as a database value.
-  const spaced = sectionType.replace(/_/g, ' ');
+  const spaced = sectionType.replace(/_/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
@@ -472,27 +479,27 @@ export function sectionLabel(sectionType: string): string {
  * zone also keeps a server rendering in UTC from disagreeing with a browser about which
  * day a late-evening deadline falls on — which React reports as a hydration mismatch.
  */
-const SCHOOL_TIME_ZONE = 'America/New_York';
+const SCHOOL_TIME_ZONE = "America/New_York";
 
 export function formatDate(d: Date | null | undefined): string {
-  if (!d) return '—';
-  return d.toLocaleDateString('en-US', {
+  if (!d) return "—";
+  return d.toLocaleDateString("en-US", {
     timeZone: SCHOOL_TIME_ZONE,
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
 export function formatDateTime(d: Date | null | undefined): string {
-  if (!d) return '—';
-  return d.toLocaleString('en-US', {
+  if (!d) return "—";
+  return d.toLocaleString("en-US", {
     timeZone: SCHOOL_TIME_ZONE,
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
@@ -503,7 +510,7 @@ export function formatDateTime(d: Date | null | undefined): string {
  * and client output differ, and because a cached render has no meaningful "now" at all.
  */
 export function formatRelative(d: Date | null | undefined, now: Date): string {
-  if (!d) return '—';
+  if (!d) return "—";
 
   const diffMs = now.getTime() - d.getTime();
   const past = diffMs >= 0;
@@ -516,28 +523,31 @@ export function formatRelative(d: Date | null | undefined, now: Date): string {
   let unit: string;
   if (abs < hour) {
     value = Math.max(1, Math.round(abs / minute));
-    unit = 'min';
+    unit = "min";
   } else if (abs < day) {
     value = Math.round(abs / hour);
-    unit = 'hr';
+    unit = "hr";
   } else {
     value = Math.round(abs / day);
-    unit = 'day';
+    unit = "day";
   }
 
-  const plural = value === 1 ? '' : 's';
+  const plural = value === 1 ? "" : "s";
   return past ? `${value} ${unit}${plural} ago` : `in ${value} ${unit}${plural}`;
 }
 
 export function shortSha(sha: string | null | undefined, length = 7): string {
-  if (!sha) return '—';
+  if (!sha) return "—";
   return sha.slice(0, length);
 }
 
 /** Scores. Null means "not graded", which is never the same as zero. */
 
-export function scoreLabel(earned: number | null | undefined, possible: number | null | undefined): string {
-  if (earned == null || possible == null) return '—';
+export function scoreLabel(
+  earned: number | null | undefined,
+  possible: number | null | undefined,
+): string {
+  if (earned == null || possible == null) return "—";
   return `${earned}/${possible}`;
 }
 
@@ -550,12 +560,12 @@ export function scorePercent(
 }
 
 export function formatPercent(fraction: number | null): string {
-  if (fraction == null) return '—';
+  if (fraction == null) return "—";
   return `${Math.round(fraction * 100)}%`;
 }
 
 export function formatDuration(ms: number | null | undefined): string {
-  if (ms == null) return '—';
+  if (ms == null) return "—";
   if (ms < 1000) return `${ms} ms`;
 
   const seconds = ms / 1000;

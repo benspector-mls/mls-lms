@@ -24,9 +24,7 @@ import { ALL_STUDENTS } from "./groups";
  */
 export async function resolveGroup(courseId: string, requested: string | undefined) {
   const queryClient = getQueryClient();
-  const groups = await queryClient.fetchQuery(
-    trpc.groups.listForCourse.queryOptions({ courseId }),
-  );
+  const groups = await queryClient.fetchQuery(trpc.groups.listForCourse.queryOptions({ courseId }));
 
   return {
     ...groups,

@@ -1,35 +1,35 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Save } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { AlertTriangle, CheckCircle2, Loader2, Plus, Save } from "lucide-react";
+import { toast } from "sonner";
 
-import { Field, SectionEditor, type SectionDraft } from '@/components/instructor/section-editor';
-import { PageHeader } from '@/components/page-header';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
+import { PageHeader } from "@/components/page-header";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   normalizeRepoRef,
   parseRepoRef,
   repoNameFromRef,
   repoPathFromRef,
-} from '@/lib/assignments/repo-ref';
-import { RUBRIC_NAME_BY_SECTION_TYPE } from '@/lib/assignments/spec';
-import type { AssignmentKind } from '@/lib/generated/prisma/enums';
-import { NO_RUNNER, RUNNER_PRESETS } from '@/lib/sandbox/presets';
+} from "@/lib/assignments/repo-ref";
+import { RUBRIC_NAME_BY_SECTION_TYPE } from "@/lib/assignments/spec";
+import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
 import {
   formatBytes,
   isUploadFileTypeKey,
@@ -38,9 +38,9 @@ import {
   extensionsOf,
   UPLOAD_FILE_TYPES,
   type UploadFileTypeKey,
-} from '@/lib/uploads/file-types';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/lib/uploads/file-types";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Creating and editing an assignment.
@@ -65,8 +65,8 @@ import type { RouterOutputs } from '@/trpc/types';
  * makes real GitHub calls.
  */
 
-type Context = RouterOutputs['assignments']['authoringContext'];
-type Draft = RouterOutputs['assignments']['getDraft'];
+type Context = RouterOutputs["assignments"]["authoringContext"];
+type Draft = RouterOutputs["assignments"]["getDraft"];
 
 /**
  * From the enum rather than spelled out, so a kind added to the schema is a compile error in
@@ -118,26 +118,26 @@ type FormState = {
 /** What the kind is called on screen, and what it means in one line. */
 const KIND_META: Record<Kind, { label: string; hint: string }> = {
   REPO: {
-    label: 'GitHub repository',
-    hint: 'Generated from a template. The student opens a pull request, and the pipeline grades it.',
+    label: "GitHub repository",
+    hint: "Generated from a template. The student opens a pull request, and the pipeline grades it.",
   },
   GOOGLE_DRIVE: {
-    label: 'Google Drive',
-    hint: 'Students take their own copy of a template Doc, Sheet, or Slides deck and submit the link. Graded by hand.',
+    label: "Google Drive",
+    hint: "Students take their own copy of a template Doc, Sheet, or Slides deck and submit the link. Graded by hand.",
   },
   FILE_UPLOAD: {
-    label: 'File upload',
-    hint: 'Students hand in a file. No template and nothing to accept. Graded by hand.',
+    label: "File upload",
+    hint: "Students hand in a file. No template and nothing to accept. Graded by hand.",
   },
   EXTERNAL_URL: {
-    label: 'External URL',
-    hint: 'Students make something on another service — Canva, Loom, a deployed site — and submit the link. No template and nothing to accept. Graded by hand.',
+    label: "External URL",
+    hint: "Students make something on another service — Canva, Loom, a deployed site — and submit the link. No template and nothing to accept. Graded by hand.",
   },
 };
 
 /** True when this kind has a repository, a template, and a suite that can run. */
 function isRepoKind(kind: Kind): boolean {
-  return kind === 'REPO';
+  return kind === "REPO";
 }
 
 /**
@@ -160,10 +160,10 @@ function toDraft(state: FormState): unknown {
     submissionInstructions: state.submissionInstructions.trim() || null,
   };
 
-  if (state.kind === 'REPO') {
+  if (state.kind === "REPO") {
     return {
       ...shared,
-      kind: 'REPO',
+      kind: "REPO",
       /*
         Both sent as typed. The schema normalizes them, so a pasted URL and a typed
         owner/repo are the same value by the time anything checks or stores one — and
@@ -181,14 +181,14 @@ function toDraft(state: FormState): unknown {
     };
   }
 
-  if (state.kind === 'GOOGLE_DRIVE') {
-    return { ...shared, kind: 'GOOGLE_DRIVE', templateDriveUrl: state.templateDriveUrl.trim() };
+  if (state.kind === "GOOGLE_DRIVE") {
+    return { ...shared, kind: "GOOGLE_DRIVE", templateDriveUrl: state.templateDriveUrl.trim() };
   }
 
-  if (state.kind === 'FILE_UPLOAD') {
+  if (state.kind === "FILE_UPLOAD") {
     return {
       ...shared,
-      kind: 'FILE_UPLOAD',
+      kind: "FILE_UPLOAD",
       acceptedFileTypes: state.acceptedFileTypes,
     };
   }
@@ -196,7 +196,7 @@ function toDraft(state: FormState): unknown {
   // Nothing of its own to send. What the student is asked to make, and where, is prose in
   // `submissionInstructions` rather than a field — see the schema's own note on why there is no
   // column for a starting link.
-  return { ...shared, kind: 'EXTERNAL_URL' };
+  return { ...shared, kind: "EXTERNAL_URL" };
 }
 
 const DEBOUNCE_MS = 600;
@@ -256,7 +256,7 @@ function Editor({
   const trpc = useTRPC();
 
   const [moduleId, setModuleId] = React.useState<string>(
-    existing?.moduleId ?? context.course.modules[0]?.id ?? '',
+    existing?.moduleId ?? context.course.modules[0]?.id ?? "",
   );
 
   /*
@@ -270,8 +270,8 @@ function Editor({
     existing
       ? fromDraft(existing)
       : blankDraft({
-          kind: 'REPO',
-          moduleId: context.course.modules[0]?.id ?? '',
+          kind: "REPO",
+          moduleId: context.course.modules[0]?.id ?? "",
           defaults: {
             githubOrg: context.defaultGithubOrg,
             answerKeyRepo: context.defaultAnswerKeyRepo,
@@ -283,7 +283,7 @@ function Editor({
 
   // Held outside `state` because a kind can be chosen before the rest of the form is filled
   // in, and switching it rebuilds the draft into that kind's shape.
-  const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? 'REPO');
+  const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? "REPO");
 
   // What the server has been asked about. Trails the form by DEBOUNCE_MS so that typing a
   // point value does not make a GitHub request per keystroke.
@@ -297,8 +297,8 @@ function Editor({
     Read off the *settled* draft, so the listing does not issue a request per keystroke while a
     URL is being pasted.
   */
-  const answerKeyRepo = isRepoKind(kind) ? (settled?.answerKeyRepo ?? '') : '';
-  const answerKeyDir = state?.answerKeyDir ?? '';
+  const answerKeyRepo = isRepoKind(kind) ? (settled?.answerKeyRepo ?? "") : "";
+  const answerKeyDir = state?.answerKeyDir ?? "";
 
   /*
     What the named directory resolves to: the files grading will read, and what it skipped.
@@ -311,7 +311,7 @@ function Editor({
     ...trpc.assignments.answerKeyPreview.queryOptions({
       courseId,
       answerKeyRepo,
-      dir: settled?.answerKeyDir ?? '',
+      dir: settled?.answerKeyDir ?? "",
     }),
     enabled: answerKeyRepo.length > 0,
   });
@@ -327,7 +327,7 @@ function Editor({
   const detection = useQuery({
     ...trpc.assignments.inferFromTemplate.queryOptions({
       courseId,
-      templateRepo: settled?.templateRepo ?? '',
+      templateRepo: settled?.templateRepo ?? "",
     }),
     enabled: !existing && Boolean(settled?.templateRepo),
   });
@@ -364,7 +364,7 @@ function Editor({
 
     if (within) setState((prev) => (prev ? { ...prev, answerKeyDir: within } : prev));
     else if (changedRepository) {
-      setState((prev) => (prev ? { ...prev, answerKeyDir: '' } : prev));
+      setState((prev) => (prev ? { ...prev, answerKeyDir: "" } : prev));
     }
   }, [settled?.answerKeyRepo, setState]);
 
@@ -391,7 +391,7 @@ function Editor({
     const suggested = repoNameFromRef(template);
     if (!suggested) return;
     setState((prev) =>
-      prev && prev.assignmentRepoName === '' ? { ...prev, assignmentRepoName: suggested } : prev,
+      prev && prev.assignmentRepoName === "" ? { ...prev, assignmentRepoName: suggested } : prev,
     );
   }, [settled?.templateRepo, existing, setState]);
 
@@ -407,8 +407,8 @@ function Editor({
   });
 
   const findings = validation.data?.findings ?? [];
-  const errors = findings.filter((finding) => finding.severity === 'error');
-  const warnings = findings.filter((finding) => finding.severity === 'warning');
+  const errors = findings.filter((finding) => finding.severity === "error");
+  const warnings = findings.filter((finding) => finding.severity === "warning");
   const fieldFindings = (path: string) => findings.filter((finding) => finding.path === path);
 
   const create = useMutation(
@@ -444,15 +444,13 @@ function Editor({
   const runnerNames = [NO_RUNNER, ...Object.keys(RUNNER_PRESETS)];
 
   // Which mode this assignment is already committed to, so only that one is offered.
-  const hasAiSection = (state?.sections ?? []).some((section) => section.grading === 'ai');
-  const hasManualSection = (state?.sections ?? []).some(
-    (section) => section.grading === 'manual',
-  );
+  const hasAiSection = (state?.sections ?? []).some((section) => section.grading === "ai");
+  const hasManualSection = (state?.sections ?? []).some((section) => section.grading === "manual");
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
-        title={existing ? `Edit ${existing.title}` : 'New assignment'}
+        title={existing ? `Edit ${existing.title}` : "New assignment"}
         description={`${context.course.name} · ${context.course.cohortTerm}`}
         actions={
           <div className="flex items-center gap-2">
@@ -475,7 +473,7 @@ function Editor({
               ) : (
                 <Save data-icon="inline-start" />
               )}
-              {existing ? 'Save' : 'Create'}
+              {existing ? "Save" : "Create"}
             </Button>
           </div>
         }
@@ -496,10 +494,10 @@ function Editor({
           */}
           <Field
             label="Kind"
-            findings={fieldFindings('kind')}
+            findings={fieldFindings("kind")}
             hint={
               existing
-                ? 'Fixed once an assignment exists. Create a new one to hand work in a different way.'
+                ? "Fixed once an assignment exists. Create a new one to hand work in a different way."
                 : KIND_META[state?.kind ?? kind].hint
             }
           >
@@ -509,7 +507,7 @@ function Editor({
               <Select
                 value={kind}
                 onValueChange={(value) => {
-                  const next = (value ?? 'REPO') as Kind;
+                  const next = (value ?? "REPO") as Kind;
                   setKind(next);
                   setState(
                     blankDraft({
@@ -552,31 +550,29 @@ function Editor({
             Stated rather than shown as an empty select, which would read as a loading failure.
           */}
           {context.course.modules.length === 0 ? (
-            <Field label="Module" findings={fieldFindings('moduleId')}>
+            <Field label="Module" findings={fieldFindings("moduleId")}>
               <Alert>
                 <AlertTriangle />
                 <AlertTitle>This course has no modules yet</AlertTitle>
                 <AlertDescription>
-                  An assignment belongs to a module, so there has to be one first. Create them
-                  on the course page&apos;s Modules tab, then come back.
+                  An assignment belongs to a module, so there has to be one first. Create them on
+                  the course page&apos;s Modules tab, then come back.
                 </AlertDescription>
               </Alert>
             </Field>
           ) : (
-            <Field label="Module" findings={fieldFindings('moduleId')}>
+            <Field label="Module" findings={fieldFindings("moduleId")}>
               <Select
                 value={moduleId}
                 onValueChange={(value) => {
                   // Base UI reports null when a select is cleared; there is no cleared state
                   // here, so an empty string keeps the rest of the form's types honest.
-                  const next = value ?? '';
+                  const next = value ?? "";
                   setModuleId(next);
                   setState((prev) => (prev ? { ...prev, moduleId: next } : prev));
                 }}
                 // The trigger renders the value, which is a uuid. Without this it would show one.
-                items={Object.fromEntries(
-                  context.course.modules.map((row) => [row.id, row.name]),
-                )}
+                items={Object.fromEntries(context.course.modules.map((row) => [row.id, row.name]))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Choose a module" />
@@ -595,11 +591,11 @@ function Editor({
           {/* Typed, for every kind. It is what a student sees in their list. */}
           <Field
             label="Title"
-            findings={fieldFindings('title')}
+            findings={fieldFindings("title")}
             hint="What students see in their list."
           >
             <Input
-              value={state?.title ?? ''}
+              value={state?.title ?? ""}
               onChange={(event) =>
                 setState((prev) => (prev ? { ...prev, title: event.target.value } : prev))
               }
@@ -627,30 +623,26 @@ function Editor({
               <CardContent className="flex flex-col gap-4">
                 <Field
                   label="Template repository"
-                  findings={fieldFindings('templateRepo')}
+                  findings={fieldFindings("templateRepo")}
                   hint="Paste its URL. It has to be marked as a template repository on GitHub, and readable by this deployment's App — which any public repository is, wherever it lives."
                 >
                   <Input
                     value={state.templateRepo}
                     placeholder="https://github.com/owner/swe-1-4-loops"
-                    onChange={(event) =>
-                      setState({ ...state, templateRepo: event.target.value })
-                    }
+                    onChange={(event) => setState({ ...state, templateRepo: event.target.value })}
                   />
                   <NormalizedAs value={state.templateRepo} />
                 </Field>
 
                 <Field
                   label="Answer key repository"
-                  findings={fieldFindings('answerKeyRepo')}
+                  findings={fieldFindings("answerKeyRepo")}
                   hint="Paste its URL — including the path to the folder holding this assignment's solutions, if you have it open. Private, and in an organization the GitHub App is installed on: this holds the reference solutions, so it must not be readable by students."
                 >
                   <Input
                     value={state.answerKeyRepo}
                     placeholder="https://github.com/owner/swe-assignment-grading-guides"
-                    onChange={(event) =>
-                      setState({ ...state, answerKeyRepo: event.target.value })
-                    }
+                    onChange={(event) => setState({ ...state, answerKeyRepo: event.target.value })}
                   />
                   <NormalizedAs value={state.answerKeyRepo} showPath />
                 </Field>
@@ -666,7 +658,7 @@ function Editor({
                 */}
                 <Field
                   label="Reference solutions"
-                  findings={fieldFindings('answerKeyDir')}
+                  findings={fieldFindings("answerKeyDir")}
                   hint="Every file under this folder, at any depth, is sent to the model as reference — never shown to the student. Paste the folder's address above, or walk to it here."
                 >
                   <AnswerKeyBrowser
@@ -682,7 +674,7 @@ function Editor({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Organization"
-                    findings={fieldFindings('githubOrg')}
+                    findings={fieldFindings("githubOrg")}
                     hint="Where each student's repository is created."
                   >
                     <Input
@@ -693,11 +685,11 @@ function Editor({
 
                   <Field
                     label="Repository name"
-                    findings={fieldFindings('assignmentRepoName')}
+                    findings={fieldFindings("assignmentRepoName")}
                     hint={
                       existing && existing.submissionCount > 0
                         ? `${existing.submissionCount} student(s) have accepted this. Their repositories are named after it, so it cannot be changed.`
-                        : 'Each student gets {this}-{their github login}. Follows the template’s name until you change it.'
+                        : "Each student gets {this}-{their github login}. Follows the template’s name until you change it."
                     }
                   >
                     <Input
@@ -722,12 +714,12 @@ function Editor({
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   label="Due"
-                  findings={fieldFindings('dueAt')}
+                  findings={fieldFindings("dueAt")}
                   hint="Optional. A late submission is recorded as late, never refused."
                 >
                   <Input
                     type="date"
-                    value={state.dueAt ? toDateInput(state.dueAt) : ''}
+                    value={state.dueAt ? toDateInput(state.dueAt) : ""}
                     onChange={(event) =>
                       setState({
                         ...state,
@@ -740,10 +732,10 @@ function Editor({
                 </Field>
               </div>
 
-              {state.kind === 'GOOGLE_DRIVE' && (
+              {state.kind === "GOOGLE_DRIVE" && (
                 <Field
                   label="Template file"
-                  findings={fieldFindings('templateDriveUrl')}
+                  findings={fieldFindings("templateDriveUrl")}
                   hint="A Doc, a Sheet, or a Slides deck. Accepting sends the student to Google's own prompt to take a copy, built from this link. Paste the sharing link — it should end in /view or /edit."
                 >
                   <Input
@@ -761,10 +753,10 @@ function Editor({
                 preset is a select: a typo'd MIME type is not an error an instructor sees, it is
                 a student being told their correct file is the wrong kind, on the due date.
               */}
-              {state.kind === 'FILE_UPLOAD' && (
+              {state.kind === "FILE_UPLOAD" && (
                 <Field
                   label="What students may hand in"
-                  findings={fieldFindings('acceptedFileTypes')}
+                  findings={fieldFindings("acceptedFileTypes")}
                   hint={`At least one. Anything else is refused before it is stored, and the limit is ${formatBytes(MAX_UPLOAD_BYTES)} whatever you pick.`}
                 >
                   <div className="flex flex-wrap gap-x-5 gap-y-2">
@@ -787,7 +779,7 @@ function Editor({
                           />
                           <span>{UPLOAD_FILE_TYPES[key].label}</span>
                           <span className="text-xs text-muted-foreground">
-                            {extensionsOf(key).join(' ')}
+                            {extensionsOf(key).join(" ")}
                           </span>
                         </label>
                       );
@@ -798,11 +790,11 @@ function Editor({
 
               <Field
                 label="Submission instructions"
-                findings={fieldFindings('submissionInstructions')}
+                findings={fieldFindings("submissionInstructions")}
                 hint={
                   isRepoKind(state.kind)
-                    ? 'Optional, in markdown. The draft-branch-and-pull-request steps are already shown, so this is for anything specific to this assignment.'
-                    : 'Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here.'
+                    ? "Optional, in markdown. The draft-branch-and-pull-request steps are already shown, so this is for anything specific to this assignment."
+                    : "Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here."
                 }
               >
                 <textarea
@@ -834,35 +826,35 @@ function Editor({
                 question that does not apply.
               */}
               {isRepoKind(state.kind) && (
-              <Field
-                label="Test runner"
-                findings={fieldFindings('runnerPreset')}
-                hint={
-                  detection.data?.reason
-                    ? `${detection.data.reason} The tests come from the template repository, never the student’s copy.`
-                    : state.runnerPreset === NO_RUNNER
-                      ? 'No automated tests. Normal for short response and frontend work — most of the program.'
-                      : 'The tests come from the template repository, never the student’s copy.'
-                }
-              >
-                <Select
-                  value={state.runnerPreset}
-                  onValueChange={(value) =>
-                    setState({ ...state, runnerPreset: value ?? NO_RUNNER })
+                <Field
+                  label="Test runner"
+                  findings={fieldFindings("runnerPreset")}
+                  hint={
+                    detection.data?.reason
+                      ? `${detection.data.reason} The tests come from the template repository, never the student’s copy.`
+                      : state.runnerPreset === NO_RUNNER
+                        ? "No automated tests. Normal for short response and frontend work — most of the program."
+                        : "The tests come from the template repository, never the student’s copy."
                   }
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runnerNames.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+                  <Select
+                    value={state.runnerPreset}
+                    onValueChange={(value) =>
+                      setState({ ...state, runnerPreset: value ?? NO_RUNNER })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {runnerNames.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
               )}
 
               {state.sections.map((section, index) => (
@@ -888,7 +880,7 @@ function Editor({
                 />
               ))}
 
-              {fieldFindings('sections').map((finding, index) => (
+              {fieldFindings("sections").map((finding, index) => (
                 <p key={index} className="text-xs text-destructive">
                   {finding.message}
                 </p>
@@ -913,10 +905,7 @@ function Editor({
                     onClick={() =>
                       setState({
                         ...state,
-                        sections: [
-                          ...state.sections,
-                          aiSection({ rubrics: context.rubrics }),
-                        ],
+                        sections: [...state.sections, aiSection({ rubrics: context.rubrics })],
                       })
                     }
                   >
@@ -933,7 +922,7 @@ function Editor({
                         ...state,
                         sections: [
                           ...state.sections,
-                          { grading: 'manual', label: '', pointValue: 10 },
+                          { grading: "manual", label: "", pointValue: 10 },
                         ],
                       })
                     }
@@ -991,7 +980,7 @@ function Findings({
         <Alert variant="destructive">
           <AlertTriangle />
           <AlertTitle>
-            {errors.length === 1 ? 'One thing to fix' : `${errors.length} things to fix`}
+            {errors.length === 1 ? "One thing to fix" : `${errors.length} things to fix`}
           </AlertTitle>
           <AlertDescription>
             <ul className="ml-4 list-disc">
@@ -1046,7 +1035,7 @@ function NormalizedAs({ value, showPath = false }: { value: string; showPath?: b
   return (
     <p className="text-xs text-muted-foreground">
       Stored as <code>{parsed.fullName}</code>
-      {showPath && parsed.path !== '' && (
+      {showPath && parsed.path !== "" && (
         <>
           , opening at <code>{parsed.path}</code>
         </>
@@ -1085,7 +1074,12 @@ function AnswerKeyBrowser({
   dir: string;
   onNavigate: (dir: string) => void;
   /** What the folder resolves to, from the same function grading calls. */
-  resolved: { paths: string[]; excluded: { path: string; reason: string }[]; missing: boolean; limit: number } | null;
+  resolved: {
+    paths: string[];
+    excluded: { path: string; reason: string }[];
+    missing: boolean;
+    limit: number;
+  } | null;
   loading: boolean;
 }) {
   const trpc = useTRPC();
@@ -1094,7 +1088,7 @@ function AnswerKeyBrowser({
   const listing = useQuery({
     ...trpc.assignments.browseAnswerKeys.queryOptions({
       courseId,
-      answerKeyRepo: normalized ?? '',
+      answerKeyRepo: normalized ?? "",
       dir,
     }),
     enabled: Boolean(normalized),
@@ -1108,8 +1102,8 @@ function AnswerKeyBrowser({
     );
   }
 
-  const segments = dir === '' ? [] : dir.split('/');
-  const dirs = (listing.data?.entries ?? []).filter((entry) => entry.type === 'dir');
+  const segments = dir === "" ? [] : dir.split("/");
+  const dirs = (listing.data?.entries ?? []).filter((entry) => entry.type === "dir");
 
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-border p-3">
@@ -1118,7 +1112,7 @@ function AnswerKeyBrowser({
         <button
           type="button"
           className="rounded px-1.5 py-0.5 font-mono hover:bg-accent"
-          onClick={() => onNavigate('')}
+          onClick={() => onNavigate("")}
         >
           {normalized}
         </button>
@@ -1128,7 +1122,7 @@ function AnswerKeyBrowser({
             <button
               type="button"
               className="rounded px-1.5 py-0.5 font-mono hover:bg-accent"
-              onClick={() => onNavigate(segments.slice(0, index + 1).join('/'))}
+              onClick={() => onNavigate(segments.slice(0, index + 1).join("/"))}
             >
               {segment}
             </button>
@@ -1151,7 +1145,7 @@ function AnswerKeyBrowser({
               variant="outline"
               size="sm"
               className="font-mono text-xs"
-              onClick={() => onNavigate(dir === '' ? entry.name : `${dir}/${entry.name}`)}
+              onClick={() => onNavigate(dir === "" ? entry.name : `${dir}/${entry.name}`)}
             >
               {entry.name}
             </Button>
@@ -1163,19 +1157,17 @@ function AnswerKeyBrowser({
       {loading || resolved === null ? (
         <p className="text-xs text-muted-foreground">Reading this folder…</p>
       ) : resolved.missing ? (
-        <p className="text-xs text-muted-foreground">
-          This folder is not in the repository.
-        </p>
+        <p className="text-xs text-muted-foreground">This folder is not in the repository.</p>
       ) : resolved.paths.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Nothing here can be used as a reference solution. The assignment can still be graded,
-          with the model reading the code against the rubric alone.
+          Nothing here can be used as a reference solution. The assignment can still be graded, with
+          the model reading the code against the rubric alone.
         </p>
       ) : (
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">
             {resolved.paths.length === 1
-              ? '1 reference file, sent to the model:'
+              ? "1 reference file, sent to the model:"
               : `${resolved.paths.length} reference files, sent to the model:`}
           </p>
           <ul className="flex flex-col gap-0.5">
@@ -1183,7 +1175,7 @@ function AnswerKeyBrowser({
               // Relative to the folder, because the folder is already named in the breadcrumb
               // above and repeating it on every row makes the shape of the set harder to read.
               <li key={path} className="font-mono text-xs text-muted-foreground">
-                {dir === '' ? path : path.slice(dir.length + 1)}
+                {dir === "" ? path : path.slice(dir.length + 1)}
               </li>
             ))}
           </ul>
@@ -1197,10 +1189,13 @@ function AnswerKeyBrowser({
 
       {resolved !== null && resolved.excluded.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Skipped:{' '}
+          Skipped:{" "}
           {resolved.excluded
-            .map((entry) => `${dir === '' ? entry.path : entry.path.slice(dir.length + 1)} (${entry.reason})`)
-            .join(', ')}
+            .map(
+              (entry) =>
+                `${dir === "" ? entry.path : entry.path.slice(dir.length + 1)} (${entry.reason})`,
+            )
+            .join(", ")}
         </p>
       )}
     </div>
@@ -1219,13 +1214,13 @@ function FormSkeleton() {
 
 /** A new AI-graded section, with the rubric already matched to its type. */
 function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): SectionDraft {
-  const type = 'coding_algorithm' as const;
+  const type = "coding_algorithm" as const;
   return {
-    grading: 'ai',
+    grading: "ai",
     type,
     pointValue: 30,
-    rubricId: rubrics.find((r) => r.name === RUBRIC_NAME_BY_SECTION_TYPE[type])?.id ?? '',
-    reportTemplate: 'coding-fluency',
+    rubricId: rubrics.find((r) => r.name === RUBRIC_NAME_BY_SECTION_TYPE[type])?.id ?? "",
+    reportTemplate: "coding-fluency",
   };
 }
 
@@ -1253,46 +1248,44 @@ function blankDraft({
   rubrics: { id: string; name: string }[];
   existingState: FormState | null;
 }): FormState {
-  const repo = kind === 'REPO';
+  const repo = kind === "REPO";
 
   return {
     kind,
-    title: existingState?.title ?? '',
+    title: existingState?.title ?? "",
     moduleId,
     completionThreshold: existingState?.completionThreshold ?? 0.75,
     dueAt: existingState?.dueAt ?? null,
-    templateRepo: repo ? (existingState?.templateRepo ?? '') : '',
-    answerKeyRepo: repo
-      ? (existingState?.answerKeyRepo || defaults.answerKeyRepo || '')
-      : '',
+    templateRepo: repo ? (existingState?.templateRepo ?? "") : "",
+    answerKeyRepo: repo ? existingState?.answerKeyRepo || defaults.answerKeyRepo || "" : "",
     // The root until an address with a path is pasted, or a folder is chosen below.
-    answerKeyDir: repo ? (existingState?.answerKeyDir ?? '') : '',
+    answerKeyDir: repo ? (existingState?.answerKeyDir ?? "") : "",
     // Follows the template's own name once one is named — see the effect in `Editor`.
-    assignmentRepoName: repo ? (existingState?.assignmentRepoName ?? '') : '',
-    githubOrg: repo ? (existingState?.githubOrg || defaults.githubOrg || '') : '',
+    assignmentRepoName: repo ? (existingState?.assignmentRepoName ?? "") : "",
+    githubOrg: repo ? existingState?.githubOrg || defaults.githubOrg || "" : "",
     templateRef: null,
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
-    templateDriveUrl: existingState?.templateDriveUrl ?? '',
+    templateDriveUrl: existingState?.templateDriveUrl ?? "",
     // Ticked rather than empty, because every file-upload assignment needs at least one and a
     // PDF is what almost all of them want. An instructor changes it; they cannot forget it.
     acceptedFileTypes:
       existingState?.acceptedFileTypes && existingState.acceptedFileTypes.length > 0
         ? existingState.acceptedFileTypes
-        : ['pdf'],
-    submissionInstructions: existingState?.submissionInstructions ?? '',
+        : ["pdf"],
+    submissionInstructions: existingState?.submissionInstructions ?? "",
     /*
       A repository assignment starts with a section the model grades, and every other kind
       with one graded by hand — which is not a default but the only mode those kinds have, so
       offering the other would be offering something the schema refuses.
     */
     sections: repo
-      ? (existingState?.sections.every((section) => section.grading === 'ai')
-          ? existingState.sections
-          : [aiSection({ rubrics })])
-      : (existingState?.sections.every((section) => section.grading === 'manual')
-          ? existingState.sections
-          : [{ grading: 'manual', label: '', pointValue: 10 }]),
+      ? existingState?.sections.every((section) => section.grading === "ai")
+        ? existingState.sections
+        : [aiSection({ rubrics })]
+      : existingState?.sections.every((section) => section.grading === "manual")
+        ? existingState.sections
+        : [{ grading: "manual", label: "", pointValue: 10 }],
   };
 }
 
@@ -1303,17 +1296,17 @@ function fromDraft(draft: Draft): FormState {
     moduleId: draft.moduleId,
     completionThreshold: draft.completionThreshold,
     dueAt: draft.dueAt,
-    templateRepo: draft.templateRepo ?? '',
-    answerKeyRepo: draft.answerKeyRepo ?? '',
-    answerKeyDir: draft.answerKeyDir ?? '',
-    assignmentRepoName: draft.assignmentRepoName ?? '',
-    githubOrg: draft.githubOrg ?? '',
+    templateRepo: draft.templateRepo ?? "",
+    answerKeyRepo: draft.answerKeyRepo ?? "",
+    answerKeyDir: draft.answerKeyDir ?? "",
+    assignmentRepoName: draft.assignmentRepoName ?? "",
+    githubOrg: draft.githubOrg ?? "",
     templateRef: draft.templateRef,
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
-    templateDriveUrl: draft.templateDriveUrl ?? '',
+    templateDriveUrl: draft.templateDriveUrl ?? "",
     acceptedFileTypes: (draft.acceptedFileTypes ?? []).filter(isUploadFileTypeKey),
-    submissionInstructions: draft.submissionInstructions ?? '',
+    submissionInstructions: draft.submissionInstructions ?? "",
     sections: (draft.sections as SectionDraft[]) ?? [],
   };
 }

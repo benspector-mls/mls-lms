@@ -1,27 +1,23 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, Plus } from 'lucide-react';
-import * as React from 'react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Loader2, Plus } from "lucide-react";
+import * as React from "react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  cohortSlugProblem,
-  MAX_COHORT_SLUG,
-  suggestCohortSlug,
-} from '@/lib/courses/cohort-slug';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { cn } from '@/lib/utils';
-import { useTRPC } from '@/trpc/client';
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
 
 /**
  * Creating a cohort, optionally from a previous one.
@@ -56,9 +52,9 @@ export function NewCourseDialog({
   const router = useRouter();
 
   const [open, setOpen] = React.useState(false);
-  const [name, setName] = React.useState('');
-  const [cohortTerm, setCohortTerm] = React.useState('');
-  const [copyFrom, setCopyFrom] = React.useState('');
+  const [name, setName] = React.useState("");
+  const [cohortTerm, setCohortTerm] = React.useState("");
+  const [copyFrom, setCopyFrom] = React.useState("");
 
   /*
     Two steps, because one of these fields cannot be taken back.
@@ -71,7 +67,7 @@ export function NewCourseDialog({
     A review step rather than a warning beside the button, because a warning next to the thing
     you are already committed to pressing is read after the fact.
   */
-  const [step, setStep] = React.useState<'form' | 'confirm'>('form');
+  const [step, setStep] = React.useState<"form" | "confirm">("form");
 
   /*
     The slug follows the cohort term until somebody edits it, and then stops.
@@ -81,7 +77,7 @@ export function NewCourseDialog({
     have suggested — has still taken it over, and their next keystroke in the term field should
     not silently overwrite it.
   */
-  const [slug, setSlug] = React.useState('');
+  const [slug, setSlug] = React.useState("");
   const [slugEdited, setSlugEdited] = React.useState(false);
   /*
     Suggested from the course *and* the term, not the term alone.
@@ -91,7 +87,7 @@ export function NewCourseDialog({
     instructor hitting the refusal was the one who had done nothing wrong.
   */
   const effectiveSlug = slugEdited ? slug : suggestCohortSlug({ courseName: name, cohortTerm });
-  const slugProblem = effectiveSlug === '' ? null : cohortSlugProblem(effectiveSlug);
+  const slugProblem = effectiveSlug === "" ? null : cohortSlugProblem(effectiveSlug);
 
   /*
     Every course the caller teaches, archived ones included, and that is the interesting half.
@@ -111,11 +107,11 @@ export function NewCourseDialog({
 
   /** Whether the form is filled in enough to be worth reviewing. */
   const ready =
-    name.trim() !== '' && cohortTerm.trim() !== '' && effectiveSlug !== '' && slugProblem === null;
+    name.trim() !== "" && cohortTerm.trim() !== "" && effectiveSlug !== "" && slugProblem === null;
 
   const close = () => {
     setOpen(false);
-    setStep('form');
+    setStep("form");
   };
 
   const create = useMutation(
@@ -127,23 +123,23 @@ export function NewCourseDialog({
           toast.warning(
             `Created ${result.course.name} with ${result.copied} of ` +
               `${result.copied + result.failed.length} assignments. ` +
-              `Could not copy: ${result.failed.map((entry) => entry.title).join(', ')}.`,
+              `Could not copy: ${result.failed.map((entry) => entry.title).join(", ")}.`,
             { duration: 12_000 },
           );
         } else if (result.copied > 0) {
           toast.success(
             `Created ${result.course.name} with ${result.copied} ` +
-              `${result.copied === 1 ? 'assignment' : 'assignments'}, none published yet.`,
+              `${result.copied === 1 ? "assignment" : "assignments"}, none published yet.`,
           );
         } else {
           toast.success(`Created ${result.course.name}.`);
         }
 
         close();
-        setName('');
-        setCohortTerm('');
-        setCopyFrom('');
-        setSlug('');
+        setName("");
+        setCohortTerm("");
+        setCopyFrom("");
+        setSlug("");
         setSlugEdited(false);
         router.push(`/instructor/courses/${result.course.id}`);
       },
@@ -160,7 +156,7 @@ export function NewCourseDialog({
     );
   }
 
-  if (step === 'confirm') {
+  if (step === "confirm") {
     return (
       <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:min-w-96">
         <div className="flex flex-col gap-0.5">
@@ -189,9 +185,9 @@ export function NewCourseDialog({
               source
                 ? `${source.name} · ${source.cohortTerm} — its modules and ` +
                   `${source._count.assignments} ` +
-                  `${source._count.assignments === 1 ? 'assignment' : 'assignments'}, ` +
+                  `${source._count.assignments === 1 ? "assignment" : "assignments"}, ` +
                   `unpublished, with due dates cleared`
-                : 'Nothing. Modules and assignments are added afterwards.'
+                : "Nothing. Modules and assignments are added afterwards."
             }
           />
         </dl>
@@ -217,7 +213,7 @@ export function NewCourseDialog({
             size="sm"
             variant="ghost"
             disabled={create.isPending}
-            onClick={() => setStep('form')}
+            onClick={() => setStep("form")}
           >
             <ArrowLeft data-icon="inline-start" />
             Back
@@ -233,7 +229,7 @@ export function NewCourseDialog({
       onSubmit={(event) => {
         event.preventDefault();
         if (!ready) return;
-        setStep('confirm');
+        setStep("confirm");
       }}
     >
       <div className="flex flex-col gap-1.5">
@@ -291,9 +287,9 @@ export function NewCourseDialog({
           <p className="text-xs text-destructive">{slugProblem}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Every repository this cohort generates is named{' '}
-            <code>{effectiveSlug || 'short-name'}-assignment-githubname</code>. It cannot be
-            changed after the course is created.
+            Every repository this cohort generates is named{" "}
+            <code>{effectiveSlug || "short-name"}-assignment-githubname</code>. It cannot be changed
+            after the course is created.
           </p>
         )}
       </div>
@@ -303,9 +299,9 @@ export function NewCourseDialog({
           <label className="text-xs font-medium">Copy from</label>
           <Select
             value={copyFrom}
-            onValueChange={(value) => setCopyFrom(value ?? '')}
+            onValueChange={(value) => setCopyFrom(value ?? "")}
             items={{
-              '': 'Start empty',
+              "": "Start empty",
               ...Object.fromEntries(copyable.map((course) => [course.id, sourceLabel(course)])),
             }}
           >
@@ -326,8 +322,8 @@ export function NewCourseDialog({
           </Select>
           <p className="text-xs text-muted-foreground">
             {copyFrom
-              ? 'Its modules and assignments come across unpublished, with due dates cleared.'
-              : 'Modules and assignments are added afterwards.'}
+              ? "Its modules and assignments come across unpublished, with due dates cleared."
+              : "Modules and assignments are added afterwards."}
           </p>
         </div>
       )}
@@ -362,9 +358,9 @@ function Detail({
       <dt className="shrink-0 text-xs text-muted-foreground sm:w-24 sm:pt-0.5">{label}</dt>
       <dd
         className={cn(
-          'min-w-0 break-words text-sm',
-          mono && 'font-mono text-xs',
-          emphasis ? 'font-medium text-foreground' : 'text-muted-foreground',
+          "min-w-0 break-words text-sm",
+          mono && "font-mono text-xs",
+          emphasis ? "font-medium text-foreground" : "text-muted-foreground",
         )}
       >
         {value}

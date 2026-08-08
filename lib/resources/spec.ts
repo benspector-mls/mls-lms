@@ -117,7 +117,10 @@ export function parseVideoUrl(raw: string): VideoRef | null {
       return id && isYouTubeId(id) ? { provider: "YOUTUBE", videoId: id } : null;
     }
     // What copying an embed or a short gives instead.
-    if ((segments[0] === "embed" || segments[0] === "shorts" || segments[0] === "live") && segments[1]) {
+    if (
+      (segments[0] === "embed" || segments[0] === "shorts" || segments[0] === "live") &&
+      segments[1]
+    ) {
       return isYouTubeId(segments[1]) ? { provider: "YOUTUBE", videoId: segments[1] } : null;
     }
     return null;

@@ -1,9 +1,9 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from "next/server";
 
-import { db } from '@/lib/prisma';
-import type { SubmissionStatus } from '@/lib/generated/prisma/enums';
-import { isGithubAppConfigured } from '@/lib/github/app-client';
-import { verifyGithubSignature } from '@/lib/github/webhook-verify';
+import { db } from "@/lib/prisma";
+import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
+import { isGithubAppConfigured } from "@/lib/github/app-client";
+import { verifyGithubSignature } from "@/lib/github/webhook-verify";
 
 /**
  * GitHub webhook receiver.
@@ -40,27 +40,27 @@ export async function POST(request: NextRequest) {
   // Must be the raw body. Parsing and re-serializing changes the bytes and the
   // signature will not match.
   const rawBody = await request.text();
-  const signature = request.headers.get('x-hub-signature-256');
-  const event = request.headers.get('x-github-event');
-  const deliveryId = request.headers.get('x-github-delivery');
+  const signature = request.headers.get("x-hub-signature-256");
+  const event = request.headers.get("x-github-event");
+  const deliveryId = request.headers.get("x-github-delivery");
 
   if (!isGithubAppConfigured()) {
-    return NextResponse.json({ error: 'GitHub App is not configured' }, { status: 503 });
+    return NextResponse.json({ error: "GitHub App is not configured" }, { status: 503 });
   }
 
   if (!verifyGithubSignature(rawBody, signature, process.env.GITHUB_WEBHOOK_SECRET!)) {
     // Deliberately terse. A detailed message would help someone probing the
     // endpoint work out why their forged signature was rejected.
-    return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
+    return NextResponse.json({ error: "invalid signature" }, { status: 401 });
   }
 
   // `ping` is what GitHub sends when a webhook is first configured. Answering it
   // successfully is how the app's settings page shows a green check.
-  if (event === 'ping') {
+  if (event === "ping") {
     return NextResponse.json({ ok: true, pong: true });
   }
 
-  if (event !== 'pull_request') {
+  if (event !== "pull_request") {
     // Acknowledge events we do not handle. Returning an error would make GitHub
     // retry them and eventually mark the webhook as failing.
     return NextResponse.json({ ok: true, ignored: event });
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   try {
     payload = JSON.parse(rawBody) as PullRequestWebhookPayload;
   } catch {
-    return NextResponse.json({ error: 'body is not valid JSON' }, { status: 400 });
+    return NextResponse.json({ error: "body is not valid JSON" }, { status: 400 });
   }
 
   try {
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     // A 500 causes GitHub to record the delivery as failed, which is what we
     // want: the delivery can then be redelivered from the app's settings page
     // after the cause is fixed.
-    return NextResponse.json({ error: 'handler failed' }, { status: 500 });
+    return NextResponse.json({ error: "handler failed" }, { status: 500 });
   }
 }
 
@@ -93,18 +93,15 @@ export async function POST(request: NextRequest) {
  * a second time, and treating that as a first submission would reset an already
  * graded row and lose the very distinction the queue depends on.
  */
-function resolveStatus(
-  action: string,
-  current: SubmissionStatus,
-): SubmissionStatus | undefined {
-  if (action === 'synchronize') return undefined;
+function resolveStatus(action: string, current: SubmissionStatus): SubmissionStatus | undefined {
+  if (action === "synchronize") return undefined;
 
   // Reopening after a grade is a revision, and is recorded as one without the student
   // needing to press anything. The button in the application exists for the other
   // route to the same state: pushing more commits to a pull request that stayed open.
-  if (current === 'GRADED' || current === 'RESUBMITTED') return 'RESUBMITTED';
+  if (current === "GRADED" || current === "RESUBMITTED") return "RESUBMITTED";
 
-  return 'SUBMITTED';
+  return "SUBMITTED";
 }
 
 async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
@@ -122,13 +119,13 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
   // appears in the queue with almost nothing in it. That is the failure worth having:
   // an instructor sees it immediately, whereas work that is never declared ready is
   // silently never reviewed.
-  if (!['opened', 'reopened', 'synchronize'].includes(action)) {
+  if (!["opened", "reopened", "synchronize"].includes(action)) {
     return { ignored: `action:${action}` };
   }
 
   // Only pull requests into `main` are submissions. A student may open other
   // pull requests in their own repository.
-  if (payload.pull_request.base.ref !== 'main') {
+  if (payload.pull_request.base.ref !== "main") {
     return { ignored: `base:${payload.pull_request.base.ref}` };
   }
 
@@ -149,7 +146,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
     // Expected in normal operation: the GitHub App is installed organization
     // wide, so it receives events for repositories that are not submissions.
     console.warn(`webhook: no submission matches repository ${repoFullName}`);
-    return { ignored: 'unknown-repository' };
+    return { ignored: "unknown-repository" };
   }
 
   const now = new Date();

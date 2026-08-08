@@ -1,20 +1,16 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { isManualOnly } from '@/lib/assignments/spec';
-import { Prisma } from '@/lib/generated/prisma/client';
-import { groupSelectionInput, parseGroupSelection } from '@/lib/courses/groups';
-import {
-  activeStudentWork,
-  removedStudentIds,
-  selectedStudentIds,
-} from '@/lib/courses/membership';
-import { undeliveredApprovalWhere } from '@/lib/grade/approve';
-import { triageBucket } from '@/lib/grade/triage';
-import { signedDownloadUrl } from '@/lib/uploads/storage';
-import { assertCanHandIn } from '@/lib/uploads/submit';
+import { isManualOnly } from "@/lib/assignments/spec";
+import { Prisma } from "@/lib/generated/prisma/client";
+import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
+import { activeStudentWork, removedStudentIds, selectedStudentIds } from "@/lib/courses/membership";
+import { undeliveredApprovalWhere } from "@/lib/grade/approve";
+import { triageBucket } from "@/lib/grade/triage";
+import { signedDownloadUrl } from "@/lib/uploads/storage";
+import { assertCanHandIn } from "@/lib/uploads/submit";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 /**
  * Everything the review surface needs from a submission, in one place.
@@ -55,7 +51,7 @@ const reviewableSubmissionSelect = {
   // Enough of the most recent draft to label a row. The review pane loads the draft in full
   // when a row is selected; a list of forty students does not need forty reports in it.
   gradingDrafts: {
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
     take: 1,
     select: { id: true, status: true, headSha: true, approvedAt: true },
   },
@@ -86,8 +82,7 @@ function decorateSubmission<T extends ReviewableSubmission>(
 ) {
   const { gradingDrafts, ...rest } = submission;
   const draft = gradingDrafts[0] ?? null;
-  const draftIsStale =
-    draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
+  const draftIsStale = draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
 
   return {
     ...rest,
@@ -111,7 +106,7 @@ export const submissionsRouter = createTRPCRouter({
       // clause is the only thing preventing one student from reading another's
       // submissions.
       where: { studentId: ctx.profile.id },
-      orderBy: [{ lastActivityAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
       select: {
         id: true,
         status: true,
@@ -173,15 +168,15 @@ export const submissionsRouter = createTRPCRouter({
       const assignment = await assertCanHandIn(ctx.db, {
         profileId: ctx.profile.id,
         assignmentId: input.assignmentId,
-        expect: 'link',
+        expect: "link",
       });
 
       if (!input.submittedUrl) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
-            'Paste the link to your copy of the document before submitting, so your ' +
-            'instructor can open the right one.',
+            "Paste the link to your copy of the document before submitting, so your " +
+            "instructor can open the right one.",
         });
       }
 
@@ -202,14 +197,14 @@ export const submissionsRouter = createTRPCRouter({
         create: {
           assignmentId: assignment.id,
           studentId: ctx.profile.id,
-          status: 'SUBMITTED',
+          status: "SUBMITTED",
           submittedUrl: input.submittedUrl,
           submittedAt,
           isLate: assignment.dueAt ? submittedAt > assignment.dueAt : false,
           lastActivityAt: submittedAt,
         },
         update: {
-          status: 'SUBMITTED',
+          status: "SUBMITTED",
           submittedUrl: input.submittedUrl,
           submittedAt,
           isLate: assignment.dueAt ? submittedAt > assignment.dueAt : false,
@@ -240,7 +235,7 @@ export const submissionsRouter = createTRPCRouter({
          * the same authorization, because they are the same bytes — the disposition decides
          * what the browser does with them, not who may have them.
          */
-        disposition: z.enum(['attachment', 'inline']).default('attachment'),
+        disposition: z.enum(["attachment", "inline"]).default("attachment"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -256,12 +251,12 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       if (!submission) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Submission not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
       }
 
       const isOwner = submission.studentId === ctx.profile.id;
 
-      if (!isOwner && ctx.profile.role !== 'ADMIN') {
+      if (!isOwner && ctx.profile.role !== "ADMIN") {
         const teaches = await ctx.db.courseInstructor.findFirst({
           where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
           select: { id: true },
@@ -272,16 +267,16 @@ export const submissionsRouter = createTRPCRouter({
         // cohort's instructor could read another cohort's submissions.
         if (!teaches) {
           throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'You do not teach the course this submission belongs to.',
+            code: "FORBIDDEN",
+            message: "You do not teach the course this submission belongs to.",
           });
         }
       }
 
       if (!submission.uploadPath) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'There is no uploaded file on this submission.',
+          code: "NOT_FOUND",
+          message: "There is no uploaded file on this submission.",
         });
       }
 
@@ -311,21 +306,21 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       if (!submission) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Submission not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
       }
 
       // Scoped to the caller's own submission. Prisma bypasses row level security, so
       // this comparison is the only thing stopping one student acting on another's.
       if (submission.studentId !== ctx.profile.id) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'This is not your submission.' });
+        throw new TRPCError({ code: "FORBIDDEN", message: "This is not your submission." });
       }
 
-      if (submission.status !== 'GRADED' && submission.status !== 'RESUBMITTED') {
+      if (submission.status !== "GRADED" && submission.status !== "RESUBMITTED") {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
-            'This submission has not been graded yet, so there is nothing to resubmit. ' +
-            'Your work is already in the queue.',
+            "This submission has not been graded yet, so there is nothing to resubmit. " +
+            "Your work is already in the queue.",
         });
       }
 
@@ -334,16 +329,16 @@ export const submissionsRouter = createTRPCRouter({
       // review of the code that was already graded.
       if (submission.headSha && submission.headSha === submission.gradedHeadSha) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
-            'No new commits since this was graded. Push your changes first, then ' +
-            'declare it ready.',
+            "No new commits since this was graded. Push your changes first, then " +
+            "declare it ready.",
         });
       }
 
       return ctx.db.submission.update({
         where: { id: submission.id },
-        data: { status: 'RESUBMITTED', lastActivityAt: new Date() },
+        data: { status: "RESUBMITTED", lastActivityAt: new Date() },
         select: { id: true, status: true },
       });
     }),
@@ -397,7 +392,7 @@ export const submissionsRouter = createTRPCRouter({
         for the one reader who does not teach and failed for every reader who does.
       */
       const visible =
-        ctx.profile.role === 'ADMIN'
+        ctx.profile.role === "ADMIN"
           ? await ctx.db.course.findMany({
               where: { id: input.courseId, archivedAt: null },
               select: { id: true },
@@ -432,14 +427,14 @@ export const submissionsRouter = createTRPCRouter({
           ...activeStudentWork(input.courseId, selection),
           OR: [
             // Open work, whether or not a run has happened yet.
-            { status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
+            { status: { in: ["SUBMITTED", "RESUBMITTED"] } },
             // A run that reached some state a person has to act on. Included
             // independently of the submission's status, because a student can push after
             // being graded and have a new draft waiting while the submission still reads
             // GRADED.
             {
               gradingDrafts: {
-                some: { status: { in: ['READY', 'NEEDS_MANUAL_REVIEW', 'FAILED', 'GENERATING'] } },
+                some: { status: { in: ["READY", "NEEDS_MANUAL_REVIEW", "FAILED", "GENERATING"] } },
               },
             },
             // Approved, but the comment never reached the pull request. Recoverable —
@@ -449,7 +444,7 @@ export const submissionsRouter = createTRPCRouter({
             { gradingDrafts: { some: undeliveredApprovalWhere() } },
           ],
         },
-        orderBy: [{ lastActivityAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
         select: {
           id: true,
           status: true,
@@ -468,7 +463,7 @@ export const submissionsRouter = createTRPCRouter({
           // The most recent run, superseded ones included: a draft that was replaced is
           // still what the row's flags describe until a newer one finishes.
           gradingDrafts: {
-            orderBy: { createdAt: 'desc' },
+            orderBy: { createdAt: "desc" },
             take: 1,
             select: {
               id: true,
@@ -496,7 +491,7 @@ export const submissionsRouter = createTRPCRouter({
         where: {
           assignment: { courseId: input.courseId },
           ...activeStudentWork(input.courseId, selection),
-          status: 'GRADED',
+          status: "GRADED",
         },
       });
 
@@ -509,7 +504,7 @@ export const submissionsRouter = createTRPCRouter({
       const undelivered = await ctx.db.gradingDraft.findMany({
         where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
         select: { submissionId: true },
-        distinct: ['submissionId'],
+        distinct: ["submissionId"],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
@@ -582,7 +577,7 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       if (!assignment) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       }
 
       /*
@@ -594,7 +589,7 @@ export const submissionsRouter = createTRPCRouter({
       const manualOnly = isManualOnly(assignment.sections);
 
       const teaches =
-        ctx.profile.role === 'ADMIN' ||
+        ctx.profile.role === "ADMIN" ||
         (await ctx.db.courseInstructor.findFirst({
           where: { courseId: assignment.courseId, userId: ctx.profile.id },
           select: { id: true },
@@ -602,21 +597,21 @@ export const submissionsRouter = createTRPCRouter({
 
       if (!teaches) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not teach the course this assignment belongs to.',
+          code: "FORBIDDEN",
+          message: "You do not teach the course this assignment belongs to.",
         });
       }
 
       const submissions = await ctx.db.submission.findMany({
         where: { assignmentId: assignment.id },
-        orderBy: [{ status: 'asc' }, { submittedAt: 'asc' }],
+        orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
         select: reviewableSubmissionSelect,
       });
 
       const undelivered = await ctx.db.gradingDraft.findMany({
         where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
         select: { submissionId: true },
-        distinct: ['submissionId'],
+        distinct: ["submissionId"],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
       const removed = await removedStudentIds(ctx.db, assignment.courseId);
@@ -635,9 +630,9 @@ export const submissionsRouter = createTRPCRouter({
        * cohort is not work to be done whichever group they were in, and telling an instructor
        * they are merely outside the current filter would read as something a picker can fix.
        */
-      const asideReason = (studentId: string): 'removed' | 'outside_group' | null => {
-        if (removed.has(studentId)) return 'removed';
-        if (inSelection && !inSelection.has(studentId)) return 'outside_group';
+      const asideReason = (studentId: string): "removed" | "outside_group" | null => {
+        if (removed.has(studentId)) return "removed";
+        if (inSelection && !inSelection.has(studentId)) return "outside_group";
         return null;
       };
 
@@ -711,7 +706,7 @@ export const submissionsRouter = createTRPCRouter({
     .input(z.object({ courseId: z.string().uuid(), studentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const teaches =
-        ctx.profile.role === 'ADMIN' ||
+        ctx.profile.role === "ADMIN" ||
         (await ctx.db.courseInstructor.findFirst({
           where: { courseId: input.courseId, userId: ctx.profile.id },
           select: { id: true },
@@ -719,8 +714,8 @@ export const submissionsRouter = createTRPCRouter({
 
       if (!teaches) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not teach this course.',
+          code: "FORBIDDEN",
+          message: "You do not teach this course.",
         });
       }
 
@@ -743,8 +738,8 @@ export const submissionsRouter = createTRPCRouter({
 
       if (!enrollment) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'That student is not in this course.',
+          code: "NOT_FOUND",
+          message: "That student is not in this course.",
         });
       }
 
@@ -752,7 +747,7 @@ export const submissionsRouter = createTRPCRouter({
         where: { courseId: input.courseId },
         // Course order — the sequence the instructor set — because reading a student's record is
         // reading it in the order they met the work.
-        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+        orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
         select: {
           id: true,
           title: true,
@@ -779,7 +774,7 @@ export const submissionsRouter = createTRPCRouter({
       const undelivered = await ctx.db.gradingDraft.findMany({
         where: undeliveredApprovalWhere({ id: { in: submissionIds } }),
         select: { submissionId: true },
-        distinct: ['submissionId'],
+        distinct: ["submissionId"],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
@@ -795,11 +790,11 @@ export const submissionsRouter = createTRPCRouter({
       const otherEnrollments = await ctx.db.enrollment.findMany({
         where: {
           studentId: input.studentId,
-          ...(ctx.profile.role === 'ADMIN'
+          ...(ctx.profile.role === "ADMIN"
             ? {}
             : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
         },
-        orderBy: { course: { createdAt: 'desc' } },
+        orderBy: { course: { createdAt: "desc" } },
         select: {
           status: true,
           course: { select: { id: true, name: true, cohortTerm: true } },

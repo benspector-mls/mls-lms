@@ -1,7 +1,7 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { AcceptCoTeach } from '@/components/instructor/accept-co-teach';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { AcceptCoTeach } from "@/components/instructor/accept-co-teach";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Where a course's co-teaching link lands.

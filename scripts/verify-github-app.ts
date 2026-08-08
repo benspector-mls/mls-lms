@@ -67,7 +67,7 @@ async function main() {
     hasEnd
       ? ""
       : `${raw.length} chars and no END marker — a multi-line value must be quoted, or ` +
-        `written on one line with literal \\n between lines`,
+          `written on one line with literal \\n between lines`,
   );
 
   const repeatsName = pem.trimStart().startsWith("GITHUB_APP_PRIVATE_KEY=");
@@ -111,13 +111,19 @@ async function main() {
   const owner = app.owner && "login" in app.owner ? app.owner.login : "unknown";
   console.log(`\napp: ${app.name} (slug ${app.slug}, id ${app.id}), owned by ${owner}`);
 
-  check("subscribed to pull_request", (app.events ?? []).includes("pull_request"),
-    (app.events ?? []).join(", ") || "no events");
+  check(
+    "subscribed to pull_request",
+    (app.events ?? []).includes("pull_request"),
+    (app.events ?? []).join(", ") || "no events",
+  );
 
   const permissions = (app.permissions ?? {}) as Record<string, string>;
   for (const [name, level] of Object.entries(REQUIRED_PERMISSIONS)) {
-    check(`permission ${name}: ${level}`, permissions[name] === level,
-      permissions[name] ? `is "${permissions[name]}"` : "not granted");
+    check(
+      `permission ${name}: ${level}`,
+      permissions[name] === level,
+      permissions[name] ? `is "${permissions[name]}"` : "not granted",
+    );
   }
 
   // --- installation --------------------------------------------------------
@@ -154,8 +160,11 @@ async function main() {
     const [repoOwner, repoName] = submission.repoFullName.split("/");
     const { getRepo } = await import("../lib/github/repos");
     const repo = await getRepo(configured, { owner: repoOwner, repo: repoName });
-    check(`can read ${submission.repoFullName}`, repo !== null,
-      repo ? `default branch ${repo.default_branch}` : "not visible to this installation");
+    check(
+      `can read ${submission.repoFullName}`,
+      repo !== null,
+      repo ? `default branch ${repo.default_branch}` : "not visible to this installation",
+    );
   }
 
   // --- webhook wiring ------------------------------------------------------
@@ -173,27 +182,33 @@ async function main() {
   }
 
   if (deliveries.length === 0) {
-    check("the app has received at least one delivery", false,
-      "not even the ping GitHub sends when a webhook is first saved — check the webhook URL");
-  } else {
-    const { data: latest } = await octokit.request(
-      "GET /app/hook/deliveries/{delivery_id}",
-      { delivery_id: deliveries[0].id },
+    check(
+      "the app has received at least one delivery",
+      false,
+      "not even the ping GitHub sends when a webhook is first saved — check the webhook URL",
     );
+  } else {
+    const { data: latest } = await octokit.request("GET /app/hook/deliveries/{delivery_id}", {
+      delivery_id: deliveries[0].id,
+    });
     console.log(`\nthis app posts webhooks to: ${latest.url ?? "(not reported)"}`);
 
     if (proxy) {
-      check("its webhook URL is the smee channel in GITHUB_WEBHOOK_PROXY_URL",
+      check(
+        "its webhook URL is the smee channel in GITHUB_WEBHOOK_PROXY_URL",
         latest.url === proxy,
-        `app posts to ${latest.url ?? "unknown"}, GITHUB_WEBHOOK_PROXY_URL is ${proxy}`);
+        `app posts to ${latest.url ?? "unknown"}, GITHUB_WEBHOOK_PROXY_URL is ${proxy}`,
+      );
       console.log(
         "\nRemember that smee.io answers GitHub with 200 whether or not anything is\n" +
           "listening, so run `npm run dev:webhook` before expecting a push to land.",
       );
     } else {
-      check("no proxy configured, so this should post straight to a deployment",
+      check(
+        "no proxy configured, so this should post straight to a deployment",
         !latest.url?.includes("smee.io"),
-        "GITHUB_WEBHOOK_PROXY_URL is unset but the app still posts to smee.io");
+        "GITHUB_WEBHOOK_PROXY_URL is unset but the app still posts to smee.io",
+      );
     }
   }
 

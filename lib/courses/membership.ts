@@ -36,9 +36,7 @@ type Ctx = {
 
 /** What the caller is to this course, or null when they are nothing to it. */
 export type Membership =
-  | { as: "admin" }
-  | { as: "instructor" }
-  | { as: "student"; active: boolean };
+  { as: "admin" } | { as: "instructor" } | { as: "student"; active: boolean };
 
 /**
  * How the caller is connected to this course, without deciding what that permits.
@@ -271,10 +269,7 @@ export async function selectedStudentIds(
  * `courses.gradebook` reads the same fact off the roster it already fetched rather than calling
  * this, because it needs every enrollment's status anyway for the Roster tab.
  */
-export async function removedStudentIds(
-  db: Ctx["db"],
-  courseId: string,
-): Promise<Set<string>> {
+export async function removedStudentIds(db: Ctx["db"], courseId: string): Promise<Set<string>> {
   const removed = await db.enrollment.findMany({
     // Not active, rather than `REMOVED`. This has to be the exact complement of
     // `activeStudentWork` above, or a status that is neither would fall out of both sets — out

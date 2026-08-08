@@ -1,9 +1,9 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { assertTeaches } from '@/lib/courses/membership';
+import { assertTeaches } from "@/lib/courses/membership";
 
-import { createTRPCRouter, instructorProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * The groups of a course: create, rename, remove, and who is in one.
@@ -27,7 +27,7 @@ import { createTRPCRouter, instructorProcedure } from '../init';
  */
 
 /** Trimmed, because " Squad 1" and "Squad 1" are the same group to everyone but the database. */
-const groupName = z.string().trim().min(1, 'A group needs a name.').max(120);
+const groupName = z.string().trim().min(1, "A group needs a name.").max(120);
 
 /**
  * The group, if the caller teaches the course it belongs to.
@@ -37,7 +37,7 @@ const groupName = z.string().trim().min(1, 'A group needs a name.').max(120);
  * is read.
  */
 async function loadTeachableGroup(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   groupId: string,
 ) {
   const found = await ctx.db.courseGroup.findUnique({
@@ -45,7 +45,7 @@ async function loadTeachableGroup(
     select: { id: true, courseId: true, name: true },
   });
 
-  if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'Group not found.' });
+  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found." });
   await assertTeaches(ctx, found.courseId);
   return found;
 }
@@ -53,9 +53,9 @@ async function loadTeachableGroup(
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string): never {
   const code = (err as { code?: string }).code;
-  if (code === 'P2002') {
+  if (code === "P2002") {
     throw new TRPCError({
-      code: 'CONFLICT',
+      code: "CONFLICT",
       message: `This course already has a group called "${name}".`,
     });
   }
@@ -83,11 +83,11 @@ export const groupsRouter = createTRPCRouter({
       const [groups, instructorRow, ungrouped] = await Promise.all([
         ctx.db.courseGroup.findMany({
           where: { courseId: input.courseId },
-          orderBy: { name: 'asc' },
+          orderBy: { name: "asc" },
           select: {
             id: true,
             name: true,
-            _count: { select: { memberships: { where: { enrollment: { status: 'ACTIVE' } } } } },
+            _count: { select: { memberships: { where: { enrollment: { status: "ACTIVE" } } } } },
           },
         }),
         /*
@@ -108,14 +108,17 @@ export const groupsRouter = createTRPCRouter({
         ctx.db.enrollment.count({
           where: {
             courseId: input.courseId,
-            status: 'ACTIVE',
+            status: "ACTIVE",
             groupMemberships: { none: {} },
           },
         }),
       ]);
 
       return {
-        groups: groups.map(({ _count, ...group }) => ({ ...group, memberCount: _count.memberships })),
+        groups: groups.map(({ _count, ...group }) => ({
+          ...group,
+          memberCount: _count.memberships,
+        })),
         /** How many active students belong to no group, for the picker's Ungrouped entry. */
         ungroupedCount: ungrouped,
         /** The caller's remembered selection. Null is All Students. */
@@ -136,7 +139,7 @@ export const groupsRouter = createTRPCRouter({
       await assertTeaches(ctx, input.courseId);
 
       const enrollments = await ctx.db.enrollment.findMany({
-        where: { courseId: input.courseId, status: 'ACTIVE' },
+        where: { courseId: input.courseId, status: "ACTIVE" },
         select: {
           id: true,
           student: { select: { id: true, displayName: true, email: true, githubUsername: true } },
@@ -246,16 +249,16 @@ export const groupsRouter = createTRPCRouter({
         is waiting on an instructor, and nothing would ever clear it.
       */
       const valid = await ctx.db.enrollment.findMany({
-        where: { id: { in: wanted }, courseId: group.courseId, status: 'ACTIVE' },
+        where: { id: { in: wanted }, courseId: group.courseId, status: "ACTIVE" },
         select: { id: true },
       });
 
       if (valid.length !== wanted.length) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
-            'That list names somebody who is not an active student of this course. Reload the ' +
-            'page and try again — the roster may have changed since it was opened.',
+            "That list names somebody who is not an active student of this course. Reload the " +
+            "page and try again — the roster may have changed since it was opened.",
         });
       }
 
@@ -275,7 +278,7 @@ export const groupsRouter = createTRPCRouter({
         none of it invented — and the screen shows what actually happened when it refetches.
       */
       const existing = await ctx.db.groupMembership.findMany({
-        where: { groupId: group.id, enrollment: { status: 'ACTIVE' } },
+        where: { groupId: group.id, enrollment: { status: "ACTIVE" } },
         select: { enrollmentId: true },
       });
 
@@ -345,8 +348,8 @@ export const groupsRouter = createTRPCRouter({
 
         if (!group) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'That group does not belong to this course.',
+            code: "NOT_FOUND",
+            message: "That group does not belong to this course.",
           });
         }
       }

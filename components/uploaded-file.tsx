@@ -1,17 +1,13 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { ChevronRight, Download, FileUp, Loader2 } from 'lucide-react';
-import * as React from 'react';
+import { useMutation } from "@tanstack/react-query";
+import { ChevronRight, Download, FileUp, Loader2 } from "lucide-react";
+import * as React from "react";
 
-import { Button } from '@/components/ui/button';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { useTRPC } from '@/trpc/client';
-import { formatBytes, previewKindOf } from '@/lib/uploads/file-types';
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useTRPC } from "@/trpc/client";
+import { formatBytes, previewKindOf } from "@/lib/uploads/file-types";
 
 /**
  * One uploaded file: what it is, a preview where a browser can show one, and a download.
@@ -33,7 +29,7 @@ export function UploadedFileRow({
   filename,
   sizeBytes,
   isLate = false,
-  label = 'The file you submitted',
+  label = "The file you submitted",
   previewByDefault = false,
 }: {
   submissionId: string;
@@ -65,9 +61,9 @@ export function UploadedFileRow({
           from a report the instructor is part-way through writing — and unlike `window.open` it
           is not treated as a popup, which Safari blocks when it happens after an await.
         */
-        const anchor = document.createElement('a');
+        const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.rel = 'noreferrer';
+        anchor.rel = "noreferrer";
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -91,7 +87,7 @@ export function UploadedFileRow({
   React.useEffect(() => {
     if (!open || previewKind === null) return;
     if (previewUrl !== null || preview.isPending) return;
-    preview.mutate({ submissionId, disposition: 'inline' });
+    preview.mutate({ submissionId, disposition: "inline" });
     // Deliberately keyed on what decides whether a fetch is owed, not on the mutation object,
     // which is a new reference on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,11 +100,11 @@ export function UploadedFileRow({
         <div className="flex min-w-0 flex-col">
           <span className="text-sm font-medium">
             {label}
-            {isLate ? ' (late)' : ''}
+            {isLate ? " (late)" : ""}
           </span>
           <span className="truncate text-xs text-muted-foreground">
             {filename}
-            {sizeBytes === null ? '' : ` — ${formatBytes(sizeBytes)}`}
+            {sizeBytes === null ? "" : ` — ${formatBytes(sizeBytes)}`}
           </span>
         </div>
       </div>
@@ -117,14 +113,14 @@ export function UploadedFileRow({
         variant="outline"
         size="sm"
         disabled={download.isPending}
-        onClick={() => download.mutate({ submissionId, disposition: 'attachment' })}
+        onClick={() => download.mutate({ submissionId, disposition: "attachment" })}
       >
         {download.isPending ? (
           <Loader2 data-icon="inline-start" className="animate-spin" />
         ) : (
           <Download data-icon="inline-start" />
         )}
-        {download.isPending ? 'Preparing…' : 'Download'}
+        {download.isPending ? "Preparing…" : "Download"}
       </Button>
     </div>
   );
@@ -146,7 +142,7 @@ export function UploadedFileRow({
               aria-hidden="true"
               className="size-3.5 transition-transform group-data-[panel-open]:rotate-90"
             />
-            {open ? 'Hide' : 'Show'} {previewKind === 'pdf' ? 'the document' : 'the image'}
+            {open ? "Hide" : "Show"} {previewKind === "pdf" ? "the document" : "the image"}
           </CollapsibleTrigger>
 
           <CollapsibleContent>
@@ -156,7 +152,7 @@ export function UploadedFileRow({
                   <Loader2 className="mr-2 size-4 animate-spin" />
                   Opening…
                 </div>
-              ) : previewKind === 'pdf' ? (
+              ) : previewKind === "pdf" ? (
                 <iframe
                   src={previewUrl}
                   title={filename}

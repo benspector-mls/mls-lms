@@ -1,10 +1,10 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { GroupManager } from '@/components/instructor/group-manager';
-import { CourseRoster } from '@/components/instructor/roster';
-import { ListSkeleton } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { GroupManager } from "@/components/instructor/group-manager";
+import { CourseRoster } from "@/components/instructor/roster";
+import { ListSkeleton } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Who is in this cohort, and the link that puts them there.
@@ -46,13 +46,13 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
     queryClient.fetchQuery(trpc.groups.membershipsForCourse.queryOptions({ courseId })),
   ]);
 
-  const active = data.enrollments.filter((enrollment) => enrollment.status === 'ACTIVE').length;
+  const active = data.enrollments.filter((enrollment) => enrollment.status === "ACTIVE").length;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Roster"
-        description={`${active} ${active === 1 ? 'student' : 'students'} in this cohort`}
+        description={`${active} ${active === 1 ? "student" : "students"} in this cohort`}
       />
       <CourseRoster data={data} />
       <GroupManager courseId={courseId} data={groups} memberships={memberships} />

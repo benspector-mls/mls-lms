@@ -1,8 +1,8 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { ListSkeleton } from '@/components/list-states';
-import { StudentCourseDetail } from '@/components/student/course-detail';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { ListSkeleton } from "@/components/list-states";
+import { StudentCourseDetail } from "@/components/student/course-detail";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * `cacheComponents` is enabled, so a route cannot block on per-request data outside a

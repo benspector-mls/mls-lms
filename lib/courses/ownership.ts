@@ -87,11 +87,7 @@ export async function courseOwnerId(db: Ctx["db"], courseId: string): Promise<st
  * than as a permission code: somebody refused here needs to know who to ask, which is why the
  * message names the owner when there is one to name.
  */
-export async function assertOwnsCourse(
-  ctx: Ctx,
-  courseId: string,
-  action: string,
-): Promise<void> {
+export async function assertOwnsCourse(ctx: Ctx, courseId: string, action: string): Promise<void> {
   if (ctx.profile.role === "ADMIN") return;
 
   const instructors = await ctx.db.courseInstructor.findMany({

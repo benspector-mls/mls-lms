@@ -13,11 +13,7 @@ import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
  */
 
 /** The four section types that exist in rubric.md today. */
-export type SectionType =
-  | "short_response"
-  | "coding_algorithm"
-  | "coding_sql"
-  | "coding_frontend";
+export type SectionType = "short_response" | "coding_algorithm" | "coding_sql" | "coding_frontend";
 
 /** One entry from `assignment.sections`. */
 export type AssignmentSection = {
@@ -188,9 +184,7 @@ export function classifySections(params: {
   for (const path of params.changedPaths) {
     if (isIgnorable(path)) continue;
 
-    const rule = RULES.find((candidate) =>
-      candidate.matches(path, { hasJest: params.hasJest }),
-    );
+    const rule = RULES.find((candidate) => candidate.matches(path, { hasJest: params.hasJest }));
     if (rule) detected.add(rule.type);
     else unclassified.push(path);
   }
@@ -297,7 +291,10 @@ const PROMPT_EXCLUSIONS: { reason: string; matches: RegExp }[] = [
       /(^|\/)\.(cache|parcel-cache|turbo|yarn|npm|eslintcache|stylelintcache|pytest_cache|mypy_cache|ruff_cache|tox)($|\/)/,
   },
   { reason: "log file", matches: /(\.log$)|((^|\/)logs\/)/i },
-  { reason: "editor or system file", matches: /(^|\/)(\.DS_Store|Thumbs\.db|\.vscode|\.idea)($|\/)/i },
+  {
+    reason: "editor or system file",
+    matches: /(^|\/)(\.DS_Store|Thumbs\.db|\.vscode|\.idea)($|\/)/i,
+  },
   {
     reason: "compiled artifact",
     matches: /\.(pyc|pyo|class|o|so|dylib|dll|exe|tsbuildinfo)$/i,

@@ -1,7 +1,7 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { CoursesList } from '@/components/student/courses-list';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { CoursesList } from "@/components/student/courses-list";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * `cacheComponents` is enabled, so a route cannot block on per-request data outside a
@@ -35,7 +35,7 @@ async function Courses() {
       githubLinked={Boolean(profile?.githubUsername)}
       // Any instructor may start a cohort; the procedure is what refuses, so this decides
       // only whether the button is offered.
-      canCreate={profile?.role === 'INSTRUCTOR' || profile?.role === 'ADMIN'}
+      canCreate={profile?.role === "INSTRUCTOR" || profile?.role === "ADMIN"}
     />
   );
 }

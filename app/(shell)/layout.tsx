@@ -1,8 +1,8 @@
-import type { ReactNode } from 'react';
+import type { ReactNode } from "react";
 
-import { AppShell } from '@/components/app-shell';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import { SessionBoundary } from '@/components/session-boundary';
+import { AppShell } from "@/components/app-shell";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { SessionBoundary } from "@/components/session-boundary";
 
 /**
  * Every signed-in screen. The boundary sits outside the shell so a session that expires

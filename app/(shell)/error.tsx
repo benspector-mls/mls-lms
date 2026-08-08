@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
+import { useEffect } from "react";
 
-import { ErrorState } from '@/components/list-states';
+import { ErrorState } from "@/components/list-states";
 
 /**
  * The last stop for anything that throws inside a signed-in screen.
@@ -23,14 +23,14 @@ export default function ShellError({
   useEffect(() => {
     // The digest is what ties this to the server log entry; in production the message
     // itself is redacted before it reaches the browser.
-    console.error('Unhandled error in a signed-in screen:', error);
+    console.error("Unhandled error in a signed-in screen:", error);
   }, [error]);
 
   return (
     <div className="mx-auto w-full max-w-2xl p-4 md:p-6">
       <ErrorState
         title="Something went wrong"
-        description={error.message || 'This screen failed to load.'}
+        description={error.message || "This screen failed to load."}
         onRetry={reset}
       />
     </div>

@@ -82,8 +82,9 @@ export async function assertCanHandIn(
     });
   }
 
-  const collectedAs: "link" | "file" =
-    isLinkSubmitted(assignment.kind as AssignmentKind) ? "link" : "file";
+  const collectedAs: "link" | "file" = isLinkSubmitted(assignment.kind as AssignmentKind)
+    ? "link"
+    : "file";
 
   if (params.expect && collectedAs !== params.expect) {
     throw new TRPCError({

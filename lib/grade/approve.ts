@@ -239,13 +239,11 @@ export async function approveDraft(params: {
   if (draft.status === "FAILED" || draft.status === "GENERATING") {
     throw new ApprovalError(
       `This draft is ${draft.status.toLowerCase()} and has no report to post. ` +
-      `Generate a new one.`,
+        `Generate a new one.`,
     );
   }
   if (draft.status === "SUPERSEDED") {
-    throw new ApprovalError(
-      `This draft was superseded by a newer commit. Generate a new one.`,
-    );
+    throw new ApprovalError(`This draft was superseded by a newer commit. Generate a new one.`);
   }
 
   // Approving twice would post the same feedback to the pull request a second time.
@@ -254,7 +252,7 @@ export async function approveDraft(params: {
   if (draft.approvedAt !== null) {
     throw new ApprovalError(
       `This draft was already approved on ${draft.approvedAt.toLocaleString()}. ` +
-      `Approving it again would post the same feedback twice.`,
+        `Approving it again would post the same feedback twice.`,
     );
   }
 
@@ -271,8 +269,8 @@ export async function approveDraft(params: {
   if (submission.headSha && draft.headSha && draft.headSha !== submission.headSha) {
     throw new ApprovalError(
       `This draft describes commit ${draft.headSha.slice(0, 7)}, but the pull request ` +
-      `is now at ${submission.headSha.slice(0, 7)}. Regenerate the report so the grade ` +
-      `describes the code that is actually there.`,
+        `is now at ${submission.headSha.slice(0, 7)}. Regenerate the report so the grade ` +
+        `describes the code that is actually there.`,
     );
   }
 
@@ -299,9 +297,9 @@ export async function approveDraft(params: {
   if (unscored.length > 0) {
     throw new ApprovalError(
       `${unscored.map((section) => `"${section.sectionType}"`).join(", ")} ` +
-      `${unscored.length === 1 ? "has" : "have"} no score or no feedback written yet. ` +
-      `Fill in every section before releasing — a blank section would be recorded as a ` +
-      `zero and shown to the student as an empty report.`,
+        `${unscored.length === 1 ? "has" : "have"} no score or no feedback written yet. ` +
+        `Fill in every section before releasing — a blank section would be recorded as a ` +
+        `zero and shown to the student as an empty report.`,
     );
   }
 
@@ -320,9 +318,9 @@ export async function approveDraft(params: {
     if (stated.earned !== section.scoreEarned || stated.possible !== section.scorePossible) {
       throw new ApprovalError(
         `The ${section.sectionType.replace(/_/g, " ")} report says ` +
-        `${stated.earned}/${stated.possible} but the score being recorded is ` +
-        `${section.scoreEarned}/${section.scorePossible}. Change whichever is wrong — ` +
-        `the student reads the report and the gradebook reads the score.`,
+          `${stated.earned}/${stated.possible} but the score being recorded is ` +
+          `${section.scoreEarned}/${section.scorePossible}. Change whichever is wrong — ` +
+          `the student reads the report and the gradebook reads the score.`,
       );
     }
   }
@@ -335,7 +333,7 @@ export async function approveDraft(params: {
   if (finalScorePossible <= 0) {
     throw new ApprovalError(
       `This draft's sections are worth 0 points in total, so completion cannot be ` +
-      `determined. Check the assignment's per-section point values.`,
+        `determined. Check the assignment's per-section point values.`,
     );
   }
 
@@ -484,7 +482,7 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
   if (draft.postedPrCommentId !== null) {
     throw new ApprovalError(
       `This approval's comment was already posted. Posting again would add a second ` +
-      `copy of the same feedback.`,
+        `copy of the same feedback.`,
     );
   }
 
@@ -494,7 +492,7 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
     // missing on this submission, so the message says that rather than implying a failure.
     throw new ApprovalError(
       `This submission has no pull request, so there is no comment to post. Its feedback ` +
-      `is already released and the student can read it.`,
+        `is already released and the student can read it.`,
     );
   }
 

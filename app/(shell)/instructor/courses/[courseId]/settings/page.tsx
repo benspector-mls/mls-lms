@@ -1,20 +1,16 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { CourseSettings } from '@/components/instructor/course-settings';
-import { ListSkeleton } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { CourseSettings } from "@/components/instructor/course-settings";
+import { ListSkeleton } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * The cohort itself, and where the bare course address lands.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
-export default function CourseSettingsPage({
-  params,
-}: {
-  params: Promise<{ courseId: string }>;
-}) {
+export default function CourseSettingsPage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
     <Suspense fallback={<SettingsFallback />}>
       <Settings params={params} />

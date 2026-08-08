@@ -32,7 +32,9 @@ async function main() {
     select: { id: true, title: true, templateRepo: true, courseId: true },
   });
   if (!assignment) {
-    console.error(`No assignment named "${repoName}". Seed it first with SEED_TEMPLATE_REPO=${repoName} npm run db:seed`);
+    console.error(
+      `No assignment named "${repoName}". Seed it first with SEED_TEMPLATE_REPO=${repoName} npm run db:seed`,
+    );
     process.exit(1);
   }
 
@@ -52,7 +54,9 @@ async function main() {
   // The context a request would have built, minus the JWT verification.
   const caller = createCallerFactory(appRouter)({
     db,
-    user: { id: student.id } as Parameters<typeof createCallerFactory>[0] extends never ? never : never,
+    user: { id: student.id } as Parameters<typeof createCallerFactory>[0] extends never
+      ? never
+      : never,
   } as never);
 
   const result = await caller.assignments.accept({ assignmentId: assignment.id });

@@ -1,19 +1,14 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { isManualOnly, manualSections } from '@/lib/assignments/spec';
-import { Prisma } from '@/lib/generated/prisma/client';
-import {
-  approveDraft,
-  ApprovalError,
-  deliveryOutcome,
-  retryComment,
-} from '@/lib/grade/approve';
-import { GradingAssetsError } from '@/lib/grade/assets';
-import { generateReportForSubmission, ReportGenerationError } from '@/lib/grade/generate-report';
-import { ProviderError } from '@/lib/grade/provider';
-import { ReportValidationError } from '@/lib/grade/schema';
-import { createTRPCRouter, instructorProcedure } from '../init';
+import { isManualOnly, manualSections } from "@/lib/assignments/spec";
+import { Prisma } from "@/lib/generated/prisma/client";
+import { approveDraft, ApprovalError, deliveryOutcome, retryComment } from "@/lib/grade/approve";
+import { GradingAssetsError } from "@/lib/grade/assets";
+import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
+import { ProviderError } from "@/lib/grade/provider";
+import { ReportValidationError } from "@/lib/grade/schema";
+import { createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * AI grading drafts, instructor-only.
@@ -58,7 +53,7 @@ const draftFields = {
 
 /** Resolves a submission and confirms the caller teaches its course. */
 async function loadSubmissionForInstructor(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   submissionId: string,
 ) {
   const submission = await ctx.db.submission.findUnique({
@@ -73,11 +68,11 @@ async function loadSubmissionForInstructor(
   });
 
   if (!submission) {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Submission not found.' });
+    throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
   }
 
   const teaches =
-    ctx.profile.role === 'ADMIN' ||
+    ctx.profile.role === "ADMIN" ||
     (await ctx.db.courseInstructor.findFirst({
       where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
       select: { id: true },
@@ -85,8 +80,8 @@ async function loadSubmissionForInstructor(
 
   if (!teaches) {
     throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'You do not teach the course this submission belongs to.',
+      code: "FORBIDDEN",
+      message: "You do not teach the course this submission belongs to.",
     });
   }
 
@@ -112,17 +107,17 @@ export const gradingDraftsRouter = createTRPCRouter({
         // Preconditions rather than server errors: the submission is not ready, or
         // the assignment is not configured. Both are fixable and neither is a bug.
         if (err instanceof ReportGenerationError) {
-          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
         }
         // An unset GRADING_ASSETS_REPO, an installation that cannot see it, or a renamed
         // rubric heading. An operator problem, and the message says which.
         if (err instanceof GradingAssetsError) {
-          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
         }
         // Reached only when the failure happened before a draft row existed;
         // afterwards these are recorded on the row as FAILED instead of thrown.
         if (err instanceof ProviderError || err instanceof ReportValidationError) {
-          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message });
         }
         throw err;
       }
@@ -150,10 +145,10 @@ export const gradingDraftsRouter = createTRPCRouter({
 
       if (sections.length === 0) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
-            'This assignment has no sections graded by hand, so there is nothing to open. ' +
-            'Generate a report instead.',
+            "This assignment has no sections graded by hand, so there is nothing to open. " +
+            "Generate a report instead.",
         });
       }
 
@@ -166,14 +161,14 @@ export const gradingDraftsRouter = createTRPCRouter({
       const open = await ctx.db.gradingDraft.findFirst({
         where: {
           submissionId: submission.id,
-          status: 'READY',
+          status: "READY",
           approvedAt: null,
           // `DbNull` rather than `null`: on a nullable Json column, Prisma needs to be told
           // whether it is matching a SQL NULL or the JSON value `null`, and this column being
           // absent is the SQL one.
           modelMetadata: { equals: Prisma.DbNull },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         select: { id: true },
       });
 
@@ -193,7 +188,7 @@ export const gradingDraftsRouter = createTRPCRouter({
           // READY, because it is: there is nothing to wait for and nothing to check. The
           // status describes whether the draft can be reviewed, not whether it is finished —
           // an unscored section is refused at approval, which is where it matters.
-          status: 'READY',
+          status: "READY",
           // Null is what marks this as hand-written rather than generated. The review screen
           // reads it to decide whether to show what a model claimed.
           modelMetadata: undefined,
@@ -226,7 +221,7 @@ export const gradingDraftsRouter = createTRPCRouter({
 
       const drafts = await ctx.db.gradingDraft.findMany({
         where: { submissionId: submission.id },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         select: draftFields,
       });
 
@@ -256,8 +251,8 @@ export const gradingDraftsRouter = createTRPCRouter({
       // draft rather than the submission, because each approval posts its own comment
       // and it is the latest one that could be missing.
       const latestApproval = await ctx.db.gradingDraft.findFirst({
-        where: { submissionId: input.submissionId, status: 'APPROVED' },
-        orderBy: { approvedAt: 'desc' },
+        where: { submissionId: input.submissionId, status: "APPROVED" },
+        orderBy: { approvedAt: "desc" },
         select: { id: true, postedPrCommentId: true },
       });
 
@@ -285,9 +280,9 @@ export const gradingDraftsRouter = createTRPCRouter({
         blockedReason: manualOnly
           ? null
           : submission.prNumber === null || submission.headSha === null
-            ? 'The student has not opened a pull request yet.'
+            ? "The student has not opened a pull request yet."
             : declaredSections.length === 0
-              ? 'This assignment has no sections mapping, so there is no rubric to grade against.'
+              ? "This assignment has no sections mapping, so there is no rubric to grade against."
               : null,
         /**
          * Whether the draft on top describes the commit that is currently at the head
@@ -312,9 +307,7 @@ export const gradingDraftsRouter = createTRPCRouter({
            * never anywhere to send — and the interface holds a submission whose null
            * `prNumber` it would otherwise have to interpret for itself.
            */
-          delivery: latestApproval
-            ? deliveryOutcome(latestApproval, submission)
-            : null,
+          delivery: latestApproval ? deliveryOutcome(latestApproval, submission) : null,
         },
       };
     }),
@@ -328,7 +321,7 @@ export const gradingDraftsRouter = createTRPCRouter({
         select: { ...draftFields, submissionId: true },
       });
 
-      if (!draft) throw new TRPCError({ code: 'NOT_FOUND', message: 'Draft not found.' });
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
 
       // Authorization lives on the submission, so it is checked there rather than
       // duplicated here.
@@ -363,7 +356,7 @@ export const gradingDraftsRouter = createTRPCRouter({
           gradingDraft: { select: { submissionId: true, approvedAt: true } },
         },
       });
-      if (!section) throw new TRPCError({ code: 'NOT_FOUND', message: 'Section not found.' });
+      if (!section) throw new TRPCError({ code: "NOT_FOUND", message: "Section not found." });
 
       await loadSubmissionForInstructor(ctx, section.gradingDraft.submissionId);
 
@@ -372,10 +365,10 @@ export const gradingDraftsRouter = createTRPCRouter({
       // saw, so a revision means a new draft and a new comment.
       if (section.gradingDraft.approvedAt !== null) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message:
-            'This draft has already been sent to the student. Generate a new report to ' +
-            'revise the grade — the student keeps both, which is the point of the history.',
+            "This draft has already been sent to the student. Generate a new report to " +
+            "revise the grade — the student keeps both, which is the point of the history.",
         });
       }
 
@@ -385,7 +378,7 @@ export const gradingDraftsRouter = createTRPCRouter({
         input.scoreEarned > section.scorePossible
       ) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
+          code: "BAD_REQUEST",
           message: `This section is out of ${section.scorePossible} points.`,
         });
       }
@@ -397,12 +390,9 @@ export const gradingDraftsRouter = createTRPCRouter({
           editedScoreEarned: input.scoreEarned,
           // Cleared alongside the edit, so a section restored to the model's version
           // does not keep claiming it was revised.
-          editedAt: input.reportMarkdown === null && input.scoreEarned === null
-            ? null
-            : new Date(),
-          editedById: input.reportMarkdown === null && input.scoreEarned === null
-            ? null
-            : ctx.profile.id,
+          editedAt: input.reportMarkdown === null && input.scoreEarned === null ? null : new Date(),
+          editedById:
+            input.reportMarkdown === null && input.scoreEarned === null ? null : ctx.profile.id,
         },
         select: { id: true, editedAt: true },
       });
@@ -421,7 +411,7 @@ export const gradingDraftsRouter = createTRPCRouter({
         where: { id: input.draftId },
         select: { submissionId: true },
       });
-      if (!draft) throw new TRPCError({ code: 'NOT_FOUND', message: 'Draft not found.' });
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
 
       await loadSubmissionForInstructor(ctx, draft.submissionId);
 
@@ -438,7 +428,7 @@ export const gradingDraftsRouter = createTRPCRouter({
         if (err instanceof ApprovalError) {
           // The caller can act on every one of these — regenerate a stale draft, fix a
           // point value — so the message is theirs to read rather than a 500.
-          throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         throw err;
       }
@@ -460,7 +450,7 @@ export const gradingDraftsRouter = createTRPCRouter({
         return await retryComment(input.submissionId);
       } catch (err) {
         if (err instanceof ApprovalError) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         throw err;
       }

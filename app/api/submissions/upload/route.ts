@@ -1,11 +1,11 @@
-import { TRPCError } from '@trpc/server';
-import { getHTTPStatusCodeFromError } from '@trpc/server/http';
-import { NextResponse } from 'next/server';
+import { TRPCError } from "@trpc/server";
+import { getHTTPStatusCodeFromError } from "@trpc/server/http";
+import { NextResponse } from "next/server";
 
-import { db } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
-import { formatBytes, MAX_UPLOAD_BYTES } from '@/lib/uploads/file-types';
-import { assertCanHandIn, storeAndRecordUpload } from '@/lib/uploads/submit';
+import { db } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
+import { formatBytes, MAX_UPLOAD_BYTES } from "@/lib/uploads/file-types";
+import { assertCanHandIn, storeAndRecordUpload } from "@/lib/uploads/submit";
 
 /**
  * A student handing in a file.
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'You must be signed in to do that.' });
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "You must be signed in to do that." });
     }
 
     const profile = await db.profile.findUnique({
@@ -48,21 +48,21 @@ export async function POST(request: Request) {
 
     if (!profile) {
       throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Your account has no profile record. This should not happen — please report it.',
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Your account has no profile record. This should not happen — please report it.",
       });
     }
 
     const form = await request.formData();
-    const assignmentId = form.get('assignmentId');
-    const file = form.get('file');
+    const assignmentId = form.get("assignmentId");
+    const file = form.get("file");
 
-    if (typeof assignmentId !== 'string' || assignmentId.length === 0) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'No assignment was named.' });
+    if (typeof assignmentId !== "string" || assignmentId.length === 0) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "No assignment was named." });
     }
 
     if (!(file instanceof File)) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'No file was attached.' });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "No file was attached." });
     }
 
     /*
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     */
     if (file.size > MAX_UPLOAD_BYTES) {
       throw new TRPCError({
-        code: 'BAD_REQUEST',
+        code: "BAD_REQUEST",
         message:
           `That file is ${formatBytes(file.size)}, and the limit is ` +
           `${formatBytes(MAX_UPLOAD_BYTES)}.`,
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     const assignment = await assertCanHandIn(db, {
       profileId: profile.id,
       assignmentId,
-      expect: 'file',
+      expect: "file",
     });
 
     const submission = await storeAndRecordUpload(db, {
@@ -100,17 +100,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ submission });
   } catch (err) {
     if (err instanceof TRPCError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: getHTTPStatusCodeFromError(err) },
-      );
+      return NextResponse.json({ error: err.message }, { status: getHTTPStatusCodeFromError(err) });
     }
 
     // Never the underlying message. A storage failure names the bucket and the path, which is
     // for the log rather than for a student.
-    console.error('submission upload failed', err);
+    console.error("submission upload failed", err);
     return NextResponse.json(
-      { error: 'Something went wrong storing that file. Try again, and tell your instructor if it keeps happening.' },
+      {
+        error:
+          "Something went wrong storing that file. Try again, and tell your instructor if it keeps happening.",
+      },
       { status: 500 },
     );
   }

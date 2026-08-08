@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 export function PageHeader({
   title,
@@ -7,18 +7,15 @@ export function PageHeader({
   actions,
   className,
 }: {
-  title: string
-  description?: string
-  eyebrow?: string
-  actions?: React.ReactNode
-  className?: string
+  title: string;
+  description?: string;
+  eyebrow?: string;
+  actions?: React.ReactNode;
+  className?: string;
 }) {
   return (
     <div
-      className={cn(
-        "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
-        className,
-      )}
+      className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between", className)}
     >
       <div className="flex flex-col gap-1">
         {eyebrow ? (
@@ -26,18 +23,12 @@ export function PageHeader({
             {eyebrow}
           </span>
         ) : null}
-        <h1 className="text-xl font-semibold tracking-tight text-balance">
-          {title}
-        </h1>
+        <h1 className="text-xl font-semibold tracking-tight text-balance">{title}</h1>
         {description ? (
-          <p className="text-sm text-muted-foreground text-pretty">
-            {description}
-          </p>
+          <p className="text-sm text-muted-foreground text-pretty">{description}</p>
         ) : null}
       </div>
-      {actions ? (
-        <div className="flex shrink-0 items-center gap-2">{actions}</div>
-      ) : null}
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
-  )
+  );
 }

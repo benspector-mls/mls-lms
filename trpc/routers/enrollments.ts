@@ -1,7 +1,7 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 /**
  * Getting students into a course, and out of it.
@@ -97,16 +97,16 @@ export const enrollmentsRouter = createTRPCRouter({
       */
       if (!course) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
+          code: "NOT_FOUND",
           message:
-            'That join link does not work. It may have been replaced — ask your instructor ' +
-            'for the current one.',
+            "That join link does not work. It may have been replaced — ask your instructor " +
+            "for the current one.",
         });
       }
 
       if (course.archivedAt !== null) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message: `${course.name} has finished, so it is not taking new students.`,
         });
       }
@@ -124,7 +124,7 @@ export const enrollmentsRouter = createTRPCRouter({
       });
       if (teaches) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message: `You teach ${course.name}, so you are already in it.`,
         });
       }
@@ -140,9 +140,9 @@ export const enrollmentsRouter = createTRPCRouter({
         stick while they still held it, and the instructor's only recourse would be rotating
         the link for the whole cohort. `enrollments.restore` is how somebody comes back.
       */
-      if (existing?.status === 'REMOVED') {
+      if (existing?.status === "REMOVED") {
         throw new TRPCError({
-          code: 'FORBIDDEN',
+          code: "FORBIDDEN",
           message:
             `You are no longer enrolled in ${course.name}. Everything you submitted and were ` +
             `given feedback on is still available to you. Ask your instructor if this is wrong.`,
@@ -177,7 +177,7 @@ export const enrollmentsRouter = createTRPCRouter({
 
       const updated = await ctx.db.enrollment.update({
         where: { id: input.enrollmentId },
-        data: { status: 'REMOVED' },
+        data: { status: "REMOVED" },
         select: { id: true, status: true },
       });
 
@@ -199,7 +199,7 @@ export const enrollmentsRouter = createTRPCRouter({
 
       const updated = await ctx.db.enrollment.update({
         where: { id: input.enrollmentId },
-        data: { status: 'ACTIVE' },
+        data: { status: "ACTIVE" },
         select: { id: true, status: true },
       });
 
@@ -215,7 +215,7 @@ export const enrollmentsRouter = createTRPCRouter({
  * could remove a student from another cohort by id.
  */
 async function loadTeachableEnrollment(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   enrollmentId: string,
 ): Promise<{ courseId: string; studentName: string }> {
   const found = await ctx.db.enrollment.findUnique({
@@ -226,15 +226,15 @@ async function loadTeachableEnrollment(
     },
   });
 
-  if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'Enrollment not found.' });
+  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Enrollment not found." });
 
-  if (ctx.profile.role !== 'ADMIN') {
+  if (ctx.profile.role !== "ADMIN") {
     const teaches = await ctx.db.courseInstructor.findFirst({
       where: { courseId: found.courseId, userId: ctx.profile.id },
       select: { id: true },
     });
     if (!teaches) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not teach this course.' });
+      throw new TRPCError({ code: "FORBIDDEN", message: "You do not teach this course." });
     }
   }
 
@@ -244,6 +244,6 @@ async function loadTeachableEnrollment(
       found.student.displayName ??
       found.student.githubUsername ??
       found.student.email ??
-      'that student',
+      "that student",
   };
 }

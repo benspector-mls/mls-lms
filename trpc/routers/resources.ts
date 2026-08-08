@@ -1,14 +1,10 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { assertCourseMember, assertTeaches } from '@/lib/courses/membership';
-import {
-  resourceColumns,
-  resourceSpecSchema,
-  UnrecognisedVideoError,
-} from '@/lib/resources/spec';
+import { assertCourseMember, assertTeaches } from "@/lib/courses/membership";
+import { resourceColumns, resourceSpecSchema, UnrecognisedVideoError } from "@/lib/resources/spec";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 /**
  * The things in a module that are not work: readings, notes, and videos.
@@ -37,7 +33,7 @@ import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init
  * caller wants.
  */
 async function loadTeachableModule(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   moduleId: string,
 ) {
   const found = await ctx.db.module.findUnique({
@@ -45,14 +41,14 @@ async function loadTeachableModule(
     select: { id: true, courseId: true, name: true },
   });
 
-  if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'Module not found.' });
+  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Module not found." });
   await assertTeaches(ctx, found.courseId);
   return found;
 }
 
 /** The resource with its module, if the caller teaches that module's course. */
 async function loadTeachableResource(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   resourceId: string,
 ) {
   const found = await ctx.db.resource.findUnique({
@@ -60,7 +56,7 @@ async function loadTeachableResource(
     select: { id: true, title: true, kind: true, module: { select: { id: true, courseId: true } } },
   });
 
-  if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found.' });
+  if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Resource not found." });
   await assertTeaches(ctx, found.module.courseId);
   return found;
 }
@@ -78,7 +74,7 @@ function columnsOrRefuse(spec: z.infer<typeof resourceSpecSchema>) {
     return resourceColumns(spec);
   } catch (err) {
     if (err instanceof UnrecognisedVideoError) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+      throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
     }
     throw err;
   }
@@ -126,7 +122,7 @@ export const resourcesRouter = createTRPCRouter({
           alphabetical is the only ordering that needs nothing maintained, and a manual one
           beside it would be a second sequence to keep in step with the first.
         */
-        orderBy: [{ module: { position: 'asc' } }, { title: 'asc' }],
+        orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
         select: resourceFields,
       });
     }),
@@ -175,8 +171,8 @@ export const resourcesRouter = createTRPCRouter({
 
         if (!target) {
           throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'That module belongs to a different course.',
+            code: "BAD_REQUEST",
+            message: "That module belongs to a different course.",
           });
         }
       }

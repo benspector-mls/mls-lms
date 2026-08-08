@@ -190,9 +190,9 @@ export function repositorySource(assignment: {
     throw new NotRepositoryBackedError(assignment.kind);
   }
 
-  const missing = (
-    ["templateRepo", "assignmentRepoName", "githubOrg"] as const
-  ).filter((field) => !assignment[field]);
+  const missing = (["templateRepo", "assignmentRepoName", "githubOrg"] as const).filter(
+    (field) => !assignment[field],
+  );
 
   if (missing.length > 0) {
     throw new AssignmentConfigurationError(
@@ -362,7 +362,8 @@ export function manualSections(sections: unknown): { label: string; pointValue: 
 export function sectionGradingModes(sections: unknown): ("ai" | "manual")[] {
   if (!Array.isArray(sections)) return [];
   return sections.map((section) =>
-    section && typeof section === "object" &&
+    section &&
+    typeof section === "object" &&
     (section as { grading?: unknown }).grading === "manual"
       ? "manual"
       : "ai",
@@ -381,10 +382,7 @@ export function sectionGradingModes(sections: unknown): ("ai" | "manual")[] {
  * `TEST_EVIDENCE` against `NO_TESTS_EXPECTED` — is the difference between "checked" and
  * "nothing to check", which an instructor reading a report needs to see.
  */
-export function derivesTestEvidence(
-  sectionType: SectionTypeName,
-  runnerPreset: string,
-): boolean {
+export function derivesTestEvidence(sectionType: SectionTypeName, runnerPreset: string): boolean {
   if (sectionType === "short_response") return false;
   return runnerPreset !== "none";
 }
@@ -654,9 +652,9 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
         .string()
         .regex(
           GOOGLE_DRIVE_URL,
-          'must be a Google Docs, Sheets, or Slides link ending in /view or /edit, e.g. ' +
-            'https://docs.google.com/document/d/<id>/view — that is what the copy prompt ' +
-            'is built from',
+          "must be a Google Docs, Sheets, or Slides link ending in /view or /edit, e.g. " +
+            "https://docs.google.com/document/d/<id>/view — that is what the copy prompt " +
+            "is built from",
         ),
       ...noUpload,
     })

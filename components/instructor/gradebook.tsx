@@ -1,7 +1,7 @@
-import Link from 'next/link';
-import { BarChart3 } from 'lucide-react';
+import Link from "next/link";
+import { BarChart3 } from "lucide-react";
 
-import { EmptyState } from '@/components/list-states';
+import { EmptyState } from "@/components/list-states";
 import {
   Table,
   TableBody,
@@ -9,11 +9,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { gradingQueueHref, studentHref } from '@/lib/links';
-import { scoreLabel, scorePercent } from '@/lib/status';
-import { cn } from '@/lib/utils';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/table";
+import { gradingQueueHref, studentHref } from "@/lib/links";
+import { scoreLabel, scorePercent } from "@/lib/status";
+import { cn } from "@/lib/utils";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Every student against every assignment.
@@ -31,12 +31,12 @@ import type { RouterOutputs } from '@/trpc/types';
  * thing removal is supposed to preserve.
  */
 
-type Gradebook = RouterOutputs['courses']['gradebook'];
-type Assignment = Gradebook['assignments'][number];
-type Cell = Gradebook['cells'][number];
+type Gradebook = RouterOutputs["courses"]["gradebook"];
+type Assignment = Gradebook["assignments"][number];
+type Cell = Gradebook["cells"][number];
 // From the active list rather than a whole-roster one, which this payload no longer carries.
 // Either complement has the same shape, so which it is read off is a question of what exists.
-type Student = Gradebook['activeEnrollments'][number]['student'];
+type Student = Gradebook["activeEnrollments"][number]["student"];
 
 export function Gradebook({ data }: { data: Gradebook }) {
   const active = data.activeEnrollments.map((enrollment) => enrollment.student);
@@ -118,7 +118,7 @@ function Grid({
   assignments: Assignment[];
   students: Student[];
   cells: Cell[];
-  pending: 'waiting' | 'not-graded';
+  pending: "waiting" | "not-graded";
 }) {
   // Keyed lookup rather than a scan per cell: a cohort of twenty against fifty
   // assignments is a thousand cells, and a linear search in each is a million comparisons.
@@ -156,10 +156,7 @@ function Grid({
               <TableCell className="sticky left-0 z-10 bg-card font-medium">
                 {/* Into their record for this cohort. A row of scores prompts "what happened
                     with this person", and the name is where a reader already points. */}
-                <Link
-                  href={studentHref(courseId, student.id)}
-                  className="hover:underline"
-                >
+                <Link href={studentHref(courseId, student.id)} className="hover:underline">
                   {student.displayName ?? student.email ?? student.githubUsername}
                 </Link>
               </TableCell>
@@ -187,17 +184,17 @@ function Grid({
                       {graded ? (
                         <span
                           className={cn(
-                            'text-sm font-medium tabular-nums',
+                            "text-sm font-medium tabular-nums",
                             cell.isComplete === false
-                              ? 'text-destructive'
+                              ? "text-destructive"
                               : percent != null && percent >= 0.9
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : 'text-foreground',
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-foreground",
                           )}
                         >
                           {scoreLabel(cell.finalScore, cell.finalScorePossible)}
                         </span>
-                      ) : pending === 'not-graded' ? (
+                      ) : pending === "not-graded" ? (
                         // In words rather than as a dot. A dot needs a legend, and the one
                         // thing worth knowing about a removed student's ungraded work is
                         // exactly that: it was never graded.
@@ -207,11 +204,11 @@ function Grid({
                         // number, because there is no number yet.
                         <span
                           className={cn(
-                            'size-2 rounded-full',
-                            cell.bucket ? 'bg-amber-500' : 'bg-muted-foreground/40',
+                            "size-2 rounded-full",
+                            cell.bucket ? "bg-amber-500" : "bg-muted-foreground/40",
                           )}
-                          aria-label={cell.bucket ? 'Waiting on you' : cell.status}
-                          title={cell.bucket ? 'Waiting on you' : cell.status}
+                          aria-label={cell.bucket ? "Waiting on you" : cell.status}
+                          title={cell.bucket ? "Waiting on you" : cell.status}
                         />
                       )}
                     </Link>

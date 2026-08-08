@@ -89,15 +89,13 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
   if (Math.abs(itemsEarned - report.scoreEarned) > EPSILON) {
     findings.push({
       code: "ARITHMETIC_MISMATCH",
-      detail:
-        `The rubric items sum to ${itemsEarned} but the report claims ${report.scoreEarned}.`,
+      detail: `The rubric items sum to ${itemsEarned} but the report claims ${report.scoreEarned}.`,
     });
   }
   if (Math.abs(itemsPossible - report.scorePossible) > EPSILON) {
     findings.push({
       code: "ARITHMETIC_MISMATCH",
-      detail:
-        `The rubric items are out of ${itemsPossible} but the report claims ${report.scorePossible}.`,
+      detail: `The rubric items are out of ${itemsPossible} but the report claims ${report.scorePossible}.`,
     });
   }
 

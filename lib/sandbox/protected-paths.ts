@@ -38,7 +38,8 @@ export function findTamperedPaths(
   for (const change of changes) {
     const destProtected = matchesProtectedPath(change.path, protectedPaths);
     const sourceProtected =
-      change.previousPath !== undefined && matchesProtectedPath(change.previousPath, protectedPaths);
+      change.previousPath !== undefined &&
+      matchesProtectedPath(change.previousPath, protectedPaths);
 
     if (!destProtected && !sourceProtected) continue;
 
@@ -68,14 +69,10 @@ const HANDLED_SEPARATELY = new Set(["package.json", "package-lock.json"]);
  * outside the student's tree, so it is worth refusing to run at all.
  */
 function assertSafePattern(pattern: string): void {
-  if (
-    pattern.startsWith("/") ||
-    pattern.includes("..") ||
-    /[;&|`$(){}<>\n\\"']/.test(pattern)
-  ) {
+  if (pattern.startsWith("/") || pattern.includes("..") || /[;&|`$(){}<>\n\\"']/.test(pattern)) {
     throw new Error(
       `Unsafe protected path pattern ${JSON.stringify(pattern)} in lib/sandbox/presets.ts. ` +
-      `Patterns must be repository-relative and may only use * and /** as wildcards.`,
+        `Patterns must be repository-relative and may only use * and /** as wildcards.`,
     );
   }
 }
@@ -172,13 +169,7 @@ const PERMISSIVE_MERGE_OBJECTS = ["scripts"] as const;
  * template never carried is not something an assignment asks a student to add,
  * and `{"testMatch": []}` silently matches no tests at all.
  */
-const TEMPLATE_OWNED_CONFIG_BLOCKS = [
-  "jest",
-  "vitest",
-  "mocha",
-  "eslintConfig",
-  "babel",
-] as const;
+const TEMPLATE_OWNED_CONFIG_BLOCKS = ["jest", "vitest", "mocha", "eslintConfig", "babel"] as const;
 
 /** Where student additions are kept, subject to allowStudentDependencies. */
 const DEPENDENCY_OBJECTS = ["dependencies", "devDependencies", "peerDependencies"] as const;

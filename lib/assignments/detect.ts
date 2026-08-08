@@ -50,8 +50,7 @@ export async function detectRunnerPreset(templateRepo: string): Promise<RunnerDe
   if (!owner || !repo) return NOT_A_REPOSITORY;
 
   const installationId = getConfiguredInstallationId();
-  const read = (path: string) =>
-    fetchRepoFile(installationId, { owner, repo, ref: "HEAD", path });
+  const read = (path: string) => fetchRepoFile(installationId, { owner, repo, ref: "HEAD", path });
 
   const [packageJson, requirements] = await Promise.all([
     read("package.json"),

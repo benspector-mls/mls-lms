@@ -40,7 +40,11 @@ async function main() {
   const submission = await db.submission.findFirst({
     where: { repoFullName: { contains: target } },
     select: {
-      id: true, repoFullName: true, status: true, headSha: true, gradedHeadSha: true,
+      id: true,
+      repoFullName: true,
+      status: true,
+      headSha: true,
+      gradedHeadSha: true,
       studentId: true,
       assignment: { select: { courseId: true } },
     },
@@ -67,20 +71,27 @@ async function main() {
   console.log(`Submission  ${submission.repoFullName}\n`);
 
   // --- item 4: a push after grading -------------------------------------
-  check("the status stayed GRADED through a push",
+  check(
+    "the status stayed GRADED through a push",
     submission.status === "GRADED" || submission.status === "RESUBMITTED",
-    submission.status);
-  check("the new commit was recorded",
+    submission.status,
+  );
+  check(
+    "the new commit was recorded",
     submission.headSha !== null && submission.headSha !== submission.gradedHeadSha,
-    `head ${submission.headSha?.slice(0, 7)}, graded ${submission.gradedHeadSha?.slice(0, 7)}`);
+    `head ${submission.headSha?.slice(0, 7)}, graded ${submission.gradedHeadSha?.slice(0, 7)}`,
+  );
 
   // --- item 5: the student declares readiness ---------------------------
   if (submission.status === "GRADED") {
     const declared = await asStudent.submissions.declareResubmission({
       submissionId: submission.id,
     });
-    check("the student's declaration sets RESUBMITTED", declared.status === "RESUBMITTED",
-      declared.status);
+    check(
+      "the student's declaration sets RESUBMITTED",
+      declared.status === "RESUBMITTED",
+      declared.status,
+    );
   } else {
     console.log(`skip the declaration — already ${submission.status}`);
   }
@@ -106,14 +117,19 @@ async function main() {
   // The instructor's queue has to tell a revision from a first submission, and show
   // that there is newer code than the grade describes.
   const listed = await asInstructor.submissions.listForAssignment({
-    assignmentId: (await db.submission.findUniqueOrThrow({
-      where: { id: submission.id }, select: { assignmentId: true },
-    })).assignmentId,
+    assignmentId: (
+      await db.submission.findUniqueOrThrow({
+        where: { id: submission.id },
+        select: { assignmentId: true },
+      })
+    ).assignmentId,
   });
   const row = listed.submissions.find((s) => s.id === submission.id);
   check("the queue shows it as a resubmission", row?.status === "RESUBMITTED", row?.status);
-  check("the queue can see it is revised since grading",
-    row?.gradedHeadSha !== null && row?.headSha !== row?.gradedHeadSha);
+  check(
+    "the queue can see it is revised since grading",
+    row?.gradedHeadSha !== null && row?.headSha !== row?.gradedHeadSha,
+  );
 
   // --- item 6: re-approval adds a second comment ------------------------
   const before = await db.gradingDraft.count({
@@ -121,36 +137,52 @@ async function main() {
   });
 
   if (!post) {
-    console.log(`\n${before} approved round(s) so far. Re-run with --post to generate a ` +
-      `report for the new commit, approve it, and confirm a SECOND comment appears ` +
-      `rather than the first being edited.`);
+    console.log(
+      `\n${before} approved round(s) so far. Re-run with --post to generate a ` +
+        `report for the new commit, approve it, and confirm a SECOND comment appears ` +
+        `rather than the first being edited.`,
+    );
   } else {
     const draft = await asInstructor.gradingDrafts.generate({ submissionId: submission.id });
-    check("a report was generated for the new commit",
-      draft.status === "READY" || draft.status === "NEEDS_MANUAL_REVIEW", draft.status);
+    check(
+      "a report was generated for the new commit",
+      draft.status === "READY" || draft.status === "NEEDS_MANUAL_REVIEW",
+      draft.status,
+    );
 
     const approved = await asInstructor.gradingDrafts.approve({ draftId: draft.id });
-    check("the second approval posted its own comment",
+    check(
+      "the second approval posted its own comment",
       approved.postedPrCommentId !== null,
-      approved.commentError ?? String(approved.postedPrCommentId));
+      approved.commentError ?? String(approved.postedPrCommentId),
+    );
 
     const rounds = await db.gradingDraft.findMany({
       where: { submissionId: submission.id, status: "APPROVED" },
       orderBy: { approvedAt: "asc" },
       select: { headSha: true, postedPrCommentId: true },
     });
-    check("both rounds are on record", rounds.length === before + 1,
-      rounds.map((r) => `${r.headSha?.slice(0, 7) ?? "no commit"}→${r.postedPrCommentId}`).join(", "));
-    check("each round posted a distinct comment",
-      new Set(rounds.map((r) => String(r.postedPrCommentId))).size === rounds.length);
+    check(
+      "both rounds are on record",
+      rounds.length === before + 1,
+      rounds
+        .map((r) => `${r.headSha?.slice(0, 7) ?? "no commit"}→${r.postedPrCommentId}`)
+        .join(", "),
+    );
+    check(
+      "each round posted a distinct comment",
+      new Set(rounds.map((r) => String(r.postedPrCommentId))).size === rounds.length,
+    );
 
     const after = await db.submission.findUniqueOrThrow({
       where: { id: submission.id },
       select: { status: true, headSha: true, gradedHeadSha: true },
     });
-    check("approving cleared the revised-since-grading state",
+    check(
+      "approving cleared the revised-since-grading state",
       after.status === "GRADED" && after.headSha === after.gradedHeadSha,
-      `${after.status}, head ${after.headSha?.slice(0, 7)}`);
+      `${after.status}, head ${after.headSha?.slice(0, 7)}`,
+    );
   }
 
   await db.$disconnect();
@@ -158,4 +190,7 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch((err) => { console.error("\n", err); process.exit(1); });
+main().catch((err) => {
+  console.error("\n", err);
+  process.exit(1);
+});

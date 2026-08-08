@@ -1,16 +1,16 @@
-import { z } from 'zod';
+import { z } from "zod";
 
-import { createTRPCRouter, protectedProcedure } from '../init';
-import { assignmentsRouter } from './assignments';
-import { coursesRouter } from './courses';
-import { enrollmentsRouter } from './enrollments';
-import { gradingDraftsRouter } from './grading-drafts';
-import { groupsRouter } from './groups';
-import { modulesRouter } from './modules';
-import { resourcesRouter } from './resources';
-import { staffRouter } from './staff';
-import { submissionsRouter } from './submissions';
-import { testRunsRouter } from './test-runs';
+import { createTRPCRouter, protectedProcedure } from "../init";
+import { assignmentsRouter } from "./assignments";
+import { coursesRouter } from "./courses";
+import { enrollmentsRouter } from "./enrollments";
+import { gradingDraftsRouter } from "./grading-drafts";
+import { groupsRouter } from "./groups";
+import { modulesRouter } from "./modules";
+import { resourcesRouter } from "./resources";
+import { staffRouter } from "./staff";
+import { submissionsRouter } from "./submissions";
+import { testRunsRouter } from "./test-runs";
 
 /** Columns safe to send to the browser. Keeps future additions opt-in. */
 const profileFields = {
@@ -47,8 +47,8 @@ export const appRouter = createTRPCRouter({
         displayName: z
           .string()
           .trim()
-          .min(2, 'Please use at least 2 characters.')
-          .max(50, 'Please use 50 characters or fewer.'),
+          .min(2, "Please use at least 2 characters.")
+          .max(50, "Please use 50 characters or fewer."),
       }),
     )
     .mutation(({ ctx, input }) =>

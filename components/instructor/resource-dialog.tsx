@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
-import { Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -14,27 +14,27 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import type { ResourceKind } from '@/lib/generated/prisma/enums';
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import type { ResourceKind } from "@/lib/generated/prisma/enums";
 import {
   IMPLEMENTED_RESOURCE_KINDS,
   parseVideoUrl,
   RESOURCE_KIND_BLURB,
   RESOURCE_KIND_LABEL,
   VIDEO_PROVIDER_LABEL,
-} from '@/lib/resources/spec';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/lib/resources/spec";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Adding a resource, or editing one.
@@ -52,8 +52,8 @@ import type { RouterOutputs } from '@/trpc/types';
  * note is a legitimate edit and `resourceColumns` clears the columns the old kind used.
  */
 
-type Modules = RouterOutputs['modules']['listForCourse'];
-type Resource = RouterOutputs['resources']['listForCourse'][number];
+type Modules = RouterOutputs["modules"]["listForCourse"];
+type Resource = RouterOutputs["resources"]["listForCourse"][number];
 
 export function ResourceDialog({
   open,
@@ -73,12 +73,12 @@ export function ResourceDialog({
   const trpc = useTRPC();
   const router = useRouter();
 
-  const [kind, setKind] = React.useState<ResourceKind>('LINK');
-  const [moduleId, setModuleId] = React.useState('');
-  const [title, setTitle] = React.useState('');
-  const [url, setUrl] = React.useState('');
-  const [description, setDescription] = React.useState('');
-  const [body, setBody] = React.useState('');
+  const [kind, setKind] = React.useState<ResourceKind>("LINK");
+  const [moduleId, setModuleId] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [url, setUrl] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [body, setBody] = React.useState("");
 
   /*
     Reset when the dialog opens rather than on every render of a closed one, so a half-typed
@@ -93,18 +93,18 @@ export function ResourceDialog({
       setKind(resource.kind);
       setModuleId(resource.moduleId);
       setTitle(resource.title);
-      setUrl(resource.url ?? '');
-      setDescription(resource.description ?? '');
-      setBody(resource.body ?? '');
+      setUrl(resource.url ?? "");
+      setDescription(resource.description ?? "");
+      setBody(resource.body ?? "");
       return;
     }
 
-    setKind('LINK');
-    setModuleId(defaultModuleId ?? modules[0]?.id ?? '');
-    setTitle('');
-    setUrl('');
-    setDescription('');
-    setBody('');
+    setKind("LINK");
+    setModuleId(defaultModuleId ?? modules[0]?.id ?? "");
+    setTitle("");
+    setUrl("");
+    setDescription("");
+    setBody("");
   }, [open, resource, defaultModuleId, modules]);
 
   const settled = {
@@ -144,13 +144,13 @@ export function ResourceDialog({
     disagree about what is recognised — an interface that accepted more than the procedure would
     be a save that fails for no visible reason.
   */
-  const video = kind === 'VIDEO' && url.trim() !== '' ? parseVideoUrl(url) : null;
-  const videoProblem = kind === 'VIDEO' && url.trim() !== '' && video === null;
+  const video = kind === "VIDEO" && url.trim() !== "" ? parseVideoUrl(url) : null;
+  const videoProblem = kind === "VIDEO" && url.trim() !== "" && video === null;
 
   const complete =
-    moduleId !== '' &&
-    title.trim() !== '' &&
-    (kind === 'TEXT' ? body.trim() !== '' : url.trim() !== '') &&
+    moduleId !== "" &&
+    title.trim() !== "" &&
+    (kind === "TEXT" ? body.trim() !== "" : url.trim() !== "") &&
     !videoProblem;
 
   function submit(event: React.FormEvent) {
@@ -158,16 +158,16 @@ export function ResourceDialog({
     if (!complete) return;
 
     const spec =
-      kind === 'LINK'
+      kind === "LINK"
         ? {
-            kind: 'LINK' as const,
+            kind: "LINK" as const,
             title,
             url,
-            description: description.trim() === '' ? null : description,
+            description: description.trim() === "" ? null : description,
           }
-        : kind === 'TEXT'
-          ? { kind: 'TEXT' as const, title, body }
-          : { kind: 'VIDEO' as const, title, url };
+        : kind === "TEXT"
+          ? { kind: "TEXT" as const, title, body }
+          : { kind: "VIDEO" as const, title, url };
 
     if (resource) {
       update.mutate({ resourceId: resource.id, moduleId, spec });
@@ -181,7 +181,7 @@ export function ResourceDialog({
       <DialogContent className="sm:max-w-xl">
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>{resource ? 'Edit resource' : 'Add a resource'}</DialogTitle>
+            <DialogTitle>{resource ? "Edit resource" : "Add a resource"}</DialogTitle>
             <DialogDescription>
               Readings, notes, and videos. Nothing here is graded or handed in — a resource is
               visible to the cohort as soon as it is saved.
@@ -238,7 +238,7 @@ export function ResourceDialog({
                 id="resource-title"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder={kind === 'TEXT' ? 'How to read an error message' : 'MDN: Array.map()'}
+                placeholder={kind === "TEXT" ? "How to read an error message" : "MDN: Array.map()"}
                 maxLength={200}
               />
               {/* The ordering is alphabetical, so the title is also where a resource sits. */}
@@ -247,17 +247,17 @@ export function ResourceDialog({
               </p>
             </div>
 
-            {kind !== 'TEXT' && (
+            {kind !== "TEXT" && (
               <div className="flex flex-col gap-2">
-                <Label htmlFor="resource-url">{kind === 'VIDEO' ? 'Video link' : 'Link'}</Label>
+                <Label htmlFor="resource-url">{kind === "VIDEO" ? "Video link" : "Link"}</Label>
                 <Input
                   id="resource-url"
                   value={url}
                   onChange={(event) => setUrl(event.target.value)}
                   placeholder={
-                    kind === 'VIDEO'
-                      ? 'https://www.youtube.com/watch?v=…'
-                      : 'https://developer.mozilla.org/…'
+                    kind === "VIDEO"
+                      ? "https://www.youtube.com/watch?v=…"
+                      : "https://developer.mozilla.org/…"
                   }
                   maxLength={2000}
                   aria-invalid={videoProblem || undefined}
@@ -269,7 +269,7 @@ export function ResourceDialog({
                 */}
                 {video && (
                   <p className="text-xs text-muted-foreground">
-                    {VIDEO_PROVIDER_LABEL[video.provider]} video{' '}
+                    {VIDEO_PROVIDER_LABEL[video.provider]} video{" "}
                     <span className="font-mono">{video.videoId}</span>. It will play on the course
                     page.
                   </p>
@@ -277,14 +277,13 @@ export function ResourceDialog({
                 {videoProblem && (
                   <p className="text-xs text-destructive">
                     Only YouTube and Vimeo links can be embedded. Paste the address from the
-                    video&apos;s own page — or add it as a Link instead, which accepts any
-                    address.
+                    video&apos;s own page — or add it as a Link instead, which accepts any address.
                   </p>
                 )}
               </div>
             )}
 
-            {kind === 'LINK' && (
+            {kind === "LINK" && (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="resource-description">Description (optional)</Label>
                 <Input
@@ -300,7 +299,7 @@ export function ResourceDialog({
               </div>
             )}
 
-            {kind === 'TEXT' && (
+            {kind === "TEXT" && (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="resource-body">Note</Label>
                 <Textarea
@@ -308,7 +307,7 @@ export function ResourceDialog({
                   value={body}
                   onChange={(event) => setBody(event.target.value)}
                   rows={10}
-                  placeholder={'## Before you start\n\nRun `npm i` first, then…'}
+                  placeholder={"## Before you start\n\nRun `npm i` first, then…"}
                   maxLength={50_000}
                   className="font-mono text-sm"
                 />
@@ -325,7 +324,7 @@ export function ResourceDialog({
             </Button>
             <Button type="submit" disabled={!complete || busy}>
               {busy && <Loader2 data-icon="inline-start" className="animate-spin" />}
-              {resource ? 'Save' : 'Add resource'}
+              {resource ? "Save" : "Add resource"}
             </Button>
           </DialogFooter>
         </form>

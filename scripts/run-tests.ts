@@ -68,7 +68,7 @@ async function main() {
   if (run.status === "COMPLETED") {
     console.log(
       `Tests            ${run.testsPassed}/${run.testsTotal} passing, ` +
-      `${run.testsFailed} failing, ${run.testsSkipped} skipped`,
+        `${run.testsFailed} failing, ${run.testsSkipped} skipped`,
     );
     // Not the score. Test outcomes are one rubric input among several.
     console.log(
@@ -79,15 +79,18 @@ async function main() {
   const tampered = Array.isArray(run.tamperedPaths) ? run.tamperedPaths : [];
   console.log(`\nGrading files changed by the student: ${tampered.length}`);
   for (const entry of tampered as { path: string; kind: string; previousPath?: string }[]) {
-    console.log(`  ${entry.kind.padEnd(9)} ${entry.path}${entry.previousPath ? ` (was ${entry.previousPath})` : ""}`);
+    console.log(
+      `  ${entry.kind.padEnd(9)} ${entry.path}${entry.previousPath ? ` (was ${entry.previousPath})` : ""}`,
+    );
   }
   if (tampered.length > 0) {
     console.log("  The template's versions were restored before the suite ran.");
   }
 
   const tests = Array.isArray(run.results) ? run.results : [];
-  const failures = (tests as { status: string; suite: string; name: string; failureMessage?: string }[])
-    .filter((test) => test.status === "failed");
+  const failures = (
+    tests as { status: string; suite: string; name: string; failureMessage?: string }[]
+  ).filter((test) => test.status === "failed");
 
   if (failures.length > 0) {
     console.log(`\nFailing tests (${failures.length}):`);

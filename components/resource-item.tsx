@@ -1,17 +1,19 @@
-'use client';
+"use client";
 
-import * as React from 'react';
-import { ChevronRight, ExternalLink, Link as LinkIcon, NotebookText, PlayCircle } from 'lucide-react';
-
-import { Markdown } from '@/components/markdown';
+import * as React from "react";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import type { ResourceKind, VideoProvider } from '@/lib/generated/prisma/enums';
-import { videoEmbedUrl, videoWatchUrl } from '@/lib/resources/spec';
-import { cn } from '@/lib/utils';
+  ChevronRight,
+  ExternalLink,
+  Link as LinkIcon,
+  NotebookText,
+  PlayCircle,
+} from "lucide-react";
+
+import { Markdown } from "@/components/markdown";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import type { ResourceKind, VideoProvider } from "@/lib/generated/prisma/enums";
+import { videoEmbedUrl, videoWatchUrl } from "@/lib/resources/spec";
+import { cn } from "@/lib/utils";
 
 /**
  * One resource as a student meets it.
@@ -39,8 +41,8 @@ export type ResourceView = {
 };
 
 export function ResourceItem({ resource }: { resource: ResourceView }) {
-  if (resource.kind === 'LINK') return <LinkResource resource={resource} />;
-  if (resource.kind === 'TEXT') return <TextResource resource={resource} />;
+  if (resource.kind === "LINK") return <LinkResource resource={resource} />;
+  if (resource.kind === "TEXT") return <TextResource resource={resource} />;
   return <VideoResource resource={resource} />;
 }
 
@@ -70,10 +72,7 @@ function LinkResource({ resource }: { resource: ResourceView }) {
           <p className="mt-0.5 text-sm text-muted-foreground">{resource.description}</p>
         )}
       </div>
-      <ExternalLink
-        aria-hidden="true"
-        className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-      />
+      <ExternalLink aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
     </a>
   );
 }
@@ -91,10 +90,7 @@ function TextResource({ resource }: { resource: ResourceView }) {
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
-        <NotebookText
-          aria-hidden="true"
-          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-        />
+        <NotebookText aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 text-sm font-medium">{resource.title}</span>
         <ChevronRight
           aria-hidden="true"
@@ -108,7 +104,7 @@ function TextResource({ resource }: { resource: ResourceView }) {
           rules about what may appear in it.
         */}
         <div className="px-3 pb-3 pl-10">
-          <Markdown content={resource.body ?? ''} />
+          <Markdown content={resource.body ?? ""} />
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -170,7 +166,7 @@ function VideoResource({ resource }: { resource: ResourceView }) {
             className="inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:underline"
           >
             <ExternalLink aria-hidden="true" className="size-3" />
-            Watch on {resource.videoProvider === 'YOUTUBE' ? 'YouTube' : 'Vimeo'}
+            Watch on {resource.videoProvider === "YOUTUBE" ? "YouTube" : "Vimeo"}
           </a>
         </div>
       </CollapsibleContent>
@@ -179,17 +175,11 @@ function VideoResource({ resource }: { resource: ResourceView }) {
 }
 
 /** A resource whose kind-specific columns are missing: the title, and nothing pretending to work. */
-function PlainRow({
-  icon: Icon,
-  resource,
-}: {
-  icon: React.ElementType;
-  resource: ResourceView;
-}) {
+function PlainRow({ icon: Icon, resource }: { icon: React.ElementType; resource: ResourceView }) {
   return (
     <div className="flex items-start gap-3 px-3 py-2.5">
       <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-      <span className={cn('min-w-0 flex-1 text-sm font-medium')}>{resource.title}</span>
+      <span className={cn("min-w-0 flex-1 text-sm font-medium")}>{resource.title}</span>
     </div>
   );
 }

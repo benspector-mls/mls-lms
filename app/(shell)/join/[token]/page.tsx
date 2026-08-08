@@ -1,7 +1,7 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { JoinCourse } from '@/components/student/join-course';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { JoinCourse } from "@/components/student/join-course";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Where a course's join link lands.
@@ -32,9 +32,7 @@ async function Join({ params }: { params: Promise<{ token: string }> }) {
   // Read on the server so the screen can name the course before anybody presses anything.
   // Null when the token is unknown, which the component reports as a link that no longer works
   // rather than as an error.
-  const preview = await queryClient.fetchQuery(
-    trpc.enrollments.preview.queryOptions({ token }),
-  );
+  const preview = await queryClient.fetchQuery(trpc.enrollments.preview.queryOptions({ token }));
 
   return <JoinCourse token={token} preview={preview} />;
 }

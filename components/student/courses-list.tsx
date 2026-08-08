@@ -1,12 +1,12 @@
-import Link from 'next/link';
-import { Archive, ArrowRight, BookOpen, UserMinus } from 'lucide-react';
+import Link from "next/link";
+import { Archive, ArrowRight, BookOpen, UserMinus } from "lucide-react";
 
-import { NewCourseDialog } from '@/components/instructor/new-course-dialog';
-import { EmptyState } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { Card, CardContent } from '@/components/ui/card';
-import { courseHref } from '@/lib/links';
-import { cn } from '@/lib/utils';
+import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
+import { EmptyState } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { Card, CardContent } from "@/components/ui/card";
+import { courseHref } from "@/lib/links";
+import { cn } from "@/lib/utils";
 
 /**
  * The courses the caller belongs to. Students and instructors see the same card, and it
@@ -36,7 +36,7 @@ type Course = {
    * still read the feedback they were given — and a card that looked identical to the cohorts
    * they are still in would be telling them something false.
    */
-  enrolledAs: 'ACTIVE' | 'REMOVED' | null;
+  enrolledAs: "ACTIVE" | "REMOVED" | null;
   _count: { assignments: number; enrollments: number };
 };
 
@@ -74,9 +74,9 @@ export function CoursesList({
           <CardContent className="py-4 text-sm">
             <p className="font-medium">Your GitHub account is not linked</p>
             <p className="mt-1 text-muted-foreground">
-              Accepting an assignment creates a repository named after your GitHub
-              username, so you need to sign in with GitHub at least once first. Sign out,
-              then choose &ldquo;Sign in with GitHub&rdquo;.
+              Accepting an assignment creates a repository named after your GitHub username, so you
+              need to sign in with GitHub at least once first. Sign out, then choose &ldquo;Sign in
+              with GitHub&rdquo;.
             </p>
           </CardContent>
         </Card>
@@ -114,8 +114,8 @@ export function CoursesList({
               <div className="flex flex-col gap-0.5 border-t border-border pt-5">
                 <h2 className="text-sm font-medium">Archived</h2>
                 <p className="text-xs text-muted-foreground">
-                  Finished cohorts. Everything in them stays readable — the work, the grades,
-                  and the feedback that was given — and nothing new can be handed in.
+                  Finished cohorts. Everything in them stays readable — the work, the grades, and
+                  the feedback that was given — and nothing new can be handed in.
                 </p>
               </div>
               {archived.map((course) => (
@@ -131,10 +131,10 @@ export function CoursesList({
 
 function CourseCard({ course }: { course: Course }) {
   const archived = course.archivedAt != null;
-  const removed = course.enrolledAs === 'REMOVED';
+  const removed = course.enrolledAs === "REMOVED";
 
   return (
-    <Card className={cn((archived || removed) && 'opacity-80')}>
+    <Card className={cn((archived || removed) && "opacity-80")}>
       <CardContent className="flex flex-col gap-4 py-5">
         <div className="flex items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -164,15 +164,14 @@ function CourseCard({ course }: { course: Course }) {
               )}
             </div>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {course.cohortTerm} · {course._count.assignments}{' '}
-              {course._count.assignments === 1 ? 'assignment' : 'assignments'} ·{' '}
-              {course._count.enrollments}{' '}
-              {course._count.enrollments === 1 ? 'student' : 'students'}
+              {course.cohortTerm} · {course._count.assignments}{" "}
+              {course._count.assignments === 1 ? "assignment" : "assignments"} ·{" "}
+              {course._count.enrollments} {course._count.enrollments === 1 ? "student" : "students"}
             </p>
             {removed && (
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Your work and the feedback you were given stay available here. You cannot hand
-                in anything new.
+                Your work and the feedback you were given stay available here. You cannot hand in
+                anything new.
               </p>
             )}
           </div>

@@ -1,20 +1,20 @@
-'use client';
+"use client";
 
-import { Trash2 } from 'lucide-react';
+import { Trash2 } from "lucide-react";
 
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { RUBRIC_NAME_BY_SECTION_TYPE, SECTION_TYPES } from '@/lib/assignments/spec';
-import { sectionLabel } from '@/lib/status';
+} from "@/components/ui/select";
+import { RUBRIC_NAME_BY_SECTION_TYPE, SECTION_TYPES } from "@/lib/assignments/spec";
+import { sectionLabel } from "@/lib/status";
 
 /**
  * One gradable section of an assignment being authored.
@@ -34,15 +34,15 @@ import { sectionLabel } from '@/lib/status';
 
 export type SectionDraft =
   | {
-    grading: 'ai';
-    type: (typeof SECTION_TYPES)[number];
-    pointValue: number;
-    rubricId: string;
-    reportTemplate?: string;
-    evidence?: 'tests';
-    testNamePattern?: string;
-  }
-  | { grading: 'manual'; label: string; pointValue: number };
+      grading: "ai";
+      type: (typeof SECTION_TYPES)[number];
+      pointValue: number;
+      rubricId: string;
+      reportTemplate?: string;
+      evidence?: "tests";
+      testNamePattern?: string;
+    }
+  | { grading: "manual"; label: string; pointValue: number };
 
 export function SectionEditor({
   section,
@@ -56,7 +56,7 @@ export function SectionEditor({
   section: SectionDraft;
   index: number;
   rubrics: { id: string; name: string }[];
-  findings: { path: string; message: string; severity: 'error' | 'warning' }[];
+  findings: { path: string; message: string; severity: "error" | "warning" }[];
   /** False when the assignment runs no tests, which makes test evidence meaningless. */
   hasRunner: boolean;
   onChange: (next: SectionDraft) => void;
@@ -70,7 +70,7 @@ export function SectionEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="font-normal">
-            {section.grading === 'ai' ? sectionLabel(section.type) : 'Graded by hand'}
+            {section.grading === "ai" ? sectionLabel(section.type) : "Graded by hand"}
           </Badge>
           <span className="text-xs text-muted-foreground">Section {index + 1}</span>
         </div>
@@ -80,7 +80,7 @@ export function SectionEditor({
         </Button>
       </div>
 
-      {section.grading === 'manual' ? (
+      {section.grading === "manual" ? (
         <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
           {/*
             Two suggestions rather than one, because they answer different questions. An
@@ -88,7 +88,7 @@ export function SectionEditor({
             assignment that is simply worth twenty points wants one section called "Total", and
             nothing else in the interface says that is a reasonable thing to type.
           */}
-          <Field label="What this section is called" findings={fieldFindings('label')}>
+          <Field label="What this section is called" findings={fieldFindings("label")}>
             <Input
               value={section.label}
               placeholder='e.g. "Total" or "Reflection"'
@@ -97,14 +97,14 @@ export function SectionEditor({
           </Field>
           <PointValueField
             value={section.pointValue}
-            findings={fieldFindings('pointValue')}
+            findings={fieldFindings("pointValue")}
             onChange={(pointValue) => onChange({ ...section, pointValue })}
           />
         </div>
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-            <Field label="Section type" findings={fieldFindings('type')}>
+            <Field label="Section type" findings={fieldFindings("type")}>
               <Select
                 value={section.type}
                 onValueChange={(value) => {
@@ -119,9 +119,7 @@ export function SectionEditor({
                 }}
                 // Or the trigger shows `coding_algorithm` where the list said "Coding —
                 // algorithm fluency".
-                items={Object.fromEntries(
-                  SECTION_TYPES.map((type) => [type, sectionLabel(type)]),
-                )}
+                items={Object.fromEntries(SECTION_TYPES.map((type) => [type, sectionLabel(type)]))}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -140,7 +138,7 @@ export function SectionEditor({
             </Field>
             <PointValueField
               value={section.pointValue}
-              findings={fieldFindings('pointValue')}
+              findings={fieldFindings("pointValue")}
               onChange={(pointValue) => onChange({ ...section, pointValue })}
             />
           </div>
@@ -153,11 +151,11 @@ export function SectionEditor({
             evidence it should have had".
           */}
           <p className="text-xs text-muted-foreground">
-            {section.type === 'short_response'
-              ? 'Graded against the rubric and the reference answer. A short response has nothing to execute.'
+            {section.type === "short_response"
+              ? "Graded against the rubric and the reference answer. A short response has nothing to execute."
               : hasRunner
-                ? 'The score is checked against the instructor’s test suite. A report claiming a test passed that failed is held for review.'
-                : 'This assignment runs no tests, so the score rests on the model reading the code against the rubric.'}
+                ? "The score is checked against the instructor’s test suite. A report claiming a test passed that failed is held for review."
+                : "This assignment runs no tests, so the score rests on the model reading the code against the rubric."}
           </p>
         </>
       )}
@@ -171,7 +169,7 @@ function PointValueField({
   onChange,
 }: {
   value: number;
-  findings: { message: string; severity: 'error' | 'warning' }[];
+  findings: { message: string; severity: "error" | "warning" }[];
   onChange: (value: number) => void;
 }) {
   return (
@@ -179,7 +177,7 @@ function PointValueField({
       <Input
         type="number"
         min={1}
-        value={Number.isFinite(value) ? value : ''}
+        value={Number.isFinite(value) ? value : ""}
         onChange={(event) => onChange(Number.parseInt(event.target.value, 10))}
       />
     </Field>
@@ -195,23 +193,21 @@ export function Field({
 }: {
   label: string;
   hint?: string;
-  findings?: { message: string; severity: 'error' | 'warning' }[];
+  findings?: { message: string; severity: "error" | "warning" }[];
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <Label>{label}</Label>
       {children}
-      {hint && findings.length === 0 && (
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      )}
+      {hint && findings.length === 0 && <p className="text-xs text-muted-foreground">{hint}</p>}
       {findings.map((finding, index) => (
         <p
           key={index}
           className={
-            finding.severity === 'error'
-              ? 'text-xs text-destructive'
-              : 'text-xs text-amber-700 dark:text-amber-300'
+            finding.severity === "error"
+              ? "text-xs text-destructive"
+              : "text-xs text-amber-700 dark:text-amber-300"
           }
         >
           {finding.message}

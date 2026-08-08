@@ -39,71 +39,124 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
 
 async function main() {
   const {
-    acceptAttributeFor, checkUpload, describeAcceptedTypes, extensionOf, formatBytes,
-    isUploadFileTypeKey, MAX_UPLOAD_BYTES, mimeTypesFor, previewKindOf, safeDownloadName,
-    contentTypeFor, extensionsOf,
+    acceptAttributeFor,
+    checkUpload,
+    describeAcceptedTypes,
+    extensionOf,
+    formatBytes,
+    isUploadFileTypeKey,
+    MAX_UPLOAD_BYTES,
+    mimeTypesFor,
+    previewKindOf,
+    safeDownloadName,
+    contentTypeFor,
+    extensionsOf,
     UPLOAD_FILE_TYPE_KEYS,
   } = await import("../lib/uploads/file-types");
 
   // --- what may be handed in ------------------------------------------------
   const pdfOnly = ["pdf"];
 
-  check("a PDF is accepted where PDFs are asked for",
+  check(
+    "a PDF is accepted where PDFs are asked for",
     checkUpload({ filename: "resume.pdf", sizeBytes: 1024, acceptedTypes: pdfOnly }),
-    { ok: true, type: "pdf", extension: ".pdf", contentType: "application/pdf" });
-  check("case does not matter",
-    checkUpload({ filename: "RESUME.PDF", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok, true);
-  check("a type the assignment did not ask for is refused",
-    checkUpload({ filename: "screenshot.png", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok, false);
-  check("...and it is refused for the right reason",
+    { ok: true, type: "pdf", extension: ".pdf", contentType: "application/pdf" },
+  );
+  check(
+    "case does not matter",
+    checkUpload({ filename: "RESUME.PDF", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok,
+    true,
+  );
+  check(
+    "a type the assignment did not ask for is refused",
+    checkUpload({ filename: "screenshot.png", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok,
+    false,
+  );
+  check(
+    "...and it is refused for the right reason",
     checkUpload({ filename: "screenshot.png", sizeBytes: 1024, acceptedTypes: pdfOnly }),
-    { ok: false, reason: "This assignment accepts .pdf, and that is a .png file." });
-  check("the same file is accepted where images are asked for",
+    { ok: false, reason: "This assignment accepts .pdf, and that is a .png file." },
+  );
+  check(
+    "the same file is accepted where images are asked for",
     checkUpload({ filename: "screenshot.png", sizeBytes: 1024, acceptedTypes: ["image"] }),
-    { ok: true, type: "image", extension: ".png", contentType: "image/png" });
+    { ok: true, type: "image", extension: ".png", contentType: "image/png" },
+  );
 
   /*
     The last dot decides. Matching on "contains .pdf" would accept resume.pdf.exe, which is an
     executable with a reassuring name — the oldest trick there is.
   */
-  check("the last extension is the one that counts",
-    checkUpload({ filename: "resume.pdf.exe", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok, false);
-  check("a file with no extension is refused rather than guessed at",
-    checkUpload({ filename: "resume", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok, false);
+  check(
+    "the last extension is the one that counts",
+    checkUpload({ filename: "resume.pdf.exe", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok,
+    false,
+  );
+  check(
+    "a file with no extension is refused rather than guessed at",
+    checkUpload({ filename: "resume", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok,
+    false,
+  );
 
-  check("an oversized file is refused",
-    checkUpload({ filename: "big.pdf", sizeBytes: MAX_UPLOAD_BYTES + 1, acceptedTypes: pdfOnly }).ok,
-    false);
-  check("a file exactly at the limit is accepted",
+  check(
+    "an oversized file is refused",
+    checkUpload({ filename: "big.pdf", sizeBytes: MAX_UPLOAD_BYTES + 1, acceptedTypes: pdfOnly })
+      .ok,
+    false,
+  );
+  check(
+    "a file exactly at the limit is accepted",
     checkUpload({ filename: "big.pdf", sizeBytes: MAX_UPLOAD_BYTES, acceptedTypes: pdfOnly }).ok,
-    true);
-  check("an empty file is refused",
-    checkUpload({ filename: "empty.pdf", sizeBytes: 0, acceptedTypes: pdfOnly }).ok, false);
+    true,
+  );
+  check(
+    "an empty file is refused",
+    checkUpload({ filename: "empty.pdf", sizeBytes: 0, acceptedTypes: pdfOnly }).ok,
+    false,
+  );
 
   // An assignment that accepts nothing cannot be authored — the spec refuses it — so this is
   // about a row that predates the column rather than about a form an instructor filled in.
-  check("an assignment accepting nothing refuses everything",
-    checkUpload({ filename: "resume.pdf", sizeBytes: 1024, acceptedTypes: [] }).ok, false);
-  check("an unknown type key is ignored rather than trusted",
-    checkUpload({ filename: "deck.key", sizeBytes: 1024, acceptedTypes: ["keynote"] }).ok, false);
+  check(
+    "an assignment accepting nothing refuses everything",
+    checkUpload({ filename: "resume.pdf", sizeBytes: 1024, acceptedTypes: [] }).ok,
+    false,
+  );
+  check(
+    "an unknown type key is ignored rather than trusted",
+    checkUpload({ filename: "deck.key", sizeBytes: 1024, acceptedTypes: ["keynote"] }).ok,
+    false,
+  );
 
   check("extensionOf lowercases", extensionOf("Report.PDF"), ".pdf");
   check("extensionOf has no answer for a bare name", extensionOf("Makefile"), null);
   check("a dotfile has no extension either", extensionOf(".gitignore"), ".gitignore");
 
   // --- what the interface is told -------------------------------------------
-  check("the accept attribute lists extensions, which is what browsers match on",
-    acceptAttributeFor(["pdf", "image"]), ".pdf,.png,.jpg,.jpeg,.gif,.webp");
-  check("duplicate extensions across types appear once",
-    acceptAttributeFor(["pdf", "pdf"]), ".pdf");
+  check(
+    "the accept attribute lists extensions, which is what browsers match on",
+    acceptAttributeFor(["pdf", "image"]),
+    ".pdf,.png,.jpg,.jpeg,.gif,.webp",
+  );
+  check(
+    "duplicate extensions across types appear once",
+    acceptAttributeFor(["pdf", "pdf"]),
+    ".pdf",
+  );
   check("an unknown key contributes nothing", acceptAttributeFor(["keynote"]), "");
   check("one type reads as itself", describeAcceptedTypes(["pdf"]), "PDF");
   check("two types read as a choice", describeAcceptedTypes(["pdf", "image"]), "PDF or Images");
-  check("three read as a list",
-    describeAcceptedTypes(["pdf", "image", "document"]), "PDF, Images or Word and plain text");
+  check(
+    "three read as a list",
+    describeAcceptedTypes(["pdf", "image", "document"]),
+    "PDF, Images or Word and plain text",
+  );
   check("every key is known to itself", UPLOAD_FILE_TYPE_KEYS.every(isUploadFileTypeKey), true);
-  check("the bucket's allow-list covers every type an assignment can ask for",
-    mimeTypesFor(UPLOAD_FILE_TYPE_KEYS).includes("application/pdf"), true);
+  check(
+    "the bucket's allow-list covers every type an assignment can ask for",
+    mimeTypesFor(UPLOAD_FILE_TYPE_KEYS).includes("application/pdf"),
+    true,
+  );
 
   /*
     --- the extension decides the content type, and it has to ------------------
@@ -115,21 +168,32 @@ async function main() {
     recognise — accepted by the route, refused by the bucket, on one student's machine and no
     other.
   */
-  check("every extension has a content type",
+  check(
+    "every extension has a content type",
     UPLOAD_FILE_TYPE_KEYS.flatMap(extensionsOf).every((ext) => contentTypeFor(ext) !== null),
-    true);
-  check("...and every one of them is on the bucket's allow-list",
-    UPLOAD_FILE_TYPE_KEYS.flatMap(extensionsOf)
-      .every((ext) => mimeTypesFor(UPLOAD_FILE_TYPE_KEYS).includes(contentTypeFor(ext)!)),
-    true);
-  check("a notebook is stored as a notebook, whatever the browser said",
-    contentTypeFor(".ipynb"), "application/x-ipynb+json");
-  check("a spreadsheet is stored as one too",
+    true,
+  );
+  check(
+    "...and every one of them is on the bucket's allow-list",
+    UPLOAD_FILE_TYPE_KEYS.flatMap(extensionsOf).every((ext) =>
+      mimeTypesFor(UPLOAD_FILE_TYPE_KEYS).includes(contentTypeFor(ext)!),
+    ),
+    true,
+  );
+  check(
+    "a notebook is stored as a notebook, whatever the browser said",
+    contentTypeFor(".ipynb"),
+    "application/x-ipynb+json",
+  );
+  check(
+    "a spreadsheet is stored as one too",
     contentTypeFor(".xlsx"),
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
   check("case does not matter", contentTypeFor(".PDF"), "application/pdf");
   check("an extension nothing accepts has none", contentTypeFor(".exe"), null);
-  check("the check hands back the type the file will be stored under",
+  check(
+    "the check hands back the type the file will be stored under",
     (() => {
       const result = checkUpload({
         filename: "analysis.ipynb",
@@ -138,20 +202,30 @@ async function main() {
       });
       return result.ok ? result.contentType : result.reason;
     })(),
-    "application/x-ipynb+json");
+    "application/x-ipynb+json",
+  );
 
   // --- the two types added for notebooks and spreadsheets --------------------
-  check("a notebook is accepted where the assignment asks for one",
+  check(
+    "a notebook is accepted where the assignment asks for one",
     checkUpload({ filename: "mod-3.ipynb", sizeBytes: 2048, acceptedTypes: ["notebook"] }).ok,
-    true);
-  check("...and refused where it does not",
+    true,
+  );
+  check(
+    "...and refused where it does not",
     checkUpload({ filename: "mod-3.ipynb", sizeBytes: 2048, acceptedTypes: ["pdf"] }).ok,
-    false);
-  check("a spreadsheet covers the three shapes one arrives in",
-    extensionsOf("spreadsheet"), [".xlsx", ".xls", ".csv"]);
-  check("a CSV is a spreadsheet rather than plain text, because that is what asks for it",
+    false,
+  );
+  check("a spreadsheet covers the three shapes one arrives in", extensionsOf("spreadsheet"), [
+    ".xlsx",
+    ".xls",
+    ".csv",
+  ]);
+  check(
+    "a CSV is a spreadsheet rather than plain text, because that is what asks for it",
     checkUpload({ filename: "data.csv", sizeBytes: 512, acceptedTypes: ["document"] }).ok,
-    false);
+    false,
+  );
 
   check("bytes are formatted for a person", formatBytes(MAX_UPLOAD_BYTES), "25.0 MB");
   check("...and small files are not reported as 0.0 MB", formatBytes(2048), "2 KB");
@@ -159,10 +233,8 @@ async function main() {
   // --- the filename, which is the student's and not to be trusted -----------
   check("a filename keeps its spaces", safeDownloadName("My Resume v2.pdf"), "My Resume v2.pdf");
   check("path separators come out", safeDownloadName("../../etc/passwd"), "..-..-etc-passwd");
-  check("quotes and newlines come out",
-    safeDownloadName('re"su\nme.pdf'), "resume.pdf");
-  check("a name that is nothing but junk still has a name",
-    safeDownloadName('"""'), "submission");
+  check("quotes and newlines come out", safeDownloadName('re"su\nme.pdf'), "resume.pdf");
+  check("a name that is nothing but junk still has a name", safeDownloadName('"""'), "submission");
 
   // --- what can be shown in place rather than downloaded --------------------
   //
@@ -182,8 +254,11 @@ async function main() {
     grader is left with. Rendering one is a real dependency and its own decision — this check is
     here to say the answer is deliberate rather than an oversight.
   */
-  check("nor a notebook, though that is the one worth rendering one day",
-    previewKindOf("analysis.ipynb"), null);
+  check(
+    "nor a notebook, though that is the one worth rendering one day",
+    previewKindOf("analysis.ipynb"),
+    null,
+  );
   check("nor plain text, which has no viewer worth framing", previewKindOf("notes.txt"), null);
   check("nor a file with no extension", previewKindOf("resume"), null);
 
@@ -195,17 +270,25 @@ async function main() {
     submissionId: "11111111-2222-3333-4444-555555555555",
     extension: ".pdf",
   });
-  check("the path starts with the submission it belongs to",
-    path.startsWith("11111111-2222-3333-4444-555555555555/"), true);
+  check(
+    "the path starts with the submission it belongs to",
+    path.startsWith("11111111-2222-3333-4444-555555555555/"),
+    true,
+  );
   check("...and ends in the checked extension", path.endsWith(".pdf"), true);
   // The student's filename is never in the path. It is theirs, it can contain anything, and a
   // path is not where to find that out.
-  check("the student's filename is nowhere in it",
-    submissionUploadPath({ submissionId: "abc", extension: ".pdf" }).includes("resume"), false);
-  check("two uploads for one submission do not collide",
+  check(
+    "the student's filename is nowhere in it",
+    submissionUploadPath({ submissionId: "abc", extension: ".pdf" }).includes("resume"),
+    false,
+  );
+  check(
+    "two uploads for one submission do not collide",
     submissionUploadPath({ submissionId: "abc", extension: ".pdf" }) ===
       submissionUploadPath({ submissionId: "abc", extension: ".pdf" }),
-    false);
+    false,
+  );
 
   // --- the bucket itself ----------------------------------------------------
   const { data: bucket } = await storageClient().getBucket(SUBMISSION_UPLOAD_BUCKET);
@@ -213,7 +296,7 @@ async function main() {
   if (!bucket) {
     console.log(
       `\nskip everything below — the "${SUBMISSION_UPLOAD_BUCKET}" bucket does not exist. ` +
-      `Run npm run setup:storage.`,
+        `Run npm run setup:storage.`,
     );
     return report();
   }
@@ -221,12 +304,19 @@ async function main() {
   // The whole of the security question. A public bucket would publish every submission in it to
   // anyone holding a URL, and a URL is not a secret.
   check("the bucket is private", bucket.public, false);
-  check("the bucket enforces the size limit itself, not only our code",
-    Number(bucket.file_size_limit), MAX_UPLOAD_BYTES);
+  check(
+    "the bucket enforces the size limit itself, not only our code",
+    Number(bucket.file_size_limit),
+    MAX_UPLOAD_BYTES,
+  );
 
   // --- a real round trip ----------------------------------------------------
-  const { signedDownloadUrl, storeSubmissionUpload, submissionUploadExists, removeSubmissionUpload } =
-    await import("../lib/uploads/storage");
+  const {
+    signedDownloadUrl,
+    storeSubmissionUpload,
+    submissionUploadExists,
+    removeSubmissionUpload,
+  } = await import("../lib/uploads/storage");
 
   const body = Buffer.from("%PDF-1.4 verify:uploads round trip\n");
   const stored = await storeSubmissionUpload({
@@ -242,16 +332,18 @@ async function main() {
     const url = await signedDownloadUrl({ path: stored.path, filename: "round trip.pdf" });
     const fetched = await fetch(url);
     check("a signed link fetches it", fetched.status, 200);
-    check("...and the bytes are the same ones",
-      Buffer.from(await fetched.arrayBuffer()).equals(body), true);
+    check(
+      "...and the bytes are the same ones",
+      Buffer.from(await fetched.arrayBuffer()).equals(body),
+      true,
+    );
 
     /*
       The point of a private bucket. The public URL for the same object must not work, or every
       signed link would be theatre over something already readable by anyone with the path.
     */
-    const publicUrl = storageClient()
-      .from(SUBMISSION_UPLOAD_BUCKET)
-      .getPublicUrl(stored.path).data.publicUrl;
+    const publicUrl = storageClient().from(SUBMISSION_UPLOAD_BUCKET).getPublicUrl(stored.path)
+      .data.publicUrl;
     const unsigned = await fetch(publicUrl);
     check("the same object is not readable without a signature", unsigned.ok, false);
 
@@ -277,18 +369,31 @@ async function main() {
     });
     const inlineResponse = await fetch(inlineUrl);
     check("an inline link serves the object", inlineResponse.status, 200);
-    check("...as its own content type",
-      inlineResponse.headers.get("content-type"), "application/pdf");
-    check("...with no attachment disposition, so a browser displays it",
-      inlineResponse.headers.get("content-disposition"), null);
-    check("...and is not frame-blocked, which is what lets it be embedded",
-      [inlineResponse.headers.get("x-frame-options"),
-        inlineResponse.headers.get("content-security-policy")],
-      [null, null]);
+    check(
+      "...as its own content type",
+      inlineResponse.headers.get("content-type"),
+      "application/pdf",
+    );
+    check(
+      "...with no attachment disposition, so a browser displays it",
+      inlineResponse.headers.get("content-disposition"),
+      null,
+    );
+    check(
+      "...and is not frame-blocked, which is what lets it be embedded",
+      [
+        inlineResponse.headers.get("x-frame-options"),
+        inlineResponse.headers.get("content-security-policy"),
+      ],
+      [null, null],
+    );
 
     // The download link is the opposite, and the filename it saves as is the student's own.
-    check("a download link still asks the browser to save it",
-      (await fetch(url)).headers.get("content-disposition")?.startsWith("attachment"), true);
+    check(
+      "a download link still asks the browser to save it",
+      (await fetch(url)).headers.get("content-disposition")?.startsWith("attachment"),
+      true,
+    );
   } finally {
     await removeSubmissionUpload(stored.path);
   }
@@ -326,13 +431,19 @@ async function main() {
     );
   }
   if (notebookStored) {
-    check("...and hands it back as itself",
-      (await fetch(await signedDownloadUrl({
-        path: notebookStored.path,
-        filename: "analysis.ipynb",
-        disposition: "inline",
-      }))).headers.get("content-type"),
-      notebookType);
+    check(
+      "...and hands it back as itself",
+      (
+        await fetch(
+          await signedDownloadUrl({
+            path: notebookStored.path,
+            filename: "analysis.ipynb",
+            disposition: "inline",
+          }),
+        )
+      ).headers.get("content-type"),
+      notebookType,
+    );
     await removeSubmissionUpload(notebookStored.path);
   }
 
@@ -417,14 +528,17 @@ async function main() {
       // Before publishing, an unpublished assignment is not something a student can hand in to
       // — and NOT_FOUND rather than FORBIDDEN, because whether a draft exists is not theirs
       // to learn.
-      check("an unpublished assignment cannot be handed in to",
+      check(
+        "an unpublished assignment cannot be handed in to",
         await refusal(() =>
           assertCanHandIn(tx as never, {
             profileId: studentId,
             assignmentId: assignment.id,
             expect: "file",
-          })),
-        "NOT_FOUND");
+          }),
+        ),
+        "NOT_FOUND",
+      );
 
       await asInstructor.assignments.publish({ assignmentId: assignment.id });
 
@@ -433,13 +547,16 @@ async function main() {
         refuse it. Without this refusal a student could mark work handed in with nothing behind
         it, and two things would be authorities on the same columns.
       */
-      check("submitWork refuses a file upload assignment",
+      check(
+        "submitWork refuses a file upload assignment",
         await refusal(() =>
           asStudent.submissions.submitWork({
             assignmentId: assignment.id,
             submittedUrl: "https://example.com/not-a-file",
-          })),
-        "BAD_REQUEST");
+          }),
+        ),
+        "BAD_REQUEST",
+      );
 
       const handIn = await assertCanHandIn(tx as never, {
         profileId: studentId,
@@ -449,15 +566,18 @@ async function main() {
       check("a published assignment can be handed in to", handIn.acceptedFileTypes, ["pdf"]);
 
       // The wrong kind of file is refused before anything is stored.
-      check("a type the assignment does not accept is refused",
+      check(
+        "a type the assignment does not accept is refused",
         await refusal(() =>
           storeAndRecordUpload(tx as never, {
             profileId: studentId,
             assignment: handIn,
             filename: "screenshot.png",
             bytes: Buffer.from("not a pdf"),
-          })),
-        "BAD_REQUEST");
+          }),
+        ),
+        "BAD_REQUEST",
+      );
 
       const submission = await storeAndRecordUpload(tx as never, {
         profileId: studentId,
@@ -466,11 +586,16 @@ async function main() {
         bytes: body,
       });
 
-      check("uploading is what enters the queue",
+      check(
+        "uploading is what enters the queue",
         [submission.status, submission.isLate, submission.submittedAt !== null],
-        ["SUBMITTED", false, true]);
-      check("the filename the student chose is kept",
-        submission.uploadFilename, "Ben Spector resume.pdf");
+        ["SUBMITTED", false, true],
+      );
+      check(
+        "the filename the student chose is kept",
+        submission.uploadFilename,
+        "Ben Spector resume.pdf",
+      );
       check("and the size with it", submission.uploadSizeBytes, body.byteLength);
 
       const row = await tx.submission.findUniqueOrThrow({
@@ -478,10 +603,16 @@ async function main() {
         select: { uploadPath: true },
       });
       if (row.uploadPath) strays.push(row.uploadPath);
-      check("the stored path is keyed by the submission",
-        row.uploadPath?.startsWith(`${submission.id}/`), true);
-      check("the file is really in the bucket",
-        await submissionUploadExists(row.uploadPath!), true);
+      check(
+        "the stored path is keyed by the submission",
+        row.uploadPath?.startsWith(`${submission.id}/`),
+        true,
+      );
+      check(
+        "the file is really in the bucket",
+        await submissionUploadExists(row.uploadPath!),
+        true,
+      );
 
       // --- the triage bucket it lands in ------------------------------------
       const queued = await asInstructor.submissions.listForAssignment({
@@ -489,21 +620,31 @@ async function main() {
       });
       const queueRow = queued.submissions.find((entry) => entry.id === submission.id);
       check("an uploaded submission waits on a person", queueRow?.bucket, "needs_manual_grade");
-      check("the queue carries the filename so it can be offered for download",
-        queueRow?.uploadFilename, "Ben Spector resume.pdf");
+      check(
+        "the queue carries the filename so it can be offered for download",
+        queueRow?.uploadFilename,
+        "Ben Spector resume.pdf",
+      );
 
       // --- who may read the bytes ------------------------------------------
       //
       // This is the whole of the access control on stored files. The bucket has no policies, so
       // if these checks are wrong there is nothing behind them.
       const ownLink = await asStudent.submissions.uploadUrl({ submissionId: submission.id });
-      check("the student who uploaded it can fetch their own", ownLink.url.includes("token="), true);
+      check(
+        "the student who uploaded it can fetch their own",
+        ownLink.url.includes("token="),
+        true,
+      );
 
       const instructorLink = await asInstructor.submissions.uploadUrl({
         submissionId: submission.id,
       });
-      check("the instructor who teaches the course can fetch it",
-        instructorLink.url.includes("token="), true);
+      check(
+        "the instructor who teaches the course can fetch it",
+        instructorLink.url.includes("token="),
+        true,
+      );
 
       const otherStudent = await tx.profile.findFirst({
         where: { id: { notIn: [studentId, instructor.userId] }, role: "STUDENT" },
@@ -512,9 +653,11 @@ async function main() {
 
       if (otherStudent) {
         const asOther = createCaller({ db: tx, user: { id: otherStudent.id } } as never);
-        check("another student cannot",
+        check(
+          "another student cannot",
           await refusal(() => asOther.submissions.uploadUrl({ submissionId: submission.id })),
-          "FORBIDDEN");
+          "FORBIDDEN",
+        );
       } else {
         console.log("skip  another student cannot — only one student profile is seeded");
       }
@@ -537,35 +680,44 @@ async function main() {
       await asInstructor.assignments.publish({ assignmentId: linkAssignment.id });
 
       // Nothing to hand out, so there is no Accept — the same as a file upload.
-      check("an external-url assignment cannot be accepted",
+      check(
+        "an external-url assignment cannot be accepted",
         await refusal(() => asStudent.assignments.accept({ assignmentId: linkAssignment.id })),
-        "PRECONDITION_FAILED");
+        "PRECONDITION_FAILED",
+      );
 
       // And it is NOT the upload route's business, which is the half that would be easy to get
       // wrong once two kinds submit a link.
-      check("it cannot be handed in as a file",
+      check(
+        "it cannot be handed in as a file",
         await refusal(() =>
           assertCanHandIn(tx as never, {
             profileId: studentId,
             assignmentId: linkAssignment.id,
             expect: "file",
-          })),
-        "BAD_REQUEST");
+          }),
+        ),
+        "BAD_REQUEST",
+      );
 
       const linkSubmitted = await asStudent.submissions.submitWork({
         assignmentId: linkAssignment.id,
         submittedUrl: "https://www.canva.com/design/DAF123/view",
       });
-      check("submitting the link is what enters the queue",
+      check(
+        "submitting the link is what enters the queue",
         [linkSubmitted.status, linkSubmitted.submittedUrl],
-        ["SUBMITTED", "https://www.canva.com/design/DAF123/view"]);
+        ["SUBMITTED", "https://www.canva.com/design/DAF123/view"],
+      );
 
       const linkQueue = await asInstructor.submissions.listForAssignment({
         assignmentId: linkAssignment.id,
       });
-      check("and it waits on a person, like every hand-graded kind",
+      check(
+        "and it waits on a person, like every hand-graded kind",
         linkQueue.submissions.find((entry) => entry.id === linkSubmitted.id)?.bucket,
-        "needs_manual_grade");
+        "needs_manual_grade",
+      );
 
       throw new Error("ROLLBACK");
     });
@@ -578,8 +730,11 @@ async function main() {
   }
 
   for (const stray of strays) {
-    check("nothing is left in the bucket after the rollback",
-      await submissionUploadExists(stray), false);
+    check(
+      "nothing is left in the bucket after the rollback",
+      await submissionUploadExists(stray),
+      false,
+    );
   }
 
   return report();
@@ -601,7 +756,8 @@ function skip(reason: string) {
 function report() {
   if (failures > 0) console.log(`\n${failures} FAILED`);
   else if (skips.length === 0) console.log("\nAll checks passed.");
-  else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+  else
+    console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
 
   if (failures > 0 || skips.length > 0) process.exitCode = 1;
 }

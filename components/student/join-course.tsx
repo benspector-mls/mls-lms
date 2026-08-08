@@ -1,14 +1,14 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { ArrowRight, BookOpen, Check, Loader2, TriangleAlert } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { ArrowRight, BookOpen, Check, Loader2, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Joining a course from its link.
@@ -28,7 +28,7 @@ export function JoinCourse({
   preview,
 }: {
   token: string;
-  preview: RouterOutputs['enrollments']['preview'];
+  preview: RouterOutputs["enrollments"]["preview"];
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -54,30 +54,29 @@ export function JoinCourse({
           <TriangleAlert className="size-8 text-amber-600 dark:text-amber-400" />
           <h1 className="text-lg font-semibold">This join link does not work</h1>
           <p className="text-sm text-muted-foreground">
-            It may have been replaced with a newer one. Ask your instructor for the current
-            link.
+            It may have been replaced with a newer one. Ask your instructor for the current link.
           </p>
         </div>
       </Shell>
     );
   }
 
-  if (preview.alreadyIn === 'REMOVED') {
+  if (preview.alreadyIn === "REMOVED") {
     return (
       <Shell>
         <div className="flex flex-col items-center gap-3 text-center">
           <TriangleAlert className="size-8 text-amber-600 dark:text-amber-400" />
           <h1 className="text-lg font-semibold">You are no longer in {preview.name}</h1>
           <p className="text-sm text-muted-foreground">
-            Everything you submitted and the feedback you were given is still available to you.
-            Ask your instructor if this is wrong — rejoining is something they do.
+            Everything you submitted and the feedback you were given is still available to you. Ask
+            your instructor if this is wrong — rejoining is something they do.
           </p>
         </div>
       </Shell>
     );
   }
 
-  const alreadyActive = preview.alreadyIn === 'ACTIVE';
+  const alreadyActive = preview.alreadyIn === "ACTIVE";
 
   return (
     <Shell>
@@ -112,8 +111,8 @@ export function JoinCourse({
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Joining adds you to this cohort so your instructor can hand out assignments and
-              grade your work.
+              Joining adds you to this cohort so your instructor can hand out assignments and grade
+              your work.
             </p>
             <Button disabled={join.isPending} onClick={() => join.mutate({ token })}>
               {join.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}

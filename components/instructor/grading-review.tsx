@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
-import * as React from 'react';
-import { createPortal } from 'react-dom';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import * as React from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Bot,
@@ -21,27 +21,23 @@ import {
   RotateCcw,
   Sparkles,
   Undo2,
-} from 'lucide-react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { toast } from "sonner";
 
-import { TestRunPanel } from '@/components/instructor/test-run-panel';
-import { Markdown } from '@/components/markdown';
+import { TestRunPanel } from "@/components/instructor/test-run-panel";
+import { Markdown } from "@/components/markdown";
 import {
   ConfidenceBadge,
   DraftStatusBadge,
   FlagBadge,
   SubmissionStatusBadge,
-} from '@/components/status-badge';
-import { UploadedFileRow } from '@/components/uploaded-file';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+} from "@/components/status-badge";
+import { UploadedFileRow } from "@/components/uploaded-file";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogClose,
@@ -50,13 +46,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
-import type { AssignmentKind } from '@/lib/generated/prisma/enums';
-import { statedScoreInText } from '@/lib/grade/report-text';
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { statedScoreInText } from "@/lib/grade/report-text";
 import {
   completionMeta,
   draftStatusAddsSomething,
@@ -66,10 +62,10 @@ import {
   scorePercent,
   sectionLabel,
   shortSha,
-} from '@/lib/status';
-import { cn } from '@/lib/utils';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/lib/status";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Reviewing one submission's proposed grade.
@@ -98,11 +94,10 @@ import type { RouterOutputs } from '@/trpc/types';
  */
 const HeaderActionsSlot = React.createContext<HTMLElement | null>(null);
 
-type QueueSubmission =
-  RouterOutputs['submissions']['listForAssignment']['submissions'][number];
-type DraftList = RouterOutputs['gradingDrafts']['listForSubmission'];
-type Draft = DraftList['drafts'][number];
-type Section = Draft['sections'][number];
+type QueueSubmission = RouterOutputs["submissions"]["listForAssignment"]["submissions"][number];
+type DraftList = RouterOutputs["gradingDrafts"]["listForSubmission"];
+type Draft = DraftList["drafts"][number];
+type Section = Draft["sections"][number];
 
 /** An instructor's edit where there is one, the model's output where there is not. */
 function effectiveScore(section: Section): number | null {
@@ -149,7 +144,7 @@ export function GradingReview({
     an assignment can be in and worth reporting, but no such thing as tests. The card is
     absent rather than empty, and the query is not made.
   */
-  const canHaveTests = assignmentKind === 'REPO';
+  const canHaveTests = assignmentKind === "REPO";
 
   const drafts = useQuery(
     trpc.gradingDrafts.listForSubmission.queryOptions({ submissionId: submission.id }),
@@ -185,8 +180,7 @@ export function GradingReview({
 
   // The run that describes the code currently on the pull request. An older run is not
   // evidence about this commit, so it is not offered as if it were.
-  const currentRun =
-    testRuns.data?.runs.find((run) => run.headSha === submission.headSha) ?? null;
+  const currentRun = testRuns.data?.runs.find((run) => run.headSha === submission.headSha) ?? null;
 
   return (
     <div className="flex h-full flex-col">
@@ -206,7 +200,7 @@ export function GradingReview({
               — the evidence, the editable report — is how that answer was reached, not
               the answer itself.
             */}
-            {draft && (draft.status === 'APPROVED' || draft.status === 'SUPERSEDED') && (
+            {draft && (draft.status === "APPROVED" || draft.status === "SUPERSEDED") && (
               <ReleasedSummaryCard draft={draft} data={data} />
             )}
 
@@ -242,7 +236,7 @@ export function GradingReview({
             )}
 
             <DraftBody
-              key={draft?.id ?? 'none'}
+              key={draft?.id ?? "none"}
               submission={submission}
               assignmentTitle={assignmentTitle}
               completionThreshold={completionThreshold}
@@ -280,10 +274,10 @@ function ReviewHeader({
             <h2 className="text-base font-semibold">
               {studentHref ? (
                 <Link href={studentHref} className="hover:underline">
-                  {submission.student.displayName ?? submission.student.email ?? 'Unknown student'}
+                  {submission.student.displayName ?? submission.student.email ?? "Unknown student"}
                 </Link>
               ) : (
-                submission.student.displayName ?? submission.student.email ?? 'Unknown student'
+                (submission.student.displayName ?? submission.student.email ?? "Unknown student")
               )}
             </h2>
             {submission.student.githubUsername && (
@@ -311,7 +305,7 @@ function ReviewHeader({
               href={submission.repoUrl}
               target="_blank"
               rel="noreferrer"
-              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
             >
               Repository
               <ExternalLink data-icon="inline-end" />
@@ -322,7 +316,7 @@ function ReviewHeader({
               href={submission.prUrl}
               target="_blank"
               rel="noreferrer"
-              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
             >
               <GitPullRequest data-icon="inline-start" />
               PR #{submission.prNumber}
@@ -355,7 +349,7 @@ function CommentRecoveryNotice({
   grade,
 }: {
   submission: QueueSubmission;
-  grade: DraftList['grade'];
+  grade: DraftList["grade"];
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -363,7 +357,7 @@ function CommentRecoveryNotice({
   const retry = useMutation(
     trpc.gradingDrafts.retryComment.mutationOptions({
       onSuccess: () => {
-        toast.success('Comment posted to the pull request.');
+        toast.success("Comment posted to the pull request.");
         void queryClient.invalidateQueries();
       },
       onError: (error) => toast.error(error.message),
@@ -373,7 +367,7 @@ function CommentRecoveryNotice({
   // Only a real failure. `not_applicable` — a hand-graded assignment with no pull request
   // — is a finished grade, and offering it a retry would offer a button that cannot
   // succeed against a fault that does not exist.
-  if (grade?.delivery !== 'failed') return null;
+  if (grade?.delivery !== "failed") return null;
 
   return (
     <Alert className="border-amber-500/40 text-amber-700 dark:text-amber-300">
@@ -381,9 +375,8 @@ function CommentRecoveryNotice({
       <AlertTitle>The feedback comment was never posted</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
         <p>
-          This grade is recorded and the student can see it in the application, but the
-          comment did not reach the pull request. The score is safe; only the comment is
-          missing.
+          This grade is recorded and the student can see it in the application, but the comment did
+          not reach the pull request. The score is safe; only the comment is missing.
         </p>
         <Button
           size="sm"
@@ -396,7 +389,7 @@ function CommentRecoveryNotice({
           ) : (
             <RotateCcw data-icon="inline-start" />
           )}
-          {retry.isPending ? 'Posting…' : 'Post the comment'}
+          {retry.isPending ? "Posting…" : "Post the comment"}
         </Button>
       </AlertDescription>
     </Alert>
@@ -412,8 +405,8 @@ function TestEvidence({
   now,
 }: {
   submissionId: string;
-  runs: RouterOutputs['testRuns']['listForSubmission'] | undefined;
-  currentRun: RouterOutputs['testRuns']['listForSubmission']['runs'][number] | null;
+  runs: RouterOutputs["testRuns"]["listForSubmission"] | undefined;
+  currentRun: RouterOutputs["testRuns"]["listForSubmission"]["runs"][number] | null;
   loading: boolean;
   now: Date;
 }) {
@@ -423,7 +416,7 @@ function TestEvidence({
   const start = useMutation(
     trpc.testRuns.start.mutationOptions({
       onSuccess: () => {
-        toast.success('Test run finished.');
+        toast.success("Test run finished.");
         void queryClient.invalidateQueries();
       },
       onError: (error) => toast.error(error.message),
@@ -449,7 +442,7 @@ function TestEvidence({
               onClick={() => start.mutate({ submissionId })}
             >
               {start.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
-              {start.isPending ? 'Running the suite…' : currentRun ? 'Run again' : 'Run tests'}
+              {start.isPending ? "Running the suite…" : currentRun ? "Run again" : "Run tests"}
             </Button>
           )}
         </div>
@@ -484,15 +477,15 @@ function DraftBody({
   data: DraftList;
 }) {
   if (!draft) {
-    if (submission.status === 'NOT_STARTED' || submission.status === 'ACCEPTED') {
+    if (submission.status === "NOT_STARTED" || submission.status === "ACCEPTED") {
       return (
         <StateCard
           icon={GitPullRequest}
           title="Nothing submitted yet"
           description={
             data.manualOnly
-              ? 'This student has not submitted this assignment, so there is nothing to grade.'
-              : 'This student has a repository but has not opened a pull request, so there is nothing to grade.'
+              ? "This student has not submitted this assignment, so there is nothing to grade."
+              : "This student has a repository but has not opened a pull request, so there is nothing to grade."
           }
         />
       );
@@ -506,7 +499,7 @@ function DraftBody({
     );
   }
 
-  if (draft.status === 'GENERATING') {
+  if (draft.status === "GENERATING") {
     return (
       <StateCard
         icon={Loader2}
@@ -525,7 +518,7 @@ function DraftBody({
     draft.headSha !== data.currentHeadSha &&
     draft.approvedAt === null;
 
-  if (draft.status === 'FAILED') {
+  if (draft.status === "FAILED") {
     return (
       <div className="flex flex-col gap-4">
         <Alert variant="destructive">
@@ -533,8 +526,8 @@ function DraftBody({
           <AlertTitle>The grading run failed</AlertTitle>
           <AlertDescription className="flex flex-col gap-2">
             <p>
-              It failed before producing a report. This is an infrastructure error and not
-              a score of zero — nothing has been sent to the student.
+              It failed before producing a report. This is an infrastructure error and not a score
+              of zero — nothing has been sent to the student.
             </p>
             {draft.errorDetail && (
               <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs whitespace-pre-wrap text-destructive">
@@ -548,7 +541,7 @@ function DraftBody({
     );
   }
 
-  if (draft.status === 'APPROVED' || draft.status === 'SUPERSEDED') {
+  if (draft.status === "APPROVED" || draft.status === "SUPERSEDED") {
     return <ReleasedBody submission={submission} draft={draft} data={data} />;
   }
 
@@ -560,16 +553,16 @@ function DraftBody({
           <AlertTitle>This report describes older code</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-3">
             <p>
-              The report was written against <code>{shortSha(draft.headSha)}</code>, and
-              the pull request is now at <code>{shortSha(data.currentHeadSha)}</code>.
-              Approving is refused while that is true — generate a new report so the grade
-              describes the code that is there.
+              The report was written against <code>{shortSha(draft.headSha)}</code>, and the pull
+              request is now at <code>{shortSha(data.currentHeadSha)}</code>. Approving is refused
+              while that is true — generate a new report so the grade describes the code that is
+              there.
             </p>
           </AlertDescription>
         </Alert>
       )}
 
-      {draft.status === 'NEEDS_MANUAL_REVIEW' && (
+      {draft.status === "NEEDS_MANUAL_REVIEW" && (
         <ManualReviewNotice draft={draft} hasSections={draft.sections.length > 0} />
       )}
 
@@ -606,7 +599,9 @@ function DraftBody({
         </StateCard>
       )}
 
-      {stale && <GeneratePanel submission={submission} data={data} label="Generate a new report" retry />}
+      {stale && (
+        <GeneratePanel submission={submission} data={data} label="Generate a new report" retry />
+      )}
     </div>
   );
 }
@@ -630,50 +625,44 @@ function DraftBody({
 function WithheldFilesNotice({ draft }: { draft: Draft }) {
   const meta = (draft.modelMetadata ?? {}) as Record<string, unknown>;
   const withheld = meta.excludedFromPrompt;
-  if (typeof withheld !== 'object' || withheld === null) return null;
+  if (typeof withheld !== "object" || withheld === null) return null;
 
   const record = withheld as Record<string, unknown>;
-  const count = typeof record.count === 'number' ? record.count : 0;
+  const count = typeof record.count === "number" ? record.count : 0;
   if (count === 0) return null;
 
   const byReason =
-    typeof record.byReason === 'object' && record.byReason !== null
+    typeof record.byReason === "object" && record.byReason !== null
       ? (record.byReason as Record<string, unknown>)
       : {};
   const reasons = Object.entries(byReason).filter(
-    (entry): entry is [string, number] => typeof entry[1] === 'number',
+    (entry): entry is [string, number] => typeof entry[1] === "number",
   );
   const examples = Array.isArray(record.examples)
-    ? record.examples.filter((example): example is string => typeof example === 'string')
+    ? record.examples.filter((example): example is string => typeof example === "string")
     : [];
 
   const secret = reasons.some(
-    ([reason]) => reason === 'environment file' || reason === 'credential file',
+    ([reason]) => reason === "environment file" || reason === "credential file",
   );
 
   return (
     <Alert
-      className={
-        secret ? 'border-amber-500/40 text-amber-700 dark:text-amber-300' : undefined
-      }
+      className={secret ? "border-amber-500/40 text-amber-700 dark:text-amber-300" : undefined}
     >
-      {secret ? (
-        <AlertTriangle className="text-amber-600 dark:text-amber-400" />
-      ) : (
-        <EyeOff />
-      )}
+      {secret ? <AlertTriangle className="text-amber-600 dark:text-amber-400" /> : <EyeOff />}
       <AlertTitle>
         {secret
-          ? 'This submission commits a secret'
+          ? "This submission commits a secret"
           : count === 1
-            ? '1 committed file was kept out of the report'
+            ? "1 committed file was kept out of the report"
             : `${count} committed files were kept out of the report`}
       </AlertTitle>
       <AlertDescription className="flex flex-col gap-2">
         <p>
           {secret
-            ? 'The student committed an environment file or a private key. It was not sent to the model, and it is still in the repository — deleting it does not remove it from the history, so tell the student to replace the credential itself.'
-            : 'These are build output, dependency trees, or editor files, so the model never saw them. Nothing in the report rests on them.'}
+            ? "The student committed an environment file or a private key. It was not sent to the model, and it is still in the repository — deleting it does not remove it from the history, so tell the student to replace the credential itself."
+            : "These are build output, dependency trees, or editor files, so the model never saw them. Nothing in the report rests on them."}
         </p>
         <ul className="ml-4 list-disc text-sm">
           {reasons.map(([reason, number]) => (
@@ -684,8 +673,8 @@ function WithheldFilesNotice({ draft }: { draft: Draft }) {
         </ul>
         {examples.length > 0 && (
           <p className="font-mono text-xs break-all">
-            {examples.slice(0, 5).join(', ')}
-            {count > 5 ? ', …' : ''}
+            {examples.slice(0, 5).join(", ")}
+            {count > 5 ? ", …" : ""}
           </p>
         )}
       </AlertDescription>
@@ -694,8 +683,8 @@ function WithheldFilesNotice({ draft }: { draft: Draft }) {
 }
 
 function ManualReviewNotice({ draft, hasSections }: { draft: Draft; hasSections: boolean }) {
-  const reasons = (draft.errorDetail ?? '')
-    .split('\n')
+  const reasons = (draft.errorDetail ?? "")
+    .split("\n")
     .map((reason) => reason.trim())
     .filter(Boolean);
 
@@ -705,11 +694,10 @@ function ManualReviewNotice({ draft, hasSections }: { draft: Draft; hasSections:
       <AlertTitle>Held back for manual review</AlertTitle>
       <AlertDescription className="flex flex-col gap-2">
         <p>
-          The cross-check found something it could not reconcile, so this was not offered
-          as ready.{' '}
+          The cross-check found something it could not reconcile, so this was not offered as ready.{" "}
           {hasSections
-            ? 'The report is below and can still be approved — check every score against the code and the tests first.'
-            : 'Grade this one directly from the pull request.'}
+            ? "The report is below and can still be approved — check every score against the code and the tests first."
+            : "Grade this one directly from the pull request."}
         </p>
         {reasons.length > 0 && (
           <ul className="ml-4 list-disc text-sm">
@@ -734,7 +722,7 @@ function useGenerateReport() {
   return useMutation(
     trpc.gradingDrafts.generate.mutationOptions({
       onSuccess: () => {
-        toast.success('Report generated. Nothing has been sent to the student.');
+        toast.success("Report generated. Nothing has been sent to the student.");
         void queryClient.invalidateQueries();
       },
       onError: (error) => toast.error(error.message),
@@ -750,13 +738,7 @@ function useGenerateReport() {
  * point is the editor and the approval an AI-graded submission goes through, rather than a
  * separate path with its own way of being wrong.
  */
-function HandGradePanel({
-  submission,
-  data,
-}: {
-  submission: QueueSubmission;
-  data: DraftList;
-}) {
+function HandGradePanel({ submission, data }: { submission: QueueSubmission; data: DraftList }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
@@ -775,9 +757,9 @@ function HandGradePanel({
           Grade this by hand
         </CardTitle>
         <CardDescription>
-          This assignment has nothing the pipeline can read, so there is no report to
-          generate. Open the student&apos;s work, then write the feedback and the score here.
-          Nothing reaches the student until you release it.
+          This assignment has nothing the pipeline can read, so there is no report to generate. Open
+          the student&apos;s work, then write the feedback and the score here. Nothing reaches the
+          student until you release it.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
@@ -790,7 +772,7 @@ function HandGradePanel({
           ) : (
             <PencilLine data-icon="inline-start" />
           )}
-          {start.isPending ? 'Opening…' : 'Start grading'}
+          {start.isPending ? "Opening…" : "Start grading"}
         </Button>
 
         {submission.submittedUrl && (
@@ -798,7 +780,7 @@ function HandGradePanel({
             href={submission.submittedUrl}
             target="_blank"
             rel="noreferrer"
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             Open what the student submitted
             <ExternalLink data-icon="inline-end" />
@@ -827,12 +809,12 @@ function GeneratePanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="size-4 text-primary" />
-          {retry ? 'Generate another report' : 'Generate a report'}
+          {retry ? "Generate another report" : "Generate a report"}
         </CardTitle>
         <CardDescription>
-          Runs the assignment&apos;s tests if they have not run at this commit, then reads
-          the submission against the rubric and drafts per-section feedback. It records no
-          grade and posts nothing — you review the result first.
+          Runs the assignment&apos;s tests if they have not run at this commit, then reads the
+          submission against the rubric and drafts per-section feedback. It records no grade and
+          posts nothing — you review the result first.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -854,14 +836,13 @@ function GeneratePanel({
             ) : (
               <Bot data-icon="inline-start" />
             )}
-            {generate.isPending ? 'Running tests and grading…' : label}
+            {generate.isPending ? "Running tests and grading…" : label}
           </Button>
 
           {generate.isPending && (
             <span className="text-sm text-muted-foreground">
-              A couple of minutes: the test suite takes about half a minute, then the
-              report is written. Leaving the page cancels nothing — it finishes and the
-              report appears here.
+              A couple of minutes: the test suite takes about half a minute, then the report is
+              written. Leaving the page cancels nothing — it finishes and the report appears here.
             </span>
           )}
 
@@ -870,7 +851,7 @@ function GeneratePanel({
               href={submission.prUrl}
               target="_blank"
               rel="noreferrer"
-              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
             >
               Read the pull request first
               <ExternalLink data-icon="inline-end" />
@@ -916,7 +897,7 @@ function DraftEditor({
     Object.fromEntries(draft.sections.map((s) => [s.id, effectiveScore(s) ?? 0])),
   );
   const [reports, setReports] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries(draft.sections.map((s) => [s.id, effectiveReport(s) ?? ''])),
+    Object.fromEntries(draft.sections.map((s) => [s.id, effectiveReport(s) ?? ""])),
   );
   const [confirmOpen, setConfirmOpen] = React.useState(false);
 
@@ -927,14 +908,12 @@ function DraftEditor({
         setConfirmOpen(false);
         // Named outcomes, because "the comment did not post" is a warning on a repository
         // assignment and a falsehood on one that never had a pull request.
-        if (result.delivery === 'failed') {
-          toast.warning(
-            `Grade recorded, but the comment did not post: ${result.commentError}`,
-          );
+        if (result.delivery === "failed") {
+          toast.warning(`Grade recorded, but the comment did not post: ${result.commentError}`);
         } else {
           toast.success(
             `Released ${result.finalScore}/${result.finalScorePossible} to ${
-              submission.student.displayName ?? 'the student'
+              submission.student.displayName ?? "the student"
             }.`,
           );
         }
@@ -954,7 +933,7 @@ function DraftEditor({
   const changedSections = draft.sections.filter(
     (s) =>
       (scores[s.id] ?? 0) !== (effectiveScore(s) ?? 0) ||
-      (reports[s.id] ?? '') !== (effectiveReport(s) ?? ''),
+      (reports[s.id] ?? "") !== (effectiveReport(s) ?? ""),
   );
 
   /*
@@ -963,7 +942,7 @@ function DraftEditor({
     news earlier.
   */
   const mismatches = draft.sections.flatMap((section) => {
-    const text = reports[section.id] ?? '';
+    const text = reports[section.id] ?? "";
     const stated = statedScoreInText(text);
     if (!stated) return [];
 
@@ -975,7 +954,7 @@ function DraftEditor({
   });
 
   const faults = [...new Set(draft.sections.flatMap((s) => s.flags))].filter((code) =>
-    ['TEST_RUN_MISSING', 'TEST_MATCH_MISSING', 'PROTECTED_PATHS_CHANGED'].includes(code),
+    ["TEST_RUN_MISSING", "TEST_MATCH_MISSING", "PROTECTED_PATHS_CHANGED"].includes(code),
   );
 
   const busy = approve.isPending || updateSection.isPending;
@@ -993,12 +972,12 @@ function DraftEditor({
    */
   async function saveEdits() {
     for (const section of changedSections) {
-      const report = reports[section.id] ?? '';
+      const report = reports[section.id] ?? "";
       const score = scores[section.id] ?? 0;
 
       await updateSection.mutateAsync({
         sectionId: section.id,
-        reportMarkdown: report.trim() === (section.reportMarkdown ?? '').trim() ? null : report,
+        reportMarkdown: report.trim() === (section.reportMarkdown ?? "").trim() ? null : report,
         scoreEarned: score === (section.scoreEarned ?? 0) ? null : score,
       });
     }
@@ -1007,7 +986,7 @@ function DraftEditor({
   async function save() {
     await saveEdits();
     toast.success(
-      changedSections.length === 1 ? 'Change saved.' : `${changedSections.length} changes saved.`,
+      changedSections.length === 1 ? "Change saved." : `${changedSections.length} changes saved.`,
     );
     void queryClient.invalidateQueries();
   }
@@ -1029,9 +1008,9 @@ function DraftEditor({
           <AlertTriangle />
           <AlertTitle>Check this against the code before approving</AlertTitle>
           <AlertDescription>
-            This report carries {faults.length === 1 ? 'a fault flag' : 'fault flags'} (
-            {faults.join(', ')}). Its score is not backed by the test evidence it would
-            normally rest on.
+            This report carries {faults.length === 1 ? "a fault flag" : "fault flags"} (
+            {faults.join(", ")}). Its score is not backed by the test evidence it would normally
+            rest on.
           </AlertDescription>
         </Alert>
       )}
@@ -1042,9 +1021,8 @@ function DraftEditor({
           <AlertTitle>A report states a different score than the one being recorded</AlertTitle>
           <AlertDescription className="flex flex-col gap-2">
             <p>
-              The student reads the report and the gradebook reads the score, so these
-              cannot disagree. Change whichever is wrong. Approving is refused until they
-              match.
+              The student reads the report and the gradebook reads the score, so these cannot
+              disagree. Change whichever is wrong. Approving is refused until they match.
             </p>
             <ul className="ml-4 list-disc text-sm">
               {mismatches.map(({ section, stated, recorded, possible }) => (
@@ -1064,12 +1042,12 @@ function DraftEditor({
             key={section.id}
             section={section}
             score={scores[section.id] ?? 0}
-            report={reports[section.id] ?? ''}
+            report={reports[section.id] ?? ""}
             onScore={(value) => setScores((prev) => ({ ...prev, [section.id]: value }))}
             onReport={(value) => setReports((prev) => ({ ...prev, [section.id]: value }))}
             onReset={() => {
               setScores((prev) => ({ ...prev, [section.id]: effectiveScore(section) ?? 0 }));
-              setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? '' }));
+              setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? "" }));
             }}
             unsaved={changedSections.some((changed) => changed.id === section.id)}
           />
@@ -1091,13 +1069,13 @@ function DraftEditor({
               <Badge
                 variant="outline"
                 className={cn(
-                  'font-normal',
+                  "font-normal",
                   isComplete
-                    ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                    : 'border-destructive/40 text-destructive',
+                    ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                    : "border-destructive/40 text-destructive",
                 )}
               >
-                {isComplete ? 'Meets the threshold' : 'Below the threshold'}
+                {isComplete ? "Meets the threshold" : "Below the threshold"}
               </Badge>
               {/*
                 Said plainly, next to the number it affects. Approving saves first anyway,
@@ -1107,7 +1085,7 @@ function DraftEditor({
               {unsaved && (
                 <span className="text-xs text-amber-700 dark:text-amber-300">
                   {changedSections.length === 1
-                    ? '1 unsaved change'
+                    ? "1 unsaved change"
                     : `${changedSections.length} unsaved changes`}
                 </span>
               )}
@@ -1119,7 +1097,7 @@ function DraftEditor({
                   {updateSection.isPending && (
                     <Loader2 data-icon="inline-start" className="animate-spin" />
                   )}
-                  {updateSection.isPending ? 'Saving…' : 'Save'}
+                  {updateSection.isPending ? "Saving…" : "Save"}
                 </Button>
               )}
               <Button disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
@@ -1136,9 +1114,9 @@ function DraftEditor({
           <DialogHeader>
             <DialogTitle>Release this grade?</DialogTitle>
             <DialogDescription>
-              {submission.student.displayName ?? 'The student'} will see this score and
-              feedback for {assignmentTitle}, and it is posted as a new comment on the pull
-              request. Earlier rounds of feedback stay where they are.
+              {submission.student.displayName ?? "The student"} will see this score and feedback for{" "}
+              {assignmentTitle}, and it is posted as a new comment on the pull request. Earlier
+              rounds of feedback stay where they are.
             </DialogDescription>
           </DialogHeader>
 
@@ -1148,7 +1126,7 @@ function DraftEditor({
               {totalEarned} / {totalPossible}
               {/* The words and the colour both from `completionMeta`, so the queue, this pane,
                   and the student's own page say the same thing in the same green. */}
-              <span className={cn('ml-2 font-normal', completionMeta(isComplete)?.className)}>
+              <span className={cn("ml-2 font-normal", completionMeta(isComplete)?.className)}>
                 {completionMeta(isComplete)?.label}
               </span>
             </span>
@@ -1157,8 +1135,8 @@ function DraftEditor({
           {changedSections.length > 0 && (
             <p className="text-sm text-muted-foreground">
               {changedSections.length === 1
-                ? 'Your edit to one section'
-                : `Your edits to ${changedSections.length} sections`}{' '}
+                ? "Your edit to one section"
+                : `Your edits to ${changedSections.length} sections`}{" "}
               will be saved first.
             </p>
           )}
@@ -1178,10 +1156,10 @@ function DraftEditor({
                 <CheckCircle2 data-icon="inline-start" />
               )}
               {updateSection.isPending
-                ? 'Saving your edits…'
+                ? "Saving your edits…"
                 : approve.isPending
-                  ? 'Releasing…'
-                  : 'Approve and release'}
+                  ? "Releasing…"
+                  : "Approve and release"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1224,8 +1202,8 @@ function RegenerateRow({ submissionId, unsaved }: { submissionId: string; unsave
         <span className="text-sm font-medium">Not happy with this report?</span>
         <span className="text-xs text-muted-foreground">
           {unsaved
-            ? 'Save or undo your changes first — a new report replaces this one.'
-            : 'Grading again runs the tests if needed and writes a fresh report. This one is kept.'}
+            ? "Save or undo your changes first — a new report replaces this one."
+            : "Grading again runs the tests if needed and writes a fresh report. This one is kept."}
         </span>
       </div>
       <Button
@@ -1239,7 +1217,7 @@ function RegenerateRow({ submissionId, unsaved }: { submissionId: string; unsave
         ) : (
           <RotateCcw data-icon="inline-start" />
         )}
-        {generate.isPending ? 'Grading again…' : 'Grade again'}
+        {generate.isPending ? "Grading again…" : "Grade again"}
       </Button>
     </div>
   );
@@ -1250,7 +1228,7 @@ function ModelMetaBar({ draft }: { draft: Draft }) {
   const meta = (draft.modelMetadata ?? {}) as Record<string, unknown>;
   const usage = (meta.usage ?? {}) as Record<string, unknown>;
 
-  const asNumber = (value: unknown) => (typeof value === 'number' ? value : 0);
+  const asNumber = (value: unknown) => (typeof value === "number" ? value : 0);
   const tokens =
     asNumber(usage.promptTokens) +
     asNumber(usage.completionTokens) +
@@ -1258,14 +1236,14 @@ function ModelMetaBar({ draft }: { draft: Draft }) {
     asNumber(usage.cacheWriteTokens);
 
   const items = [
-    { label: 'Model', value: typeof meta.provider === 'string' ? meta.provider : '—' },
-    { label: 'Prompt', value: typeof meta.promptVersion === 'string' ? meta.promptVersion : '—' },
+    { label: "Model", value: typeof meta.provider === "string" ? meta.provider : "—" },
+    { label: "Prompt", value: typeof meta.promptVersion === "string" ? meta.promptVersion : "—" },
     {
-      label: 'Rubric',
+      label: "Rubric",
       value:
-        typeof meta.gradingAssetsCommitSha === 'string'
+        typeof meta.gradingAssetsCommitSha === "string"
           ? shortSha(meta.gradingAssetsCommitSha)
-          : '—',
+          : "—",
     },
     /*
       A second commit, because the answer keys come from a different repository. Shown rather
@@ -1274,14 +1252,13 @@ function ModelMetaBar({ draft }: { draft: Draft }) {
       and the rubric's commit cannot answer it.
     */
     {
-      label: 'Answer keys',
-      value:
-        typeof meta.answerKeyCommitSha === 'string' ? shortSha(meta.answerKeyCommitSha) : '—',
+      label: "Answer keys",
+      value: typeof meta.answerKeyCommitSha === "string" ? shortSha(meta.answerKeyCommitSha) : "—",
     },
-    { label: 'Tokens', value: tokens > 0 ? tokens.toLocaleString() : '—' },
+    { label: "Tokens", value: tokens > 0 ? tokens.toLocaleString() : "—" },
   ];
 
-  if (items.every((item) => item.value === '—')) return null;
+  if (items.every((item) => item.value === "—")) return null;
 
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-md border border-border bg-muted/30 px-4 py-3">
@@ -1308,16 +1285,16 @@ interface RubricItem {
 function readRubricItems(value: unknown): RubricItem[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
-    if (typeof entry !== 'object' || entry === null) return [];
+    if (typeof entry !== "object" || entry === null) return [];
     const row = entry as Record<string, unknown>;
-    if (typeof row.label !== 'string') return [];
+    if (typeof row.label !== "string") return [];
     return [
       {
         label: row.label,
-        criterion: typeof row.criterion === 'string' ? row.criterion : '',
-        scoreEarned: typeof row.scoreEarned === 'number' ? row.scoreEarned : 0,
-        scorePossible: typeof row.scorePossible === 'number' ? row.scorePossible : 0,
-        note: typeof row.note === 'string' ? row.note : null,
+        criterion: typeof row.criterion === "string" ? row.criterion : "",
+        scoreEarned: typeof row.scoreEarned === "number" ? row.scoreEarned : 0,
+        scorePossible: typeof row.scorePossible === "number" ? row.scorePossible : 0,
+        note: typeof row.note === "string" ? row.note : null,
       },
     ];
   });
@@ -1432,7 +1409,7 @@ function SectionEditor({
               )}
               <Button size="sm" variant="ghost" onClick={() => setEditing((value) => !value)}>
                 <Pencil data-icon="inline-start" />
-                {editing ? 'Preview' : 'Edit'}
+                {editing ? "Preview" : "Edit"}
               </Button>
             </div>
           </div>
@@ -1483,7 +1460,7 @@ function SectionEditor({
  * evidence a re-grading instructor would otherwise have to scroll past to find it.
  */
 function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList }) {
-  const superseded = draft.status === 'SUPERSEDED';
+  const superseded = draft.status === "SUPERSEDED";
   const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
 
   return (
@@ -1497,11 +1474,11 @@ function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList })
               ) : (
                 <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
               )}
-              {superseded ? 'Superseded report' : 'Released'}
+              {superseded ? "Superseded report" : "Released"}
             </CardTitle>
             <CardDescription>
               {superseded
-                ? 'Replaced by a later run. Kept as part of the record.'
+                ? "Replaced by a later run. Kept as part of the record."
                 : `Approved ${formatDateTime(draft.approvedAt)}. The student can read this.`}
             </CardDescription>
           </div>
@@ -1511,21 +1488,21 @@ function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList })
               <span className="text-2xl font-semibold tabular-nums">
                 {data.grade.finalScore}
                 <span className="text-base text-muted-foreground">
-                  {' '}
+                  {" "}
                   / {data.grade.finalScorePossible}
                 </span>
               </span>
               <Badge
                 variant="outline"
                 className={cn(
-                  'font-normal',
+                  "font-normal",
                   data.grade.isComplete
-                    ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                    : 'border-destructive/40 text-destructive',
+                    ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                    : "border-destructive/40 text-destructive",
                 )}
               >
-                {data.grade.isComplete ? 'Complete' : 'Incomplete'}
-                {percent != null ? ` · ${formatPercent(percent)}` : ''}
+                {data.grade.isComplete ? "Complete" : "Incomplete"}
+                {percent != null ? ` · ${formatPercent(percent)}` : ""}
               </Badge>
             </div>
           )}
@@ -1545,7 +1522,7 @@ function ReleasedBody({
   draft: Draft;
   data: DraftList;
 }) {
-  const superseded = draft.status === 'SUPERSEDED';
+  const superseded = draft.status === "SUPERSEDED";
 
   return (
     <div className="flex flex-col gap-4">
@@ -1583,8 +1560,8 @@ function ReadOnlySection({ section }: { section: Section }) {
             </div>
           </div>
           <span className="shrink-0 text-sm font-semibold tabular-nums">
-            {effectiveScore(section) ?? '—'}
-            <span className="text-muted-foreground"> / {section.scorePossible ?? '—'}</span>
+            {effectiveScore(section) ?? "—"}
+            <span className="text-muted-foreground"> / {section.scorePossible ?? "—"}</span>
           </span>
         </div>
       </CardHeader>
@@ -1627,10 +1604,10 @@ function DraftHistory({
               <div
                 key={entry.id}
                 className={cn(
-                  'flex items-center justify-between gap-3 rounded-md border px-3 py-2',
+                  "flex items-center justify-between gap-3 rounded-md border px-3 py-2",
                   entry.id === activeId
-                    ? 'border-primary/40 bg-primary/5'
-                    : 'border-border bg-muted/20',
+                    ? "border-primary/40 bg-primary/5"
+                    : "border-border bg-muted/20",
                 )}
               >
                 <div className="flex flex-col">
@@ -1665,29 +1642,29 @@ function StateCard({
   icon: Icon,
   title,
   description,
-  tone = 'neutral',
+  tone = "neutral",
   spin = false,
   children,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
-  tone?: 'neutral' | 'warning' | 'success';
+  tone?: "neutral" | "warning" | "success";
   spin?: boolean;
   children?: React.ReactNode;
 }) {
   const toneClass =
-    tone === 'warning'
-      ? 'text-amber-600 dark:text-amber-400'
-      : tone === 'success'
-        ? 'text-emerald-600 dark:text-emerald-400'
-        : 'text-muted-foreground';
+    tone === "warning"
+      ? "text-amber-600 dark:text-amber-400"
+      : tone === "success"
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-muted-foreground";
 
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
         <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-          <Icon className={cn('size-6', toneClass, spin && 'animate-spin')} />
+          <Icon className={cn("size-6", toneClass, spin && "animate-spin")} />
         </div>
         <div className="flex flex-col gap-1">
           <p className="text-base font-medium">{title}</p>

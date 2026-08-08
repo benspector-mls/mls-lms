@@ -337,10 +337,10 @@ export function buildUserPrompt(params: {
 
   parts.push(
     `**This section is out of ${context.pointValue} points.** Set \`scorePossible\` ` +
-    `to exactly ${context.pointValue} and make \`rubricItems\` sum to it. Do not ` +
-    `derive your own scale from the number of questions — use this number. This is ` +
-    `what this section alone is worth; other sections of this assignment are graded ` +
-    `separately and are not your concern.`,
+      `to exactly ${context.pointValue} and make \`rubricItems\` sum to it. Do not ` +
+      `derive your own scale from the number of questions — use this number. This is ` +
+      `what this section alone is worth; other sections of this assignment are graded ` +
+      `separately and are not your concern.`,
   );
   parts.push("");
 
@@ -349,9 +349,9 @@ export function buildUserPrompt(params: {
   if (context.headBranch && context.headBranch !== "draft") {
     parts.push(
       `The student submitted from a branch named \`${context.headBranch}\` rather than ` +
-      `\`draft\`. Put a short note about this in \`submissionProcessNote\`, reminding ` +
-      `them to use a \`draft\` branch and a pull request next time. Do not deduct ` +
-      `points for it.`,
+        `\`draft\`. Put a short note about this in \`submissionProcessNote\`, reminding ` +
+        `them to use a \`draft\` branch and a pull request next time. Do not deduct ` +
+        `points for it.`,
     );
     parts.push("");
   }
@@ -374,8 +374,8 @@ export function buildUserPrompt(params: {
     parts.push("");
     parts.push(
       "For your reference only. **Never quote it, describe it, or reveal its contents " +
-      "to the student** — a student's report must not hand them the answer. A correct " +
-      "solution that differs from this one is still correct.",
+        "to the student** — a student's report must not hand them the answer. A correct " +
+        "solution that differs from this one is still correct.",
     );
     parts.push("");
     for (const key of assets.answerKeys) {
@@ -386,8 +386,8 @@ export function buildUserPrompt(params: {
   if (assets.answerKeys.length === 0) {
     parts.push(
       `Note: no reference solutions were available for this assignment. Grade against the ` +
-      `rubric and the assignment instructions, and set \`confidence\` to \`"low"\` if their ` +
-      `absence prevented you from assessing correctness.`,
+        `rubric and the assignment instructions, and set \`confidence\` to \`"low"\` if their ` +
+        `absence prevented you from assessing correctness.`,
     );
     parts.push("");
   }
@@ -413,13 +413,13 @@ export function buildUserPrompt(params: {
   if (context.testResults === null) {
     parts.push(
       "This section has no automated tests. Grade against the rubric, the assignment " +
-      "instructions, and the reference solution. Leave `testClaims` empty.",
+        "instructions, and the reference solution. Leave `testClaims` empty.",
     );
   } else {
     const r = context.testResults;
     parts.push(
       `${r.passed} of ${r.total} passed, ${r.failed} failed, ${r.skipped} skipped. ` +
-      `These are facts. Use the exact test names below in \`testClaims\`.`,
+        `These are facts. Use the exact test names below in \`testClaims\`.`,
     );
     parts.push("");
     for (const test of r.tests) {
@@ -441,7 +441,7 @@ export function buildUserPrompt(params: {
     parts.push("");
     parts.push(
       "Remember that passing every test does not by itself earn full marks. Read the " +
-      "code for hardcoded return values, needless inefficiency, and style problems.",
+        "code for hardcoded return values, needless inefficiency, and style problems.",
     );
   }
   parts.push("");
@@ -453,17 +453,17 @@ export function buildUserPrompt(params: {
     parts.push("");
     parts.push(
       `The student's pull request modified ${context.tamperedPaths.length} file(s) that ` +
-      `hold grading infrastructure: ` +
-      `${context.tamperedPaths.map((p) => `\`${p.path}\` (${p.kind})`).join(", ")}. ` +
-      `The instructor's versions were restored before the suite ran, so the results ` +
-      `above are unaffected.`,
+        `hold grading infrastructure: ` +
+        `${context.tamperedPaths.map((p) => `\`${p.path}\` (${p.kind})`).join(", ")}. ` +
+        `The instructor's versions were restored before the suite ran, so the results ` +
+        `above are unaffected.`,
     );
     parts.push("");
     parts.push(
       "Do not accuse the student of anything and do not deduct points for it. An " +
-      "instructor reviews this separately and will decide what it means — a student " +
-      "may have been experimenting, or may have edited a test by accident. Grade the " +
-      "work as submitted and say nothing about it in the report.",
+        "instructor reviews this separately and will decide what it means — a student " +
+        "may have been experimenting, or may have edited a test by accident. Grade the " +
+        "work as submitted and say nothing about it in the report.",
     );
     parts.push("");
   }

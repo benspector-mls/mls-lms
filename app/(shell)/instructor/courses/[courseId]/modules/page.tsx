@@ -1,7 +1,7 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { CourseModules } from '@/components/instructor/modules-view';
-import { PageHeader } from '@/components/page-header';
+import { CourseModules } from "@/components/instructor/modules-view";
+import { PageHeader } from "@/components/page-header";
 
 /**
  * The course's shape: every module, in order, holding what is in it.

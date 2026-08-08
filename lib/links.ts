@@ -14,12 +14,12 @@
 // alone.
 
 export function triageHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/triage`
+  return `/instructor/courses/${courseId}/triage`;
 }
 
 /** The assignments list, which is not the same address as one assignment's grading queue. */
 export function courseAssignmentsHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/assignments`
+  return `/instructor/courses/${courseId}/assignments`;
 }
 
 export function gradingQueueHref(
@@ -27,16 +27,16 @@ export function gradingQueueHref(
   assignmentId: string,
   submissionId?: string,
 ): string {
-  const base = `/instructor/courses/${courseId}/assignments/${assignmentId}`
-  return submissionId ? `${base}?submission=${submissionId}` : base
+  const base = `/instructor/courses/${courseId}/assignments/${assignmentId}`;
+  return submissionId ? `${base}?submission=${submissionId}` : base;
 }
 
 export function newAssignmentHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/assignments/new`
+  return `/instructor/courses/${courseId}/assignments/new`;
 }
 
 export function editAssignmentHref(courseId: string, assignmentId: string): string {
-  return `/instructor/courses/${courseId}/assignments/${assignmentId}/edit`
+  return `/instructor/courses/${courseId}/assignments/${assignmentId}/edit`;
 }
 
 /**
@@ -48,19 +48,19 @@ export function editAssignmentHref(courseId: string, assignmentId: string): stri
  * know which of them happen to be graded.
  */
 export function courseResourcesHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/resources`
+  return `/instructor/courses/${courseId}/resources`;
 }
 
 export function gradebookHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/gradebook`
+  return `/instructor/courses/${courseId}/gradebook`;
 }
 
 export function rosterHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/roster`
+  return `/instructor/courses/${courseId}/roster`;
 }
 
 export function modulesHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/modules`
+  return `/instructor/courses/${courseId}/modules`;
 }
 
 /**
@@ -72,7 +72,7 @@ export function modulesHref(courseId: string): string {
  * than any one list inside it.
  */
 export function courseSettingsHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/settings`
+  return `/instructor/courses/${courseId}/settings`;
 }
 
 /**
@@ -83,8 +83,8 @@ export function courseSettingsHref(courseId: string): string {
  * have to pick one and be wrong half the time.
  */
 export function studentHref(courseId: string, studentId: string, submissionId?: string): string {
-  const base = `/instructor/courses/${courseId}/students/${studentId}`
-  return submissionId ? `${base}?submission=${submissionId}` : base
+  const base = `/instructor/courses/${courseId}/students/${studentId}`;
+  return submissionId ? `${base}?submission=${submissionId}` : base;
 }
 
 /**
@@ -95,7 +95,7 @@ export function studentHref(courseId: string, studentId: string, submissionId?: 
  * not have to know where it currently resolves to.
  */
 export function courseHref(courseId: string): string {
-  return `/instructor/courses/${courseId}`
+  return `/instructor/courses/${courseId}`;
 }
 
 /**
@@ -111,24 +111,23 @@ export function courseHref(courseId: string): string {
  * assignment, which does not.
  */
 export function sameViewInCourse(pathname: string, courseId: string): string {
-  const segments = pathname.split("/").filter(Boolean)
+  const segments = pathname.split("/").filter(Boolean);
 
   // ["instructor", "courses", <id>, ...rest]
-  const rest =
-    segments[0] === "instructor" && segments[1] === "courses" ? segments.slice(3) : []
+  const rest = segments[0] === "instructor" && segments[1] === "courses" ? segments.slice(3) : [];
 
-  if (rest[0] === "triage") return triageHref(courseId)
-  if (rest[0] === "assignments" && rest.length === 1) return courseAssignmentsHref(courseId)
-  if (rest[0] === "resources") return courseResourcesHref(courseId)
-  if (rest[0] === "gradebook") return gradebookHref(courseId)
-  if (rest[0] === "roster") return rosterHref(courseId)
-  if (rest[0] === "modules") return modulesHref(courseId)
-  if (rest[0] === "settings") return courseSettingsHref(courseId)
+  if (rest[0] === "triage") return triageHref(courseId);
+  if (rest[0] === "assignments" && rest.length === 1) return courseAssignmentsHref(courseId);
+  if (rest[0] === "resources") return courseResourcesHref(courseId);
+  if (rest[0] === "gradebook") return gradebookHref(courseId);
+  if (rest[0] === "roster") return rosterHref(courseId);
+  if (rest[0] === "modules") return modulesHref(courseId);
+  if (rest[0] === "settings") return courseSettingsHref(courseId);
 
   /*
     Everything else — one assignment's queue, its edit form, a student's record — belongs to
     a cohort and cannot travel. Settings rather than the bare course address, which would only
     redirect here anyway.
   */
-  return courseSettingsHref(courseId)
+  return courseSettingsHref(courseId);
 }

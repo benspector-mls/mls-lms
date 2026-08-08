@@ -64,15 +64,22 @@ async function main() {
   const sections = await db.gradingDraftSection.findMany({
     where: { gradingDraftId: draft.id },
     select: {
-      sectionType: true, scoreEarned: true, scorePossible: true,
-      confidence: true, flags: true, reportMarkdown: true, instructorNotes: true,
+      sectionType: true,
+      scoreEarned: true,
+      scorePossible: true,
+      confidence: true,
+      flags: true,
+      reportMarkdown: true,
+      instructorNotes: true,
     },
   });
 
   for (const section of sections) {
     console.log(`\n${"═".repeat(70)}`);
-    console.log(`${section.sectionType}: ${section.scoreEarned}/${section.scorePossible}` +
-      `  confidence=${section.confidence}  flags=[${section.flags.join(", ")}]`);
+    console.log(
+      `${section.sectionType}: ${section.scoreEarned}/${section.scorePossible}` +
+        `  confidence=${section.confidence}  flags=[${section.flags.join(", ")}]`,
+    );
     console.log(`${"═".repeat(70)}`);
     // Printed above the report rather than below it, because these are the reasons the
     // score below might not be trustworthy.
@@ -85,4 +92,7 @@ async function main() {
   process.exit(draft.status === "FAILED" ? 1 : 0);
 }
 
-main().catch((err) => { console.error("\n", err); process.exit(1); });
+main().catch((err) => {
+  console.error("\n", err);
+  process.exit(1);
+});

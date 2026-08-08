@@ -1,9 +1,13 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
-import { NoRunnerConfiguredError, UnknownRunnerPresetError, resolveRunner } from '@/lib/sandbox/presets';
-import { runTestsForSubmission } from '@/lib/sandbox/run-tests';
-import { createTRPCRouter, instructorProcedure } from '../init';
+import {
+  NoRunnerConfiguredError,
+  UnknownRunnerPresetError,
+  resolveRunner,
+} from "@/lib/sandbox/presets";
+import { runTestsForSubmission } from "@/lib/sandbox/run-tests";
+import { createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * Deterministic test execution, instructor-only.
@@ -46,7 +50,7 @@ const testRunFields = {
  * needs it and loading it separately would mean a second query.
  */
 async function loadSubmissionForInstructor(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
+  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
   submissionId: string,
 ) {
   const submission = await ctx.db.submission.findUnique({
@@ -69,11 +73,11 @@ async function loadSubmissionForInstructor(
   });
 
   if (!submission) {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Submission not found.' });
+    throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
   }
 
   const teaches =
-    ctx.profile.role === 'ADMIN' ||
+    ctx.profile.role === "ADMIN" ||
     (await ctx.db.courseInstructor.findFirst({
       where: { courseId: submission.assignment.courseId, userId: ctx.profile.id },
       select: { id: true },
@@ -81,8 +85,8 @@ async function loadSubmissionForInstructor(
 
   if (!teaches) {
     throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'You do not teach the course this submission belongs to.',
+      code: "FORBIDDEN",
+      message: "You do not teach the course this submission belongs to.",
     });
   }
 
@@ -104,21 +108,21 @@ export const testRunsRouter = createTRPCRouter({
       const submission = await loadSubmissionForInstructor(ctx, input.submissionId);
 
       try {
-        return await runTestsForSubmission(submission.id, { trigger: 'MANUAL' });
+        return await runTestsForSubmission(submission.id, { trigger: "MANUAL" });
       } catch (err) {
         // An assignment with no tests has not failed at anything, so this is a
         // precondition rather than a server error. The interface should not offer
         // the button at all in this case; reaching here means it did.
         if (err instanceof NoRunnerConfiguredError) {
-          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
         }
         // A configuration mistake, visible before any sandbox was created.
         if (err instanceof UnknownRunnerPresetError) {
-          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
         }
         // A submission with no pull request yet, which is a normal state early on.
-        if (err instanceof Error && err.name === 'SubmissionNotReadyError') {
-          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+        if (err instanceof Error && err.name === "SubmissionNotReadyError") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
         }
         throw err;
       }
@@ -139,7 +143,7 @@ export const testRunsRouter = createTRPCRouter({
 
       const runs = await ctx.db.testRun.findMany({
         where: { submissionId: submission.id },
-        orderBy: { startedAt: 'desc' },
+        orderBy: { startedAt: "desc" },
         select: testRunFields,
       });
 
@@ -153,10 +157,12 @@ export const testRunsRouter = createTRPCRouter({
       return {
         runs,
         runnerPreset: submission.assignment.runnerPreset,
-        hasRunner: submission.assignment.runnerPreset !== 'none' && presetError === null,
+        hasRunner: submission.assignment.runnerPreset !== "none" && presetError === null,
         presetError,
         /** False when there is nothing to test yet, so the button can explain why. */
-        canRun: Boolean(submission.repoFullName && submission.headSha && submission.prNumber !== null),
+        canRun: Boolean(
+          submission.repoFullName && submission.headSha && submission.prNumber !== null,
+        ),
       };
     }),
 
@@ -169,7 +175,7 @@ export const testRunsRouter = createTRPCRouter({
         select: { ...testRunFields, submissionId: true },
       });
 
-      if (!run) throw new TRPCError({ code: 'NOT_FOUND', message: 'Test run not found.' });
+      if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "Test run not found." });
 
       // Authorization lives on the submission, so it is checked there rather than
       // duplicated here.

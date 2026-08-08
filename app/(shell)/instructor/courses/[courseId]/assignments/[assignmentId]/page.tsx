@@ -1,11 +1,11 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { GradingQueue } from '@/components/instructor/grading-queue';
-import { ListSkeleton } from '@/components/list-states';
-import { resolveGroup } from '@/lib/courses/resolve-group';
-import { requireCourseMatch } from '@/lib/instructor/course-scope';
-import { gradingQueueHref } from '@/lib/links';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { GradingQueue } from "@/components/instructor/grading-queue";
+import { ListSkeleton } from "@/components/list-states";
+import { resolveGroup } from "@/lib/courses/resolve-group";
+import { requireCourseMatch } from "@/lib/instructor/course-scope";
+import { gradingQueueHref } from "@/lib/links";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * The grading queue for one assignment.

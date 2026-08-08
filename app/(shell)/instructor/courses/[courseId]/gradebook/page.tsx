@@ -1,12 +1,12 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { Gradebook } from '@/components/instructor/gradebook';
-import { ListSkeleton } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { GroupPicker } from '@/components/instructor/group-picker';
-import { groupSelectionLabel, parseGroupSelection } from '@/lib/courses/groups';
-import { resolveGroup } from '@/lib/courses/resolve-group';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { Gradebook } from "@/components/instructor/gradebook";
+import { ListSkeleton } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { GroupPicker } from "@/components/instructor/group-picker";
+import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
+import { resolveGroup } from "@/lib/courses/resolve-group";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Every student against every assignment.
@@ -62,7 +62,7 @@ async function FullGradebook({
           description says which set it is rather than describing the unfiltered case always.
         */
         description={
-          selection.kind === 'all'
+          selection.kind === "all"
             ? `${data.course.cohortTerm} · every student against every assignment`
             : `${data.course.cohortTerm} · ${groupSelectionLabel(selection, groups.groups)} against every assignment`
         }

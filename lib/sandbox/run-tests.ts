@@ -104,13 +104,13 @@ export async function runTestsForSubmission(
   if (!submission.repoFullName || !submission.headSha) {
     throw new SubmissionNotReadyError(
       `Submission ${submissionId} has no repository or no head commit yet. ` +
-      `A student has to accept the assignment and open a pull request first.`,
+        `A student has to accept the assignment and open a pull request first.`,
     );
   }
   if (submission.prNumber === null) {
     throw new SubmissionNotReadyError(
       `Submission ${submissionId} has no pull request. The tamper report is taken ` +
-      `from the pull request's diff, so there is nothing to compare against.`,
+        `from the pull request's diff, so there is nothing to compare against.`,
     );
   }
 

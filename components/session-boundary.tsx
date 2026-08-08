@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { Component, type ReactNode } from 'react';
+import { Component, type ReactNode } from "react";
 
 /**
  * Sends the viewer to sign in when a query reports there is no session, instead of
@@ -18,13 +18,10 @@ import { Component, type ReactNode } from 'react';
 
 function isUnauthorized(error: unknown): boolean {
   const code = (error as { data?: { code?: string } } | null)?.data?.code;
-  return code === 'UNAUTHORIZED';
+  return code === "UNAUTHORIZED";
 }
 
-export class SessionBoundary extends Component<
-  { children: ReactNode },
-  { error: unknown }
-> {
+export class SessionBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
   state: { error: unknown } = { error: null };
 
   static getDerivedStateFromError(error: unknown) {
@@ -32,7 +29,7 @@ export class SessionBoundary extends Component<
   }
 
   componentDidCatch(error: unknown) {
-    if (isUnauthorized(error) && typeof window !== 'undefined') {
+    if (isUnauthorized(error) && typeof window !== "undefined") {
       const next = window.location.pathname + window.location.search;
       window.location.replace(`/auth/login?next=${encodeURIComponent(next)}`);
     }

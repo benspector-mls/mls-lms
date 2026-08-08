@@ -1,9 +1,9 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { AssignmentForm } from '@/components/instructor/assignment-form';
-import { ListSkeleton } from '@/components/list-states';
-import { requireCourseMatch } from '@/lib/instructor/course-scope';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { AssignmentForm } from "@/components/instructor/assignment-form";
+import { ListSkeleton } from "@/components/list-states";
+import { requireCourseMatch } from "@/lib/instructor/course-scope";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Editing an assignment.

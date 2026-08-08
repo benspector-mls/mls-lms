@@ -50,9 +50,7 @@ export class ReportGenerationError extends Error {
 /** How much of a file to fetch. A minified bundle is not worth reading. */
 const MAX_FETCHED_FILE_BYTES = 200_000;
 
-export async function generateReportForSubmission(
-  submissionId: string,
-): Promise<GradingDraft> {
+export async function generateReportForSubmission(submissionId: string): Promise<GradingDraft> {
   const submission = await db.submission.findUnique({
     where: { id: submissionId },
     select: {
@@ -95,7 +93,7 @@ export async function generateReportForSubmission(
   if (allSections.length === 0) {
     throw new ReportGenerationError(
       `Assignment "${submission.assignment.title}" has no sections mapping, so there is ` +
-      `no way to know what to grade or which rubric applies. Fix assignments.sections.`,
+        `no way to know what to grade or which rubric applies. Fix assignments.sections.`,
     );
   }
 
@@ -111,7 +109,7 @@ export async function generateReportForSubmission(
   if (declaredSections.length === 0) {
     throw new ReportGenerationError(
       `Every section of "${submission.assignment.title}" is graded by hand, so there is ` +
-      `no report to generate. Score it in the review screen instead.`,
+        `no report to generate. Score it in the review screen instead.`,
     );
   }
 
@@ -152,7 +150,7 @@ export async function generateReportForSubmission(
       } catch (err) {
         console.warn(
           `generate-report: could not run tests for ${submission.id} before grading — ` +
-          `continuing without them. ${err instanceof Error ? err.message : String(err)}`,
+            `continuing without them. ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -194,8 +192,11 @@ export async function generateReportForSubmission(
   if (excludedPaths.length > 0) {
     console.warn(
       `generate-report: withheld ${excludedPaths.length} committed path(s) from the prompt ` +
-      `for ${submission.id} — ` +
-      excludedPaths.slice(0, 10).map((e) => `${e.path} (${e.reason})`).join(", "),
+        `for ${submission.id} — ` +
+        excludedPaths
+          .slice(0, 10)
+          .map((e) => `${e.path} (${e.reason})`)
+          .join(", "),
     );
   }
 
@@ -218,13 +219,16 @@ export async function generateReportForSubmission(
     const withheld =
       excludedPaths.length > 0
         ? ` ${excludedPaths.length} committed path(s) were withheld from the prompt: ` +
-          `${excludedPaths.slice(0, 20).map((e) => `${e.path} (${e.reason})`).join(", ")}.`
+          `${excludedPaths
+            .slice(0, 20)
+            .map((e) => `${e.path} (${e.reason})`)
+            .join(", ")}.`
         : "";
 
     throw new ReportGenerationError(
       `The pull request contains none of the sections this assignment declares ` +
-      `(${declaredSections.map((s) => s.type).join(", ")}). Changed paths: ` +
-      `${changedPaths.slice(0, 20).join(", ")}.${withheld}`,
+        `(${declaredSections.map((s) => s.type).join(", ")}). Changed paths: ` +
+        `${changedPaths.slice(0, 20).join(", ")}.${withheld}`,
     );
   }
 
@@ -248,7 +252,7 @@ export async function generateReportForSubmission(
   if (classification.unexpected.length > 0) {
     reviewReasons.push(
       `The pull request contains ${classification.unexpected.join(", ")}, which this ` +
-      `assignment does not declare.`,
+        `assignment does not declare.`,
     );
   }
   if (classification.notSubmitted.length > 0) {
@@ -264,9 +268,7 @@ export async function generateReportForSubmission(
           `${classification.unclassified.join(", ")}.`
         : "";
 
-    reviewReasons.push(
-      `Not submitted: ${classification.notSubmitted.join(", ")}.${unrecognized}`,
-    );
+    reviewReasons.push(`Not submitted: ${classification.notSubmitted.join(", ")}.${unrecognized}`);
   }
 
   try {
@@ -296,9 +298,9 @@ export async function generateReportForSubmission(
       if (typeof sectionPointValue !== "number") {
         throw new Error(
           `The "${sectionType}" section of ${submission.assignment.title} has no ` +
-          `pointValue, so there is no maximum to score it against. Point values are ` +
-          `per section rather than per assignment; a row seeded before that change ` +
-          `carries the old shape. Re-run \`npm run db:seed\` for this assignment.`,
+            `pointValue, so there is no maximum to score it against. Point values are ` +
+            `per section rather than per assignment; a row seeded before that change ` +
+            `carries the old shape. Re-run \`npm run db:seed\` for this assignment.`,
         );
       }
 
@@ -315,8 +317,7 @@ export async function generateReportForSubmission(
       // Which tests count toward this section, or why there are none. Absent pattern
       // with evidence "tests" means the whole suite counts.
       const sectionTests = resolveSectionTests(section, allTests);
-      const sectionResults =
-        sectionTests.kind === "results" ? sectionTests.results : null;
+      const sectionResults = sectionTests.kind === "results" ? sectionTests.results : null;
 
       // A section that was supposed to be checked against a suite and was not. The
       // report still gets written — a model reading the code is better than nothing —
@@ -325,17 +326,17 @@ export async function generateReportForSubmission(
       if (sectionTests.kind === "run-missing") {
         reviewReasons.push(
           `${sectionType}: graded without test results. This section expects them and ` +
-          `the submission has no completed run at ${submission.headSha.slice(0, 7)}. ` +
-          `Run the tests and regenerate.`,
+            `the submission has no completed run at ${submission.headSha.slice(0, 7)}. ` +
+            `Run the tests and regenerate.`,
         );
       }
       if (sectionTests.kind === "pattern-matched-nothing") {
         reviewReasons.push(
           `${sectionType}: graded without test results. The tests ran, but this ` +
-          `section's testNamePattern ` +
-          `(${JSON.stringify(section?.testNamePattern ?? "")}) matched none of the ` +
-          `${allTests.length} tests in the suite. Either the pattern is wrong or the ` +
-          `tests it names do not exist.`,
+            `section's testNamePattern ` +
+            `(${JSON.stringify(section?.testNamePattern ?? "")}) matched none of the ` +
+            `${allTests.length} tests in the suite. Either the pattern is wrong or the ` +
+            `tests it names do not exist.`,
         );
       }
 

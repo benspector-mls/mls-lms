@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter, useSearchParams } from 'next/navigation';
-import * as React from 'react';
-import { Users } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
+import * as React from "react";
+import { Users } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Select,
@@ -15,10 +15,10 @@ import {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { ALL_STUDENTS, UNGROUPED } from '@/lib/courses/groups';
-import { cn } from '@/lib/utils';
-import { useTRPC } from '@/trpc/client';
+} from "@/components/ui/select";
+import { ALL_STUDENTS, UNGROUPED } from "@/lib/courses/groups";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
 
 /**
  * Which of a cohort's students the screen beneath is about.
@@ -60,7 +60,7 @@ export function GroupPicker({
         putting the picker back where it was, which would look like the filter itself failed.
       */
       onError: (error) => {
-        toast.error('That filter could not be saved for next time.', {
+        toast.error("That filter could not be saved for next time.", {
           description: error.message,
         });
       },
@@ -76,9 +76,9 @@ export function GroupPicker({
     const next = value ?? ALL_STUDENTS;
     const params = new URLSearchParams(searchParams.toString());
     if (next === ALL_STUDENTS) {
-      params.delete('group');
+      params.delete("group");
     } else {
-      params.set('group', next);
+      params.set("group", next);
     }
 
     /*
@@ -87,10 +87,10 @@ export function GroupPicker({
       from outside the group it now claims to be about — under a banner explaining why, on every
       change of filter. Landing on the top of the new pile is what choosing a group is for.
     */
-    params.delete('submission');
+    params.delete("submission");
 
     const query = params.toString();
-    router.replace(query ? `?${query}` : '?', { scroll: false });
+    router.replace(query ? `?${query}` : "?", { scroll: false });
 
     /*
       Ungrouped is not recorded. It answers "has anybody been missed" rather than "whose work do
@@ -114,12 +114,12 @@ export function GroupPicker({
         the trigger renders whatever the value is — here a uuid, in the middle of a toolbar.
       */
       items={{
-        [ALL_STUDENTS]: 'All students',
-        [UNGROUPED]: 'Ungrouped',
+        [ALL_STUDENTS]: "All students",
+        [UNGROUPED]: "Ungrouped",
         ...Object.fromEntries(groups.map((group) => [group.id, group.name])),
       }}
     >
-      <SelectTrigger className={cn('w-[220px] min-w-0', className)} aria-label="Filter by group">
+      <SelectTrigger className={cn("w-[220px] min-w-0", className)} aria-label="Filter by group">
         <Users className="size-4 shrink-0 text-muted-foreground" />
         <SelectValue />
       </SelectTrigger>

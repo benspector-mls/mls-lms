@@ -80,19 +80,23 @@ async function main() {
   // confirm the draft describes the code that is there.
   console.log(`Draft       ${draft.status} @ ${draft.headSha?.slice(0, 7) ?? "no commit"}`);
   console.log(`Sections    ${draft.sections.map((s) => s.sectionType).join(", ")}`);
-  console.log(`Score       ${earned}/${possible}` +
-    (possible > 0
-      ? ` = ${Math.round((earned / possible) * 100)}%  →  ` +
-        `${earned / possible >= threshold ? "complete" : "below threshold"} ` +
-        `(threshold ${Math.round(threshold * 100)}%)`
-      : ""));
+  console.log(
+    `Score       ${earned}/${possible}` +
+      (possible > 0
+        ? ` = ${Math.round((earned / possible) * 100)}%  →  ` +
+          `${earned / possible >= threshold ? "complete" : "below threshold"} ` +
+          `(threshold ${Math.round(threshold * 100)}%)`
+        : ""),
+  );
 
   const body = buildFeedbackMarkdown(draft.sections);
   console.log(`Comment     ${body.length} characters, ${body.split("\n").length} lines`);
 
   if (!post) {
-    console.log(`\nNothing was written. Re-run with --post to record the grade and put ` +
-      `this comment on the pull request, where the student will read it.`);
+    console.log(
+      `\nNothing was written. Re-run with --post to record the grade and put ` +
+        `this comment on the pull request, where the student will read it.`,
+    );
     await db.$disconnect();
     return;
   }
@@ -109,15 +113,22 @@ async function main() {
   console.log(`\nApproving as ${instructor.email}…`);
   const result = await approveDraft({ draftId: draft.id, approvedByProfileId: instructor.id });
 
-  console.log(`\nGrade recorded: ${result.finalScore}/${result.finalScorePossible}` +
-    `  complete=${result.isComplete}`);
-  console.log(result.commentError
-    ? `Comment NOT posted: ${result.commentError}\n` +
-      `  The grade is recorded and the student can see it on their assignment page.\n` +
-      `  Use the "Post the comment now" button, or gradingDrafts.retryComment.`
-    : `Comment posted: id ${result.postedPrCommentId}`);
+  console.log(
+    `\nGrade recorded: ${result.finalScore}/${result.finalScorePossible}` +
+      `  complete=${result.isComplete}`,
+  );
+  console.log(
+    result.commentError
+      ? `Comment NOT posted: ${result.commentError}\n` +
+          `  The grade is recorded and the student can see it on their assignment page.\n` +
+          `  Use the "Post the comment now" button, or gradingDrafts.retryComment.`
+      : `Comment posted: id ${result.postedPrCommentId}`,
+  );
 
   await db.$disconnect();
 }
 
-main().catch((err) => { console.error("\n", err); process.exit(1); });
+main().catch((err) => {
+  console.error("\n", err);
+  process.exit(1);
+});

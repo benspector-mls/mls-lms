@@ -1,5 +1,5 @@
-import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 
 import {
   assertKindImplemented,
@@ -7,28 +7,25 @@ import {
   NotRepositoryBackedError,
   repositorySource,
   UnsupportedAssignmentKindError,
-} from '@/lib/assignments/spec';
+} from "@/lib/assignments/spec";
 import {
   hasErrors,
   validateAssignmentDraft,
   type ValidationFinding,
-} from '@/lib/assignments/validate';
-import { studentRepoName } from '@/lib/courses/cohort-slug';
-import { assertActiveStudent, assertCourseMember, assertTeaches } from '@/lib/courses/membership';
-import { effectiveSection } from '@/lib/grade/approve';
-import {
-  getConfiguredInstallationId,
-  isGithubAppConfigured,
-} from '@/lib/github/app-client';
+} from "@/lib/assignments/validate";
+import { studentRepoName } from "@/lib/courses/cohort-slug";
+import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/courses/membership";
+import { effectiveSection } from "@/lib/grade/approve";
+import { getConfiguredInstallationId, isGithubAppConfigured } from "@/lib/github/app-client";
 import {
   addCollaborator,
   generateRepoFromTemplate,
   getRepo,
   removeClassroomWorkflow,
   waitForRepoContent,
-} from '@/lib/github/repos';
+} from "@/lib/github/repos";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure, studentProcedure } from '../init';
+import { createTRPCRouter, instructorProcedure, profileProcedure, studentProcedure } from "../init";
 
 /** Columns of an assignment that are safe to send to any enrolled member. */
 const assignmentFields = {
@@ -59,18 +56,21 @@ const assignmentFields = {
 /** Refuses a draft that would not grade correctly, naming the fields. */
 function refuseOnErrors(findings: ValidationFinding[]): void {
   if (!hasErrors(findings)) return;
-  const errors = findings.filter((finding) => finding.severity === 'error');
+  const errors = findings.filter((finding) => finding.severity === "error");
   throw new TRPCError({
-    code: 'BAD_REQUEST',
+    code: "BAD_REQUEST",
     message:
       `This assignment cannot be saved as it stands:\n` +
-      errors.map((finding) => `  ${finding.path}: ${finding.message}`).join('\n'),
+      errors.map((finding) => `  ${finding.path}: ${finding.message}`).join("\n"),
     cause: findings,
   });
 }
 
 /** The columns an authored assignment writes. Shared so create and update cannot drift. */
-function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssignmentDraft>>['spec']>, pointValue: number) {
+function writableFields(
+  spec: NonNullable<Awaited<ReturnType<typeof validateAssignmentDraft>>["spec"]>,
+  pointValue: number,
+) {
   return {
     kind: spec.kind,
     title: spec.title,
@@ -117,7 +117,7 @@ export const assignmentsRouter = createTRPCRouter({
       });
 
       if (!assignment) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       }
 
       await assertCourseMember(ctx, assignment.courseId);
@@ -146,7 +146,7 @@ export const assignmentsRouter = createTRPCRouter({
         assignment whose answer keys are still wrong.
       */
       const teaches =
-        ctx.profile.role === 'ADMIN' ||
+        ctx.profile.role === "ADMIN" ||
         (await ctx.db.courseInstructor.findFirst({
           where: { courseId: input.courseId, userId: ctx.profile.id },
           select: { id: true },
@@ -192,8 +192,8 @@ export const assignmentsRouter = createTRPCRouter({
               // first, and reading them in order is what shows what changed. Collapsed
               // in the interface, never discarded.
               gradingDrafts: {
-                where: { status: 'APPROVED' },
-                orderBy: { approvedAt: 'asc' },
+                where: { status: "APPROVED" },
+                orderBy: { approvedAt: "asc" },
                 select: {
                   id: true,
                   approvedAt: true,
@@ -231,9 +231,9 @@ export const assignmentsRouter = createTRPCRouter({
           only REPO assignments have one, so a course mixing kinds sorted the rest arbitrarily.)
         */
         orderBy: [
-          { module: { position: 'asc' } },
-          { dueAt: { sort: 'asc', nulls: 'last' } },
-          { title: 'asc' },
+          { module: { position: "asc" } },
+          { dueAt: { sort: "asc", nulls: "last" } },
+          { title: "asc" },
         ],
       });
 
@@ -295,7 +295,7 @@ export const assignmentsRouter = createTRPCRouter({
       });
 
       if (!assignment) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       }
 
       // Checked here as well as in listForCourse, because a mutation must never rely on the
@@ -315,13 +315,13 @@ export const assignmentsRouter = createTRPCRouter({
         have no Accept at all, because there is nothing to hand out, and the refusal below is
         what a request arriving anyway is answered with.
       */
-      if (assignment.kind === 'GOOGLE_DRIVE') {
+      if (assignment.kind === "GOOGLE_DRIVE") {
         if (!assignment.templateDriveUrl) {
           throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
+            code: "PRECONDITION_FAILED",
             message:
-              'This assignment has no template document, so there is nothing to copy. ' +
-              'Contact your instructor.',
+              "This assignment has no template document, so there is nothing to copy. " +
+              "Contact your instructor.",
           });
         }
 
@@ -335,7 +335,7 @@ export const assignmentsRouter = createTRPCRouter({
           create: {
             assignmentId: assignment.id,
             studentId: student.id,
-            status: 'ACCEPTED',
+            status: "ACCEPTED",
             lastActivityAt: new Date(),
           },
           update: {},
@@ -344,31 +344,31 @@ export const assignmentsRouter = createTRPCRouter({
         return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl) };
       }
 
-      if (assignment.kind === 'FILE_UPLOAD' || assignment.kind === 'EXTERNAL_URL') {
+      if (assignment.kind === "FILE_UPLOAD" || assignment.kind === "EXTERNAL_URL") {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
-            assignment.kind === 'FILE_UPLOAD'
-              ? 'This assignment is not accepted — there is nothing to hand out. Upload your ' +
-                'work and submit it when you are ready.'
-              : 'This assignment is not accepted — there is nothing to hand out. Make your ' +
-                'work, then submit the link to it when you are ready.',
+            assignment.kind === "FILE_UPLOAD"
+              ? "This assignment is not accepted — there is nothing to hand out. Upload your " +
+                "work and submit it when you are ready."
+              : "This assignment is not accepted — there is nothing to hand out. Make your " +
+                "work, then submit the link to it when you are ready.",
         });
       }
 
       if (!student.githubUsername) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
-            'Link your GitHub account before accepting an assignment. Your repository is named after your GitHub username.',
+            "Link your GitHub account before accepting an assignment. Your repository is named after your GitHub username.",
         });
       }
 
       if (!isGithubAppConfigured()) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
-            'The GitHub App is not configured on this deployment. See the GitHub App setup section of the README.',
+            "The GitHub App is not configured on this deployment. See the GitHub App setup section of the README.",
         });
       }
 
@@ -381,16 +381,19 @@ export const assignmentsRouter = createTRPCRouter({
         // defect rather than something a student can act on; a misconfigured REPO row is the
         // ordinary case, where an instructor set up the assignment without a template, org,
         // or repository name.
-        if (err instanceof NotRepositoryBackedError || err instanceof UnsupportedAssignmentKindError) {
+        if (
+          err instanceof NotRepositoryBackedError ||
+          err instanceof UnsupportedAssignmentKindError
+        ) {
           throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'This assignment is not accepted this way. Contact your instructor.',
+            code: "PRECONDITION_FAILED",
+            message: "This assignment is not accepted this way. Contact your instructor.",
             cause: err,
           });
         }
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'Source repository not found for this assignment. Contact your instructor.',
+          code: "PRECONDITION_FAILED",
+          message: "Source repository not found for this assignment. Contact your instructor.",
           cause: err,
         });
       }
@@ -417,11 +420,11 @@ export const assignmentsRouter = createTRPCRouter({
         assignmentRepoName: source.assignmentRepoName,
         githubLogin: student.githubUsername,
       });
-      const [templateOwner, templateRepoName] = source.templateRepo.split('/');
+      const [templateOwner, templateRepoName] = source.templateRepo.split("/");
 
       if (!templateOwner || !templateRepoName) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
+          code: "INTERNAL_SERVER_ERROR",
           message: `Assignment templateRepo must be in "owner/repo" form, got "${source.templateRepo}".`,
         });
       }
@@ -455,7 +458,7 @@ export const assignmentsRouter = createTRPCRouter({
 
       if (claimed) {
         throw new TRPCError({
-          code: 'CONFLICT',
+          code: "CONFLICT",
           message:
             `You already have the repository ${repoFullNameToCreate}, for ` +
             `"${claimed.assignment.title}" in ${claimed.assignment.course.name}. One ` +
@@ -490,7 +493,7 @@ export const assignmentsRouter = createTRPCRouter({
         owner: source.githubOrg,
         repo: repoName,
         username: student.githubUsername,
-        permission: 'push',
+        permission: "push",
       });
 
       // Every instructor on the course is added, so no repository ever needs
@@ -506,7 +509,7 @@ export const assignmentsRouter = createTRPCRouter({
           // not fail the student's accept — they would be blocked by someone
           // else's incomplete setup.
           console.warn(
-            `accept: skipping collaborator invite for ${user.email ?? 'an instructor'} — no GitHub account linked`,
+            `accept: skipping collaborator invite for ${user.email ?? "an instructor"} — no GitHub account linked`,
           );
           continue;
         }
@@ -514,7 +517,7 @@ export const assignmentsRouter = createTRPCRouter({
           owner: source.githubOrg,
           repo: repoName,
           username: user.githubUsername,
-          permission: 'push',
+          permission: "push",
         });
       }
 
@@ -537,9 +540,9 @@ export const assignmentsRouter = createTRPCRouter({
             owner: source.githubOrg,
             repo: repoName,
           })
-        : ('repository-empty' as const);
+        : ("repository-empty" as const);
 
-      if (workflow === 'repository-empty') {
+      if (workflow === "repository-empty") {
         console.warn(
           `accept: ${source.githubOrg}/${repoName} had no content after waiting, so a ` +
             `classroom.yml may have been left in it. The template is ` +
@@ -554,13 +557,13 @@ export const assignmentsRouter = createTRPCRouter({
         create: {
           assignmentId: assignment.id,
           studentId: student.id,
-          status: 'ACCEPTED',
+          status: "ACCEPTED",
           repoFullName,
           repoUrl: repo.html_url,
           repoGithubLoginAtCreation: student.githubUsername,
         },
         update: {
-          status: 'ACCEPTED',
+          status: "ACCEPTED",
           repoFullName,
           repoUrl: repo.html_url,
           repoGithubLoginAtCreation: student.githubUsername,
@@ -602,18 +605,18 @@ export const assignmentsRouter = createTRPCRouter({
         // empty select: a course with no modules cannot hold an assignment yet.
         ctx.db.module.findMany({
           where: { courseId: input.courseId },
-          orderBy: [{ position: 'asc' }, { name: 'asc' }],
+          orderBy: [{ position: "asc" }, { name: "asc" }],
           select: { id: true, name: true, position: true },
         }),
-        ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+        ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
         ctx.db.assignment.findMany({
-          where: { courseId: input.courseId, kind: 'REPO' },
+          where: { courseId: input.courseId, kind: "REPO" },
           select: { githubOrg: true, answerKeyRepo: true },
           take: 50,
         }),
       ]);
 
-      if (!course) throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found.' });
+      if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
 
       /*
         Whatever this course's other repository assignments use, for the two fields that are
@@ -688,7 +691,7 @@ export const assignmentsRouter = createTRPCRouter({
         },
       });
 
-      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       await assertTeaches(ctx, assignment.courseId);
 
       const { _count, ...rest } = assignment;
@@ -703,11 +706,13 @@ export const assignmentsRouter = createTRPCRouter({
    * sections imply so the form does not compute it a second way.
    */
   validateDraft: instructorProcedure
-    .input(z.object({
-      courseId: z.string().uuid(),
-      assignmentId: z.string().uuid().optional(),
-      draft: z.unknown(),
-    }))
+    .input(
+      z.object({
+        courseId: z.string().uuid(),
+        assignmentId: z.string().uuid().optional(),
+        draft: z.unknown(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
       const { findings, pointValue } = await validateAssignmentDraft(ctx.db, input);
@@ -725,14 +730,16 @@ export const assignmentsRouter = createTRPCRouter({
    * exist, which is a real answer while a path is being typed and not an error.
    */
   browseAnswerKeys: instructorProcedure
-    .input(z.object({
-      courseId: z.string().uuid(),
-      answerKeyRepo: z.string().min(3),
-      dir: z.string().default(''),
-    }))
+    .input(
+      z.object({
+        courseId: z.string().uuid(),
+        answerKeyRepo: z.string().min(3),
+        dir: z.string().default(""),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
-      const { listAnswerKeyEntries } = await import('@/lib/grade/assets');
+      const { listAnswerKeyEntries } = await import("@/lib/grade/assets");
       return { entries: await listAnswerKeyEntries(input.answerKeyRepo, input.dir) };
     }),
 
@@ -745,14 +752,16 @@ export const assignmentsRouter = createTRPCRouter({
    * builds at grading time from the same function.
    */
   answerKeyPreview: instructorProcedure
-    .input(z.object({
-      courseId: z.string().uuid(),
-      answerKeyRepo: z.string().min(3),
-      dir: z.string().default(''),
-    }))
+    .input(
+      z.object({
+        courseId: z.string().uuid(),
+        answerKeyRepo: z.string().min(3),
+        dir: z.string().default(""),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
-      const { listAnswerKeys, MAX_ANSWER_KEYS } = await import('@/lib/grade/assets');
+      const { listAnswerKeys, MAX_ANSWER_KEYS } = await import("@/lib/grade/assets");
       const set = await listAnswerKeys(input.answerKeyRepo, input.dir);
       return { ...set, limit: MAX_ANSWER_KEYS };
     }),
@@ -770,8 +779,8 @@ export const assignmentsRouter = createTRPCRouter({
     .input(z.object({ courseId: z.string().uuid(), templateRepo: z.string().min(3) }))
     .query(async ({ ctx, input }) => {
       await assertTeaches(ctx, input.courseId);
-      const { normalizeRepoRef } = await import('@/lib/assignments/repo-ref');
-      const { detectRunnerPreset, NOT_A_REPOSITORY } = await import('@/lib/assignments/detect');
+      const { normalizeRepoRef } = await import("@/lib/assignments/repo-ref");
+      const { detectRunnerPreset, NOT_A_REPOSITORY } = await import("@/lib/assignments/detect");
 
       const fullName = normalizeRepoRef(input.templateRepo);
       return fullName ? detectRunnerPreset(fullName) : NOT_A_REPOSITORY;
@@ -791,7 +800,7 @@ export const assignmentsRouter = createTRPCRouter({
       const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, input);
       refuseOnErrors(findings);
       if (!spec || pointValue === null) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'That draft is not an assignment.' });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That draft is not an assignment." });
       }
 
       assertKindImplemented(spec.kind);
@@ -805,7 +814,7 @@ export const assignmentsRouter = createTRPCRouter({
         select: assignmentFields,
       });
 
-      return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+      return { assignment, warnings: findings.filter((f) => f.severity === "warning") };
     }),
 
   /**
@@ -826,7 +835,7 @@ export const assignmentsRouter = createTRPCRouter({
           _count: { select: { submissions: true } },
         },
       });
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       await assertTeaches(ctx, existing.courseId);
 
       const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, {
@@ -836,7 +845,7 @@ export const assignmentsRouter = createTRPCRouter({
       });
       refuseOnErrors(findings);
       if (!spec || pointValue === null) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'That draft is not an assignment.' });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That draft is not an assignment." });
       }
 
       if (
@@ -844,7 +853,7 @@ export const assignmentsRouter = createTRPCRouter({
         spec.assignmentRepoName !== existing.assignmentRepoName
       ) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message:
             `${existing._count.submissions} student(s) have already accepted this assignment, ` +
             `and their repositories are named after "${existing.assignmentRepoName}". ` +
@@ -858,7 +867,7 @@ export const assignmentsRouter = createTRPCRouter({
         select: assignmentFields,
       });
 
-      return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+      return { assignment, warnings: findings.filter((f) => f.severity === "warning") };
     }),
 
   /** Makes an assignment visible to students. Validated again, because publishing is the
@@ -871,7 +880,7 @@ export const assignmentsRouter = createTRPCRouter({
         where: { id: input.assignmentId },
         select: { courseId: true, distributedAt: true },
       });
-      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       await assertTeaches(ctx, assignment.courseId);
 
       return ctx.db.assignment.update({
@@ -896,7 +905,7 @@ export const assignmentsRouter = createTRPCRouter({
         where: { id: input.assignmentId },
         select: { courseId: true },
       });
-      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       await assertTeaches(ctx, assignment.courseId);
 
       return ctx.db.assignment.update({
@@ -915,25 +924,27 @@ export const assignmentsRouter = createTRPCRouter({
    * name there, and both repositories are checked again.
    */
   duplicate: instructorProcedure
-    .input(z.object({
-      assignmentId: z.string().uuid(),
-      targetCourseId: z.string().uuid(),
-      /**
-       * Where it lands in the target course. Optional, and when it is absent the module is
-       * matched across courses by name — which is right when two cohorts of the same program
-       * share a module sequence and useless when they have diverged. Naming it is what the
-       * copy dialog does, so the case the matching cannot serve stops being a refusal.
-       */
-      targetModuleId: z.string().uuid().optional(),
-      assignmentRepoName: z.string().min(1).optional(),
-      dueAt: z.date().nullable().optional(),
-    }))
+    .input(
+      z.object({
+        assignmentId: z.string().uuid(),
+        targetCourseId: z.string().uuid(),
+        /**
+         * Where it lands in the target course. Optional, and when it is absent the module is
+         * matched across courses by name — which is right when two cohorts of the same program
+         * share a module sequence and useless when they have diverged. Naming it is what the
+         * copy dialog does, so the case the matching cannot serve stops being a refusal.
+         */
+        targetModuleId: z.string().uuid().optional(),
+        assignmentRepoName: z.string().min(1).optional(),
+        dueAt: z.date().nullable().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const source = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
         select: copyableAssignmentSelect,
       });
-      if (!source) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
 
       // Both courses, because copying reads one and writes the other.
       await assertTeaches(ctx, source.courseId);
@@ -950,11 +961,11 @@ export const assignmentsRouter = createTRPCRouter({
         select: { name: true, archivedAt: true },
       });
       if (!target) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'That course does not exist.' });
+        throw new TRPCError({ code: "NOT_FOUND", message: "That course does not exist." });
       }
       if (target.archivedAt !== null) {
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: "PRECONDITION_FAILED",
           message: `${target.name} is archived, so nothing new can be added to it.`,
         });
       }
@@ -981,7 +992,7 @@ export const assignmentsRouter = createTRPCRouter({
         where: { id: input.assignmentId },
         select: { id: true, courseId: true, title: true, distributedAt: true },
       });
-      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       await assertTeaches(ctx, assignment.courseId);
 
       const submissions = await ctx.db.submission.findMany({
@@ -990,7 +1001,7 @@ export const assignmentsRouter = createTRPCRouter({
           repoFullName: true,
           finalScore: true,
           _count: { select: { gradingDrafts: true, testRuns: true } },
-          gradingDrafts: { where: { status: 'APPROVED' }, select: { id: true } },
+          gradingDrafts: { where: { status: "APPROVED" }, select: { id: true } },
         },
       });
 
@@ -1030,14 +1041,13 @@ export const assignmentsRouter = createTRPCRouter({
         where: { id: input.assignmentId },
         select: { id: true, courseId: true, title: true },
       });
-      if (!assignment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Assignment not found.' });
+      if (!assignment) throw new TRPCError({ code: "NOT_FOUND", message: "Assignment not found." });
       await assertTeaches(ctx, assignment.courseId);
 
       if (input.confirmTitle !== assignment.title) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message:
-            `Type the assignment's title exactly to remove it. Expected "${assignment.title}".`,
+          code: "BAD_REQUEST",
+          message: `Type the assignment's title exactly to remove it. Expected "${assignment.title}".`,
         });
       }
 
@@ -1068,7 +1078,7 @@ export const assignmentsRouter = createTRPCRouter({
 /** What `copyAssignmentInto` reads off the assignment being copied. */
 type CopyableAssignment = {
   courseId: string;
-  kind: import('@/lib/generated/prisma/enums').AssignmentKind;
+  kind: import("@/lib/generated/prisma/enums").AssignmentKind;
   title: string;
   completionThreshold: number;
   templateRepo: string | null;
@@ -1123,7 +1133,7 @@ export const copyableAssignmentSelect = {
  * reached over the network to check they are still readable.
  */
 export async function copyAssignmentInto(
-  db: typeof import('@/lib/prisma').db,
+  db: typeof import("@/lib/prisma").db,
   params: {
     source: CopyableAssignment;
     targetCourseId: string;
@@ -1134,7 +1144,7 @@ export async function copyAssignmentInto(
 ) {
   const { source, targetCourseId } = params;
 
-      /*
+  /*
         Where the copy lands, in three cases.
 
         A module belongs to one course, so copying into a *different* course cannot reuse the
@@ -1149,29 +1159,29 @@ export async function copyAssignmentInto(
         one. Naming the module is how the copy dialog serves two cohorts whose module sequences
         have diverged, which is exactly the case that matching cannot.
       */
-      const targetModule = params.targetModuleId
-        ? await db.module.findFirst({
-            where: { id: params.targetModuleId, courseId: targetCourseId },
-            select: { id: true },
-          })
-        : targetCourseId === source.courseId
-          ? { id: source.moduleId }
-          : await db.module.findFirst({
-              where: { courseId: targetCourseId, name: source.module.name },
-              select: { id: true },
-            });
-
-      if (!targetModule) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: params.targetModuleId
-            ? 'That module is not in the course you are copying into.'
-            : `The target course has no module called "${source.module.name}". Create it ` +
-              `there first, or say which module the copy should go in.`,
+  const targetModule = params.targetModuleId
+    ? await db.module.findFirst({
+        where: { id: params.targetModuleId, courseId: targetCourseId },
+        select: { id: true },
+      })
+    : targetCourseId === source.courseId
+      ? { id: source.moduleId }
+      : await db.module.findFirst({
+          where: { courseId: targetCourseId, name: source.module.name },
+          select: { id: true },
         });
-      }
 
-      /*
+  if (!targetModule) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: params.targetModuleId
+        ? "That module is not in the course you are copying into."
+        : `The target course has no module called "${source.module.name}". Create it ` +
+          `there first, or say which module the copy should go in.`,
+    });
+  }
+
+  /*
         Copying inside one course has to rename the repository, and the name is derived here
         rather than asked for.
 
@@ -1181,54 +1191,54 @@ export async function copyAssignmentInto(
         that used to invent a name for it built one out of the assignment's human title, which
         is not a legal repository name the moment a title contains a space.
       */
-      const assignmentRepoName =
-        params.assignmentRepoName ??
-        (targetCourseId === source.courseId && source.assignmentRepoName !== null
-          ? await freeRepoNameIn(db, targetCourseId, source.assignmentRepoName)
-          : source.assignmentRepoName);
+  const assignmentRepoName =
+    params.assignmentRepoName ??
+    (targetCourseId === source.courseId && source.assignmentRepoName !== null
+      ? await freeRepoNameIn(db, targetCourseId, source.assignmentRepoName)
+      : source.assignmentRepoName);
 
-      const draft = {
-        kind: source.kind,
-        title: source.title,
-        moduleId: targetModule.id,
-        completionThreshold: source.completionThreshold,
-        dueAt: params.dueAt,
-        templateRepo: source.templateRepo,
-        answerKeyRepo: source.answerKeyRepo,
-        answerKeyDir: source.answerKeyDir,
-        assignmentRepoName,
-        githubOrg: source.githubOrg,
-        templateRef: source.templateRef,
-        runnerPreset: source.runnerPreset,
-        runnerConfig: source.runnerConfig,
-        templateDriveUrl: source.templateDriveUrl,
-        acceptedFileTypes: source.acceptedFileTypes,
-        submissionInstructions: source.submissionInstructions,
-        sections: source.sections,
-      };
+  const draft = {
+    kind: source.kind,
+    title: source.title,
+    moduleId: targetModule.id,
+    completionThreshold: source.completionThreshold,
+    dueAt: params.dueAt,
+    templateRepo: source.templateRepo,
+    answerKeyRepo: source.answerKeyRepo,
+    answerKeyDir: source.answerKeyDir,
+    assignmentRepoName,
+    githubOrg: source.githubOrg,
+    templateRef: source.templateRef,
+    runnerPreset: source.runnerPreset,
+    runnerConfig: source.runnerConfig,
+    templateDriveUrl: source.templateDriveUrl,
+    acceptedFileTypes: source.acceptedFileTypes,
+    submissionInstructions: source.submissionInstructions,
+    sections: source.sections,
+  };
 
-      const { findings, spec, pointValue } = await validateAssignmentDraft(db, {
-        courseId: targetCourseId,
-        draft,
-      });
-      refuseOnErrors(findings);
-      if (!spec || pointValue === null) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'The assignment being copied is not a valid draft. Edit it first.',
-        });
-      }
+  const { findings, spec, pointValue } = await validateAssignmentDraft(db, {
+    courseId: targetCourseId,
+    draft,
+  });
+  refuseOnErrors(findings);
+  if (!spec || pointValue === null) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The assignment being copied is not a valid draft. Edit it first.",
+    });
+  }
 
-      const assignment = await db.assignment.create({
-        data: {
-          courseId: targetCourseId,
-          distributedAt: null,
-          ...writableFields(spec, pointValue),
-        },
-        select: assignmentFields,
-      });
+  const assignment = await db.assignment.create({
+    data: {
+      courseId: targetCourseId,
+      distributedAt: null,
+      ...writableFields(spec, pointValue),
+    },
+    select: assignmentFields,
+  });
 
-  return { assignment, warnings: findings.filter((f) => f.severity === 'warning') };
+  return { assignment, warnings: findings.filter((f) => f.severity === "warning") };
 }
 
 /**
@@ -1243,7 +1253,7 @@ export async function copyAssignmentInto(
  * database query is a worse failure than the refusal.
  */
 async function freeRepoNameIn(
-  db: typeof import('@/lib/prisma').db,
+  db: typeof import("@/lib/prisma").db,
   courseId: string,
   base: string,
 ): Promise<string> {
@@ -1257,7 +1267,7 @@ async function freeRepoNameIn(
   }
 
   throw new TRPCError({
-    code: 'BAD_REQUEST',
+    code: "BAD_REQUEST",
     message:
       `This course already holds ten copies of "${base}". Give the next one a repository ` +
       `name of its own, or remove the ones that are not being used.`,

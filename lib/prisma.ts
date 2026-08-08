@@ -11,7 +11,7 @@ const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
   throw new Error(
     "DATABASE_URL is not set. Copy it from Supabase → Project Settings → " +
-    "Database → Connection string (use the transaction pooler, port 6543).",
+      "Database → Connection string (use the transaction pooler, port 6543).",
   );
 }
 

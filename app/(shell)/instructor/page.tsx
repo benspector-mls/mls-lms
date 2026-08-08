@@ -1,9 +1,9 @@
-import { redirect } from 'next/navigation';
-import { Suspense } from 'react';
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { ListSkeleton } from '@/components/list-states';
-import { triageHref } from '@/lib/links';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { ListSkeleton } from "@/components/list-states";
+import { triageHref } from "@/lib/links";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * `/instructor` no longer shows anything; it picks a cohort and hands over.

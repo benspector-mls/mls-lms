@@ -36,9 +36,12 @@ import {
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
-  const a = JSON.stringify(actual), e = JSON.stringify(expected);
-  if (a !== e) { failures++; console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`); }
-  else console.log(`ok   ${label}`);
+  const a = JSON.stringify(actual),
+    e = JSON.stringify(expected);
+  if (a !== e) {
+    failures++;
+    console.log(`FAIL ${label}\n  expected ${e}\n  actual   ${a}`);
+  } else console.log(`ok   ${label}`);
 }
 
 /**
@@ -67,9 +70,11 @@ function rejects(input: unknown): string[] | "accepted" {
     parseAssignmentSpec(input);
     return "accepted";
   } catch (err) {
-    const issues = (err as {
-      issues?: { path: (string | number)[]; code?: string; keys?: string[] }[];
-    }).issues;
+    const issues = (
+      err as {
+        issues?: { path: (string | number)[]; code?: string; keys?: string[] }[];
+      }
+    ).issues;
     if (!issues) return [(err as Error).name];
     return issues.map((issue) => {
       const path = issue.path.join(".") || "(root)";
@@ -115,23 +120,34 @@ const repoSpec = {
 // here because it is the only place a URL becomes a column value: if this stopped happening,
 // the form would keep looking right and the column would hold a URL that no GitHub request
 // could be built from.
-check("a pasted template URL is stored as owner/repo",
+check(
+  "a pasted template URL is stored as owner/repo",
   parseAssignmentSpec({
     ...repoSpec,
     templateRepo: "https://github.com/marcy-lms-test/swe-1-4-loops/tree/main",
   }).templateRepo,
-  "marcy-lms-test/swe-1-4-loops");
-check("a pasted answer key URL is too",
+  "marcy-lms-test/swe-1-4-loops",
+);
+check(
+  "a pasted answer key URL is too",
   parseAssignmentSpec({
     ...repoSpec,
     answerKeyRepo: "https://github.com/The-Marcy-Lab-School/swe-assignment-grading-guides.git",
   }).answerKeyRepo,
-  "The-Marcy-Lab-School/swe-assignment-grading-guides");
-check("a repository assignment must name an answer key repository",
-  rejects({ ...repoSpec, answerKeyRepo: undefined }), ["answerKeyRepo"]);
-check("something that is not a repository reference is refused",
-  rejects({ ...repoSpec, answerKeyRepo: "just some words" }), ["answerKeyRepo"]);
-check("a kind with no repository may not name an answer key repository",
+  "The-Marcy-Lab-School/swe-assignment-grading-guides",
+);
+check(
+  "a repository assignment must name an answer key repository",
+  rejects({ ...repoSpec, answerKeyRepo: undefined }),
+  ["answerKeyRepo"],
+);
+check(
+  "something that is not a repository reference is refused",
+  rejects({ ...repoSpec, answerKeyRepo: "just some words" }),
+  ["answerKeyRepo"],
+);
+check(
+  "a kind with no repository may not name an answer key repository",
   rejects({
     kind: AssignmentKind.GOOGLE_DRIVE,
     title: "Story Prep Worksheet",
@@ -140,7 +156,8 @@ check("a kind with no repository may not name an answer key repository",
     answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
     sections: [manualSection],
   }),
-  ["answerKeyRepo"]);
+  ["answerKeyRepo"],
+);
 /*
   The folder, at any depth, and the root.
 
@@ -149,21 +166,38 @@ check("a kind with no repository may not name an answer key repository",
   not a rule. The root because a repository holding a single assignment's solutions and nothing
   else needs no subdirectory, and `""` has to mean that rather than "unset".
 */
-check("an answer key folder may be at any depth",
-  rejects({ ...repoSpec, answerKeyDir: "solutions/2026/spring/mod1" }), "accepted");
-check("the repository root is a legitimate answer key folder",
-  rejects({ ...repoSpec, answerKeyDir: "" }), "accepted");
-check("and it is the default, so a repository of one assignment's keys needs nothing else",
-  parseAssignmentSpec({ ...repoSpec, answerKeyDir: undefined }).answerKeyDir, "");
+check(
+  "an answer key folder may be at any depth",
+  rejects({ ...repoSpec, answerKeyDir: "solutions/2026/spring/mod1" }),
+  "accepted",
+);
+check(
+  "the repository root is a legitimate answer key folder",
+  rejects({ ...repoSpec, answerKeyDir: "" }),
+  "accepted",
+);
+check(
+  "and it is the default, so a repository of one assignment's keys needs nothing else",
+  parseAssignmentSpec({ ...repoSpec, answerKeyDir: undefined }).answerKeyDir,
+  "",
+);
 // The column is interpolated into a GitHub contents URL, so a traversal is refused where it is
 // written rather than only where it is read.
-check("a folder escaping the repository is refused",
-  rejects({ ...repoSpec, answerKeyDir: "../../../etc" }), ["answerKeyDir"]);
-check("...including one that only climbs out halfway through",
-  rejects({ ...repoSpec, answerKeyDir: "answer-keys/../../etc" }), ["answerKeyDir"]);
-check("an absolute path is refused",
-  rejects({ ...repoSpec, answerKeyDir: "/etc/passwd" }), ["answerKeyDir"]);
-check("a kind with no repository may not name an answer key folder",
+check(
+  "a folder escaping the repository is refused",
+  rejects({ ...repoSpec, answerKeyDir: "../../../etc" }),
+  ["answerKeyDir"],
+);
+check(
+  "...including one that only climbs out halfway through",
+  rejects({ ...repoSpec, answerKeyDir: "answer-keys/../../etc" }),
+  ["answerKeyDir"],
+);
+check("an absolute path is refused", rejects({ ...repoSpec, answerKeyDir: "/etc/passwd" }), [
+  "answerKeyDir",
+]);
+check(
+  "a kind with no repository may not name an answer key folder",
   rejects({
     kind: AssignmentKind.GOOGLE_DRIVE,
     title: "Story Prep Worksheet",
@@ -172,51 +206,74 @@ check("a kind with no repository may not name an answer key folder",
     answerKeyDir: "answer-keys/whatever",
     sections: [manualSection],
   }),
-  ["answerKeyDir"]);
+  ["answerKeyDir"],
+);
 // Sections no longer name files at all, so one that tries is refused by `.strict()`. That is
 // what makes a stale ticked list impossible rather than merely discouraged.
-check("a section may not name answer key files",
+check(
+  "a section may not name answer key files",
   rejects({
     ...repoSpec,
     sections: [{ ...codingSection, answerKeyPaths: ["a/b.js"] }],
   }),
-  ["sections.0:answerKeyPaths"]);
+  ["sections.0:answerKeyPaths"],
+);
 
 // --- the total is derived, never entered --------------------------------------
 check("pointValue is the sum of the sections", parseAssignmentSpec(repoSpec).pointValue, 30);
 check("two sections sum", sectionsPointTotal([{ pointValue: 15 }, { pointValue: 25 }]), 40);
-check("a pointValue on the assignment is refused outright",
-  rejects({ ...repoSpec, pointValue: 999 }), ["(root):pointValue"]);
-check("a section with no point value is refused",
-  rejects({ ...repoSpec, sections: [{ grading: "ai", type: "coding_algorithm", rubricId: RUBRIC }] }),
-  ["sections.0.pointValue"]);
-check("a zero-point section is refused",
+check(
+  "a pointValue on the assignment is refused outright",
+  rejects({ ...repoSpec, pointValue: 999 }),
+  ["(root):pointValue"],
+);
+check(
+  "a section with no point value is refused",
+  rejects({
+    ...repoSpec,
+    sections: [{ grading: "ai", type: "coding_algorithm", rubricId: RUBRIC }],
+  }),
+  ["sections.0.pointValue"],
+);
+check(
+  "a zero-point section is refused",
   rejects({ ...repoSpec, sections: [{ ...codingSection, pointValue: 0 }] }),
-  ["sections.0.pointValue"]);
-check("an assignment with no sections is refused", rejects({ ...repoSpec, sections: [] }), ["sections"]);
+  ["sections.0.pointValue"],
+);
+check("an assignment with no sections is refused", rejects({ ...repoSpec, sections: [] }), [
+  "sections",
+]);
 
 // --- sections describe something a rubric covers ------------------------------
-check("an unknown section type is refused",
+check(
+  "an unknown section type is refused",
   rejects({ ...repoSpec, sections: [{ ...codingSection, type: "coding_python" }] }),
-  ["sections.0.type"]);
-check("a section with no rubric is refused",
+  ["sections.0.type"],
+);
+check(
+  "a section with no rubric is refused",
   rejects({ ...repoSpec, sections: [{ ...codingSection, rubricId: undefined }] }),
-  ["sections.0.rubricId"]);
+  ["sections.0.rubricId"],
+);
 /*
   A pattern with no `evidence: "tests"` is silently ignored, so the section is graded
   with no test evidence at all — the opposite of what naming a pattern means. This is
   the class of mistake the whole module exists for: nothing throws, and the report
   reads as though the tests were consulted.
 */
-check("a testNamePattern without evidence:tests is refused",
+check(
+  "a testNamePattern without evidence:tests is refused",
   rejects({
     ...repoSpec,
     sections: [{ ...codingSection, evidence: undefined, testNamePattern: "^from-scratch" }],
   }),
-  ["sections.0.testNamePattern"]);
-check("a testNamePattern with evidence:tests is accepted",
+  ["sections.0.testNamePattern"],
+);
+check(
+  "a testNamePattern with evidence:tests is accepted",
   rejects({ ...repoSpec, sections: [{ ...codingSection, testNamePattern: "^from-scratch" }] }),
-  "accepted");
+  "accepted",
+);
 
 // --- how a section is graded --------------------------------------------------
 /*
@@ -225,29 +282,46 @@ check("a testNamePattern with evidence:tests is accepted",
   an AI section that could omit its rubric would reach the model with nothing to score
   against. Each check below is one of those two mistakes being refused.
 */
-check("a section must say how it is graded",
+check(
+  "a section must say how it is graded",
   rejects({ ...repoSpec, sections: [{ ...codingSection, grading: undefined }] }),
-  ["sections.0.grading"]);
-check("a manual section is accepted with just a label and points",
-  rejects({ ...repoSpec, sections: [manualSection] }), "accepted");
-check("a manual section may not carry a rubric",
+  ["sections.0.grading"],
+);
+check(
+  "a manual section is accepted with just a label and points",
+  rejects({ ...repoSpec, sections: [manualSection] }),
+  "accepted",
+);
+check(
+  "a manual section may not carry a rubric",
   rejects({ ...repoSpec, sections: [{ ...manualSection, rubricId: RUBRIC }] }),
-  ["sections.0:rubricId"]);
-check("a manual section may not carry answer keys",
+  ["sections.0:rubricId"],
+);
+check(
+  "a manual section may not carry answer keys",
   rejects({ ...repoSpec, sections: [{ ...manualSection, rubricId: RUBRIC }] }),
-  ["sections.0:rubricId"]);
-check("a manual section may not claim test evidence",
+  ["sections.0:rubricId"],
+);
+check(
+  "a manual section may not claim test evidence",
   rejects({ ...repoSpec, sections: [{ ...manualSection, evidence: "tests" }] }),
-  ["sections.0:evidence"]);
-check("a manual section needs a label",
+  ["sections.0:evidence"],
+);
+check(
+  "a manual section needs a label",
   rejects({ ...repoSpec, sections: [{ grading: "manual", pointValue: 10 }] }),
-  ["sections.0.label"]);
-check("a manual section still needs a point value",
+  ["sections.0.label"],
+);
+check(
+  "a manual section still needs a point value",
   rejects({ ...repoSpec, sections: [{ grading: "manual", label: "Reflection" }] }),
-  ["sections.0.pointValue"]);
-check("an AI section may not use a label instead of a type",
+  ["sections.0.pointValue"],
+);
+check(
+  "an AI section may not use a label instead of a type",
   rejects({ ...repoSpec, sections: [{ ...codingSection, label: "Whatever" }] }),
-  ["sections.0:label"]);
+  ["sections.0:label"],
+);
 
 /*
   One grading mode per assignment. A mix would mean a generated report covering some sections
@@ -259,17 +333,24 @@ check("an AI section may not use a label instead of a type",
   Several sections graded the same way stay legitimate — the checkpoint has two, both graded
   by the pipeline — so the check below is about modes, not about counting.
 */
-check("an assignment may not mix graded-by-model and graded-by-hand sections",
-  rejects({ ...repoSpec, sections: [codingSection, manualSection] }), ["sections"]);
-check("several sections graded the same way are accepted, and both count toward the total",
+check(
+  "an assignment may not mix graded-by-model and graded-by-hand sections",
+  rejects({ ...repoSpec, sections: [codingSection, manualSection] }),
+  ["sections"],
+);
+check(
+  "several sections graded the same way are accepted, and both count toward the total",
   parseAssignmentSpec({
     ...repoSpec,
     sections: [codingSection, { ...codingSection, type: "short_response", pointValue: 15 }],
   }).pointValue,
-  45);
-check("isAiGraded reads the mode off each section",
+  45,
+);
+check(
+  "isAiGraded reads the mode off each section",
   parseAssignmentSpec({ ...repoSpec, sections: [codingSection] }).sections.map(isAiGraded),
-  [true]);
+  [true],
+);
 check("manual-only is detected", isManualOnly([manualSection]), true);
 check("all-AI is not manual-only", isManualOnly([codingSection]), false);
 check("no sections is not manual-only", isManualOnly([]), false);
@@ -280,11 +361,16 @@ check("a stored column that is not an array is not manual-only", isManualOnly(nu
   Skipped rather than defaulted when a point value is missing: scoring out of an invented total
   is exactly what `pointValue` being required exists to prevent.
 */
-check("manual sections are read for the blank draft",
+check(
+  "manual sections are read for the blank draft",
   manualSections([codingSection, manualSection]),
-  [{ label: "Reflection", pointValue: 10 }]);
-check("a manual section with no point value is skipped rather than defaulted",
-  manualSections([{ grading: "manual", label: "Reflection" }]), []);
+  [{ label: "Reflection", pointValue: 10 }],
+);
+check(
+  "a manual section with no point value is skipped rather than defaulted",
+  manualSections([{ grading: "manual", label: "Reflection" }]),
+  [],
+);
 
 // --- test evidence is derived, never asked -------------------------------------
 /*
@@ -292,60 +378,99 @@ check("a manual section with no point value is skipped rather than defaulted",
   that used to ask went away. A short response has nothing to execute; every other type is
   checked against the suite when the assignment has one.
 */
-check("a short response never claims test evidence",
-  derivesTestEvidence("short_response", "node-jest"), false);
-check("an algorithm section does when there is a runner",
-  derivesTestEvidence("coding_algorithm", "node-jest"), true);
-check("...and does not when there is none",
-  derivesTestEvidence("coding_algorithm", "none"), false);
-check("a frontend section follows the same rule",
-  derivesTestEvidence("coding_frontend", "node-vitest"), true);
+check(
+  "a short response never claims test evidence",
+  derivesTestEvidence("short_response", "node-jest"),
+  false,
+);
+check(
+  "an algorithm section does when there is a runner",
+  derivesTestEvidence("coding_algorithm", "node-jest"),
+  true,
+);
+check("...and does not when there is none", derivesTestEvidence("coding_algorithm", "none"), false);
+check(
+  "a frontend section follows the same rule",
+  derivesTestEvidence("coding_frontend", "node-vitest"),
+  true,
+);
 
-check("a draft that omits evidence has it filled in",
-  (withDerivedFields({ runnerPreset: "node-jest", sections: [{ ...codingSection, evidence: undefined }] }) as
-    { sections: { evidence?: string }[] }).sections[0].evidence,
-  "tests");
-check("a draft that wrongly claims it has it removed",
-  (withDerivedFields({ runnerPreset: "none", sections: [{ ...codingSection }] }) as
-    { sections: { evidence?: string }[] }).sections[0].evidence,
-  undefined);
+check(
+  "a draft that omits evidence has it filled in",
+  (
+    withDerivedFields({
+      runnerPreset: "node-jest",
+      sections: [{ ...codingSection, evidence: undefined }],
+    }) as { sections: { evidence?: string }[] }
+  ).sections[0].evidence,
+  "tests",
+);
+check(
+  "a draft that wrongly claims it has it removed",
+  (
+    withDerivedFields({ runnerPreset: "none", sections: [{ ...codingSection }] }) as {
+      sections: { evidence?: string }[];
+    }
+  ).sections[0].evidence,
+  undefined,
+);
 /*
   A pattern with no evidence declaration is refused by the schema. Clearing it alongside the
   flag means an author who turns the runner off does not then face a validation error about a
   field the form no longer shows.
 */
-check("a stranded testNamePattern is cleared rather than left to fail validation",
-  (withDerivedFields({
-    runnerPreset: "none",
-    sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
-  }) as { sections: { testNamePattern?: string }[] }).sections[0].testNamePattern,
-  undefined);
+check(
+  "a stranded testNamePattern is cleared rather than left to fail validation",
+  (
+    withDerivedFields({
+      runnerPreset: "none",
+      sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
+    }) as { sections: { testNamePattern?: string }[] }
+  ).sections[0].testNamePattern,
+  undefined,
+);
 // The raw draft would be refused for exactly that stranded pattern; the derived one passes.
-check("...so the raw draft is refused",
+check(
+  "...so the raw draft is refused",
   rejects({
     ...repoSpec,
     runnerPreset: "none",
     sections: [{ ...codingSection, evidence: undefined, testNamePattern: "^from-scratch" }],
   }),
-  ["sections.0.testNamePattern"]);
-check("...and the derived draft is accepted",
-  rejects(withDerivedFields({
-    ...repoSpec,
-    runnerPreset: "none",
-    sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
-  })),
-  "accepted");
+  ["sections.0.testNamePattern"],
+);
+check(
+  "...and the derived draft is accepted",
+  rejects(
+    withDerivedFields({
+      ...repoSpec,
+      runnerPreset: "none",
+      sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
+    }),
+  ),
+  "accepted",
+);
 
 // --- the kind axis ------------------------------------------------------------
-check("REPO requires a template repository",
-  rejects({ ...repoSpec, templateRepo: undefined }), ["templateRepo"]);
+check("REPO requires a template repository", rejects({ ...repoSpec, templateRepo: undefined }), [
+  "templateRepo",
+]);
 check("REPO requires an org", rejects({ ...repoSpec, githubOrg: undefined }), ["githubOrg"]);
-check("a templateRepo that is not owner/repo is refused",
-  rejects({ ...repoSpec, templateRepo: "swe-1-4-loops" }), ["templateRepo"]);
-check("a repo name with a slash in it is refused",
-  rejects({ ...repoSpec, assignmentRepoName: "a/b" }), ["assignmentRepoName"]);
-check("an unknown runner preset is refused, and the message names it",
-  rejects({ ...repoSpec, runnerPreset: "npx-jest-typo" }), ["runnerPreset"]);
+check(
+  "a templateRepo that is not owner/repo is refused",
+  rejects({ ...repoSpec, templateRepo: "swe-1-4-loops" }),
+  ["templateRepo"],
+);
+check(
+  "a repo name with a slash in it is refused",
+  rejects({ ...repoSpec, assignmentRepoName: "a/b" }),
+  ["assignmentRepoName"],
+);
+check(
+  "an unknown runner preset is refused, and the message names it",
+  rejects({ ...repoSpec, runnerPreset: "npx-jest-typo" }),
+  ["runnerPreset"],
+);
 check("the none preset is accepted", rejects({ ...repoSpec, runnerPreset: "none" }), "accepted");
 
 const DOC_URL = "https://docs.google.com/document/d/1AbC_dEF-123/view";
@@ -359,19 +484,29 @@ const docSpec = {
 };
 
 check("a Google Drive assignment needs no repository fields", rejects(docSpec), "accepted");
-check("...and its repository fields come out null", (() => {
-  const parsed = parseAssignmentSpec(docSpec);
-  return [parsed.templateRepo, parsed.assignmentRepoName, parsed.githubOrg];
-})(), [null, null, null]);
+check(
+  "...and its repository fields come out null",
+  (() => {
+    const parsed = parseAssignmentSpec(docSpec);
+    return [parsed.templateRepo, parsed.assignmentRepoName, parsed.githubOrg];
+  })(),
+  [null, null, null],
+);
 /*
   No repository means no template to take a suite from, so there is nothing to run.
   Accepting a runner here would produce an assignment that looks like it has test
   evidence and can never have any.
 */
-check("a Google Drive assignment may not name a runner",
-  rejects({ ...docSpec, runnerPreset: "node-jest" }), ["runnerPreset"]);
-check("a Google Drive assignment may not name a repository",
-  rejects({ ...docSpec, templateRepo: "marcy-lms-test/whatever" }), ["templateRepo"]);
+check(
+  "a Google Drive assignment may not name a runner",
+  rejects({ ...docSpec, runnerPreset: "node-jest" }),
+  ["runnerPreset"],
+);
+check(
+  "a Google Drive assignment may not name a repository",
+  rejects({ ...docSpec, templateRepo: "marcy-lms-test/whatever" }),
+  ["templateRepo"],
+);
 check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE" }), ["kind"]);
 
 /*
@@ -381,15 +516,26 @@ check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE"
   one the substitution would leave untouched, sending every student to the instructor's own
   document to edit in place. That is the failure this pattern exists to prevent.
 */
-check("a Google Drive assignment needs a template file",
-  rejects({ ...docSpec, templateDriveUrl: undefined }), ["templateDriveUrl"]);
-check("a link that is not a Drive editor link is refused",
-  rejects({ ...docSpec, templateDriveUrl: "https://example.com/some/doc/view" }), ["templateDriveUrl"]);
-check("a Drive link with no final segment is refused",
+check(
+  "a Google Drive assignment needs a template file",
+  rejects({ ...docSpec, templateDriveUrl: undefined }),
+  ["templateDriveUrl"],
+);
+check(
+  "a link that is not a Drive editor link is refused",
+  rejects({ ...docSpec, templateDriveUrl: "https://example.com/some/doc/view" }),
+  ["templateDriveUrl"],
+);
+check(
+  "a Drive link with no final segment is refused",
   rejects({ ...docSpec, templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123" }),
-  ["templateDriveUrl"]);
-check("a REPO assignment may not name a template file",
-  rejects({ ...repoSpec, templateDriveUrl: DOC_URL }), ["templateDriveUrl"]);
+  ["templateDriveUrl"],
+);
+check(
+  "a REPO assignment may not name a template file",
+  rejects({ ...repoSpec, templateDriveUrl: DOC_URL }),
+  ["templateDriveUrl"],
+);
 
 /*
   Three editors, one kind.
@@ -403,42 +549,69 @@ check("a REPO assignment may not name a template file",
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/edit";
 const SLIDES_URL = "https://docs.google.com/presentation/d/1AbC_dEF-123/edit";
 
-check("a Sheets link is accepted",
-  rejects({ ...docSpec, templateDriveUrl: SHEET_URL }), "accepted");
-check("...and takes a copy prompt", copyUrlFromTemplate(SHEET_URL),
-  "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/copy");
-check("a Slides link is accepted",
-  rejects({ ...docSpec, templateDriveUrl: SLIDES_URL }), "accepted");
-check("...and takes a copy prompt", copyUrlFromTemplate(SLIDES_URL),
-  "https://docs.google.com/presentation/d/1AbC_dEF-123/copy");
-check("a Slides link carrying a slide anchor is accepted, and drops it with the segment",
+check(
+  "a Sheets link is accepted",
+  rejects({ ...docSpec, templateDriveUrl: SHEET_URL }),
+  "accepted",
+);
+check(
+  "...and takes a copy prompt",
+  copyUrlFromTemplate(SHEET_URL),
+  "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/copy",
+);
+check(
+  "a Slides link is accepted",
+  rejects({ ...docSpec, templateDriveUrl: SLIDES_URL }),
+  "accepted",
+);
+check(
+  "...and takes a copy prompt",
+  copyUrlFromTemplate(SLIDES_URL),
+  "https://docs.google.com/presentation/d/1AbC_dEF-123/copy",
+);
+check(
+  "a Slides link carrying a slide anchor is accepted, and drops it with the segment",
   copyUrlFromTemplate("https://docs.google.com/presentation/d/1AbC_dEF-123/edit#slide=id.p"),
-  "https://docs.google.com/presentation/d/1AbC_dEF-123/copy");
-check("a Sheets link carrying a tab anchor does too",
+  "https://docs.google.com/presentation/d/1AbC_dEF-123/copy",
+);
+check(
+  "a Sheets link carrying a tab anchor does too",
   copyUrlFromTemplate("https://docs.google.com/spreadsheets/d/1AbC_dEF-123/edit#gid=0"),
-  "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/copy");
+  "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/copy",
+);
 
 /*
   Named editors rather than any Google address, which is the half a widened pattern gets wrong.
   None of these produces a copy prompt from the substitution, and each would fail on the
   student's side rather than on the field where it was typed.
 */
-check("a Google Form is refused, because /copy is not how one is shared",
+check(
+  "a Google Form is refused, because /copy is not how one is shared",
   rejects({ ...docSpec, templateDriveUrl: "https://docs.google.com/forms/d/1AbC_dEF-123/edit" }),
-  ["templateDriveUrl"]);
-check("a published link is refused",
+  ["templateDriveUrl"],
+);
+check(
+  "a published link is refused",
   rejects({ ...docSpec, templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123/pub" }),
-  ["templateDriveUrl"]);
-check("a Drive folder is refused",
+  ["templateDriveUrl"],
+);
+check(
+  "a Drive folder is refused",
   rejects({ ...docSpec, templateDriveUrl: "https://drive.google.com/drive/folders/1AbC_dEF-123" }),
-  ["templateDriveUrl"]);
+  ["templateDriveUrl"],
+);
 
-check("/view becomes /copy", copyUrlFromTemplate(DOC_URL),
-  "https://docs.google.com/document/d/1AbC_dEF-123/copy");
+check(
+  "/view becomes /copy",
+  copyUrlFromTemplate(DOC_URL),
+  "https://docs.google.com/document/d/1AbC_dEF-123/copy",
+);
 // What Google's Share dialog actually hands over, query string and all.
-check("/edit?usp=sharing becomes /copy",
+check(
+  "/edit?usp=sharing becomes /copy",
   copyUrlFromTemplate("https://docs.google.com/document/d/1AbC_dEF-123/edit?usp=sharing"),
-  "https://docs.google.com/document/d/1AbC_dEF-123/copy");
+  "https://docs.google.com/document/d/1AbC_dEF-123/copy",
+);
 
 /*
   A document has no pull request, no changed files, and no test suite, so there is nothing for
@@ -447,17 +620,26 @@ check("/edit?usp=sharing becomes /copy",
   asked for it — refusing it at authoring time is the difference between an assignment that
   cannot be built wrong and one that breaks the first time it is used.
 */
-check("a Google Drive assignment may not have a section the model grades",
-  refusedOn({ ...docSpec, sections: [codingSection] }, "sections.0.grading"), true);
-check("a file upload assignment may not either",
-  refusedOn({
-    kind: AssignmentKind.FILE_UPLOAD,
-    title: "Resume, first draft",
-    moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
-    sections: [codingSection],
-  }, "sections.0.grading"),
-  true);
-check("a file upload assignment needs no template of any kind",
+check(
+  "a Google Drive assignment may not have a section the model grades",
+  refusedOn({ ...docSpec, sections: [codingSection] }, "sections.0.grading"),
+  true,
+);
+check(
+  "a file upload assignment may not either",
+  refusedOn(
+    {
+      kind: AssignmentKind.FILE_UPLOAD,
+      title: "Resume, first draft",
+      moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+      sections: [codingSection],
+    },
+    "sections.0.grading",
+  ),
+  true,
+);
+check(
+  "a file upload assignment needs no template of any kind",
   rejects({
     kind: AssignmentKind.FILE_UPLOAD,
     title: "Resume, first draft",
@@ -465,7 +647,8 @@ check("a file upload assignment needs no template of any kind",
     sections: [manualSection],
     acceptedFileTypes: ["pdf"],
   }),
-  "accepted");
+  "accepted",
+);
 
 // --- what a file upload accepts ----------------------------------------------
 //
@@ -480,23 +663,44 @@ const uploadSpec = {
   acceptedFileTypes: ["pdf"],
 };
 
-check("a file upload assignment must say what it accepts",
-  refusedOn({ ...uploadSpec, acceptedFileTypes: [] }, "acceptedFileTypes"), true);
-check("and it is refused when the key is missing entirely",
-  refusedOn({ ...uploadSpec, acceptedFileTypes: undefined }, "acceptedFileTypes"), true);
-check("an unknown file type is refused",
-  refusedOn({ ...uploadSpec, acceptedFileTypes: ["powerpoint"] }, "acceptedFileTypes.0"), true);
-check("a duplicated file type is refused",
-  refusedOn({ ...uploadSpec, acceptedFileTypes: ["pdf", "pdf"] }, "acceptedFileTypes"), true);
-check("several types are accepted",
+check(
+  "a file upload assignment must say what it accepts",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: [] }, "acceptedFileTypes"),
+  true,
+);
+check(
+  "and it is refused when the key is missing entirely",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: undefined }, "acceptedFileTypes"),
+  true,
+);
+check(
+  "an unknown file type is refused",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: ["powerpoint"] }, "acceptedFileTypes.0"),
+  true,
+);
+check(
+  "a duplicated file type is refused",
+  refusedOn({ ...uploadSpec, acceptedFileTypes: ["pdf", "pdf"] }, "acceptedFileTypes"),
+  true,
+);
+check(
+  "several types are accepted",
   parseAssignmentSpec({ ...uploadSpec, acceptedFileTypes: ["pdf", "image"] }).acceptedFileTypes,
-  ["pdf", "image"]);
+  ["pdf", "image"],
+);
 
 // The mirror of the repository columns: a kind that is not handed in as a file accepts none,
 // and says so as an empty list rather than leaving the column to mean two things.
-check("a Google Drive assignment accepts no file types", parseAssignmentSpec(docSpec).acceptedFileTypes, []);
-check("and may not declare any",
-  refusedOn({ ...docSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
+check(
+  "a Google Drive assignment accepts no file types",
+  parseAssignmentSpec(docSpec).acceptedFileTypes,
+  [],
+);
+check(
+  "and may not declare any",
+  refusedOn({ ...docSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"),
+  true,
+);
 
 // --- work made somewhere else ------------------------------------------------
 //
@@ -509,52 +713,86 @@ const linkSpec = {
   sections: [manualSection],
 };
 
-check("an external-url assignment needs nothing but a title, a module, and a section",
-  rejects(linkSpec), "accepted");
+check(
+  "an external-url assignment needs nothing but a title, a module, and a section",
+  rejects(linkSpec),
+  "accepted",
+);
 check("it has no repository", parseAssignmentSpec(linkSpec).templateRepo, null);
 check("no runner", parseAssignmentSpec(linkSpec).runnerPreset, "none");
 check("no file types", parseAssignmentSpec(linkSpec).acceptedFileTypes, []);
 // No template of any kind, and deliberately no field for one: a starting link belongs in the
 // markdown instructions, where it can say what to do with it.
 check("and no template document", parseAssignmentSpec(linkSpec).templateDriveUrl, null);
-check("a template file may not be set on it",
-  refusedOn({ ...linkSpec, templateDriveUrl: "https://docs.google.com/document/d/x/view" },
-    "templateDriveUrl"),
-  true);
-check("nor may file types",
-  refusedOn({ ...linkSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
-check("nor a runner preset",
-  refusedOn({ ...linkSpec, runnerPreset: "node-jest" }, "runnerPreset"), true);
+check(
+  "a template file may not be set on it",
+  refusedOn(
+    { ...linkSpec, templateDriveUrl: "https://docs.google.com/document/d/x/view" },
+    "templateDriveUrl",
+  ),
+  true,
+);
+check(
+  "nor may file types",
+  refusedOn({ ...linkSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"),
+  true,
+);
+check(
+  "nor a runner preset",
+  refusedOn({ ...linkSpec, runnerPreset: "node-jest" }, "runnerPreset"),
+  true,
+);
 // The pipeline's inputs are a pull request's files and a template's tests. This kind has
 // neither, so an AI section would sit in the queue as a report waiting to be generated and fail
 // at the moment an instructor asked for it.
-check("and no section the model grades",
-  refusedOn({ ...linkSpec, sections: [codingSection] }, "sections.0.grading"), true);
+check(
+  "and no section the model grades",
+  refusedOn({ ...linkSpec, sections: [codingSection] }, "sections.0.grading"),
+  true,
+);
 
-check("all four kinds are handed in one of three ways",
+check(
+  "all four kinds are handed in one of three ways",
   [...IMPLEMENTED_KINDS].map(isLinkSubmitted),
-  [...IMPLEMENTED_KINDS].map((kind) =>
-    kind === AssignmentKind.GOOGLE_DRIVE || kind === AssignmentKind.EXTERNAL_URL));
+  [...IMPLEMENTED_KINDS].map(
+    (kind) => kind === AssignmentKind.GOOGLE_DRIVE || kind === AssignmentKind.EXTERNAL_URL,
+  ),
+);
 
 // Optional on every kind, because each kind's own screen states the mechanical steps already.
-check("submission instructions are optional and default to null",
-  parseAssignmentSpec(docSpec).submissionInstructions, null);
-check("submission instructions are kept when given",
+check(
+  "submission instructions are optional and default to null",
+  parseAssignmentSpec(docSpec).submissionInstructions,
+  null,
+);
+check(
+  "submission instructions are kept when given",
   parseAssignmentSpec({ ...docSpec, submissionInstructions: "Paste your link." })
     .submissionInstructions,
-  "Paste your link.");
+  "Paste your link.",
+);
 
 // --- narrowing at the point of use -------------------------------------------
 check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
 check("GOOGLE_DRIVE does not", requiresRepository(AssignmentKind.GOOGLE_DRIVE), false);
-check("all four kinds are implemented",
+check(
+  "all four kinds are implemented",
   [...IMPLEMENTED_KINDS].sort(),
-  [AssignmentKind.EXTERNAL_URL, AssignmentKind.FILE_UPLOAD, AssignmentKind.GOOGLE_DRIVE,
-    AssignmentKind.REPO].sort());
-check("a link-submitted kind is not repository-backed",
-  requiresRepository(AssignmentKind.EXTERNAL_URL), false);
+  [
+    AssignmentKind.EXTERNAL_URL,
+    AssignmentKind.FILE_UPLOAD,
+    AssignmentKind.GOOGLE_DRIVE,
+    AssignmentKind.REPO,
+  ].sort(),
+);
+check(
+  "a link-submitted kind is not repository-backed",
+  requiresRepository(AssignmentKind.EXTERNAL_URL),
+  false,
+);
 
-check("repositorySource narrows a REPO row",
+check(
+  "repositorySource narrows a REPO row",
   repositorySource({
     kind: AssignmentKind.REPO,
     templateRepo: "marcy-lms-test/swe-1-4-loops",
@@ -567,7 +805,8 @@ check("repositorySource narrows a REPO row",
     assignmentRepoName: "swe-1-4-loops",
     githubOrg: "marcy-lms-test",
     templateRef: null,
-  });
+  },
+);
 
 /*
   Three failures that must not be reported as one another, and the first two are opposites: a
@@ -583,9 +822,14 @@ try {
     assignmentRepoName: null,
     githubOrg: null,
   });
-} catch (err) { notRepoBacked = errName(err); }
-check("asking a Google Drive assignment for a repository throws NotRepositoryBackedError",
-  notRepoBacked, new NotRepositoryBackedError(AssignmentKind.GOOGLE_DRIVE).name);
+} catch (err) {
+  notRepoBacked = errName(err);
+}
+check(
+  "asking a Google Drive assignment for a repository throws NotRepositoryBackedError",
+  notRepoBacked,
+  new NotRepositoryBackedError(AssignmentKind.GOOGLE_DRIVE).name,
+);
 
 /*
   Every kind in the enum is implemented, so this is checked against a value that is not one at
@@ -595,11 +839,17 @@ check("asking a Google Drive assignment for a repository throws NotRepositoryBac
 let unsupported = "";
 try {
   assertKindImplemented("PRESENTATION" as AssignmentKind);
-} catch (err) { unsupported = errName(err); }
-check("a kind that is not implemented throws UnsupportedAssignmentKindError",
-  unsupported, new UnsupportedAssignmentKindError(AssignmentKind.GOOGLE_DRIVE).name);
+} catch (err) {
+  unsupported = errName(err);
+}
+check(
+  "a kind that is not implemented throws UnsupportedAssignmentKindError",
+  unsupported,
+  new UnsupportedAssignmentKindError(AssignmentKind.GOOGLE_DRIVE).name,
+);
 
-let misconfigured = "", misconfiguredMessage = "";
+let misconfigured = "",
+  misconfiguredMessage = "";
 try {
   repositorySource({
     kind: AssignmentKind.REPO,
@@ -611,10 +861,16 @@ try {
   misconfigured = errName(err);
   misconfiguredMessage = err instanceof Error ? err.message : "";
 }
-check("a REPO row missing a column throws AssignmentConfigurationError",
-  misconfigured, new AssignmentConfigurationError("").name);
-check("...and the message names the missing column",
-  misconfiguredMessage.includes("githubOrg"), true);
+check(
+  "a REPO row missing a column throws AssignmentConfigurationError",
+  misconfigured,
+  new AssignmentConfigurationError("").name,
+);
+check(
+  "...and the message names the missing column",
+  misconfiguredMessage.includes("githubOrg"),
+  true,
+);
 
 // =====================================================================================
 // The procedures, against the real database.
@@ -648,11 +904,25 @@ async function procedures() {
   const seeded = await db.assignment.findFirst({
     where: { assignmentRepoName: "swe-1-3-node-modules" },
     select: {
-      id: true, courseId: true, kind: true, title: true, moduleId: true, answerKeyRepo: true, answerKeyDir: true,
+      id: true,
+      courseId: true,
+      kind: true,
+      title: true,
+      moduleId: true,
+      answerKeyRepo: true,
+      answerKeyDir: true,
       pointValue: true,
-      completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
-      templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
-      distributedAt: true, templateDriveUrl: true, submissionInstructions: true,
+      completionThreshold: true,
+      templateRepo: true,
+      assignmentRepoName: true,
+      githubOrg: true,
+      templateRef: true,
+      runnerPreset: true,
+      runnerConfig: true,
+      sections: true,
+      distributedAt: true,
+      templateDriveUrl: true,
+      submissionInstructions: true,
     },
   });
 
@@ -710,18 +980,26 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: draftFromSeed,
   });
-  check("the seeded assignment validates as a draft",
-    { canSave: valid.canSave, points: valid.pointValue, errors: valid.findings.filter((f) => f.severity === "error") },
-    { canSave: true, points: seeded.pointValue, errors: [] });
+  check(
+    "the seeded assignment validates as a draft",
+    {
+      canSave: valid.canSave,
+      points: valid.pointValue,
+      errors: valid.findings.filter((f) => f.severity === "error"),
+    },
+    { canSave: true, points: seeded.pointValue, errors: [] },
+  );
 
   // Without excluding itself, its own repository name is a collision.
   const collides = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     draft: draftFromSeed,
   });
-  check("a colliding repository name is refused",
+  check(
+    "a colliding repository name is refused",
     collides.findings.some((f) => f.path === "assignmentRepoName" && f.severity === "error"),
-    true);
+    true,
+  );
 
   /*
     A module that does not exist at all, which the foreign key would also refuse — but as a
@@ -733,8 +1011,11 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: { ...draftFromSeed, moduleId: "e7c1a1d0-0000-4000-8000-0000000000ff" },
   });
-  check("a module that does not exist is refused",
-    noModule.findings.some((f) => f.path === "moduleId" && f.severity === "error"), true);
+  check(
+    "a module that does not exist is refused",
+    noModule.findings.some((f) => f.path === "moduleId" && f.severity === "error"),
+    true,
+  );
 
   /*
     And a module of a *different* course, which is the failure nothing at the database level
@@ -774,8 +1055,11 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: { ...draftFromSeed, moduleId: foreignModule.id },
   });
-  check("a module belonging to another course is refused",
-    crossCourse.findings.some((f) => f.path === "moduleId" && f.severity === "error"), true);
+  check(
+    "a module belonging to another course is refused",
+    crossCourse.findings.some((f) => f.path === "moduleId" && f.severity === "error"),
+    true,
+  );
 
   /*
     A real, readable, public repository that is not a template.
@@ -791,8 +1075,11 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: { ...draftFromSeed, templateRepo: "marcy-lms-test/does-not-exist-anywhere" },
   });
-  check("an unreachable template repository is refused",
-    badRepo.findings.some((f) => f.path === "templateRepo" && f.severity === "error"), true);
+  check(
+    "an unreachable template repository is refused",
+    badRepo.findings.some((f) => f.path === "templateRepo" && f.severity === "error"),
+    true,
+  );
 
   /*
     A repository that exists and is readable but is not a template.
@@ -807,12 +1094,16 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: { ...draftFromSeed, templateRepo: NOT_A_TEMPLATE_REPO },
   });
-  check("a repository that is not a template repository is refused",
-    notATemplate.findings.some((f) =>
-      f.path === "templateRepo" &&
-      f.severity === "error" &&
-      f.message.includes("not a template repository")),
-    true);
+  check(
+    "a repository that is not a template repository is refused",
+    notATemplate.findings.some(
+      (f) =>
+        f.path === "templateRepo" &&
+        f.severity === "error" &&
+        f.message.includes("not a template repository"),
+    ),
+    true,
+  );
 
   /*
     A pasted URL and a typed owner/repo are the same field.
@@ -859,12 +1150,21 @@ async function procedures() {
   const notInstalledMessage =
     notInstalled.findings.find((f) => f.path === "answerKeyRepo")?.message ?? "";
 
-  check("an answer key repository that does not exist is refused",
-    missingMessage.includes("Check the name"), true);
-  check("an organization the App is not installed on says so instead",
-    notInstalledMessage.includes("not installed on"), true);
-  check("the two are told apart rather than reported identically",
-    missingMessage !== "" && missingMessage !== notInstalledMessage, true);
+  check(
+    "an answer key repository that does not exist is refused",
+    missingMessage.includes("Check the name"),
+    true,
+  );
+  check(
+    "an organization the App is not installed on says so instead",
+    notInstalledMessage.includes("not installed on"),
+    true,
+  );
+  check(
+    "the two are told apart rather than reported identically",
+    missingMessage !== "" && missingMessage !== notInstalledMessage,
+    true,
+  );
 
   /*
     A folder that is not in the repository.
@@ -879,18 +1179,20 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: { ...draftFromSeed, answerKeyDir: `${seeded.answerKeyDir}-does-not-exist` },
   });
-  check("an answer key folder that is not there is a warning, not a refusal",
+  check(
+    "an answer key folder that is not there is a warning, not a refusal",
     {
-      warns: badDir.findings.some(
-        (f) => f.severity === "warning" && f.path === "answerKeyDir"),
+      warns: badDir.findings.some((f) => f.severity === "warning" && f.path === "answerKeyDir"),
       canSave: badDir.canSave,
     },
-    { warns: true, canSave: true });
+    { warns: true, canSave: true },
+  );
 
   // The rubric pairing, which nothing else would catch: a plausible report against
   // criteria that do not apply to the work.
   const wrongRubric = await db.rubric.findFirst({
-    where: { name: "SHORT_RESPONSE" }, select: { id: true },
+    where: { name: "SHORT_RESPONSE" },
+    select: { id: true },
   });
   if (wrongRubric) {
     const mismatched = await asInstructor.assignments.validateDraft({
@@ -901,8 +1203,11 @@ async function procedures() {
         sections: (seeded.sections as object[]).map((s) => ({ ...s, rubricId: wrongRubric.id })),
       },
     });
-    check("a coding section graded against the short response rubric is refused",
-      mismatched.findings.some((f) => f.path.endsWith("rubricId") && f.severity === "error"), true);
+    check(
+      "a coding section graded against the short response rubric is refused",
+      mismatched.findings.some((f) => f.path.endsWith("rubricId") && f.severity === "error"),
+      true,
+    );
   }
 
   /*
@@ -939,41 +1244,63 @@ async function procedures() {
     assignmentId: seeded.id,
     draft: roundTrip,
   });
-  check("what getDraft returns is a draft that validateDraft accepts",
+  check(
+    "what getDraft returns is a draft that validateDraft accepts",
     { canSave: roundTripValid.canSave, points: roundTripValid.pointValue },
-    { canSave: true, points: seeded.pointValue });
+    { canSave: true, points: seeded.pointValue },
+  );
 
-  check("getDraft reports how many students have accepted",
-    loaded.submissionCount > 0, true);
+  check("getDraft reports how many students have accepted", loaded.submissionCount > 0, true);
 
   try {
-    await db.$transaction(async (tx) => {
-      const inTx = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-      await inTx.assignments.update({ assignmentId: seeded.id, draft: roundTrip });
+    await db.$transaction(
+      async (tx) => {
+        const inTx = createCaller({ db: tx, user: { id: instructor.userId } } as never);
+        await inTx.assignments.update({ assignmentId: seeded.id, draft: roundTrip });
 
-      const after = await tx.assignment.findUnique({
-        where: { id: seeded.id },
-        select: {
-          title: true, answerKeyRepo: true, answerKeyDir: true, pointValue: true, completionThreshold: true,
-          templateRepo: true, assignmentRepoName: true, githubOrg: true, templateRef: true,
-          runnerPreset: true, runnerConfig: true, sections: true,
-          templateDriveUrl: true, submissionInstructions: true,
-        },
-      });
-      check("saving a loaded draft unchanged leaves every column as it was",
-        JSON.stringify(after),
-        JSON.stringify({
-          title: seeded.title, answerKeyRepo: seeded.answerKeyRepo,
-          answerKeyDir: seeded.answerKeyDir, pointValue: seeded.pointValue,
-          completionThreshold: seeded.completionThreshold, templateRepo: seeded.templateRepo,
-          assignmentRepoName: seeded.assignmentRepoName, githubOrg: seeded.githubOrg,
-          templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
-          runnerConfig: seeded.runnerConfig, sections: seeded.sections,
-          templateDriveUrl: seeded.templateDriveUrl,
-          submissionInstructions: seeded.submissionInstructions,
-        }));
-      throw new Error("ROLLBACK");
-    }, { timeout: 20_000 });
+        const after = await tx.assignment.findUnique({
+          where: { id: seeded.id },
+          select: {
+            title: true,
+            answerKeyRepo: true,
+            answerKeyDir: true,
+            pointValue: true,
+            completionThreshold: true,
+            templateRepo: true,
+            assignmentRepoName: true,
+            githubOrg: true,
+            templateRef: true,
+            runnerPreset: true,
+            runnerConfig: true,
+            sections: true,
+            templateDriveUrl: true,
+            submissionInstructions: true,
+          },
+        });
+        check(
+          "saving a loaded draft unchanged leaves every column as it was",
+          JSON.stringify(after),
+          JSON.stringify({
+            title: seeded.title,
+            answerKeyRepo: seeded.answerKeyRepo,
+            answerKeyDir: seeded.answerKeyDir,
+            pointValue: seeded.pointValue,
+            completionThreshold: seeded.completionThreshold,
+            templateRepo: seeded.templateRepo,
+            assignmentRepoName: seeded.assignmentRepoName,
+            githubOrg: seeded.githubOrg,
+            templateRef: seeded.templateRef,
+            runnerPreset: seeded.runnerPreset,
+            runnerConfig: seeded.runnerConfig,
+            sections: seeded.sections,
+            templateDriveUrl: seeded.templateDriveUrl,
+            submissionInstructions: seeded.submissionInstructions,
+          }),
+        );
+        throw new Error("ROLLBACK");
+      },
+      { timeout: 20_000 },
+    );
   } catch (err) {
     if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
   }
@@ -989,11 +1316,14 @@ async function procedures() {
   }
 
   await refused("a student cannot validate a draft", () =>
-    asStudent.assignments.validateDraft({ courseId: seeded.courseId, draft: draftFromSeed }));
+    asStudent.assignments.validateDraft({ courseId: seeded.courseId, draft: draftFromSeed }),
+  );
   await refused("a student cannot create an assignment", () =>
-    asStudent.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }));
+    asStudent.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }),
+  );
   await refused("a student cannot remove an assignment", () =>
-    asStudent.assignments.remove({ assignmentId: seeded.id, confirmTitle: seeded.title }));
+    asStudent.assignments.remove({ assignmentId: seeded.id, confirmTitle: seeded.title }),
+  );
 
   /*
     Somebody holding the INSTRUCTOR role who does not teach *this* course, asked as that
@@ -1016,103 +1346,150 @@ async function procedures() {
   if (outsider) {
     const asOutsider = createCaller({ db, user: { id: outsider.id } } as never);
     await refused("an instructor who does not teach the course cannot author in it", () =>
-      asOutsider.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }));
+      asOutsider.assignments.create({ courseId: seeded.courseId, draft: draftFromSeed }),
+    );
   } else {
-    console.log("skip  an instructor who does not teach the course cannot author in it — none exists");
+    console.log(
+      "skip  an instructor who does not teach the course cannot author in it — none exists",
+    );
   }
 
   // --- create, diffed against the seed --------------------------------------
   try {
-    await db.$transaction(async (tx) => {
-      const inTx = createCaller({ db: tx, user: { id: instructor.userId } } as never);
+    await db.$transaction(
+      async (tx) => {
+        const inTx = createCaller({ db: tx, user: { id: instructor.userId } } as never);
 
-      const { assignment } = await inTx.assignments.create({
-        courseId: seeded.courseId,
-        draft: { ...draftFromSeed, assignmentRepoName: "swe-1-3-node-modules-authored" },
-      });
-
-      const authored = await tx.assignment.findUnique({
-        where: { id: assignment.id },
-        select: {
-          kind: true, title: true, answerKeyRepo: true, answerKeyDir: true, pointValue: true, completionThreshold: true,
-          templateRepo: true, githubOrg: true, templateRef: true, runnerPreset: true,
-          runnerConfig: true, sections: true, distributedAt: true,
-        },
-      });
-
-      // Everything the seed writes, except the two that are deliberately different: the
-      // repository name was changed to avoid the collision, and an authored assignment
-      // starts unpublished where the seed publishes immediately.
-      check("an authored row matches the seeded one field for field",
-        {
-          kind: authored?.kind, title: authored?.title, answerKeyRepo: authored?.answerKeyRepo,
-          answerKeyDir: authored?.answerKeyDir,
-          pointValue: authored?.pointValue, completionThreshold: authored?.completionThreshold,
-          templateRepo: authored?.templateRepo, githubOrg: authored?.githubOrg,
-          templateRef: authored?.templateRef, runnerPreset: authored?.runnerPreset,
-          runnerConfig: authored?.runnerConfig, sections: authored?.sections,
-        },
-        {
-          kind: seeded.kind, title: seeded.title, answerKeyRepo: seeded.answerKeyRepo,
-          answerKeyDir: seeded.answerKeyDir,
-          pointValue: seeded.pointValue, completionThreshold: seeded.completionThreshold,
-          templateRepo: seeded.templateRepo, githubOrg: seeded.githubOrg,
-          templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
-          runnerConfig: seeded.runnerConfig, sections: seeded.sections,
+        const { assignment } = await inTx.assignments.create({
+          courseId: seeded.courseId,
+          draft: { ...draftFromSeed, assignmentRepoName: "swe-1-3-node-modules-authored" },
         });
-      check("an authored assignment starts unpublished", authored?.distributedAt, null);
 
-      // --- publish, and what a student can see -------------------------------
-      const asStudentInTx = createCaller({ db: tx, user: { id: student.studentId } } as never);
-
-      const hiddenFromStudent = await asStudentInTx.assignments.listForCourse({
-        courseId: seeded.courseId,
-      });
-      check("an unpublished assignment is invisible to a student",
-        hiddenFromStudent.some((a) => a.id === assignment.id), false);
-
-      const visibleToInstructor = await inTx.assignments.listForCourse({
-        courseId: seeded.courseId,
-      });
-      check("...and visible to an instructor",
-        visibleToInstructor.some((a) => a.id === assignment.id), true);
-
-      await inTx.assignments.publish({ assignmentId: assignment.id });
-      const afterPublish = await asStudentInTx.assignments.listForCourse({
-        courseId: seeded.courseId,
-      });
-      check("publishing makes it visible to a student",
-        afterPublish.some((a) => a.id === assignment.id), true);
-
-      await inTx.assignments.unpublish({ assignmentId: assignment.id });
-      const afterUnpublish = await asStudentInTx.assignments.listForCourse({
-        courseId: seeded.courseId,
-      });
-      check("unpublishing hides it again",
-        afterUnpublish.some((a) => a.id === assignment.id), false);
-
-      // --- update ------------------------------------------------------------
-      const updated = await inTx.assignments.update({
-        assignmentId: assignment.id,
-        draft: { ...draftFromSeed, assignmentRepoName: "swe-1-3-node-modules-authored", title: "Renamed" },
-      });
-      check("update writes the new title", updated.assignment.title, "Renamed");
-
-      // The rename guard applies to the seeded assignment, which has real submissions.
-      let renameRefused = "";
-      try {
-        await inTx.assignments.update({
-          assignmentId: seeded.id,
-          draft: { ...draftFromSeed, assignmentRepoName: "renamed-out-from-under-students" },
+        const authored = await tx.assignment.findUnique({
+          where: { id: assignment.id },
+          select: {
+            kind: true,
+            title: true,
+            answerKeyRepo: true,
+            answerKeyDir: true,
+            pointValue: true,
+            completionThreshold: true,
+            templateRepo: true,
+            githubOrg: true,
+            templateRef: true,
+            runnerPreset: true,
+            runnerConfig: true,
+            sections: true,
+            distributedAt: true,
+          },
         });
-      } catch (err) {
-        renameRefused = (err as { code?: string }).code ?? String(err);
-      }
-      check("renaming an assignment students have accepted is refused",
-        renameRefused, "PRECONDITION_FAILED");
 
-      // --- duplicate ---------------------------------------------------------
-      /*
+        // Everything the seed writes, except the two that are deliberately different: the
+        // repository name was changed to avoid the collision, and an authored assignment
+        // starts unpublished where the seed publishes immediately.
+        check(
+          "an authored row matches the seeded one field for field",
+          {
+            kind: authored?.kind,
+            title: authored?.title,
+            answerKeyRepo: authored?.answerKeyRepo,
+            answerKeyDir: authored?.answerKeyDir,
+            pointValue: authored?.pointValue,
+            completionThreshold: authored?.completionThreshold,
+            templateRepo: authored?.templateRepo,
+            githubOrg: authored?.githubOrg,
+            templateRef: authored?.templateRef,
+            runnerPreset: authored?.runnerPreset,
+            runnerConfig: authored?.runnerConfig,
+            sections: authored?.sections,
+          },
+          {
+            kind: seeded.kind,
+            title: seeded.title,
+            answerKeyRepo: seeded.answerKeyRepo,
+            answerKeyDir: seeded.answerKeyDir,
+            pointValue: seeded.pointValue,
+            completionThreshold: seeded.completionThreshold,
+            templateRepo: seeded.templateRepo,
+            githubOrg: seeded.githubOrg,
+            templateRef: seeded.templateRef,
+            runnerPreset: seeded.runnerPreset,
+            runnerConfig: seeded.runnerConfig,
+            sections: seeded.sections,
+          },
+        );
+        check("an authored assignment starts unpublished", authored?.distributedAt, null);
+
+        // --- publish, and what a student can see -------------------------------
+        const asStudentInTx = createCaller({ db: tx, user: { id: student.studentId } } as never);
+
+        const hiddenFromStudent = await asStudentInTx.assignments.listForCourse({
+          courseId: seeded.courseId,
+        });
+        check(
+          "an unpublished assignment is invisible to a student",
+          hiddenFromStudent.some((a) => a.id === assignment.id),
+          false,
+        );
+
+        const visibleToInstructor = await inTx.assignments.listForCourse({
+          courseId: seeded.courseId,
+        });
+        check(
+          "...and visible to an instructor",
+          visibleToInstructor.some((a) => a.id === assignment.id),
+          true,
+        );
+
+        await inTx.assignments.publish({ assignmentId: assignment.id });
+        const afterPublish = await asStudentInTx.assignments.listForCourse({
+          courseId: seeded.courseId,
+        });
+        check(
+          "publishing makes it visible to a student",
+          afterPublish.some((a) => a.id === assignment.id),
+          true,
+        );
+
+        await inTx.assignments.unpublish({ assignmentId: assignment.id });
+        const afterUnpublish = await asStudentInTx.assignments.listForCourse({
+          courseId: seeded.courseId,
+        });
+        check(
+          "unpublishing hides it again",
+          afterUnpublish.some((a) => a.id === assignment.id),
+          false,
+        );
+
+        // --- update ------------------------------------------------------------
+        const updated = await inTx.assignments.update({
+          assignmentId: assignment.id,
+          draft: {
+            ...draftFromSeed,
+            assignmentRepoName: "swe-1-3-node-modules-authored",
+            title: "Renamed",
+          },
+        });
+        check("update writes the new title", updated.assignment.title, "Renamed");
+
+        // The rename guard applies to the seeded assignment, which has real submissions.
+        let renameRefused = "";
+        try {
+          await inTx.assignments.update({
+            assignmentId: seeded.id,
+            draft: { ...draftFromSeed, assignmentRepoName: "renamed-out-from-under-students" },
+          });
+        } catch (err) {
+          renameRefused = (err as { code?: string }).code ?? String(err);
+        }
+        check(
+          "renaming an assignment students have accepted is refused",
+          renameRefused,
+          "PRECONDITION_FAILED",
+        );
+
+        // --- duplicate ---------------------------------------------------------
+        /*
         A copy beside the original, with no name given.
 
         The interface used to supply one built out of the assignment's human title, which is not
@@ -1121,50 +1498,64 @@ async function procedures() {
         checked twice because the second copy is where a fixed `-copy` suffix would collide with
         the first.
       */
-      const beside = await inTx.assignments.duplicate({
-        assignmentId: seeded.id,
-        targetCourseId: seeded.courseId,
-      });
-      check("a copy beside the original is given a repository name of its own",
-        beside.assignment.assignmentRepoName, `${seeded.assignmentRepoName}-copy`);
-      const besideAgain = await inTx.assignments.duplicate({
-        assignmentId: seeded.id,
-        targetCourseId: seeded.courseId,
-      });
-      check("...and a second one does not collide with the first",
-        besideAgain.assignment.assignmentRepoName, `${seeded.assignmentRepoName}-copy-2`);
-
-      // A name given rather than derived, which is still allowed: the derivation above is the
-      // default, not the only way in. Deliberately not `-copy`, which the two copies above have
-      // taken — a check that collides with the fixture beside it is measuring the fixture.
-      const copy = await inTx.assignments.duplicate({
-        assignmentId: seeded.id,
-        targetCourseId: seeded.courseId,
-        assignmentRepoName: "swe-1-3-node-modules-named-by-hand",
-      });
-      check("a duplicate carries the same sections",
-        JSON.stringify(
-          (await tx.assignment.findUnique({
-            where: { id: copy.assignment.id }, select: { sections: true },
-          }))?.sections,
-        ),
-        JSON.stringify(seeded.sections));
-      check("a duplicate starts unpublished", copy.assignment.distributedAt, null);
-
-      let dupCollision = "";
-      try {
-        await inTx.assignments.duplicate({
+        const beside = await inTx.assignments.duplicate({
           assignmentId: seeded.id,
           targetCourseId: seeded.courseId,
-          assignmentRepoName: seeded.assignmentRepoName!,
         });
-      } catch (err) {
-        dupCollision = (err as { code?: string }).code ?? String(err);
-      }
-      check("a duplicate colliding with an existing repository name is refused",
-        dupCollision, "BAD_REQUEST");
+        check(
+          "a copy beside the original is given a repository name of its own",
+          beside.assignment.assignmentRepoName,
+          `${seeded.assignmentRepoName}-copy`,
+        );
+        const besideAgain = await inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: seeded.courseId,
+        });
+        check(
+          "...and a second one does not collide with the first",
+          besideAgain.assignment.assignmentRepoName,
+          `${seeded.assignmentRepoName}-copy-2`,
+        );
 
-      /*
+        // A name given rather than derived, which is still allowed: the derivation above is the
+        // default, not the only way in. Deliberately not `-copy`, which the two copies above have
+        // taken — a check that collides with the fixture beside it is measuring the fixture.
+        const copy = await inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: seeded.courseId,
+          assignmentRepoName: "swe-1-3-node-modules-named-by-hand",
+        });
+        check(
+          "a duplicate carries the same sections",
+          JSON.stringify(
+            (
+              await tx.assignment.findUnique({
+                where: { id: copy.assignment.id },
+                select: { sections: true },
+              })
+            )?.sections,
+          ),
+          JSON.stringify(seeded.sections),
+        );
+        check("a duplicate starts unpublished", copy.assignment.distributedAt, null);
+
+        let dupCollision = "";
+        try {
+          await inTx.assignments.duplicate({
+            assignmentId: seeded.id,
+            targetCourseId: seeded.courseId,
+            assignmentRepoName: seeded.assignmentRepoName!,
+          });
+        } catch (err) {
+          dupCollision = (err as { code?: string }).code ?? String(err);
+        }
+        check(
+          "a duplicate colliding with an existing repository name is refused",
+          dupCollision,
+          "BAD_REQUEST",
+        );
+
+        /*
         --- copying, which is what `duplicate` was actually written for -------
 
         The procedure has taken a `targetCourseId` since it was written and the interface
@@ -1173,161 +1564,208 @@ async function procedures() {
         two courses cannot agree on by construction: a module belongs to one course, so a copy
         has to be told or has to guess, and guessing wrong looks exactly like guessing right.
       */
-      const code = async (run: () => Promise<unknown>) => {
-        try {
-          await run();
-          return "accepted";
-        } catch (err) {
-          return (err as { code?: string }).code ?? String(err);
-        }
-      };
+        const code = async (run: () => Promise<unknown>) => {
+          try {
+            await run();
+            return "accepted";
+          } catch (err) {
+            return (err as { code?: string }).code ?? String(err);
+          }
+        };
 
-      // --- into another cohort ---
-      const targetCourse = await inTx.courses.create({
-        name: "Verify Copy Target",
-        cohortTerm: "Cohort Copy A",
-      });
-      const seededModuleName = (await tx.module.findUnique({
-        where: { id: seeded.moduleId },
-        select: { name: true },
-      }))!.name;
+        // --- into another cohort ---
+        const targetCourse = await inTx.courses.create({
+          name: "Verify Copy Target",
+          cohortTerm: "Cohort Copy A",
+        });
+        const seededModuleName = (await tx.module.findUnique({
+          where: { id: seeded.moduleId },
+          select: { name: true },
+        }))!.name;
 
-      check("copying into a cohort with no module of that name is refused",
-        await code(() => inTx.assignments.duplicate({
-          assignmentId: seeded.id,
-          targetCourseId: targetCourse.course.id,
-        })),
-        "BAD_REQUEST");
-      check("...and nothing was written there",
-        await tx.assignment.count({ where: { courseId: targetCourse.course.id } }), 0);
+        check(
+          "copying into a cohort with no module of that name is refused",
+          await code(() =>
+            inTx.assignments.duplicate({
+              assignmentId: seeded.id,
+              targetCourseId: targetCourse.course.id,
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+        check(
+          "...and nothing was written there",
+          await tx.assignment.count({ where: { courseId: targetCourse.course.id } }),
+          0,
+        );
 
-      /*
+        /*
         Named explicitly, which is the case the name match cannot serve: two cohorts whose
         module sequences have diverged. Without it, copying into such a cohort fails on every
         assignment and the only way through is renaming a module to match.
       */
-      const differentlyNamed = await inTx.modules.create({
-        courseId: targetCourse.course.id,
-        name: "Week One",
-      });
-      const named = await inTx.assignments.duplicate({
-        assignmentId: seeded.id,
-        targetCourseId: targetCourse.course.id,
-        targetModuleId: differentlyNamed.id,
-      });
-      check("naming the module copies it into a cohort whose modules are named differently",
-        named.assignment.moduleId, differentlyNamed.id);
-      /*
+        const differentlyNamed = await inTx.modules.create({
+          courseId: targetCourse.course.id,
+          name: "Week One",
+        });
+        const named = await inTx.assignments.duplicate({
+          assignmentId: seeded.id,
+          targetCourseId: targetCourse.course.id,
+          targetModuleId: differentlyNamed.id,
+        });
+        check(
+          "naming the module copies it into a cohort whose modules are named differently",
+          named.assignment.moduleId,
+          differentlyNamed.id,
+        );
+        /*
         The repository name comes across unchanged, which is the half worth checking rather than
         assuming. `@@unique([courseId, assignmentRepoName])` is per course, and the generated
         repositories still differ because the cohort's short name prefixes every one of them —
         so renaming here would break the correspondence between two cohorts of one program for
         no reason.
       */
-      check("...keeping the repository name, because the cohort's short name tells them apart",
-        named.assignment.assignmentRepoName, seeded.assignmentRepoName);
-      check("...and arriving unpublished", named.assignment.distributedAt, null);
+        check(
+          "...keeping the repository name, because the cohort's short name tells them apart",
+          named.assignment.assignmentRepoName,
+          seeded.assignmentRepoName,
+        );
+        check("...and arriving unpublished", named.assignment.distributedAt, null);
 
-      /*
+        /*
         A module id is a parameter anybody can pass, so it is checked against the target course
         rather than merely looked up. Without that, a copy could be filed under a third cohort's
         module — which no screen would show and no constraint would catch, since `moduleId` is a
         foreign key to modules rather than to modules *of this course*.
       */
-      check("a module from another cohort is refused",
-        await code(() => inTx.assignments.duplicate({
-          assignmentId: seeded.id,
-          targetCourseId: targetCourse.course.id,
-          targetModuleId: seeded.moduleId,
-        })),
-        "BAD_REQUEST");
+        check(
+          "a module from another cohort is refused",
+          await code(() =>
+            inTx.assignments.duplicate({
+              assignmentId: seeded.id,
+              targetCourseId: targetCourse.course.id,
+              targetModuleId: seeded.moduleId,
+            }),
+          ),
+          "BAD_REQUEST",
+        );
 
-      /*
+        /*
         The same assignment cannot land in one course twice, because the copy keeps its
         repository name and two assignments in a course cannot share one. Worth checking rather
         than discovering: it is the reason the check below needs a second cohort.
       */
-      check("copying the same assignment into that cohort again is refused",
-        await code(() => inTx.assignments.duplicate({
-          assignmentId: seeded.id,
-          targetCourseId: targetCourse.course.id,
-          targetModuleId: differentlyNamed.id,
-        })),
-        "BAD_REQUEST");
+        check(
+          "copying the same assignment into that cohort again is refused",
+          await code(() =>
+            inTx.assignments.duplicate({
+              assignmentId: seeded.id,
+              targetCourseId: targetCourse.course.id,
+              targetModuleId: differentlyNamed.id,
+            }),
+          ),
+          "BAD_REQUEST",
+        );
 
-      /*
+        /*
         Matched by name when nobody says otherwise, which is the ordinary case: a cohort copied
         from last term's has last term's module names.
       */
-      const secondTarget = await inTx.courses.create({
-        name: "Verify Copy Target Two",
-        cohortTerm: "Cohort Copy B",
-      });
-      const sameName = await inTx.modules.create({
-        courseId: secondTarget.course.id,
-        name: seededModuleName,
-      });
-      const matched = await inTx.assignments.duplicate({
-        assignmentId: seeded.id,
-        targetCourseId: secondTarget.course.id,
-      });
-      check("a module of the same name is matched without being asked for",
-        matched.assignment.moduleId, sameName.id);
-
-      // An archived cohort takes nothing new, the same rule as a student joining one. It
-      // matters because archived cohorts are in the course list now, so one is a thing somebody
-      // can be looking at when they reach for a copy.
-      await inTx.courses.setArchived({ courseId: targetCourse.course.id, archived: true });
-      check("copying into an archived cohort is refused",
-        await code(() => inTx.assignments.duplicate({
+        const secondTarget = await inTx.courses.create({
+          name: "Verify Copy Target Two",
+          cohortTerm: "Cohort Copy B",
+        });
+        const sameName = await inTx.modules.create({
+          courseId: secondTarget.course.id,
+          name: seededModuleName,
+        });
+        const matched = await inTx.assignments.duplicate({
           assignmentId: seeded.id,
-          targetCourseId: targetCourse.course.id,
-          targetModuleId: differentlyNamed.id,
-        })),
-        "PRECONDITION_FAILED");
+          targetCourseId: secondTarget.course.id,
+        });
+        check(
+          "a module of the same name is matched without being asked for",
+          matched.assignment.moduleId,
+          sameName.id,
+        );
 
-      // --- removalImpact and remove -----------------------------------------
-      const impact = await inTx.assignments.removalImpact({ assignmentId: seeded.id });
-      check("removalImpact counts the submissions that exist",
-        impact.submissions > 0 && impact.title === seeded.title, true);
+        // An archived cohort takes nothing new, the same rule as a student joining one. It
+        // matters because archived cohorts are in the course list now, so one is a thing somebody
+        // can be looking at when they reach for a copy.
+        await inTx.courses.setArchived({ courseId: targetCourse.course.id, archived: true });
+        check(
+          "copying into an archived cohort is refused",
+          await code(() =>
+            inTx.assignments.duplicate({
+              assignmentId: seeded.id,
+              targetCourseId: targetCourse.course.id,
+              targetModuleId: differentlyNamed.id,
+            }),
+          ),
+          "PRECONDITION_FAILED",
+        );
 
-      let wrongTitle = "";
-      try {
-        await inTx.assignments.remove({ assignmentId: seeded.id, confirmTitle: "not the title" });
-      } catch (err) {
-        wrongTitle = (err as { code?: string }).code ?? String(err);
-      }
-      // Called directly rather than through a dialog, which is the whole point of the
-      // check living in the procedure.
-      check("remove refuses when the typed title does not match", wrongTitle, "BAD_REQUEST");
+        // --- removalImpact and remove -----------------------------------------
+        const impact = await inTx.assignments.removalImpact({ assignmentId: seeded.id });
+        check(
+          "removalImpact counts the submissions that exist",
+          impact.submissions > 0 && impact.title === seeded.title,
+          true,
+        );
 
-      const removed = await inTx.assignments.remove({
-        assignmentId: seeded.id,
-        confirmTitle: seeded.title,
-      });
-      check("what remove reports matches what removalImpact predicted",
-        { submissions: removed.submissions, drafts: removed.drafts, testRuns: removed.testRuns },
-        { submissions: impact.submissions, drafts: impact.drafts, testRuns: impact.testRuns });
-      check("student repositories are reported rather than deleted",
-        removed.orphanedRepositories.length, impact.orphanedRepositories.length);
-      check("the assignment is gone",
-        await tx.assignment.findUnique({ where: { id: seeded.id }, select: { id: true } }), null);
+        let wrongTitle = "";
+        try {
+          await inTx.assignments.remove({ assignmentId: seeded.id, confirmTitle: "not the title" });
+        } catch (err) {
+          wrongTitle = (err as { code?: string }).code ?? String(err);
+        }
+        // Called directly rather than through a dialog, which is the whole point of the
+        // check living in the procedure.
+        check("remove refuses when the typed title does not match", wrongTitle, "BAD_REQUEST");
 
-      throw new Error("ROLLBACK");
-    }, { timeout: 30_000 });
+        const removed = await inTx.assignments.remove({
+          assignmentId: seeded.id,
+          confirmTitle: seeded.title,
+        });
+        check(
+          "what remove reports matches what removalImpact predicted",
+          { submissions: removed.submissions, drafts: removed.drafts, testRuns: removed.testRuns },
+          { submissions: impact.submissions, drafts: impact.drafts, testRuns: impact.testRuns },
+        );
+        check(
+          "student repositories are reported rather than deleted",
+          removed.orphanedRepositories.length,
+          impact.orphanedRepositories.length,
+        );
+        check(
+          "the assignment is gone",
+          await tx.assignment.findUnique({ where: { id: seeded.id }, select: { id: true } }),
+          null,
+        );
+
+        throw new Error("ROLLBACK");
+      },
+      { timeout: 30_000 },
+    );
   } catch (err) {
     if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
   }
 
   // Nothing above survived.
   const stillThere = await db.assignment.findUnique({
-    where: { id: seeded.id }, select: { title: true, distributedAt: true },
+    where: { id: seeded.id },
+    select: { title: true, distributedAt: true },
   });
-  check("the rollback left the seeded assignment untouched",
+  check(
+    "the rollback left the seeded assignment untouched",
     { title: stillThere?.title, published: stillThere?.distributedAt !== null },
-    { title: seeded.title, published: seeded.distributedAt !== null });
-  check("no authored rows survived the rollback",
-    await db.assignment.count({ where: { assignmentRepoName: { contains: "-authored" } } }), 0);
+    { title: seeded.title, published: seeded.distributedAt !== null },
+  );
+  check(
+    "no authored rows survived the rollback",
+    await db.assignment.count({ where: { assignmentRepoName: { contains: "-authored" } } }),
+    0,
+  );
   /*
     Nor the cohorts the copy checks created, which is a separate claim from the assignments.
 
@@ -1335,8 +1773,11 @@ async function procedures() {
     the seeded assignment duplicated into cohorts nobody made — and a course is the one thing
     here whose leftovers are visible to every instructor rather than only to a query.
   */
-  check("...nor the cohorts the copy checks created",
-    await db.course.count({ where: { name: { startsWith: "Verify Copy Target" } } }), 0);
+  check(
+    "...nor the cohorts the copy checks created",
+    await db.course.count({ where: { name: { startsWith: "Verify Copy Target" } } }),
+    0,
+  );
 
   /*
     The one thing this script writes outside a transaction, removed.
@@ -1347,8 +1788,11 @@ async function procedures() {
     modules takes the module with it.
   */
   await db.course.deleteMany({ where: { id: ELSEWHERE_COURSE_ID } });
-  check("the other course this script created is gone",
-    await db.course.count({ where: { name: { contains: "(verify:authoring)" } } }), 0);
+  check(
+    "the other course this script created is gone",
+    await db.course.count({ where: { name: { contains: "(verify:authoring)" } } }),
+    0,
+  );
 }
 
 /**
@@ -1369,7 +1813,10 @@ procedures()
   .then(() => {
     if (failures > 0) console.log(`\n${failures} FAILED`);
     else if (skips.length === 0) console.log("\nAll checks passed.");
-    else console.log(`\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`);
+    else
+      console.log(
+        `\n${skips.length} group(s) did not run. Nothing failed, but this is not a pass.`,
+      );
     process.exit(failures > 0 || skips.length > 0 ? 1 : 0);
   })
   .catch((err) => {

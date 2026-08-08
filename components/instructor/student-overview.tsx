@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import * as React from 'react';
-import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from 'lucide-react';
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import * as React from "react";
+import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from "lucide-react";
 
-import { GradingReview } from '@/components/instructor/grading-review';
-import { SubmissionRow } from '@/components/instructor/submission-row';
-import { Badge } from '@/components/ui/badge';
+import { GradingReview } from "@/components/instructor/grading-review";
+import { SubmissionRow } from "@/components/instructor/submission-row";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -15,10 +15,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { courseHref, studentHref } from '@/lib/links';
-import { cn } from '@/lib/utils';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/select";
+import { courseHref, studentHref } from "@/lib/links";
+import { cn } from "@/lib/utils";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * One student's whole record in one cohort, with the selected submission open beside it.
@@ -35,36 +35,36 @@ import type { RouterOutputs } from '@/trpc/types';
  * rows all reading "3 days ago" order nothing.
  */
 
-type Data = RouterOutputs['submissions']['listForStudent'];
-type Row = Data['rows'][number];
+type Data = RouterOutputs["submissions"]["listForStudent"];
+type Row = Data["rows"][number];
 
-type Filter = 'all' | 'needs_review' | 'graded' | 'not_started';
+type Filter = "all" | "needs_review" | "graded" | "not_started";
 
 export function StudentOverview({ data, now }: { data: Data; now: Date }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const selectedId = searchParams.get('submission');
+  const selectedId = searchParams.get("submission");
 
-  const [filter, setFilter] = React.useState<Filter>('all');
+  const [filter, setFilter] = React.useState<Filter>("all");
 
   const started = data.rows.filter((row) => row.submission !== null);
 
   const needsReview = (row: Row) =>
     row.submission != null &&
     row.submission.bucket !== null &&
-    row.submission.bucket !== 'generating';
+    row.submission.bucket !== "generating";
 
   const counts = {
     all: data.rows.length,
     needs_review: data.rows.filter(needsReview).length,
-    graded: started.filter((row) => row.submission!.status === 'GRADED').length,
+    graded: started.filter((row) => row.submission!.status === "GRADED").length,
     not_started: data.rows.filter((row) => row.submission === null).length,
   };
 
   const filtered = data.rows.filter((row) => {
-    if (filter === 'needs_review') return needsReview(row);
-    if (filter === 'graded') return row.submission?.status === 'GRADED';
-    if (filter === 'not_started') return row.submission === null;
+    if (filter === "needs_review") return needsReview(row);
+    if (filter === "graded") return row.submission?.status === "GRADED";
+    if (filter === "not_started") return row.submission === null;
     return true;
   });
 
@@ -81,7 +81,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
 
   function select(submissionId: string) {
     const params = new URLSearchParams(searchParams.toString());
-    params.set('submission', submissionId);
+    params.set("submission", submissionId);
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
@@ -89,7 +89,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     data.student.displayName ??
     data.student.githubUsername ??
     data.student.email ??
-    'Unknown student';
+    "Unknown student";
 
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
@@ -101,10 +101,10 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(
                 [
-                  { key: 'all', label: `All`, count: counts.all },
-                  { key: 'needs_review', label: `To do`, count: counts.needs_review },
-                  { key: 'graded', label: `Graded`, count: counts.graded },
-                  { key: 'not_started', label: `Not started`, count: counts.not_started },
+                  { key: "all", label: `All`, count: counts.all },
+                  { key: "needs_review", label: `To do`, count: counts.needs_review },
+                  { key: "graded", label: `Graded`, count: counts.graded },
+                  { key: "not_started", label: `Not started`, count: counts.not_started },
                 ] as { key: Filter; label: string; count: number }[]
               ).map((tab) => (
                 <button
@@ -112,13 +112,14 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                   type="button"
                   onClick={() => setFilter(tab.key)}
                   className={cn(
-                    'flex-1 rounded-md px-1.5 py-1.5 text-[11px] font-medium transition-colors',
+                    "flex-1 rounded-md px-1.5 py-1.5 text-[11px] font-medium transition-colors",
                     filter === tab.key
-                      ? 'bg-card text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {tab.label}<br />({tab.count})
+                  {tab.label}
+                  <br />({tab.count})
                 </button>
               ))}
             </div>
@@ -131,8 +132,8 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 <p className="text-sm font-medium">Nothing here</p>
                 <p className="text-xs text-muted-foreground">
                   {counts.all === 0
-                    ? 'This cohort has no assignments yet.'
-                    : 'No assignments match.'}
+                    ? "This cohort has no assignments yet."
+                    : "No assignments match."}
                 </p>
               </div>
             ) : (
@@ -203,7 +204,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
  */
 function StudentHeader({ data, name }: { data: Data; name: string }) {
   const router = useRouter();
-  const removed = data.enrollmentStatus !== 'ACTIVE';
+  const removed = data.enrollmentStatus !== "ACTIVE";
 
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border bg-card px-4 py-3 md:px-6">
@@ -278,7 +279,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
                       <span className="truncate">{course.name}</span>
                       <span className="truncate text-xs text-muted-foreground">
                         {course.cohortTerm}
-                        {course.enrolledAs !== 'ACTIVE' && ' · removed'}
+                        {course.enrolledAs !== "ACTIVE" && " · removed"}
                       </span>
                     </span>
                   </SelectItem>
@@ -322,7 +323,7 @@ function NotStartedRow({ row }: { row: Row }) {
           </span>
         </div>
         <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-          {row.assignment.distributedAt === null ? 'Not published' : 'Not started'}
+          {row.assignment.distributedAt === null ? "Not published" : "Not started"}
         </span>
       </div>
     </li>
@@ -330,11 +331,11 @@ function NotStartedRow({ row }: { row: Row }) {
 }
 
 function initials(name: string | null): string {
-  return (name ?? '?')
-    .split(' ')
+  return (name ?? "?")
+    .split(" ")
     .map((part) => part[0])
     .filter(Boolean)
     .slice(0, 2)
-    .join('')
+    .join("")
     .toUpperCase();
 }

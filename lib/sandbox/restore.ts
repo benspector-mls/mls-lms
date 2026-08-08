@@ -1,6 +1,13 @@
 import "server-only";
 
-import { RESULTS_DIR, TEMPLATE_DIR, WORK_DIR, readTextFile, runCommand, type SandboxHandle } from "./e2b";
+import {
+  RESULTS_DIR,
+  TEMPLATE_DIR,
+  WORK_DIR,
+  readTextFile,
+  runCommand,
+  type SandboxHandle,
+} from "./e2b";
 import type { ResolvedRunner } from "./presets";
 import { buildRestoreScript, mergePackageJson } from "./protected-paths";
 
@@ -75,7 +82,7 @@ export async function restoreProtectedPaths(
   } catch {
     throw new Error(
       "The template's package.json is not valid JSON. This is a problem with the " +
-      "assignment template, not with the student's submission.",
+        "assignment template, not with the student's submission.",
     );
   }
   try {

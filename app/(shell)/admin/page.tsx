@@ -1,8 +1,8 @@
-import { Suspense } from 'react';
+import { Suspense } from "react";
 
-import { StaffAdmin } from '@/components/admin/staff-admin';
-import { ListSkeleton } from '@/components/list-states';
-import { getQueryClient, trpc } from '@/trpc/server';
+import { StaffAdmin } from "@/components/admin/staff-admin";
+import { ListSkeleton } from "@/components/list-states";
+import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Who may teach, and who may decide that. Admins only.

@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import * as React from 'react';
-import { Check, Copy, GitBranch, RotateCcw, UserMinus, Users } from 'lucide-react';
-import { toast } from 'sonner';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import * as React from "react";
+import { Check, Copy, GitBranch, RotateCcw, UserMinus, Users } from "lucide-react";
+import { toast } from "sonner";
 
-import { EmptyState } from '@/components/list-states';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { EmptyState } from "@/components/list-states";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -18,12 +18,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import type { EnrollmentStatus } from '@/lib/generated/prisma/enums';
-import { studentHref } from '@/lib/links';
-import { cn } from '@/lib/utils';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/table";
+import type { EnrollmentStatus } from "@/lib/generated/prisma/enums";
+import { studentHref } from "@/lib/links";
+import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * The roster: the join link, and who has used it.
@@ -37,7 +37,7 @@ import type { RouterOutputs } from '@/trpc/types';
  * Restore button in the same column as Remove — two rows apart, opposite in effect.
  */
 
-type Data = RouterOutputs['courses']['roster'];
+type Data = RouterOutputs["courses"]["roster"];
 
 export function CourseRoster({ data }: { data: Data }) {
   const trpc = useTRPC();
@@ -71,7 +71,7 @@ export function CourseRoster({ data }: { data: Data }) {
     trpc.courses.regenerateJoinToken.mutationOptions({
       ...settled,
       onSuccess: () => {
-        toast.success('New join link. The old one no longer works.');
+        toast.success("New join link. The old one no longer works.");
         router.refresh();
       },
     }),
@@ -80,8 +80,8 @@ export function CourseRoster({ data }: { data: Data }) {
   const busy = remove.isPending || restore.isPending || regenerate.isPending;
   // Complements, so every enrollment lands in exactly one table. See the same reasoning in
   // `courses.gradebook`: filters naming both statuses would lose a third one from both lists.
-  const active = data.enrollments.filter((enrollment) => enrollment.status === 'ACTIVE');
-  const removed = data.enrollments.filter((enrollment) => enrollment.status !== 'ACTIVE');
+  const active = data.enrollments.filter((enrollment) => enrollment.status === "ACTIVE");
+  const removed = data.enrollments.filter((enrollment) => enrollment.status !== "ACTIVE");
 
   return (
     <div className="flex flex-col gap-4">
@@ -167,7 +167,7 @@ function JoinLinkCard({
 
   // Built in the browser, because the server rendering this has no reliable idea what host the
   // instructor is looking at — a preview deployment and production share the same code.
-  const [origin, setOrigin] = React.useState('');
+  const [origin, setOrigin] = React.useState("");
   React.useEffect(() => setOrigin(window.location.origin), []);
   const link = origin ? `${origin}/join/${joinToken}` : `/join/${joinToken}`;
 
@@ -176,8 +176,8 @@ function JoinLinkCard({
       <div className="flex flex-col gap-1">
         <span className="text-sm font-medium">Join link</span>
         <span className="text-xs text-muted-foreground">
-          Send this to your students however you already talk to them. Anyone who opens it and
-          signs in with GitHub joins this cohort, so treat it as you would a class password.
+          Send this to your students however you already talk to them. Anyone who opens it and signs
+          in with GitHub joins this cohort, so treat it as you would a class password.
         </span>
       </div>
 
@@ -195,16 +195,16 @@ function JoinLinkCard({
           }}
         >
           {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? "Copied" : "Copy"}
         </Button>
       </div>
 
       {confirming ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
-            The current link stops working immediately. The {active}{' '}
-            {active === 1 ? 'student' : 'students'} already in the cohort stay enrolled — anyone
-            who has not joined yet will need the new link.
+            The current link stops working immediately. The {active}{" "}
+            {active === 1 ? "student" : "students"} already in the cohort stay enrolled — anyone who
+            has not joined yet will need the new link.
           </span>
           <div className="flex gap-2">
             <Button
@@ -244,7 +244,7 @@ function RosterTable({
   onRestore,
 }: {
   courseId: string;
-  enrollments: Data['enrollments'];
+  enrollments: Data["enrollments"];
   busy: boolean;
   onRemove: (enrollmentId: string) => void;
   onRestore: (enrollmentId: string) => void;
@@ -269,8 +269,8 @@ function RosterTable({
               enrollment.student.displayName ??
               enrollment.student.githubUsername ??
               enrollment.student.email ??
-              'Unnamed';
-            const removed = enrollment.status !== 'ACTIVE';
+              "Unnamed";
+            const removed = enrollment.status !== "ACTIVE";
 
             // No dimming any more. It was how one mixed list said "this person has left", and
             // the two tables say it in words now — dimming on top of a heading that already
@@ -294,7 +294,7 @@ function RosterTable({
                         {name}
                       </Link>
                       <span className="truncate text-xs text-muted-foreground">
-                        {enrollment.student.email ?? '—'}
+                        {enrollment.student.email ?? "—"}
                       </span>
                     </div>
                   </div>
@@ -348,27 +348,27 @@ function RosterTable({
 function EnrollmentBadge({ status }: { status: EnrollmentStatus }) {
   const meta: Record<EnrollmentStatus, { label: string; className: string }> = {
     ACTIVE: {
-      label: 'Active',
-      className: 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300',
+      label: "Active",
+      className: "border-emerald-500/40 text-emerald-700 dark:text-emerald-300",
     },
     // Grey rather than red. Removing a student is an ordinary administrative act, not a
     // failure, and their work is untouched — a warning colour would say otherwise.
-    REMOVED: { label: 'Removed', className: 'border-border text-muted-foreground' },
+    REMOVED: { label: "Removed", className: "border-border text-muted-foreground" },
   };
 
   return (
-    <Badge variant="outline" className={cn('font-normal', meta[status].className)}>
+    <Badge variant="outline" className={cn("font-normal", meta[status].className)}>
       {meta[status].label}
     </Badge>
   );
 }
 
 function initials(name: string | null): string {
-  return (name ?? '?')
-    .split(' ')
+  return (name ?? "?")
+    .split(" ")
     .map((part) => part[0])
     .filter(Boolean)
     .slice(0, 2)
-    .join('')
+    .join("")
     .toUpperCase();
 }

@@ -25,9 +25,10 @@ async function main() {
 
   const { data } = await octokit.request("GET /app/installations");
   for (const installation of data) {
-    const login = installation.account && "login" in installation.account
-      ? installation.account.login
-      : "(unknown)";
+    const login =
+      installation.account && "login" in installation.account
+        ? installation.account.login
+        : "(unknown)";
     console.log(`${installation.id}\t${login}\t${installation.repository_selection}`);
   }
 }

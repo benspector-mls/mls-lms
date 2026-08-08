@@ -114,7 +114,10 @@ export const RUNNER_PRESETS: Record<string, RunnerPreset> = {
 
   "python-pytest": {
     e2bTemplate: "base",
-    setupCommands: ["pip install --no-input -r requirements.txt", "pip install --no-input pytest-json-report"],
+    setupCommands: [
+      "pip install --no-input -r requirements.txt",
+      "pip install --no-input pytest-json-report",
+    ],
     testCommand: `pytest --json-report --json-report-file=${RESULTS_DIR}/pytest.json`,
     resultFormat: "pytest-json",
     resultPath: `${RESULTS_DIR}/pytest.json`,
@@ -216,8 +219,8 @@ export class UnknownRunnerPresetError extends Error {
   constructor(presetName: string) {
     super(
       `Unknown runner preset "${presetName}". Known presets: ` +
-      `${[NO_RUNNER, ...Object.keys(RUNNER_PRESETS)].join(", ")}. ` +
-      `Fix assignments.runner_preset, or add the preset to lib/sandbox/presets.ts.`,
+        `${[NO_RUNNER, ...Object.keys(RUNNER_PRESETS)].join(", ")}. ` +
+        `Fix assignments.runner_preset, or add the preset to lib/sandbox/presets.ts.`,
     );
     this.name = "UnknownRunnerPresetError";
   }
@@ -235,7 +238,7 @@ export class NoRunnerConfiguredError extends Error {
   constructor(assignmentTitle: string) {
     super(
       `Assignment "${assignmentTitle}" has no automated tests ` +
-      `(runner_preset is "${NO_RUNNER}"). This is a normal state, not a failure.`,
+        `(runner_preset is "${NO_RUNNER}"). This is a normal state, not a failure.`,
     );
     this.name = "NoRunnerConfiguredError";
   }
@@ -261,7 +264,9 @@ export function resolveRunner(assignment: {
   if (!base) throw new UnknownRunnerPresetError(assignment.runnerPreset);
 
   const override =
-    assignment.runnerConfig && typeof assignment.runnerConfig === "object" && !Array.isArray(assignment.runnerConfig)
+    assignment.runnerConfig &&
+    typeof assignment.runnerConfig === "object" &&
+    !Array.isArray(assignment.runnerConfig)
       ? (assignment.runnerConfig as Partial<RunnerPreset> & { protectedPaths?: string[] })
       : {};
 
@@ -273,7 +278,9 @@ export function resolveRunner(assignment: {
     // An override may replace the protected set outright, which is what an
     // assignment with an unusual layout needs. Otherwise the defaults apply plus
     // whatever the preset adds.
-    protectedPaths:
-      override.protectedPaths ?? [...DEFAULT_PROTECTED_PATHS, ...(merged.extraProtectedPaths ?? [])],
+    protectedPaths: override.protectedPaths ?? [
+      ...DEFAULT_PROTECTED_PATHS,
+      ...(merged.extraProtectedPaths ?? []),
+    ],
   };
 }

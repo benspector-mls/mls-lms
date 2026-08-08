@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import * as React from 'react';
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import * as React from "react";
 import {
   Check,
   Copy,
@@ -13,14 +13,14 @@ import {
   ShieldMinus,
   Trash2,
   Users,
-} from 'lucide-react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { toast } from "sonner";
 
-import { EmptyState } from '@/components/list-states';
-import { PageHeader } from '@/components/page-header';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { EmptyState } from "@/components/list-states";
+import { PageHeader } from "@/components/page-header";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -28,12 +28,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { INVITE_LIFETIME_DAYS } from '@/lib/staff/invite';
-import { formatDate, formatRelative } from '@/lib/status';
-import { useTRPC } from '@/trpc/client';
-import type { RouterOutputs } from '@/trpc/types';
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { INVITE_LIFETIME_DAYS } from "@/lib/staff/invite";
+import { formatDate, formatRelative } from "@/lib/status";
+import { useTRPC } from "@/trpc/client";
+import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * Who may teach, and who may decide that.
@@ -47,8 +47,8 @@ import type { RouterOutputs } from '@/trpc/types';
  * component rendering or not: the page is one URL away from any instructor who guesses it.
  */
 
-type People = RouterOutputs['staff']['people'];
-type Invites = RouterOutputs['staff']['invites'];
+type People = RouterOutputs["staff"]["people"];
+type Invites = RouterOutputs["staff"]["invites"];
 
 export function StaffAdmin({
   people,
@@ -63,21 +63,21 @@ export function StaffAdmin({
    */
   now: Date;
 }) {
-  const openInvites = invites.filter((invite) => invite.state === 'open').length;
+  const openInvites = invites.filter((invite) => invite.state === "open").length;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Staff"
         description={[
-          `${people.adminCount} ${people.adminCount === 1 ? 'admin' : 'admins'}`,
+          `${people.adminCount} ${people.adminCount === 1 ? "admin" : "admins"}`,
           `${people.people.length} with staff access`,
           openInvites > 0
-            ? `${openInvites} ${openInvites === 1 ? 'invitation' : 'invitations'} outstanding`
+            ? `${openInvites} ${openInvites === 1 ? "invitation" : "invitations"} outstanding`
             : null,
         ]
           .filter(Boolean)
-          .join(' · ')}
+          .join(" · ")}
       />
 
       {/*
@@ -122,11 +122,9 @@ function PeopleTab({ people }: { people: People }) {
   const setAdmin = useMutation(
     trpc.staff.setAdmin.mutationOptions({
       onSuccess: (result) => {
-        const who = result.displayName ?? result.email ?? 'That account';
+        const who = result.displayName ?? result.email ?? "That account";
         toast.success(
-          result.role === 'ADMIN'
-            ? `${who} is now an admin.`
-            : `${who} is an instructor again.`,
+          result.role === "ADMIN" ? `${who} is now an admin.` : `${who} is an instructor again.`,
         );
         router.refresh();
       },
@@ -158,8 +156,8 @@ function PeopleTab({ people }: { people: People }) {
           </TableHeader>
           <TableBody>
             {people.people.map((person) => {
-              const name = person.displayName ?? person.githubUsername ?? person.email ?? 'Unnamed';
-              const isAdmin = person.role === 'ADMIN';
+              const name = person.displayName ?? person.githubUsername ?? person.email ?? "Unnamed";
+              const isAdmin = person.role === "ADMIN";
 
               /*
                 Refused by the procedure and not offered here, which is the same pair as every
@@ -188,7 +186,7 @@ function PeopleTab({ people }: { people: People }) {
                           )}
                         </span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {person.email ?? '—'}
+                          {person.email ?? "—"}
                         </span>
                       </div>
                     </div>
@@ -204,7 +202,7 @@ function PeopleTab({ people }: { people: People }) {
                       <div className="flex flex-col gap-0.5">
                         {person.courses.map((course) => (
                           <span key={course.id} className="truncate text-xs">
-                            {course.name}{' '}
+                            {course.name}{" "}
                             <span className="text-muted-foreground">· {course.cohortTerm}</span>
                           </span>
                         ))}
@@ -213,8 +211,8 @@ function PeopleTab({ people }: { people: People }) {
                   </TableCell>
 
                   <TableCell>
-                    <Badge variant={isAdmin ? 'default' : 'secondary'}>
-                      {isAdmin ? 'Admin' : 'Instructor'}
+                    <Badge variant={isAdmin ? "default" : "secondary"}>
+                      {isAdmin ? "Admin" : "Instructor"}
                     </Badge>
                   </TableCell>
 
@@ -225,18 +223,16 @@ function PeopleTab({ people }: { people: People }) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className={isAdmin ? 'text-destructive hover:text-destructive' : undefined}
+                        className={isAdmin ? "text-destructive hover:text-destructive" : undefined}
                         disabled={setAdmin.isPending}
-                        onClick={() =>
-                          setAdmin.mutate({ profileId: person.id, admin: !isAdmin })
-                        }
+                        onClick={() => setAdmin.mutate({ profileId: person.id, admin: !isAdmin })}
                       >
                         {isAdmin ? (
                           <ShieldMinus data-icon="inline-start" />
                         ) : (
                           <ShieldCheck data-icon="inline-start" />
                         )}
-                        {isAdmin ? 'Revoke' : 'Make admin'}
+                        {isAdmin ? "Revoke" : "Make admin"}
                       </Button>
                     )}
                   </TableCell>
@@ -281,7 +277,7 @@ function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
   const revoke = useMutation(
     trpc.staff.revokeInvite.mutationOptions({
       onSuccess: () => {
-        toast.success('Invitation deleted. That link no longer works.');
+        toast.success("Invitation deleted. That link no longer works.");
         router.refresh();
       },
       onError: (error) => toast.error(error.message),
@@ -296,8 +292,8 @@ function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium">Invite an instructor</span>
           <span className="text-xs text-muted-foreground">
-            Generate a link and send it however you already talk to them. Whoever opens it and
-            signs in becomes an instructor. Each link works <strong>once</strong> and expires after{' '}
+            Generate a link and send it however you already talk to them. Whoever opens it and signs
+            in becomes an instructor. Each link works <strong>once</strong> and expires after{" "}
             {INVITE_LIFETIME_DAYS} days — unlike a cohort&apos;s join link, which is reusable,
             because this one grants access to every course.
           </span>
@@ -352,7 +348,7 @@ function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
                           {invite.redeemedBy.displayName ??
                             invite.redeemedBy.githubUsername ??
                             invite.redeemedBy.email ??
-                            'Unnamed'}
+                            "Unnamed"}
                         </span>
                         {invite.redeemedAt && (
                           <span className="text-xs text-muted-foreground">
@@ -369,20 +365,20 @@ function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
                     <div className="flex min-w-0 flex-col">
                       <span className="text-xs">{formatDate(invite.createdAt)}</span>
                       <span className="truncate text-xs text-muted-foreground">
-                        by {invite.createdBy.displayName ?? invite.createdBy.email ?? 'unknown'}
+                        by {invite.createdBy.displayName ?? invite.createdBy.email ?? "unknown"}
                       </span>
                     </div>
                   </TableCell>
 
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {invite.state === 'open' && <CopyLinkButton token={invite.token} />}
+                      {invite.state === "open" && <CopyLinkButton token={invite.token} />}
                       {/*
                         Not offered on a redeemed one. That row has stopped being a credential and
                         become the record of somebody getting access — deleting it would remove the
                         only trace of how they got in, which is why the procedure refuses it too.
                       */}
-                      {invite.state !== 'redeemed' && (
+                      {invite.state !== "redeemed" && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -411,12 +407,12 @@ function InviteStateBadge({
   expiresAt,
   now,
 }: {
-  state: Invites[number]['state'];
+  state: Invites[number]["state"];
   expiresAt: Date;
   now: Date;
 }) {
-  if (state === 'redeemed') return <Badge variant="secondary">Used</Badge>;
-  if (state === 'expired') return <Badge variant="outline">Expired</Badge>;
+  if (state === "redeemed") return <Badge variant="secondary">Used</Badge>;
+  if (state === "expired") return <Badge variant="outline">Expired</Badge>;
 
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
@@ -450,10 +446,10 @@ function FreshLink({ token, onDismiss }: { token: string; onDismiss: () => void 
 
 function CopyLinkButton({
   token,
-  variant = 'ghost',
+  variant = "ghost",
 }: {
   token: string;
-  variant?: 'ghost' | 'outline';
+  variant?: "ghost" | "outline";
 }) {
   const link = useInviteLink(token);
   const [copied, setCopied] = React.useState(false);
@@ -469,7 +465,7 @@ function CopyLinkButton({
       }}
     >
       {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-      {copied ? 'Copied' : 'Copy link'}
+      {copied ? "Copied" : "Copy link"}
     </Button>
   );
 }
@@ -482,16 +478,16 @@ function CopyLinkButton({
  * be discovered by the person it was sent to.
  */
 function useInviteLink(token: string): string {
-  const [origin, setOrigin] = React.useState('');
+  const [origin, setOrigin] = React.useState("");
   React.useEffect(() => setOrigin(window.location.origin), []);
   return origin ? `${origin}/invite/${token}` : `/invite/${token}`;
 }
 
 function initials(name: string) {
   return name
-    .split(' ')
+    .split(" ")
     .map((part) => part[0])
     .slice(0, 2)
-    .join('')
+    .join("")
     .toUpperCase();
 }

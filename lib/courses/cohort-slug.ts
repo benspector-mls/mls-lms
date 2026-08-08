@@ -53,13 +53,15 @@ export const COHORT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * and it is the one to call unless you specifically want a slug of one string.
  */
 export function slugifyCohort(cohortTerm: string): string {
-  return cohortTerm
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, MAX_COHORT_SLUG)
-    // A trailing hyphen can reappear after the slice, which would produce `f26--swe-1-4-loops`.
-    .replace(/-+$/g, "");
+  return (
+    cohortTerm
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, MAX_COHORT_SLUG)
+      // A trailing hyphen can reappear after the slice, which would produce `f26--swe-1-4-loops`.
+      .replace(/-+$/g, "")
+  );
 }
 
 /** Season words, shortest form that keeps them apart — `s` alone would not separate two of them. */

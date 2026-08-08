@@ -55,7 +55,7 @@ export async function downloadRepoArchive(
   if (!(data instanceof ArrayBuffer) && !Buffer.isBuffer(data)) {
     throw new Error(
       `Unexpected tarball response for ${params.owner}/${params.repo}@${params.ref}: ` +
-      `expected binary data, received ${typeof data}.`,
+        `expected binary data, received ${typeof data}.`,
     );
   }
 
