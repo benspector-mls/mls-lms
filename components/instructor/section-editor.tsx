@@ -34,14 +34,14 @@ import { sectionLabel } from '@/lib/status';
 
 export type SectionDraft =
   | {
-      grading: 'ai';
-      type: (typeof SECTION_TYPES)[number];
-      pointValue: number;
-      rubricId: string;
-      reportTemplate?: string;
-      evidence?: 'tests';
-      testNamePattern?: string;
-    }
+    grading: 'ai';
+    type: (typeof SECTION_TYPES)[number];
+    pointValue: number;
+    rubricId: string;
+    reportTemplate?: string;
+    evidence?: 'tests';
+    testNamePattern?: string;
+  }
   | { grading: 'manual'; label: string; pointValue: number };
 
 export function SectionEditor({
@@ -91,7 +91,7 @@ export function SectionEditor({
           <Field label="What this section is called" findings={fieldFindings('label')}>
             <Input
               value={section.label}
-              placeholder='"Total" or "Reflection"'
+              placeholder='e.g. "Total" or "Reflection"'
               onChange={(event) => onChange({ ...section, label: event.target.value })}
             />
           </Field>
