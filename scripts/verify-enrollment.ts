@@ -811,14 +811,16 @@ async function main() {
       check("...and leaves the assignment's queue",
         queue.submissions.some((row) => row.student.id === studentId), false);
       check("...while staying openable from the gradebook",
-        queue.removedSubmissions.some((row) => row.student.id === studentId), true);
+        queue.asideSubmissions.some(
+          (row) => row.student.id === studentId && row.asideReason === "removed",
+        ), true);
       /*
         The two arrays are the whole of it. Written as one query partitioned in two rather than as
         a filter and its complement, because two queries can each miss a row and nothing says so —
         a submission in neither list is unreachable and unreported.
       */
       check("...and the two lists together are every submission",
-        queue.submissions.length + queue.removedSubmissions.length,
+        queue.submissions.length + queue.asideSubmissions.length,
         await tx.submission.count({ where: { assignmentId: theirsBefore[0]!.assignment.id } }));
 
       const book = await asInstructor.courses.gradebook({ courseId: course.id });

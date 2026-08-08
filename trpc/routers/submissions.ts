@@ -3,7 +3,12 @@ import { z } from 'zod';
 
 import { isManualOnly } from '@/lib/assignments/spec';
 import { Prisma } from '@/lib/generated/prisma/client';
-import { activeStudentWork, removedStudentIds } from '@/lib/courses/membership';
+import { groupSelectionInput, parseGroupSelection } from '@/lib/courses/groups';
+import {
+  activeStudentWork,
+  removedStudentIds,
+  selectedStudentIds,
+} from '@/lib/courses/membership';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
 import { signedDownloadUrl } from '@/lib/uploads/storage';
@@ -370,8 +375,15 @@ export const submissionsRouter = createTRPCRouter({
    * review" — approving it is refused — so it falls back to `needs_report`.
    */
   triage: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
+    .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
+      /*
+        Narrowed on the server rather than in the browser, which is what keeps this screen
+        agreeing with the assignments list: that one aggregates its counts before sending them
+        and cannot filter afterwards, so one server-side rule is what stops the two from
+        describing different sets of students under the same group name.
+      */
+      const selection = parseGroupSelection(input.group);
       /*
         Whether the caller may see this course's pile at all. An admin may see any course;
         an instructor only the ones they are listed on. This is also the access check —
@@ -417,7 +429,7 @@ export const submissionsRouter = createTRPCRouter({
             gradebook shows it, in its own table, which is where a departed student's record
             belongs. Restoring them puts it straight back, because this reads live status.
           */
-          ...activeStudentWork(input.courseId),
+          ...activeStudentWork(input.courseId, selection),
           OR: [
             // Open work, whether or not a run has happened yet.
             { status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
@@ -483,7 +495,7 @@ export const submissionsRouter = createTRPCRouter({
       const gradedCount = await ctx.db.submission.count({
         where: {
           assignment: { courseId: input.courseId },
-          ...activeStudentWork(input.courseId),
+          ...activeStudentWork(input.courseId, selection),
           status: 'GRADED',
         },
       });
@@ -561,8 +573,9 @@ export const submissionsRouter = createTRPCRouter({
    * answers — a submission cannot be work to do on one screen and finished on the other.
    */
   listForAssignment: instructorProcedure
-    .input(z.object({ assignmentId: z.string().uuid() }))
+    .input(z.object({ assignmentId: z.string().uuid(), group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
+      const selection = parseGroupSelection(input.group);
       const assignment = await ctx.db.assignment.findUnique({
         where: { id: input.assignmentId },
         select: { id: true, title: true, courseId: true, dueAt: true, kind: true, sections: true },
@@ -608,8 +621,25 @@ export const submissionsRouter = createTRPCRouter({
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
       const removed = await removedStudentIds(ctx.db, assignment.courseId);
 
+      // Null when nothing is selected — see `selectedStudentIds`, which is shared with the
+      // gradebook and the assignments list so a group means the same set of students on all three.
+      const inSelection = await selectedStudentIds(ctx.db, assignment.courseId, selection);
+
       const decorate = (submission: (typeof submissions)[number]) =>
         decorateSubmission(submission, { manualOnly, undeliveredIds });
+
+      /**
+       * Why a submission is out of the pile, or null when it is in it.
+       *
+       * Removal is checked first because it is the stronger fact: somebody who has left the
+       * cohort is not work to be done whichever group they were in, and telling an instructor
+       * they are merely outside the current filter would read as something a picker can fix.
+       */
+      const asideReason = (studentId: string): 'removed' | 'outside_group' | null => {
+        if (removed.has(studentId)) return 'removed';
+        if (inSelection && !inSelection.has(studentId)) return 'outside_group';
+        return null;
+      };
 
       return {
         // Spelled out rather than spread, so `sections` does not travel to the browser as a
@@ -623,26 +653,37 @@ export const submissionsRouter = createTRPCRouter({
           manualOnly,
         },
         /**
-         * The queue itself: students currently in the cohort.
+         * The queue itself: students currently in the cohort, and in the selected group.
          *
          * A removed student is not work to be done, so they are not in the pile an instructor
-         * works down — the same reason they are out of grading triage.
+         * works down — the same reason they are out of grading triage. A student outside the
+         * selected group is out for a different and much weaker reason, which is why the two
+         * are told apart below rather than merged into "not here".
          */
-        submissions: submissions.filter((row) => !removed.has(row.student.id)).map(decorate),
+        submissions: submissions
+          .filter((row) => asideReason(row.student.id) === null)
+          .map(decorate),
         /**
-         * A removed student's work for this assignment, kept out of the list and still openable.
+         * Work this queue does not list and will still open when a link names one.
          *
-         * Two arrays rather than a flag on every row, because the two are read differently: the
-         * queue never lists these, and the review pane opens one when a link names it. The
-         * gradebook's Removed table links straight here, and a link into a screen that refuses
-         * to show what it points at is worse than no link.
+         * One array with a reason rather than two arrays, because these are *read* identically —
+         * never listed, opened when the query string asks for one, and banner-ed above the
+         * report — and it is only the sentence in the banner that differs. Splitting them would
+         * mean the review pane searching a third place every time a reason is added.
          *
-         * Partitioned from one query so the two are exhaustive. A filter and its complement
+         * Both cases are links that must not break. The gradebook's Removed table links straight
+         * to a departed student's submission, and a colleague's link or a stale tab can name
+         * somebody outside the group now selected. Falling back to the first row of the list
+         * instead would quietly show a different student's report under a URL that named one —
+         * which is worse than an empty pane, because nothing about it looks wrong.
+         *
+         * Partitioned from one query so the two sets are exhaustive. A filter and its complement
          * written as separate queries can each miss a row and nothing would say so.
          */
-        removedSubmissions: submissions
-          .filter((row) => removed.has(row.student.id))
-          .map(decorate),
+        asideSubmissions: submissions
+          .map((row) => ({ row, reason: asideReason(row.student.id) }))
+          .filter((entry) => entry.reason !== null)
+          .map((entry) => ({ ...decorate(entry.row), asideReason: entry.reason! })),
       };
     }),
 

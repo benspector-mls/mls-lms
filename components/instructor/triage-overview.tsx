@@ -23,6 +23,8 @@ import { FlagBadge } from '@/components/status-badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { GroupPicker } from '@/components/instructor/group-picker';
+import { groupSelectionLabel, parseGroupSelection } from '@/lib/courses/groups';
 import { gradingQueueHref } from '@/lib/links';
 import { flagMeta, formatRelative, scoreLabel } from '@/lib/status';
 import { cn } from '@/lib/utils';
@@ -131,27 +133,37 @@ const BUCKET_META: Record<
 
 export function TriageOverview({
   triage,
+  courseId,
   courseName,
   cohortTerm,
   archived,
+  groups,
   now,
 }: {
   triage: Triage;
   /*
-    No `courseId`. Every link out of this screen goes to one submission, and each row already
-    carries its own assignment's course — which is the right source, because it comes from the
-    row rather than from the address the screen was opened at. The prop existed for the button
-    back to the course page, and went with it.
+    Not used for the links out of this screen — each row carries its own assignment's course,
+    which is the right source because it comes from the row rather than from the address the
+    screen was opened at. It is here for the picker, which records a selection against a course
+    rather than against a submission.
   */
+  courseId: string;
   courseName: string;
   cohortTerm: string;
   archived: boolean;
+  /** The picker's options and the selection this pile was built for, from `resolveGroup`. */
+  groups: {
+    group: string;
+    groups: { id: string; name: string; memberCount: number }[];
+    ungroupedCount: number;
+  };
   /**
    * Passed in rather than read here, so every relative time on the screen is measured
    * from one instant and a component cannot disagree with its neighbour.
    */
   now: Date;
 }) {
+  const selection = parseGroupSelection(groups.group);
   const buckets = bucketize(triage.submissions);
   const generating = triage.submissions.filter((row) => row.bucket === 'generating');
 
@@ -170,17 +182,31 @@ export function TriageOverview({
         title="Grading triage"
         description={[
           `${courseName} · ${cohortTerm}`,
+          /*
+            The group, whenever the pile is not the whole cohort. Every figure beside it counts
+            the selected students only, so a screen that said "Caught up" without naming what it
+            was caught up on would be making a claim about the cohort that it has not checked.
+          */
+          ...(selection.kind === 'all' ? [] : [groupSelectionLabel(selection, groups.groups)]),
           remaining === 0
             ? 'Caught up'
             : `${remaining} ${remaining === 1 ? 'submission' : 'submissions'} left to grade`,
           `${triage.gradedCount} approved`,
         ].join(' · ')}
         /*
-          No action. There was a button back to the course page, which existed because the
-          cohort's other views were tabs on it and this screen was the one place outside. Every
-          one of them is a sidebar item now, so the button led to the one address that is not a
-          view at all.
+          The picker is the only action. There was a button back to the course page, which existed
+          because the cohort's other views were tabs on it and this screen was the one place
+          outside; every one of them is a sidebar item now, so it led to the one address that is
+          not a view at all.
         */
+        actions={
+          <GroupPicker
+            courseId={courseId}
+            value={groups.group}
+            groups={groups.groups}
+            ungroupedCount={groups.ungroupedCount}
+          />
+        }
       />
 
       {/*

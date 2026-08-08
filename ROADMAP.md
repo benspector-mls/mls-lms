@@ -99,15 +99,15 @@ The ordering principle is: correctness gaps, then the cheap things, then measure
 1. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
 2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
 3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-4. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-5. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
+4. **[Student groups, and grading a portion of a cohort](#student-groups-and-grading-a-portion-of-a-cohort)** — a cohort is split between its instructors and nothing in the application can say so. The design is settled; the deferred halves of it are named in its own section.
+5. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
 6. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
 7. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
 8. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
 9. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
 10. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1 and 4 through 6 are new and their ordering relative to each other is a proposal rather than a decision.
+Items 1, 5, and 6 are new and their ordering relative to each other is a proposal rather than a decision. Item 4 is a decision: splitting a cohort between its instructors is what the term in front of us actually needs, and the filter it adds is the same mechanism item 5 wants.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that [token management](#token-management) produces anyway.
 
@@ -900,7 +900,9 @@ Doing it properly needs a **test enrollment**: a student-shaped identity the ins
 
 ## Targeted assignments, and excusing a student
 
-A new capability rather than a screen, and it needs a data-model decision. Today an assignment implicitly applies to every active enrollment in its course — a submission row appears when a student accepts, and the gradebook treats a missing row as not started. Neither "this assignment is only for these students" nor "this student is excused from this one" can be expressed. The options are a per-student exclusion row against an assignment, or an explicit targeting list, and the choice matters for the gradebook: an excused student must read as excused rather than as missing work, or the distinction is worthless.
+A new capability rather than a screen. Today an assignment implicitly applies to every active enrollment in its course — a submission row appears when a student accepts, and the gradebook treats a missing row as not started. Neither "this assignment is only for these students" nor "this student is excused from this one" can be expressed.
+
+**Half of the data-model decision is now made.** Naming a subset of students was the missing piece and [a group](#student-groups-and-grading-a-portion-of-a-cohort) is it, so targeting is an assignment pointing at a group, with All Students — no group — the default it already behaves as. What is still open is excusing, which is the other direction and needs its own row: a per-student exclusion against one assignment. The distinction matters for the gradebook, because an excused student must read as excused rather than as missing work, or it is worthless.
 
 ---
 
@@ -1016,18 +1018,45 @@ An Excel spreadsheet had the same fork and it is settled the same way, in the ot
 
 ---
 
-## Dividing grading between co-teachers
+## Student groups, and grading a portion of a cohort
 
-A cohort can have more than one instructor now, and nothing says who grades what. Two people working the same triage list either duplicate each other or quietly assume the other is doing it, and both failures are invisible until a student is waiting.
+A cohort is split between its instructors — the same fifteen students to each, every week, for the whole term — and nothing in the application can express that. Two people working one triage list either duplicate each other or each assume the other is doing it, and both failures are invisible until a student is waiting.
 
-Nothing exists for this — there is no grader column anywhere — so the whole thing is a design question. What has to be settled:
+**A group is a named set of students, and nothing more.** It is not owned by an instructor, it does not decide who may grade, and it carries no permission. An instructor picks one, and every screen that answers "what is left" narrows to it. That is deliberately weaker than assigning students to a grader: co-teachers cover for each other, and a screen that refused to let one of them approve a draft at the moment they had time would be worse than one that simply shows a smaller pile. Splitting the work is what prevents the overlap, and nothing has to be enforced for that to hold.
 
-- **The grain.** Per assignment ("you take the loops exercise") is the coarsest and matches how the work is actually divided; per student ("you take these twelve") is how a cohort is usually split for feedback continuity; per submission is the finest and the only one that lets two people share one large assignment. They are not exclusive and the first two are probably both wanted, which is an argument for storing the assignment rather than deriving it.
-- **Advisory or enforced.** Whether a submission assigned to somebody else is hidden, dimmed, or merely labelled. Enforcement is the wrong instinct here: co-teachers cover for each other, and a screen that refuses to let one of them approve a draft at the moment they have time is worse than one that says whose it is.
-- **What the counts mean.** "N waiting on you" currently means "waiting on anybody who teaches this cohort", and three readers were just made to agree on that one figure. A per-grader figure is a **fourth question**, not a filter over the third — and the honest version shows both, because "nothing assigned to me" and "this cohort is caught up" are different facts and only one of them means an instructor can stop.
-- **What happens when the assigned grader leaves.** `removeInstructor` would otherwise leave submissions assigned to somebody who cannot open them, which is worse than unassigned because it reads as covered.
+Keeping the group free of any instructor relation is also what makes it useful for the things it is not being built for. A project team is the same shape — a named set of students inside one cohort — and so is the audience of an assignment given to some of the cohort rather than all of it. Both are deferred below, and both want exactly this table.
 
-This is worth doing after [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), because both add an axis to the same screen and the other one is smaller and has no schema.
+### The shape
+
+- **`CourseGroup`** — `courseId` and `name`, unique per course. Ordered by name in the picker, with no reordering control and no position column, because a picker of four entries does not need one.
+- **`GroupMembership` joins a group to an enrollment**, not to a profile. The foreign key is then what guarantees that a group's members are students of that group's course, rather than a validation rule some second caller could forget. Many-to-many in both directions: a student may be in several groups, and a group holds many students.
+- **`CourseInstructor.gradingGroupId`**, nullable, `onDelete: SetNull`. Which group this instructor is currently working. That row already exists once per instructor per course, so this is one column rather than a table, and deleting a group returns whoever was filtered to it to the unfiltered view rather than to an id that no longer resolves. One value across every screen, not one per screen: the fact being recorded is "I grade these fifteen", not "on the gradebook I look at these fifteen".
+
+**"All Students" is the picker's unfiltered option, not a row.** As a real group it would have to be kept in step by every path that creates an enrollment, and an instructor could rename it, delete it, or take a student out of it — any of which puts a student outside the default view, which is the invisibility a group is supposed to prevent. As `null` it needs no membership rows, cannot be edited, and makes "no student is outside the default view" true by construction. What it gives up is being renameable or targetable, and neither is wanted for a whole cohort.
+
+**"Ungrouped" is the third kind of entry in the picker, and is not remembered.** It lists the active students in no group at all, which is how a student who joined by the link mid-term is noticed in one click rather than by remembering to look for them. It is a check rather than a way of working, so choosing it filters the screen in front of you and leaves `gradingGroupId` alone.
+
+### What the filter must not break
+
+**Counts describe the selected set, and the heading names it.** Filtered to a group with nothing outstanding, triage says it is caught up, and that is a true statement about the group whose name sits above it. Unfiltered, the same screen counts the whole cohort. The buckets stay exhaustive either way, which is the property every count on three screens rests on: a group filter partitions the students, never the work.
+
+**Filtering happens on the server, in every procedure that feeds a filtered screen.** Triage and the grading queue could filter in the browser, since both already hold every row. `assignmentsOverview` cannot — its `counts.outstanding` are aggregated before they are sent, so a selected group has to reach the procedure or the screen shows a group's name above the cohort's numbers. Two implementations of one rule is how they come to disagree, and one server-side rule is what a check script can hold to account.
+
+**A removed student keeps their group memberships.** Removal is a status rather than a deleted row, so restoring somebody returns them to the groups they were in. The consequence is that every group-filtered read still applies `activeStudentWork` — otherwise a removed student's work, deliberately kept out of the unfiltered pile, would reappear the moment somebody filtered to their group.
+
+**Any instructor of the course manages the groups**, gated on `assertTeaches` the way modules are. Groups are not owned, so there is nothing here for ownership to gate.
+
+### Where it appears
+
+Managed on the roster, which already holds the cohort and already carries per-student actions. The picker goes on triage, the grading queue, the gradebook, and the assignments list — the four screens that answer "what is left", every one of which currently answers it for everybody.
+
+Groups are not copied when a course is copied. They are made for the cohort in front of you, and a set of empty groups named after last term's students is noise in a course that has no roster yet.
+
+### Deferred, and this is the table they want
+
+- **An assignment given to a group rather than to the cohort**, which is [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student). That item has been open for want of a way to name a subset of students, and this is it. All Students stays the default, and a group is what an instructor picks when the point is that not everybody is getting it.
+- **One submission on behalf of a group.** A submission belongs to a student today: `studentId` is non-null, its pair with the assignment is unique, the repository is created against one GitHub login, and approving writes the grade onto that one row. The version that keeps all of those is one student's submission being the real one, with approval copying the grade and the feedback onto their groupmates' rows. Each student then still has their own record, which is what the gradebook, the student's own feedback page, and [Salesforce](#salesforce-synchronization) all want anyway.
+- **Students seeing their groups and who else is in them.** Nothing about splitting the grading needs it, and it starts to matter only when students are working together — so it arrives with group assignments rather than before them. It would be the first student-visible read of anybody else in the cohort, which is why it wants deciding per group rather than for all of them: a project team is meant to be seen, and a group that exists only to split the marking is not.
 
 ---
 
@@ -1042,7 +1071,7 @@ What the axis is made of is already on the row: `submission.status` distinguishe
 Two things it needs beyond a filter control:
 
 - **It has to work across assignments**, which is the whole point — triage is already cohort-wide, so this belongs there rather than on one assignment's queue, and the queue's own filter should probably learn the same axis for consistency.
-- **A way to work the filtered set in order.** Grading twenty resubmissions means opening one, approving it, and wanting the next one without going back to a list. The review surface has no next-and-previous today, and a filter that hands somebody twenty items and no way to walk them is half the feature. That is shared with [dividing grading](#dividing-grading-between-co-teachers), which produces exactly the same need.
+- **A way to work the filtered set in order.** Grading twenty resubmissions means opening one, approving it, and wanting the next one without going back to a list. The review surface has no next-and-previous today, and a filter that hands somebody twenty items and no way to walk them is half the feature. This is the part [student groups](#student-groups-and-grading-a-portion-of-a-cohort) does not supply: a group narrows the four screens that already exist and needs nothing new to move between submissions, where working one pile of twenty at a sitting does.
 
 ---
 
@@ -1245,7 +1274,7 @@ Also unresolved, and cheap to note now: an instructor uploading a rubric to a fo
 
 **Vercel.** The 300-second function limit is the one already reasoned about. Beyond it: a fan-out of a hundred invocations is a hundred invocations' worth of Active CPU billing, and the webhook path is unaffected because it does one database write.
 
-**The one that is not a vendor limit.** A hundred students produce a hundred drafts an instructor has to read, and no amount of concurrency helps with that. Triage, [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), and [dividing grading between co-teachers](#dividing-grading-between-co-teachers) are the parts of this list that actually address a cohort of a hundred, which is worth noticing given they are the three cheapest items on it.
+**The one that is not a vendor limit.** A hundred students produce a hundred drafts an instructor has to read, and no amount of concurrency helps with that. Triage, [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), and [student groups](#student-groups-and-grading-a-portion-of-a-cohort) are the parts of this list that actually address a cohort of a hundred, which is worth noticing given they are the three cheapest items on it.
 
 ---
 

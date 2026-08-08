@@ -14,7 +14,7 @@ import {
   type ValidationFinding,
 } from '@/lib/assignments/validate';
 import { studentRepoName } from '@/lib/courses/cohort-slug';
-import { assertActiveStudent, assertCourseMember } from '@/lib/courses/membership';
+import { assertActiveStudent, assertCourseMember, assertTeaches } from '@/lib/courses/membership';
 import { effectiveSection } from '@/lib/grade/approve';
 import {
   getConfiguredInstallationId,
@@ -55,30 +55,6 @@ const assignmentFields = {
   acceptedFileTypes: true,
   submissionInstructions: true,
 } as const;
-
-/**
- * Whether the caller *teaches* this course, which is stronger than being a member of it.
- *
- * Every authoring procedure needs this rather than `assertCourseMember`: an enrolled student
- * is a member, and holding the INSTRUCTOR role says nothing about *which* courses. Without
- * the course-level check, one cohort's instructor could author or delete assignments in
- * another's.
- */
-async function assertTeaches(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
-  courseId: string,
-) {
-  if (ctx.profile.role === 'ADMIN') return;
-
-  const teaches = await ctx.db.courseInstructor.findFirst({
-    where: { courseId, userId: ctx.profile.id },
-    select: { id: true },
-  });
-
-  if (!teaches) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not teach this course.' });
-  }
-}
 
 /** Refuses a draft that would not grade correctly, naming the fields. */
 function refuseOnErrors(findings: ValidationFinding[]): void {

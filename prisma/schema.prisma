@@ -25,10 +25,10 @@ datasource db {
 /// Supabase Auth's user table. EXTERNAL — managed by Supabase, not Prisma.
 /// Only the columns this app reads are mapped; the real table has many more.
 model AuthUser {
-  id            String    @id @db.Uuid
-  email         String?   @unique
+  id               String    @id @db.Uuid
+  email            String?   @unique
   emailConfirmedAt DateTime? @map("email_confirmed_at") @db.Timestamptz(6)
-  createdAt     DateTime? @map("created_at") @db.Timestamptz(6)
+  createdAt        DateTime? @map("created_at") @db.Timestamptz(6)
 
   profile Profile?
 
@@ -47,39 +47,39 @@ enum Role {
 /// Application profile, 1:1 with auth.users. Owned by Prisma.
 model Profile {
   /// Same value as auth.users.id — this is the FK *and* the PK.
-  id          String   @id @db.Uuid
+  id             String   @id @db.Uuid
   // Nullable because auth.users.email is nullable (anonymous, phone, and some
   // OAuth signups have no email). A NOT NULL here would make the on-signup
   // trigger throw and break signup entirely.
-  email       String?  @unique
-  displayName String?  @map("display_name")
-  avatarUrl   String?  @map("avatar_url")
+  email          String?  @unique
+  displayName    String?  @map("display_name")
+  avatarUrl      String?  @map("avatar_url")
   /// GitHub login handle, populated on GitHub OAuth signup. Unique so one
   /// GitHub account maps to at most one profile. Nullable: email signups have
   /// none, and Postgres permits many NULLs under a unique constraint.
-  githubUsername String? @unique @map("github_username")
+  githubUsername String?  @unique @map("github_username")
   /// GitHub's numeric user ID — the DURABLE identity key. A user can rename
   /// their GitHub account, which changes githubUsername but never this. Use
   /// this for identity; use githubUsername only where GitHub's API needs a
   /// login string (repository naming, collaborator invitations).
-  githubUserId BigInt? @unique @map("github_user_id")
-  role        Role     @default(STUDENT)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  githubUserId   BigInt?  @unique @map("github_user_id")
+  role           Role     @default(STUDENT)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
   // default on the column so the on-signup trigger (which writes via raw SQL,
   // bypassing Prisma) can insert without specifying updated_at.
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  instructorOf     CourseInstructor[]
-  enrollments      Enrollment[]
-  submissions      Submission[]
-  gradedSubmissions Submission[]     @relation("GradedBy")
-  approvedDrafts    GradingDraft[]   @relation("ApprovedDrafts")
+  instructorOf      CourseInstructor[]
+  enrollments       Enrollment[]
+  submissions       Submission[]
+  gradedSubmissions Submission[]          @relation("GradedBy")
+  approvedDrafts    GradingDraft[]        @relation("ApprovedDrafts")
   editedSections    GradingDraftSection[] @relation("EditedSections")
-  invitesCreated    InstructorInvite[] @relation("InvitesCreated")
-  invitesRedeemed   InstructorInvite[] @relation("InvitesRedeemed")
+  invitesCreated    InstructorInvite[]    @relation("InvitesCreated")
+  invitesRedeemed   InstructorInvite[]    @relation("InvitesRedeemed")
 
   @@map("profiles")
   @@schema("public")
@@ -117,7 +117,7 @@ model InstructorInvite {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   /// Cascade: an admin's account being deleted should not leave invitations they issued behind.
-  createdBy Profile @relation("InvitesCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy  Profile  @relation("InvitesCreated", fields: [createdById], references: [id], onDelete: Cascade)
   /// SetNull rather than Cascade. If the redeemer's account is deleted the *record that this
   /// invitation was used* must survive — deleting it would erase the audit trail by removing the
   /// person it was about.
@@ -137,9 +137,9 @@ model InstructorInvite {
 // ===========================================================================
 
 model Course {
-  id         String    @id @default(uuid()) @db.Uuid
-  name       String
-  cohortTerm String    @map("cohort_term")
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String
+  cohortTerm   String    @map("cohort_term")
   /// The cohort's short name, which prefixes every repository it generates:
   /// `{cohortSlug}-{assignmentRepoName}-{github login}`.
   ///
@@ -160,7 +160,7 @@ model Course {
   ///
   /// Unique across every course, archived ones included — their repositories still exist. The
   /// constraint is what guarantees it; naming both halves only makes collisions rare.
-  cohortSlug String    @unique @map("cohort_slug")
+  cohortSlug   String    @unique @map("cohort_slug")
   /// The one link that enrolls a student in this course.
   ///
   /// An instructor copies it and sends it however they already talk to their students;
@@ -171,7 +171,7 @@ model Course {
   /// joins immediately, so a link that reached the wrong person is invalidated by replacing
   /// it, and the wrongly-enrolled student is removed from the roster. Random rather than
   /// derived from the id, because the id appears in URLs.
-  joinToken  String    @unique @map("join_token")
+  joinToken    String    @unique @map("join_token")
   /// The link that makes whoever opens it a co-instructor of this course.
   ///
   /// The counterpart to `joinToken`, and the reason it is a second column rather than a reuse:
@@ -187,18 +187,19 @@ model Course {
   /// Reusable, like the join link and unlike an `InstructorInvite`: a cohort gains co-teachers
   /// one at a time over a term, and the role check is what bounds it rather than the token
   /// being single use. Replacing it is the only control, the same as the join link.
-  coTeachToken String  @unique @map("co_teach_token")
+  coTeachToken String    @unique @map("co_teach_token")
   /// Set when a cohort finishes. The course leaves every active list and stays readable to
   /// the people who were in it; nothing new can be submitted. Reversible, because a tidying
   /// action that cannot be undone gets avoided instead of used.
-  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt   DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   instructors CourseInstructor[]
   enrollments Enrollment[]
   assignments Assignment[]
   modules     Module[]
+  groups      CourseGroup[]
 
   @@map("courses")
   @@schema("public")
@@ -208,18 +209,90 @@ model Course {
 /// is added as a collaborator on every generated student repository, so no
 /// repository ever needs manual permission changes.
 model CourseInstructor {
-  id        String   @id @default(uuid()) @db.Uuid
-  courseId  String   @map("course_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id             String   @id @default(uuid()) @db.Uuid
+  courseId       String   @map("course_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  /// Which group of this course's students this instructor is currently working.
+  ///
+  /// A remembered filter and nothing more: it does not say who may grade, it grants and
+  /// withholds nothing, and any instructor can change it at any moment from any of the four
+  /// screens that show the picker. One value rather than one per screen, because the fact it
+  /// records is "I grade these fifteen" and not "on the gradebook I look at these fifteen".
+  ///
+  /// NULL is All Students, so the default is the behaviour that existed before groups and
+  /// nothing had to be backfilled. `onDelete: SetNull` returns whoever was filtered to a
+  /// deleted group to the unfiltered view rather than to an id that no longer resolves.
+  gradingGroupId String?  @map("grading_group_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  user   Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user         Profile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gradingGroup CourseGroup? @relation(fields: [gradingGroupId], references: [id], onDelete: SetNull)
 
   @@unique([courseId, userId])
   @@map("course_instructors")
+  @@schema("public")
+}
+
+/// A named set of this course's students.
+///
+/// A group is a set and nothing else. It has no instructor, grants no permission, and
+/// decides nothing about who may grade — an instructor picks one and the screens that answer
+/// "what is left" narrow to it. Splitting a cohort between co-teachers is what it is for, and
+/// that works because the piles stop overlapping rather than because anything is enforced: a
+/// co-teacher covering for somebody else must still be able to approve their drafts.
+///
+/// Deliberately free of any instructor relation, which is what leaves it usable for the two
+/// things it is not yet: a project team, and the audience of an assignment given to part of a
+/// cohort. Both are the same shape.
+///
+/// There is no "All Students" row. That is the picker's unfiltered option, so no membership
+/// rows exist for it, no enrollment path has to remember to write one, and no instructor can
+/// rename or empty it — which is what makes "every student is in the default view" true by
+/// construction rather than by maintenance.
+model CourseGroup {
+  id        String   @id @default(uuid()) @db.Uuid
+  courseId  String   @map("course_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  memberships GroupMembership[]
+  /// The instructors currently filtered to this group. Present so that deleting a group can
+  /// null their column rather than orphan it.
+  filteredBy  CourseInstructor[]
+
+  /// One "Squad 1" per course. Ordered by name in the picker, which is why there is no
+  /// position column: a list of four entries does not need reordering.
+  @@unique([courseId, name])
+  @@map("course_groups")
+  @@schema("public")
+}
+
+/// One student's membership of one group.
+///
+/// Joined to the **enrollment** rather than to the profile, so the foreign key is what
+/// guarantees a group's members are students of that group's course. The alternative is a
+/// validation rule, and a validation rule is something a second caller can forget.
+///
+/// A removed student keeps their memberships. Removal is a status rather than a deleted row,
+/// so restoring somebody returns them to the groups they were in — and every group-filtered
+/// read applies `activeStudentWork` anyway, so their work stays out of the pile until then.
+model GroupMembership {
+  id           String   @id @default(uuid()) @db.Uuid
+  groupId      String   @map("group_id") @db.Uuid
+  enrollmentId String   @map("enrollment_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  group      CourseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  enrollment Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, enrollmentId])
+  @@index([enrollmentId])
+  @@map("group_memberships")
   @@schema("public")
 }
 
@@ -251,8 +324,9 @@ model Enrollment {
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  student Profile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course           Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student          Profile           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  groupMemberships GroupMembership[]
 
   @@unique([courseId, studentId])
   @@map("enrollments")
@@ -363,18 +437,18 @@ model Module {
 }
 
 model Assignment {
-  id       String @id @default(uuid()) @db.Uuid
-  courseId String @map("course_id") @db.Uuid
-  title    String
+  id                  String         @id @default(uuid()) @db.Uuid
+  courseId            String         @map("course_id") @db.Uuid
+  title               String
   /// Which module of the course this belongs to. NOT NULL, so an assignment cannot
   /// exist outside one — which is the point of the change that introduced it.
-  moduleId String @map("module_id") @db.Uuid
-  kind     AssignmentKind @default(REPO)
-  pointValue Int   @map("point_value")
+  moduleId            String         @map("module_id") @db.Uuid
+  kind                AssignmentKind @default(REPO)
+  pointValue          Int            @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
   /// working-with-assignments.md.
-  completionThreshold Float @default(0.75) @map("completion_threshold")
-  dueAt    DateTime? @map("due_at") @db.Timestamptz(6)
+  completionThreshold Float          @default(0.75) @map("completion_threshold")
+  dueAt               DateTime?      @map("due_at") @db.Timestamptz(6)
   /// The repository columns below are required when `kind` is REPO and null
   /// otherwise. The requirement is enforced by the Zod schema in lib/assignments/spec.ts rather
   /// than by the columns, because a column cannot express "required for one kind"
@@ -392,7 +466,7 @@ model Assignment {
   /// It has to be a public repository with GitHub's template flag set: an installation
   /// token can read a public repository in an organization the App is not installed on,
   /// and `generate` refuses a repository that is not a template.
-  templateRepo String? @map("template_repo")
+  templateRepo       String? @map("template_repo")
   /// "owner/repo" of the repository holding this assignment's reference solutions.
   ///
   /// **Private, in an organization the App is installed on.** Templates are public
@@ -403,7 +477,7 @@ model Assignment {
   /// GRADING_ASSETS_REPO used to be for. That variable keeps a narrower job: `rubric.md`,
   /// `agent-rules.md`, and the sample reports are program-wide prompt code and are still
   /// read from it.
-  answerKeyRepo String? @map("answer_key_repo")
+  answerKeyRepo      String? @map("answer_key_repo")
   /// The directory inside `answerKeyRepo` whose contents *are* the reference solutions.
   ///
   /// Every file under it, at any depth, with nothing selected. An instructor pastes the
@@ -415,19 +489,19 @@ model Assignment {
   /// assignment's solutions and nothing else. NULL for the kinds with no repository, which
   /// have no reference solutions at all. Recognisable binaries are skipped and the file count
   /// is capped, both reported rather than silent — see lib/grade/assets.ts.
-  answerKeyDir String? @map("answer_key_dir")
+  answerKeyDir       String? @map("answer_key_dir")
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
   /// are named `{cohortSlug}-{assignmentRepoName}-{student github login}`, where the slug
   /// comes from the course — see `Course.cohortSlug`.
   assignmentRepoName String? @map("assignment_repo_name")
-  githubOrg String? @map("github_org")
+  githubOrg          String? @map("github_org")
   /// Which template commit the tests come from. Null means the template's
   /// default branch, which is what you want during a cohort: a bug fixed in the
   /// template reaches every subsequent run, including re-runs for students who
   /// accepted before the fix. Set it to an exact commit SHA to archive a
   /// finished cohort, so re-grading an old submission years later reproduces
   /// the result it originally received.
-  templateRef String? @map("template_ref")
+  templateRef        String? @map("template_ref")
 
   /// The Drive file a GOOGLE_DRIVE assignment is copied from — a Doc, a Sheet, or a
   /// Slides deck. Required when `kind` is GOOGLE_DRIVE and null otherwise, enforced by
@@ -483,7 +557,7 @@ model Assignment {
   ///   "testNamePattern": "^from-scratch"
   ///                              — absent with evidence:"tests" means the
   ///                                whole suite counts toward this section
-  sections Json @default("[]")
+  sections      Json      @default("[]")
 
   /// Names an entry in lib/sandbox/presets.ts. "none" is a real preset and the
   /// default: short response assignments have nothing to execute, and frontend
@@ -494,7 +568,7 @@ model Assignment {
   /// Shallow override merged over the named preset. Most assignments leave this
   /// null. An assignment needing a system dependency gets a purpose-built E2B
   /// template and names it here as `{"e2bTemplate": "..."}`, with no code change.
-  runnerConfig Json? @map("runner_config")
+  runnerConfig Json?  @map("runner_config")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -547,22 +621,22 @@ model Submission {
   studentId    String           @map("student_id") @db.Uuid
   status       SubmissionStatus @default(NOT_STARTED)
 
-  repoFullName String? @unique @map("repo_full_name")
-  repoUrl      String? @map("repo_url")
+  repoFullName              String? @unique @map("repo_full_name")
+  repoUrl                   String? @map("repo_url")
   /// The GitHub login used when the repository was created. Preserved because a
   /// student can rename their GitHub account afterward, and the repository name
   /// does not change with them.
   repoGithubLoginAtCreation String? @map("repo_github_login_at_creation")
 
-  prNumber   Int?      @map("pr_number")
-  prUrl      String?   @map("pr_url")
+  prNumber     Int?    @map("pr_number")
+  prUrl        String? @map("pr_url")
   /// Where the student's work is, for a kind that has no repository: the URL of
   /// their own copy of a Google Doc, pasted in when they submit. Null for every
   /// other kind, FILE_UPLOAD included — a path in a private bucket and a link to
   /// a document are not the same thing, and the review screen opens them
   /// differently, so the four columns below hold the stored file instead of this
   /// one pretending to.
-  submittedUrl String?  @map("submitted_url")
+  submittedUrl String? @map("submitted_url")
 
   /// The uploaded file, for a FILE_UPLOAD assignment. All four are written
   /// together by the upload route or all four are null; there is no state where
@@ -573,26 +647,26 @@ model Submission {
   /// student chose, which is not something to build a path out of.
   /// `uploadFilename` keeps that name anyway, because it is what the instructor
   /// should see and what their browser should call the download.
-  uploadPath        String? @map("upload_path")
-  uploadFilename    String? @map("upload_filename")
-  uploadSizeBytes   Int?    @map("upload_size_bytes")
-  uploadContentType String? @map("upload_content_type")
-  headBranch String?   @map("head_branch")
-  headSha    String?   @map("head_sha")
-  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(6)
-  isLate     Boolean?  @map("is_late")
-  lastActivityAt DateTime? @map("last_activity_at") @db.Timestamptz(6)
+  uploadPath        String?   @map("upload_path")
+  uploadFilename    String?   @map("upload_filename")
+  uploadSizeBytes   Int?      @map("upload_size_bytes")
+  uploadContentType String?   @map("upload_content_type")
+  headBranch        String?   @map("head_branch")
+  headSha           String?   @map("head_sha")
+  submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
+  isLate            Boolean?  @map("is_late")
+  lastActivityAt    DateTime? @map("last_activity_at") @db.Timestamptz(6)
 
-  finalScore         Float?  @map("final_score")
-  finalScorePossible Float?  @map("final_score_possible")
-  isComplete         Boolean? @map("is_complete")
-  feedbackMarkdown   String? @map("feedback_markdown")
-  gradedById         String? @map("graded_by") @db.Uuid
+  finalScore         Float?    @map("final_score")
+  finalScorePossible Float?    @map("final_score_possible")
+  isComplete         Boolean?  @map("is_complete")
+  feedbackMarkdown   String?   @map("feedback_markdown")
+  gradedById         String?   @map("graded_by") @db.Uuid
   gradedAt           DateTime? @map("graded_at") @db.Timestamptz(6)
   /// The commit the approved grade describes. `headSha != gradedHeadSha` means the
   /// student has pushed code newer than what was graded — a comparison of two
   /// columns, needing no API call and true the instant the push lands.
-  gradedHeadSha      String? @map("graded_head_sha")
+  gradedHeadSha      String?   @map("graded_head_sha")
 
   /// Unused in this build. Present so the future Salesforce job can query
   /// `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at
@@ -604,9 +678,9 @@ model Submission {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  student    Profile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  gradedBy   Profile?   @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
+  assignment    Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student       Profile        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gradedBy      Profile?       @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
   gradingDrafts GradingDraft[]
   testRuns      TestRun[]
 
@@ -665,29 +739,29 @@ model TestRun {
   trigger      TestRunTrigger @default(MANUAL)
   status       TestRunStatus  @default(RUNNING)
 
-  runnerPreset String  @map("runner_preset")
-  e2bTemplate  String  @map("e2b_template")
-  sandboxId    String? @map("sandbox_id")
+  runnerPreset      String  @map("runner_preset")
+  e2bTemplate       String  @map("e2b_template")
+  sandboxId         String? @map("sandbox_id")
   /// The template commit whose tests actually ran. Makes "these tests are newer
   /// than what the student was given" answerable after the fact.
   templateCommitSha String? @map("template_commit_sha")
 
-  setupExitCode Int? @map("setup_exit_code")
-  testExitCode  Int? @map("test_exit_code")
-  testsTotal    Int? @map("tests_total")
-  testsPassed   Int? @map("tests_passed")
-  testsFailed   Int? @map("tests_failed")
-  testsSkipped  Int? @map("tests_skipped")
+  setupExitCode Int?   @map("setup_exit_code")
+  testExitCode  Int?   @map("test_exit_code")
+  testsTotal    Int?   @map("tests_total")
+  testsPassed   Int?   @map("tests_passed")
+  testsFailed   Int?   @map("tests_failed")
+  testsSkipped  Int?   @map("tests_skipped")
   /// passed / total. NOT the score, and NOT compared against
   /// assignment.completionThreshold. Completion is judged on the final rubric
   /// score, of which test outcomes are one input among several: a submission
   /// that passes every test by returning hardcoded values has satisfied one
   /// criterion and should still lose points elsewhere.
-  passRate Float? @map("pass_rate")
+  passRate      Float? @map("pass_rate")
 
   /// Per-test detail, one normalized shape for every runner:
   /// [{ suite, name, status, durationMs?, failureMessage? }]
-  results Json @default("[]")
+  results       Json @default("[]")
   /// [{ path, kind: "added"|"modified"|"removed"|"renamed", previousPath? }] —
   /// protected paths the pull request changes, taken from the pull request's own
   /// diff and therefore measured against the template snapshot this student
@@ -702,16 +776,16 @@ model TestRun {
   stderrTail  String? @map("stderr_tail")
   errorDetail String? @map("error_detail")
 
-  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  startedAt       DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
   /// Wall clock for the whole run. An input to the Phase 4 orchestration
   /// decision, which turns on whether test execution alone already approaches a
   /// single function invocation's time limit.
-  durationMs Int? @map("duration_ms")
+  durationMs      Int?      @map("duration_ms")
   /// The setup command's share of durationMs, recorded separately because
   /// removing the install step is the largest speed improvement available and
   /// that decision needs numbers.
-  setupDurationMs Int? @map("setup_duration_ms")
+  setupDurationMs Int?      @map("setup_duration_ms")
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
@@ -749,32 +823,32 @@ enum Confidence {
 /// relates to it and because the status values are what the instructor
 /// interface will read.
 model GradingDraft {
-  id           String             @id @default(uuid()) @db.Uuid
-  submissionId String             @map("submission_id") @db.Uuid
+  id                String             @id @default(uuid()) @db.Uuid
+  submissionId      String             @map("submission_id") @db.Uuid
   /// The commit this run describes, and null when the work has no commit — a hand-graded
   /// Google Doc or upload. Nullable rather than carrying a placeholder, because every
   /// reader of this column compares it against the submission's own `head_sha` to decide
   /// whether a draft has been overtaken, and a placeholder would have to be recognised as
   /// "not really a commit" at each of those comparisons. Null compares as "no commit to be
   /// out of date against", which is the truth.
-  headSha      String?            @map("head_sha")
-  status       GradingDraftStatus @default(GENERATING)
-  errorDetail  String?            @map("error_detail")
+  headSha           String?            @map("head_sha")
+  status            GradingDraftStatus @default(GENERATING)
+  errorDetail       String?            @map("error_detail")
   /// Model id, prompt version, grading-asset commit SHA, token usage.
-  modelMetadata Json?             @map("model_metadata")
+  modelMetadata     Json?              @map("model_metadata")
   /// Set when an instructor approved this draft. Non-null here is what makes a draft
   /// part of the student's feedback history rather than a discarded proposal.
-  approvedAt   DateTime?          @map("approved_at") @db.Timestamptz(6)
-  approvedById String?            @map("approved_by") @db.Uuid
+  approvedAt        DateTime?          @map("approved_at") @db.Timestamptz(6)
+  approvedById      String?            @map("approved_by") @db.Uuid
   /// The pull request comment this approval posted.
   ///
   /// Recorded per draft, not per submission, because each approval posts its own
   /// comment and they accumulate: a student and an instructor can both read back
   /// through earlier rounds of feedback, which is the point of grading a resubmission
   /// rather than overwriting the first attempt.
-  postedPrCommentId BigInt?       @map("posted_pr_comment_id")
-  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  postedPrCommentId BigInt?            @map("posted_pr_comment_id")
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   submission Submission            @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   approvedBy Profile?              @relation("ApprovedDrafts", fields: [approvedById], references: [id], onDelete: SetNull)
@@ -789,25 +863,25 @@ model GradingDraft {
 /// section per run. The submission's final score on approval is the sum of a
 /// run's section scores; the review interface renders each section separately.
 model GradingDraftSection {
-  id             String  @id @default(uuid()) @db.Uuid
-  gradingDraftId String  @map("grading_draft_id") @db.Uuid
-  sectionType    String  @map("section_type")
-  reportMarkdown String? @map("report_markdown")
-  scoreEarned    Float?  @map("score_earned")
-  scorePossible  Float?  @map("score_possible")
+  id                    String      @id @default(uuid()) @db.Uuid
+  gradingDraftId        String      @map("grading_draft_id") @db.Uuid
+  sectionType           String      @map("section_type")
+  reportMarkdown        String?     @map("report_markdown")
+  scoreEarned           Float?      @map("score_earned")
+  scorePossible         Float?      @map("score_possible")
   /// Per-criterion breakdown.
-  rubricItems    Json    @default("[]") @map("rubric_items")
+  rubricItems           Json        @default("[]") @map("rubric_items")
   /// Short codes only, e.g. ["MECHANICAL", "CLARITY"]. The review interface renders each
   /// one as a badge, so prose does not belong here — see instructorNotes.
-  flags          String[] @default([])
+  flags                 String[]    @default([])
   /// The model's caveats for the instructor, in prose. Never shown to the student:
   /// "the file I needed was absent", "this point value does not divide evenly into
   /// the checklist in the README".
-  instructorNotes String[] @default([]) @map("instructor_notes")
-  confidence     Confidence?
+  instructorNotes       String[]    @default([]) @map("instructor_notes")
+  confidence            Confidence?
   /// The "you pushed to a non-draft branch" note that agent-rules.md already
   /// generates today.
-  submissionProcessNote String? @map("submission_process_note")
+  submissionProcessNote String?     @map("submission_process_note")
 
   /// An instructor's revision of the report, kept alongside the model's original
   /// rather than replacing it. Null until someone edits.
@@ -821,8 +895,8 @@ model GradingDraftSection {
   editedAt             DateTime? @map("edited_at") @db.Timestamptz(6)
   editedById           String?   @map("edited_by") @db.Uuid
 
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   gradingDraft GradingDraft @relation(fields: [gradingDraftId], references: [id], onDelete: Cascade)
   editedBy     Profile?     @relation("EditedSections", fields: [editedById], references: [id], onDelete: SetNull)

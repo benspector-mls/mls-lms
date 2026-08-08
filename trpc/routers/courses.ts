@@ -8,7 +8,13 @@ import {
   suggestCohortSlug,
 } from '@/lib/courses/cohort-slug';
 import { newJoinToken } from '@/lib/courses/join-token';
-import { removedStudentIds } from '@/lib/courses/membership';
+import { groupSelectionInput, parseGroupSelection } from '@/lib/courses/groups';
+import {
+  assertTeaches,
+  enrollmentsIn,
+  removedStudentIds,
+  selectedStudentIds,
+} from '@/lib/courses/membership';
 import { assertOwnsCourse, ownerOf } from '@/lib/courses/ownership';
 import { undeliveredApprovalWhere } from '@/lib/grade/approve';
 import { triageBucket } from '@/lib/grade/triage';
@@ -166,7 +172,7 @@ export const coursesRouter = createTRPCRouter({
   roster: instructorProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
@@ -218,9 +224,17 @@ export const coursesRouter = createTRPCRouter({
    * lists.
    */
   assignmentsOverview: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
+    .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
+      /*
+        The screen this feeds is the reason every group filter is applied on the server. Its
+        counts are aggregated here and sent as numbers, so there is nothing left for the browser
+        to narrow — filtering in the browser on the other three screens and here would leave one
+        rule with two implementations, and the visible failure is a group's name above the whole
+        cohort's figures.
+      */
+      const selection = parseGroupSelection(input.group);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
@@ -272,6 +286,7 @@ export const coursesRouter = createTRPCRouter({
         with nothing on either screen to reconcile them.
       */
       const removed = await removedStudentIds(ctx.db, course.id);
+      const inSelection = await selectedStudentIds(ctx.db, course.id, selection);
       const counts = new Map(
         assignments.map((assignment) => [
           assignment.id,
@@ -281,6 +296,7 @@ export const coursesRouter = createTRPCRouter({
 
       for (const cell of cells) {
         if (removed.has(cell.studentId)) continue;
+        if (inSelection && !inSelection.has(cell.studentId)) continue;
         const entry = counts.get(cell.assignmentId);
         if (!entry) continue;
         if (cell.finalScore != null) entry.graded += 1;
@@ -316,7 +332,7 @@ export const coursesRouter = createTRPCRouter({
   settings: instructorProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
@@ -420,9 +436,10 @@ export const coursesRouter = createTRPCRouter({
    * list. Everything still here is something the grid itself draws.
    */
   gradebook: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
+    .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
     .query(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
+      const selection = parseGroupSelection(input.group);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
@@ -462,9 +479,13 @@ export const coursesRouter = createTRPCRouter({
           Every status, then split into complements below. The grid must not count a removed
           student, or a departed student reads as somebody with unfinished work forever — but
           it does show their rows in a table of their own, which needs them fetched.
+
+          Narrowed by the selected group here, which is what makes this the one list the grid is
+          built from: the rows, the removed table, and the cells below all follow from it, so
+          there is no way for the grid to show a group's students and count somebody else's work.
         */
         ctx.db.enrollment.findMany({
-          where: { courseId: course.id },
+          where: enrollmentsIn(course.id, selection),
           orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
           select: {
             id: true,
@@ -485,6 +506,23 @@ export const coursesRouter = createTRPCRouter({
           .filter((enrollment) => enrollment.status !== 'ACTIVE')
           .map((enrollment) => enrollment.student.id),
       );
+
+      /*
+        Whose cells this grid is allowed to hold, or null when nothing is selected.
+
+        `courseCells` reads every submission in the course, so without this the grid would list
+        the group's students and still carry everybody else's cells — invisible in the grid,
+        which draws by row, and wrong in every figure computed from the array.
+
+        Read off the roster above rather than queried again, so the rows and the cells cannot be
+        narrowed by two different answers to the same question. Null when unfiltered, which
+        leaves the previous behaviour exactly: a submission whose student somehow has no
+        enrollment row stays where it was rather than vanishing from their own gradebook.
+      */
+      const visible =
+        selection.kind === 'all'
+          ? null
+          : new Set(enrollments.map((enrollment) => enrollment.student.id));
 
       return {
         course,
@@ -515,7 +553,10 @@ export const coursesRouter = createTRPCRouter({
          * that is the set triage works from. Getting this wrong is quiet — the heading claims work
          * is waiting and triage shows nothing to do, with no way to reconcile them.
          */
-        cells: cells.filter((cell) => !removed.has(cell.studentId)),
+        cells: cells.filter(
+          (cell) =>
+            !removed.has(cell.studentId) && (visible === null || visible.has(cell.studentId)),
+        ),
         /**
          * The same, for students who have been removed — their record, not the cohort's state.
          *
@@ -526,6 +567,13 @@ export const coursesRouter = createTRPCRouter({
          * Partitioned from one query rather than fetched separately, so the two are exhaustive.
          */
         removedCells: cells.filter((cell) => removed.has(cell.studentId)),
+        /**
+         * Which group this grid was built for, so the screen can name what it narrowed to.
+         *
+         * A gradebook showing eight rows is a different claim depending on whether the cohort
+         * has eight students, and the heading is the only place that can say which.
+         */
+        groupSelection: input.group,
       };
     }),
 
@@ -940,7 +988,7 @@ export const coursesRouter = createTRPCRouter({
   regenerateJoinToken: instructorProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
 
       return ctx.db.course.update({
         where: { id: input.courseId },
@@ -1120,7 +1168,7 @@ export const coursesRouter = createTRPCRouter({
   regenerateCoTeachToken: instructorProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
 
       return ctx.db.course.update({
         where: { id: input.courseId },
@@ -1152,7 +1200,7 @@ export const coursesRouter = createTRPCRouter({
   removeInstructor: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertTeachesCourse(ctx, input.courseId);
+      await assertTeaches(ctx, input.courseId);
 
       /*
         Every instructor on the course in one read, rather than the target row and a count.
@@ -1420,19 +1468,3 @@ async function assertArchivedAndOwned(
   return course;
 }
 
-/** Refuses unless the caller teaches this course. Admins teach none and may do anything. */
-async function assertTeachesCourse(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
-  courseId: string,
-): Promise<void> {
-  if (ctx.profile.role === 'ADMIN') return;
-
-  const teaches = await ctx.db.courseInstructor.findFirst({
-    where: { courseId, userId: ctx.profile.id },
-    select: { id: true },
-  });
-
-  if (!teaches) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not teach this course.' });
-  }
-}

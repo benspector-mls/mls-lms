@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 
+import { GroupManager } from '@/components/instructor/group-manager';
 import { CourseRoster } from '@/components/instructor/roster';
 import { ListSkeleton } from '@/components/list-states';
 import { PageHeader } from '@/components/page-header';
@@ -32,7 +33,18 @@ function RosterFallback() {
 
 async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = await params;
-  const data = await getQueryClient().fetchQuery(trpc.courses.roster.queryOptions({ courseId }));
+  const queryClient = getQueryClient();
+
+  /*
+    No group filter on this screen, deliberately, and it is the only instructor screen without
+    one. The roster is where groups are *made*; a roster narrowed to a group could not show the
+    student who is in none, which is exactly who an instructor comes here to place.
+  */
+  const [data, groups, memberships] = await Promise.all([
+    queryClient.fetchQuery(trpc.courses.roster.queryOptions({ courseId })),
+    queryClient.fetchQuery(trpc.groups.listForCourse.queryOptions({ courseId })),
+    queryClient.fetchQuery(trpc.groups.membershipsForCourse.queryOptions({ courseId })),
+  ]);
 
   const active = data.enrollments.filter((enrollment) => enrollment.status === 'ACTIVE').length;
 
@@ -43,6 +55,7 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
         description={`${active} ${active === 1 ? 'student' : 'students'} in this cohort`}
       />
       <CourseRoster data={data} />
+      <GroupManager courseId={courseId} data={groups} memberships={memberships} />
     </div>
   );
 }

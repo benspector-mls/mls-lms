@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 
 import { GradingQueue } from '@/components/instructor/grading-queue';
 import { ListSkeleton } from '@/components/list-states';
+import { resolveGroup } from '@/lib/courses/resolve-group';
 import { requireCourseMatch } from '@/lib/instructor/course-scope';
 import { gradingQueueHref } from '@/lib/links';
 import { getQueryClient, trpc } from '@/trpc/server';
@@ -20,12 +21,14 @@ import { getQueryClient, trpc } from '@/trpc/server';
  */
 export default function GradingQueuePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ courseId: string; assignmentId: string }>;
+  searchParams: Promise<{ group?: string }>;
 }) {
   return (
     <Suspense fallback={<QueueFallback />}>
-      <Queue params={params} />
+      <Queue params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
@@ -44,16 +47,27 @@ function QueueFallback() {
  */
 async function Queue({
   params,
+  searchParams,
 }: {
   params: Promise<{ courseId: string; assignmentId: string }>;
+  searchParams: Promise<{ group?: string }>;
 }) {
   const { courseId, assignmentId } = await params;
   const queryClient = getQueryClient();
 
+  /*
+    Resolved against the course in the address rather than the assignment's own, which are the
+    same course — `requireCourseMatch` below redirects when they are not. Reading the URL's is
+    what lets this happen before the assignment has been fetched.
+  */
+  const groups = await resolveGroup(courseId, (await searchParams).group);
+
   // Both, because the completion threshold decides whether a score passes and is not on
   // the submission list.
   const [data, assignment] = await Promise.all([
-    queryClient.fetchQuery(trpc.submissions.listForAssignment.queryOptions({ assignmentId })),
+    queryClient.fetchQuery(
+      trpc.submissions.listForAssignment.queryOptions({ assignmentId, group: groups.group }),
+    ),
     queryClient.fetchQuery(trpc.assignments.get.queryOptions({ assignmentId })),
   ]);
 
@@ -66,6 +80,8 @@ async function Queue({
   return (
     <GradingQueue
       data={data}
+      courseId={courseId}
+      groups={groups}
       completionThreshold={assignment.completionThreshold}
       now={new Date()}
     />

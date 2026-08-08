@@ -2,6 +2,7 @@ import "server-only";
 
 import { TRPCError } from "@trpc/server";
 
+import type { GroupSelection } from "./groups";
 import type { db as Db } from "../prisma";
 
 /**
@@ -18,9 +19,9 @@ import type { db as Db } from "../prisma";
  * spotting a difference — it is not noticing there was a decision to make. A new caller has to
  * pick a function, and the names say what picking one means.
  *
- * Neither is a substitute for `assertTeaches`, which is stronger than both: holding the
- * INSTRUCTOR role says nothing about *which* courses, so authoring anything checks the
- * `CourseInstructor` row instead.
+ * Neither is a substitute for `assertTeaches`, which is stronger than both and is also here:
+ * holding the INSTRUCTOR role says nothing about *which* courses, so authoring anything checks
+ * the `CourseInstructor` row instead.
  *
  * Both exist because **Prisma is not restricted by row level security.** It connects as the
  * table owner, so without a check in the procedure any signed-in user could read any course by
@@ -122,6 +123,31 @@ export async function assertActiveStudent(ctx: Ctx, courseId: string): Promise<v
   });
 }
 
+/**
+ * Refuses unless the caller **teaches** this course. Admins teach none and may do anything.
+ *
+ * The check the INSTRUCTOR role cannot make on its own. Holding the role says somebody is staff,
+ * not which cohorts are theirs, so without this one cohort's instructor could author in another's,
+ * rename its modules, or regroup its students.
+ *
+ * Here rather than private to a router because four of them want it and an identical guard
+ * copied four times is four places for it to drift. The `ctx` is structural so a caller can pass
+ * a transaction as `db`, which is what lets the check scripts drive these procedures inside a
+ * transaction they then roll back.
+ */
+export async function assertTeaches(ctx: Ctx, courseId: string): Promise<void> {
+  if (ctx.profile.role === "ADMIN") return;
+
+  const teaches = await ctx.db.courseInstructor.findFirst({
+    where: { courseId, userId: ctx.profile.id },
+    select: { id: true },
+  });
+
+  if (!teaches) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You do not teach this course." });
+  }
+}
+
 // =======================================================================================
 // The same two questions, asked about a cohort's work rather than about the caller
 //
@@ -140,7 +166,8 @@ export async function assertActiveStudent(ctx: Ctx, courseId: string): Promise<v
 // =======================================================================================
 
 /**
- * A `where` fragment on `Submission` restricting it to students currently in the cohort.
+ * A `where` fragment on `Submission` restricting it to students currently in the cohort, and
+ * optionally to one group of them.
  *
  * For the work lists — grading triage, and the counts that have to agree with it. Spread into an
  * existing `where`; it composes with anything because it only constrains the student.
@@ -148,9 +175,89 @@ export async function assertActiveStudent(ctx: Ctx, courseId: string): Promise<v
  * Scoped to *this* course on purpose. Enrollment status is per cohort, so asking "is this student
  * active" without naming the course would let a student's enrollment in some other cohort keep
  * their work in this one's triage.
+ *
+ * **The group narrows the same `some:` clause rather than adding a second fragment**, and that is
+ * the whole reason it lives here instead of beside this function. Both questions constrain
+ * `student`, so two fragments spread into one `where` would leave the second silently replacing
+ * the first — an object literal has one `student` key — and the failure is a filtered screen that
+ * quietly stopped excluding removed students, or an unfiltered one that quietly stopped counting
+ * the cohort. Neither throws. One function producing one constraint is what makes that
+ * unexpressible.
+ *
+ * Folding it into the enrollment is also what makes it correct rather than merely convenient: a
+ * membership hangs off the enrollment, so "in this course, active, and in this group" is one
+ * condition on one row rather than three joins that could each be satisfied by a different
+ * enrollment.
+ *
+ * A group belonging to some other course matches nothing, because no enrollment in *this* course
+ * can be a member of it. That is the safe direction — an empty screen rather than another
+ * cohort's students — so a stale id costs a query rather than a check on every call.
  */
-export function activeStudentWork(courseId: string) {
-  return { student: { enrollments: { some: { courseId, status: "ACTIVE" as const } } } };
+export function activeStudentWork(courseId: string, selection: GroupSelection = { kind: "all" }) {
+  return {
+    student: {
+      enrollments: { some: { courseId, status: "ACTIVE" as const, ...groupCondition(selection) } },
+    },
+  };
+}
+
+/**
+ * The same narrowing expressed against `Enrollment` rather than against `Submission`.
+ *
+ * The gradebook and the roster read enrollments directly rather than through the work, so they
+ * need the condition one level up. It calls the same `groupCondition` as its sibling above, so
+ * "in this group" cannot come to mean two things depending on which screen asked.
+ *
+ * Enrollment status is deliberately absent: these callers want every status and sort the two
+ * apart themselves, which is what keeps a removed student in the gradebook and out of the pile.
+ */
+export function enrollmentsIn(courseId: string, selection: GroupSelection = { kind: "all" }) {
+  return { courseId, ...groupCondition(selection) };
+}
+
+/**
+ * "Is this enrollment in the selected group", as a condition on an `Enrollment`.
+ *
+ * The one definition of what a selection means, called by both of the above. `all` contributes
+ * nothing, which is what makes it the absence of a filter rather than a filter that happens to
+ * match everybody.
+ */
+function groupCondition(selection: GroupSelection) {
+  if (selection.kind === "group") {
+    return { groupMemberships: { some: { groupId: selection.groupId } } };
+  }
+  if (selection.kind === "ungrouped") {
+    return { groupMemberships: { none: {} } };
+  }
+  return {};
+}
+
+/**
+ * Which students the selected group holds, or **null** when nothing is selected.
+ *
+ * For the reads that cannot narrow with a `where` because they have already fetched the rows —
+ * the gradebook and the assignments list both build a grid of cells first and count it after, so
+ * the group has to be applied as a membership test rather than as a query.
+ *
+ * Null rather than a set of everybody. `all` is the absence of a filter, so there is no query to
+ * run and nothing to compare against: building the set anyway would make the unfiltered case pay
+ * for a narrowing it is not doing, and would drop a student whose enrollment row is somehow
+ * missing out of their own gradebook rather than leaving them where they were. Every caller
+ * writes `if (set && !set.has(id))`, which is the shape that says "only when filtering".
+ */
+export async function selectedStudentIds(
+  db: Ctx["db"],
+  courseId: string,
+  selection: GroupSelection,
+): Promise<Set<string> | null> {
+  if (selection.kind === "all") return null;
+
+  const enrollments = await db.enrollment.findMany({
+    where: enrollmentsIn(courseId, selection),
+    select: { studentId: true },
+  });
+
+  return new Set(enrollments.map((enrollment) => enrollment.studentId));
 }
 
 /**

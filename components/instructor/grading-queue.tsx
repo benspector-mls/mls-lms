@@ -2,9 +2,10 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
-import { Inbox, Search, UserMinus } from 'lucide-react';
+import { Inbox, Search, UserMinus, Users } from 'lucide-react';
 
 import { GradingReview } from '@/components/instructor/grading-review';
+import { GroupPicker } from '@/components/instructor/group-picker';
 import { SubmissionRow } from '@/components/instructor/submission-row';
 import { studentHref } from '@/lib/links';
 import { Input } from '@/components/ui/input';
@@ -27,10 +28,20 @@ type Filter = 'needs_review' | 'graded' | 'all';
 
 export function GradingQueue({
   data,
+  courseId,
+  groups,
   completionThreshold,
   now,
 }: {
   data: Data;
+  /** For the picker, which records a selection against a course rather than an assignment. */
+  courseId: string;
+  /** The picker's options and the selection this queue was built for, from `resolveGroup`. */
+  groups: {
+    group: string;
+    groups: { id: string; name: string; memberCount: number }[];
+    ungroupedCount: number;
+  };
   completionThreshold: number;
   now: Date;
 }) {
@@ -84,21 +95,24 @@ export function GradingQueue({
     The selection survives a filter that no longer contains it, so switching tabs does not
     quietly swap the student being read.
 
-    `removedSubmissions` is searched too, and only here. A removed student is never in the list —
-    nobody is going to grade work from somebody who has left, which is why they are out of triage
-    as well — but the gradebook's Removed table links straight to one of these, and a link into a
-    screen that will not show what it points at is worse than no link at all. So the pile is the
-    cohort, and asking for one submission by name still answers.
+    `asideSubmissions` is searched too, and only here. It holds the work this queue never lists —
+    a student who has left the cohort, and a student outside the group currently selected — and
+    both are things a link can legitimately name. The gradebook's Removed table links straight to
+    one, and a colleague's link or a stale tab names the other. Falling through to `filtered[0]`
+    for either would show a different student's report under a URL that named one, which is worse
+    than an empty pane because nothing about it looks wrong.
   */
   const selected =
     submissions.find((row) => row.id === selectedId) ??
-    data.removedSubmissions.find((row) => row.id === selectedId) ??
+    data.asideSubmissions.find((row) => row.id === selectedId) ??
     filtered[0] ??
     null;
 
-  /** Whether the open submission belongs to somebody no longer in the cohort. */
-  const selectedIsRemoved =
-    selected !== null && data.removedSubmissions.some((row) => row.id === selected.id);
+  /** Why the open submission is not in the list beside it, or null when it is. */
+  const asideReason =
+    selected === null
+      ? null
+      : (data.asideSubmissions.find((row) => row.id === selected.id)?.asideReason ?? null);
 
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -117,6 +131,18 @@ export function GradingQueue({
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
         <aside className="flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0">
           <div className="flex flex-col gap-3 border-b border-border p-3">
+            {/*
+              Above the search box and the tabs, because it decides what those two are searching
+              and counting. The three tabs beneath it count the group, not the cohort — which is
+              why it cannot sit somewhere a reader might not have noticed it.
+            */}
+            <GroupPicker
+              courseId={courseId}
+              value={groups.group}
+              groups={groups.groups}
+              ungroupedCount={groups.ungroupedCount}
+              className="w-full"
+            />
             <div className="relative">
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -191,10 +217,18 @@ export function GradingQueue({
             Said before the work rather than left to be noticed. This submission is not in the
             list beside it, and an instructor who read a report and approved it without knowing
             the student had left the cohort would be grading somebody who is not there.
+
+            The two reasons are told apart because only one of them is a fact about the student.
+            Leaving the cohort is; being outside the group currently selected is a fact about the
+            picker, which the sentence names so the fix is obvious.
           */}
-          {selectedIsRemoved && selected && (
+          {asideReason && selected && (
             <div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/60 px-4 py-2.5 text-sm">
-              <UserMinus className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              {asideReason === 'removed' ? (
+                <UserMinus className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <Users className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              )}
               <p className="text-muted-foreground">
                 <span className="font-medium text-foreground">
                   {selected.student.displayName ??
@@ -202,8 +236,9 @@ export function GradingQueue({
                     selected.student.email ??
                     'This student'}
                 </span>{' '}
-                has been removed from this cohort, so this is not in the queue beside it. Their
-                work stays readable here and in the gradebook.
+                {asideReason === 'removed'
+                  ? 'has been removed from this cohort, so this is not in the queue beside it. Their work stays readable here and in the gradebook.'
+                  : 'is not in the group you are filtered to, so this is not in the queue beside it. Switch to All students to work it alongside the rest.'}
               </p>
             </div>
           )}

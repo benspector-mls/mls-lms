@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 
 import { ListSkeleton } from '@/components/list-states';
 import { TriageOverview } from '@/components/instructor/triage-overview';
+import { resolveGroup } from '@/lib/courses/resolve-group';
 import { getQueryClient, trpc } from '@/trpc/server';
 
 /**
@@ -18,12 +19,14 @@ import { getQueryClient, trpc } from '@/trpc/server';
  */
 export default function TriagePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ courseId: string }>;
+  searchParams: Promise<{ group?: string }>;
 }) {
   return (
     <Suspense fallback={<TriageFallback />}>
-      <Triage params={params} />
+      <Triage params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
@@ -36,16 +39,28 @@ function TriageFallback() {
   );
 }
 
-async function Triage({ params }: { params: Promise<{ courseId: string }> }) {
+async function Triage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ courseId: string }>;
+  searchParams: Promise<{ group?: string }>;
+}) {
   const { courseId } = await params;
   const queryClient = getQueryClient();
+
+  /*
+    Before the pile, because the pile is fetched for a particular group. `resolveGroup` is what
+    decides which: the query string if there is one, the instructor's remembered group if not.
+  */
+  const groups = await resolveGroup(courseId, (await searchParams).group);
 
   // The course as well as the pile, because the heading names the cohort — and because a
   // heading that named nothing would leave two cohorts' triage screens looking identical,
   // which is the thing this route exists to fix.
   const [course, triage] = await Promise.all([
     queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId })),
-    queryClient.fetchQuery(trpc.submissions.triage.queryOptions({ courseId })),
+    queryClient.fetchQuery(trpc.submissions.triage.queryOptions({ courseId, group: groups.group })),
   ]);
 
   /*
@@ -57,9 +72,11 @@ async function Triage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
     <TriageOverview
       triage={triage}
+      courseId={courseId}
       courseName={course.name}
       cohortTerm={course.cohortTerm}
       archived={course.archivedAt !== null}
+      groups={groups}
       now={new Date()}
     />
   );

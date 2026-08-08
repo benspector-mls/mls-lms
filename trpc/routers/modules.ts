@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { assertCourseMember } from '@/lib/courses/membership';
+import { assertCourseMember, assertTeaches } from '@/lib/courses/membership';
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init';
 
@@ -23,22 +23,6 @@ import { createTRPCRouter, instructorProcedure, profileProcedure } from '../init
 
 /** Trimmed, because " Mod 4" and "Mod 4" are the same module to everyone but the database. */
 const moduleName = z.string().trim().min(1, 'A module needs a name.').max(120);
-
-async function assertTeaches(
-  ctx: { db: typeof import('@/lib/prisma').db; profile: { id: string; role: string } },
-  courseId: string,
-) {
-  if (ctx.profile.role === 'ADMIN') return;
-
-  const teaches = await ctx.db.courseInstructor.findFirst({
-    where: { courseId, userId: ctx.profile.id },
-    select: { id: true },
-  });
-
-  if (!teaches) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not teach this course.' });
-  }
-}
 
 /**
  * The module, if the caller teaches the course it belongs to.
