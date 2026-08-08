@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { assertTeaches } from "@/lib/courses/membership";
 
-import { createTRPCRouter, instructorProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure } from "../init";
+import { personSelect } from "../selects";
 
 /**
  * The groups of a course: create, rename, remove, and who is in one.
@@ -36,10 +37,7 @@ const groupName = z.string().trim().min(1, "A group needs a name.").max(120);
  * below take a group id, and a group id says nothing about which course it is in until the row
  * is read.
  */
-async function loadTeachableGroup(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  groupId: string,
-) {
+async function loadTeachableGroup(ctx: AuthedCtx, groupId: string) {
   const found = await ctx.db.courseGroup.findUnique({
     where: { id: groupId },
     select: { id: true, courseId: true, name: true },
@@ -142,7 +140,7 @@ export const groupsRouter = createTRPCRouter({
         where: { courseId: input.courseId, status: "ACTIVE" },
         select: {
           id: true,
-          student: { select: { id: true, displayName: true, email: true, githubUsername: true } },
+          student: { select: personSelect },
           groupMemberships: { select: { groupId: true } },
         },
       });

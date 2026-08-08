@@ -6,6 +6,13 @@ import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
 /**
+ * Re-exported from `lib/auth/ctx`, where it belongs: the guards that take it live in `lib/`, and
+ * a domain module importing a type from the transport layer is the wrong direction. Re-exported
+ * here so a router can import everything it needs from `../init`.
+ */
+export type { AuthedCtx } from "@/lib/auth/ctx";
+
+/**
  * Built once per request and handed to every procedure.
  *
  * @see: https://trpc.io/docs/server/context

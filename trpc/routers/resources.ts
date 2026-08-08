@@ -4,7 +4,7 @@ import { z } from "zod";
 import { assertCourseMember, assertTeaches } from "@/lib/courses/membership";
 import { resourceColumns, resourceSpecSchema, UnrecognisedVideoError } from "@/lib/resources/spec";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 
 /**
  * The things in a module that are not work: readings, notes, and videos.
@@ -32,10 +32,7 @@ import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init
  * sharing it would mean either exporting a router's internals or selecting columns neither
  * caller wants.
  */
-async function loadTeachableModule(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  moduleId: string,
-) {
+async function loadTeachableModule(ctx: AuthedCtx, moduleId: string) {
   const found = await ctx.db.module.findUnique({
     where: { id: moduleId },
     select: { id: true, courseId: true, name: true },
@@ -47,10 +44,7 @@ async function loadTeachableModule(
 }
 
 /** The resource with its module, if the caller teaches that module's course. */
-async function loadTeachableResource(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  resourceId: string,
-) {
+async function loadTeachableResource(ctx: AuthedCtx, resourceId: string) {
   const found = await ctx.db.resource.findUnique({
     where: { id: resourceId },
     select: { id: true, title: true, kind: true, module: { select: { id: true, courseId: true } } },

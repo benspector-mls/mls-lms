@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "../prisma";
-import { repositorySource } from "../assignments/spec";
+import { readSections, repositorySource } from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { getPullRequestFiles } from "../github/prs";
@@ -86,9 +86,12 @@ export async function generateReportForSubmission(submissionId: string): Promise
     );
   }
 
-  const allSections = Array.isArray(submission.assignment.sections)
-    ? (submission.assignment.sections as unknown as AssignmentSection[])
-    : [];
+  /*
+    Narrowed through `readSections` rather than asserted. The assertion this replaces —
+    `as unknown as AssignmentSection[]` — is satisfied by a column holding anything at all, so a
+    malformed row reached the loop below and failed there, several steps from the cause.
+  */
+  const allSections = readSections(submission.assignment.sections) as AssignmentSection[];
 
   if (allSections.length === 0) {
     throw new ReportGenerationError(

@@ -11,6 +11,7 @@ import { signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { moduleSummarySelect, personSelect } from "../selects";
 
 /**
  * Everything the review surface needs from a submission, in one place.
@@ -47,7 +48,7 @@ const reviewableSubmissionSelect = {
   isComplete: true,
   gradedAt: true,
   gradedHeadSha: true,
-  student: { select: { id: true, displayName: true, email: true, githubUsername: true } },
+  student: { select: personSelect },
   // Enough of the most recent draft to label a row. The review pane loads the draft in full
   // when a row is selected; a list of forty students does not need forty reports in it.
   gradingDrafts: {
@@ -131,7 +132,7 @@ export const submissionsRouter = createTRPCRouter({
             id: true,
             title: true,
             dueAt: true,
-            module: { select: { id: true, name: true, position: true } },
+            module: { select: moduleSummarySelect },
           },
         },
       },
@@ -730,7 +731,7 @@ export const submissionsRouter = createTRPCRouter({
         select: {
           status: true,
           student: {
-            select: { id: true, displayName: true, email: true, githubUsername: true },
+            select: personSelect,
           },
           course: { select: { id: true, name: true, cohortTerm: true, archivedAt: true } },
         },
@@ -756,7 +757,7 @@ export const submissionsRouter = createTRPCRouter({
           pointValue: true,
           completionThreshold: true,
           distributedAt: true,
-          module: { select: { id: true, name: true, position: true } },
+          module: { select: moduleSummarySelect },
           // Read for the grading mode and not returned whole: `manualOnly` is the answer the
           // review pane needs, and `sections` is a large object a screen has no use for.
           sections: true,

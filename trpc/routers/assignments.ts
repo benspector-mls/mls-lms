@@ -1,6 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import type { Db } from "@/lib/prisma";
+
 import {
   assertKindImplemented,
   copyUrlFromTemplate,
@@ -26,6 +28,7 @@ import {
 } from "@/lib/github/repos";
 
 import { createTRPCRouter, instructorProcedure, profileProcedure, studentProcedure } from "../init";
+import { moduleSummarySelect } from "../selects";
 
 /** Columns of an assignment that are safe to send to any enrolled member. */
 const assignmentFields = {
@@ -38,7 +41,7 @@ const assignmentFields = {
     thing a student should be told.
   */
   moduleId: true,
-  module: { select: { id: true, name: true, position: true } },
+  module: { select: moduleSummarySelect },
   pointValue: true,
   completionThreshold: true,
   dueAt: true,
@@ -606,7 +609,7 @@ export const assignmentsRouter = createTRPCRouter({
         ctx.db.module.findMany({
           where: { courseId: input.courseId },
           orderBy: [{ position: "asc" }, { name: "asc" }],
-          select: { id: true, name: true, position: true },
+          select: moduleSummarySelect,
         }),
         ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
         ctx.db.assignment.findMany({
@@ -1133,7 +1136,7 @@ export const copyableAssignmentSelect = {
  * reached over the network to check they are still readable.
  */
 export async function copyAssignmentInto(
-  db: typeof import("@/lib/prisma").db,
+  db: Db,
   params: {
     source: CopyableAssignment;
     targetCourseId: string;
@@ -1252,11 +1255,7 @@ export async function copyAssignmentInto(
  * cohort is not a thing anybody is doing on purpose, and a loop with no ceiling around a
  * database query is a worse failure than the refusal.
  */
-async function freeRepoNameIn(
-  db: typeof import("@/lib/prisma").db,
-  courseId: string,
-  base: string,
-): Promise<string> {
+async function freeRepoNameIn(db: Db, courseId: string, base: string): Promise<string> {
   for (let attempt = 1; attempt <= 10; attempt += 1) {
     const candidate = attempt === 1 ? `${base}-copy` : `${base}-copy-${attempt}`;
     const taken = await db.assignment.findFirst({

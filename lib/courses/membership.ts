@@ -3,7 +3,8 @@ import "server-only";
 import { TRPCError } from "@trpc/server";
 
 import type { GroupSelection } from "./groups";
-import type { db as Db } from "../prisma";
+import type { AuthedCtx } from "../auth/ctx";
+import type { Db } from "../prisma";
 
 /**
  * Who may read a course, and who may still act in one.
@@ -28,12 +29,6 @@ import type { db as Db } from "../prisma";
  * guessing an id.
  */
 
-/** Just enough of the tRPC context to ask, so a caller can pass a transaction as `db`. */
-type Ctx = {
-  db: typeof Db;
-  profile: { id: string; role: string };
-};
-
 /** What the caller is to this course, or null when they are nothing to it. */
 export type Membership =
   { as: "admin" } | { as: "instructor" } | { as: "student"; active: boolean };
@@ -44,7 +39,7 @@ export type Membership =
  * Returned rather than thrown so a screen can render differently — a removed student's course
  * page is readable and says so — while the two assertions below make the refusals.
  */
-export async function membershipIn(ctx: Ctx, courseId: string): Promise<Membership | null> {
+export async function membershipIn(ctx: AuthedCtx, courseId: string): Promise<Membership | null> {
   if (ctx.profile.role === "ADMIN") return { as: "admin" };
 
   const [enrollment, instructorRow] = await Promise.all([
@@ -73,7 +68,7 @@ export async function membershipIn(ctx: Ctx, courseId: string): Promise<Membersh
  *
  * For reads. Anything that creates or changes a submission wants `assertActiveStudent` below.
  */
-export async function assertCourseMember(ctx: Ctx, courseId: string): Promise<Membership> {
+export async function assertCourseMember(ctx: AuthedCtx, courseId: string): Promise<Membership> {
   const membership = await membershipIn(ctx, courseId);
   if (!membership) {
     throw new TRPCError({
@@ -95,7 +90,7 @@ export async function assertCourseMember(ctx: Ctx, courseId: string): Promise<Me
  * students of their own course; one submitting work would create a submission row that appears
  * in their own queue.
  */
-export async function assertActiveStudent(ctx: Ctx, courseId: string): Promise<void> {
+export async function assertActiveStudent(ctx: AuthedCtx, courseId: string): Promise<void> {
   const enrollment = await ctx.db.enrollment.findFirst({
     where: { courseId, studentId: ctx.profile.id, status: "ACTIVE" },
     select: { id: true },
@@ -133,7 +128,7 @@ export async function assertActiveStudent(ctx: Ctx, courseId: string): Promise<v
  * a transaction as `db`, which is what lets the check scripts drive these procedures inside a
  * transaction they then roll back.
  */
-export async function assertTeaches(ctx: Ctx, courseId: string): Promise<void> {
+export async function assertTeaches(ctx: AuthedCtx, courseId: string): Promise<void> {
   if (ctx.profile.role === "ADMIN") return;
 
   const teaches = await ctx.db.courseInstructor.findFirst({
@@ -244,7 +239,7 @@ function groupCondition(selection: GroupSelection) {
  * writes `if (set && !set.has(id))`, which is the shape that says "only when filtering".
  */
 export async function selectedStudentIds(
-  db: Ctx["db"],
+  db: Db,
   courseId: string,
   selection: GroupSelection,
 ): Promise<Set<string> | null> {
@@ -269,7 +264,7 @@ export async function selectedStudentIds(
  * `courses.gradebook` reads the same fact off the roster it already fetched rather than calling
  * this, because it needs every enrollment's status anyway for the Roster tab.
  */
-export async function removedStudentIds(db: Ctx["db"], courseId: string): Promise<Set<string>> {
+export async function removedStudentIds(db: Db, courseId: string): Promise<Set<string>> {
   const removed = await db.enrollment.findMany({
     // Not active, rather than `REMOVED`. This has to be the exact complement of
     // `activeStudentWork` above, or a status that is neither would fall out of both sets — out

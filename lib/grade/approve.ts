@@ -1,7 +1,6 @@
 import "server-only";
 
-import type { Prisma } from "../generated/prisma/client";
-import { db } from "../prisma";
+import { db, type Tx } from "../prisma";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { postOrUpdatePrComment } from "../github/prs";
@@ -96,17 +95,6 @@ export type ApprovalResult = {
  */
 export { statedScoreInText };
 
-/**
- * A Prisma client, or a transaction's view of one.
- *
- * Approving is the most consequential write in the application, and the only way to check a
- * destructive path against real rows without harming any is to run it inside a transaction
- * that is rolled back — which is how every other one here is checked. Reading the module's own
- * client made that impossible: rows created inside a caller's transaction are invisible to it,
- * so the approval could only ever be tested up to the guards that refuse before writing.
- */
-type ApprovalClient = typeof db | Prisma.TransactionClient;
-
 export async function approveDraft(params: {
   draftId: string;
   /** The instructor doing the approving. Recorded as `gradedBy`. */
@@ -116,7 +104,7 @@ export async function approveDraft(params: {
    * transaction gets the two writes below run in order rather than in a nested transaction,
    * since it is already inside one.
    */
-  client?: ApprovalClient;
+  client?: Tx;
 }): Promise<ApprovalResult> {
   const client = params.client ?? db;
 

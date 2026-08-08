@@ -1,6 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import type { Db } from "@/lib/prisma";
+
 import { isManualOnly } from "@/lib/assignments/spec";
 import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
 import { newJoinToken } from "@/lib/courses/join-token";
@@ -15,7 +17,8 @@ import { assertOwnsCourse, ownerOf } from "@/lib/courses/ownership";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { displayNameOf, moduleSummarySelect, personNameSelect, personSelect } from "../selects";
 
 export const coursesRouter = createTRPCRouter({
   /**
@@ -119,7 +122,7 @@ export const coursesRouter = createTRPCRouter({
           archivedAt: true,
           modules: {
             orderBy: [{ position: "asc" }, { name: "asc" }],
-            select: { id: true, name: true, position: true },
+            select: moduleSummarySelect,
           },
           instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
         },
@@ -198,7 +201,7 @@ export const coursesRouter = createTRPCRouter({
           id: true,
           status: true,
           student: {
-            select: { id: true, displayName: true, email: true, githubUsername: true },
+            select: personSelect,
           },
         },
       });
@@ -244,7 +247,7 @@ export const coursesRouter = createTRPCRouter({
           // legitimate way to find out that it is empty.
           modules: {
             orderBy: [{ position: "asc" }, { name: "asc" }],
-            select: { id: true, name: true, position: true },
+            select: moduleSummarySelect,
           },
         },
       });
@@ -259,7 +262,7 @@ export const coursesRouter = createTRPCRouter({
         select: {
           id: true,
           title: true,
-          module: { select: { id: true, name: true, position: true } },
+          module: { select: moduleSummarySelect },
           pointValue: true,
           dueAt: true,
           kind: true,
@@ -352,7 +355,7 @@ export const coursesRouter = createTRPCRouter({
               isPrimary: true,
               createdAt: true,
               user: {
-                select: { id: true, displayName: true, email: true, githubUsername: true },
+                select: personSelect,
               },
             },
           },
@@ -460,7 +463,7 @@ export const coursesRouter = createTRPCRouter({
           select: {
             id: true,
             title: true,
-            module: { select: { id: true, name: true, position: true } },
+            module: { select: moduleSummarySelect },
             pointValue: true,
             dueAt: true,
             kind: true,
@@ -489,7 +492,7 @@ export const coursesRouter = createTRPCRouter({
             id: true,
             status: true,
             student: {
-              select: { id: true, displayName: true, email: true, githubUsername: true },
+              select: personSelect,
             },
           },
         }),
@@ -1216,7 +1219,7 @@ export const coursesRouter = createTRPCRouter({
           userId: true,
           isPrimary: true,
           createdAt: true,
-          user: { select: { displayName: true, email: true, githubUsername: true } },
+          user: { select: personNameSelect },
         },
       });
 
@@ -1258,7 +1261,7 @@ export const coursesRouter = createTRPCRouter({
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
-            `${displayNameOf(row.user)} owns this cohort, so only they can leave it. If they ` +
+            `${displayNameOf(row.user, "that instructor")} owns this cohort, so only they can leave it. If they ` +
             `should hand it on, they can transfer it to somebody else first.`,
         });
       }
@@ -1277,9 +1280,9 @@ export const coursesRouter = createTRPCRouter({
 
       return {
         courseId: input.courseId,
-        instructorName: displayNameOf(row.user),
+        instructorName: displayNameOf(row.user, "that instructor"),
         /** Who inherited the cohort, or null when the person removed did not own it. */
-        newOwnerName: successor ? displayNameOf(successor.user) : null,
+        newOwnerName: successor ? displayNameOf(successor.user, "that instructor") : null,
       };
     }),
 
@@ -1310,7 +1313,7 @@ export const coursesRouter = createTRPCRouter({
         select: {
           id: true,
           isPrimary: true,
-          user: { select: { displayName: true, email: true, githubUsername: true } },
+          user: { select: personNameSelect },
         },
       });
 
@@ -1326,7 +1329,7 @@ export const coursesRouter = createTRPCRouter({
       if (target.isPrimary) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${displayNameOf(target.user)} already owns this cohort.`,
+          message: `${displayNameOf(target.user, "that instructor")} already owns this cohort.`,
         });
       }
 
@@ -1344,19 +1347,10 @@ export const coursesRouter = createTRPCRouter({
       return {
         courseId: input.courseId,
         ownerId: input.userId,
-        ownerName: displayNameOf(target.user),
+        ownerName: displayNameOf(target.user, "that instructor"),
       };
     }),
 });
-
-/** Whatever this person is best called, for a message somebody has to act on. */
-function displayNameOf(user: {
-  displayName: string | null;
-  email: string | null;
-  githubUsername: string | null;
-}): string {
-  return user.displayName ?? user.githubUsername ?? user.email ?? "that instructor";
-}
 
 /**
  * Every submission in a course, each carrying the triage bucket it falls into.
@@ -1371,7 +1365,7 @@ function displayNameOf(user: {
  * them. Filtering here would take that decision away from both.
  */
 async function courseCells(
-  db: typeof import("@/lib/prisma").db,
+  db: Db,
   courseId: string,
   assignments: { id: string; sections: unknown }[],
 ) {
@@ -1440,11 +1434,7 @@ async function courseCells(
  * is reversible, so somebody who meant "take this off my list" gets exactly that before reaching
  * anything that cannot be undone.
  */
-async function assertArchivedAndOwned(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  courseId: string,
-  action: string,
-) {
+async function assertArchivedAndOwned(ctx: AuthedCtx, courseId: string, action: string) {
   const course = await ctx.db.course.findUnique({
     where: { id: courseId },
     select: { id: true, name: true, cohortTerm: true, cohortSlug: true, archivedAt: true },

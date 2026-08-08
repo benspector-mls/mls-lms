@@ -8,7 +8,7 @@ import { GradingAssetsError } from "@/lib/grade/assets";
 import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
 import { ProviderError } from "@/lib/grade/provider";
 import { ReportValidationError } from "@/lib/grade/schema";
-import { createTRPCRouter, instructorProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * AI grading drafts, instructor-only.
@@ -52,10 +52,7 @@ const draftFields = {
 } as const;
 
 /** Resolves a submission and confirms the caller teaches its course. */
-async function loadSubmissionForInstructor(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  submissionId: string,
-) {
+async function loadSubmissionForInstructor(ctx: AuthedCtx, submissionId: string) {
   const submission = await ctx.db.submission.findUnique({
     where: { id: submissionId },
     select: {

@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { assertCourseMember, assertTeaches } from "@/lib/courses/membership";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { moduleSummarySelect } from "../selects";
 
 /**
  * The modules of a course: create, rename, reorder, remove.
@@ -31,10 +32,7 @@ const moduleName = z.string().trim().min(1, "A module needs a name.").max(120);
  * below takes a module id, and a module id says nothing about which course it is in until the
  * row is read.
  */
-async function loadTeachableModule(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  moduleId: string,
-) {
+async function loadTeachableModule(ctx: AuthedCtx, moduleId: string) {
   const found = await ctx.db.module.findUnique({
     where: { id: moduleId },
     select: { id: true, courseId: true, name: true, position: true },
@@ -163,7 +161,7 @@ export const modulesRouter = createTRPCRouter({
             name: input.name,
             position: (last?.position ?? -1) + 1,
           },
-          select: { id: true, name: true, position: true },
+          select: moduleSummarySelect,
         });
       } catch (err) {
         refuseDuplicate(err, input.name);
@@ -186,7 +184,7 @@ export const modulesRouter = createTRPCRouter({
         return await ctx.db.module.update({
           where: { id: input.moduleId },
           data: { name: input.name },
-          select: { id: true, name: true, position: true },
+          select: moduleSummarySelect,
         });
       } catch (err) {
         refuseDuplicate(err, input.name);

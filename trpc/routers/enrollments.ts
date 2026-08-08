@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { displayNameOf, personNameSelect } from "../selects";
 
 /**
  * Getting students into a course, and out of it.
@@ -215,14 +216,14 @@ export const enrollmentsRouter = createTRPCRouter({
  * could remove a student from another cohort by id.
  */
 async function loadTeachableEnrollment(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
+  ctx: AuthedCtx,
   enrollmentId: string,
 ): Promise<{ courseId: string; studentName: string }> {
   const found = await ctx.db.enrollment.findUnique({
     where: { id: enrollmentId },
     select: {
       courseId: true,
-      student: { select: { displayName: true, email: true, githubUsername: true } },
+      student: { select: personNameSelect },
     },
   });
 
@@ -240,10 +241,6 @@ async function loadTeachableEnrollment(
 
   return {
     courseId: found.courseId,
-    studentName:
-      found.student.displayName ??
-      found.student.githubUsername ??
-      found.student.email ??
-      "that student",
+    studentName: displayNameOf(found.student, "that student"),
   };
 }

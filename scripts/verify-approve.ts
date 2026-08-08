@@ -8,6 +8,8 @@
  * one number while the gradebook records another — the student reads the prose and
  * every other part of the system reads the column.
  */
+import type { Db } from "../lib/prisma";
+
 import { createChecker, loadEnvironment } from "./verify/harness";
 
 loadEnvironment();
@@ -349,7 +351,7 @@ async function main() {
  *
  * Inside a transaction that is rolled back, so it runs against live data without leaving any.
  */
-async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
+async function handGradedLifecycle(db: Db) {
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
 

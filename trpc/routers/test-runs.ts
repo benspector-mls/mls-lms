@@ -7,7 +7,7 @@ import {
   resolveRunner,
 } from "@/lib/sandbox/presets";
 import { runTestsForSubmission } from "@/lib/sandbox/run-tests";
-import { createTRPCRouter, instructorProcedure } from "../init";
+import { type AuthedCtx, createTRPCRouter, instructorProcedure } from "../init";
 
 /**
  * Deterministic test execution, instructor-only.
@@ -49,10 +49,7 @@ const testRunFields = {
  * Returns the assignment's runner configuration alongside, because every caller
  * needs it and loading it separately would mean a second query.
  */
-async function loadSubmissionForInstructor(
-  ctx: { db: typeof import("@/lib/prisma").db; profile: { id: string; role: string } },
-  submissionId: string,
-) {
+async function loadSubmissionForInstructor(ctx: AuthedCtx, submissionId: string) {
   const submission = await ctx.db.submission.findUnique({
     where: { id: submissionId },
     select: {

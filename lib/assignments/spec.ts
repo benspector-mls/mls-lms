@@ -347,11 +347,7 @@ export function isManualOnly(sections: unknown): boolean {
  * visible where a zero would not be.
  */
 export function manualSections(sections: unknown): { label: string; pointValue: number }[] {
-  if (!Array.isArray(sections)) return [];
-
-  return sections.flatMap((section) => {
-    if (!section || typeof section !== "object") return [];
-    const entry = section as { grading?: unknown; label?: unknown; pointValue?: unknown };
+  return readSections(sections).flatMap((entry) => {
     if (entry.grading !== "manual") return [];
     if (typeof entry.label !== "string" || entry.label.length === 0) return [];
     if (typeof entry.pointValue !== "number" || !Number.isFinite(entry.pointValue)) return [];
@@ -360,13 +356,33 @@ export function manualSections(sections: unknown): { label: string; pointValue: 
 }
 
 export function sectionGradingModes(sections: unknown): ("ai" | "manual")[] {
+  return readSections(sections).map((section) => (section.grading === "manual" ? "manual" : "ai"));
+}
+
+/**
+ * The `sections` column as an array of entries, and the one place it is narrowed.
+ *
+ * It is a JSON column, so Prisma hands every reader a `JsonValue` and each of them was deciding
+ * for itself what that meant: three defensive `Array.isArray` walks in this file, and an
+ * `as unknown as AssignmentSection[]` in the report generator. The assertion is the dangerous
+ * one — a column holding an object rather than an array satisfies it perfectly and then fails
+ * further in, where the cause is no longer visible.
+ *
+ * **Deliberately not `assignmentSpecSchema`.** Parsing with Zod here would be stricter and
+ * wrong: this reads rows that already exist, and a stored section that no longer satisfies the
+ * current schema must still be *readable* — whether it can be graded is a separate question from
+ * whether a screen can say it is there. Validation belongs where a section is written, which is
+ * `validateAssignmentDraft`. This is the read side, and it guarantees only the shape every reader
+ * already assumes.
+ *
+ * Entries that are not objects are dropped rather than kept as holes, because every caller
+ * reaches into them and `null.grading` is a crash rather than a wrong answer.
+ */
+export function readSections(sections: unknown): Record<string, unknown>[] {
   if (!Array.isArray(sections)) return [];
-  return sections.map((section) =>
-    section &&
-    typeof section === "object" &&
-    (section as { grading?: unknown }).grading === "manual"
-      ? "manual"
-      : "ai",
+  return sections.filter(
+    (section): section is Record<string, unknown> =>
+      typeof section === "object" && section !== null && !Array.isArray(section),
   );
 }
 

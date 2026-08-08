@@ -2,7 +2,8 @@ import "server-only";
 
 import { TRPCError } from "@trpc/server";
 
-import type { db as Db } from "../prisma";
+import type { AuthedCtx } from "../auth/ctx";
+import type { Db } from "../prisma";
 
 /**
  * Who owns a cohort, and what owning one permits.
@@ -24,12 +25,6 @@ import type { db as Db } from "../prisma";
  * left the program without handing the cohort on, and without one every rule here is a way for
  * a course to end up with nobody who can administer it.
  */
-
-/** Just enough of the tRPC context to ask, so a caller can pass a transaction as `db`. */
-type Ctx = {
-  db: typeof Db;
-  profile: { id: string; role: string };
-};
 
 /** The part of a `CourseInstructor` row that decides ownership. */
 type InstructorRow = {
@@ -71,7 +66,7 @@ export function ownerOf<T extends InstructorRow>(instructors: readonly T[]): T |
 }
 
 /** The owner's profile id, or null for a course with no instructors left. */
-export async function courseOwnerId(db: Ctx["db"], courseId: string): Promise<string | null> {
+export async function courseOwnerId(db: Db, courseId: string): Promise<string | null> {
   const instructors = await db.courseInstructor.findMany({
     where: { courseId },
     select: { userId: true, isPrimary: true, createdAt: true },
@@ -87,7 +82,11 @@ export async function courseOwnerId(db: Ctx["db"], courseId: string): Promise<st
  * than as a permission code: somebody refused here needs to know who to ask, which is why the
  * message names the owner when there is one to name.
  */
-export async function assertOwnsCourse(ctx: Ctx, courseId: string, action: string): Promise<void> {
+export async function assertOwnsCourse(
+  ctx: AuthedCtx,
+  courseId: string,
+  action: string,
+): Promise<void> {
   if (ctx.profile.role === "ADMIN") return;
 
   const instructors = await ctx.db.courseInstructor.findMany({
