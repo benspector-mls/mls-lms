@@ -564,7 +564,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ShellSidebar />
       </React.Suspense>
 
-      <SidebarInset>
+      {/*
+        `min-w-0`, and it is the whole reason a wide table scrolls rather than the page.
+
+        `SidebarInset` is a flex item of the provider's row, and a flex item's `min-width: auto`
+        resolves to its content-based minimum — so the gradebook's fifty columns pushed this
+        wider than the viewport, and everything measured against it went with them. The window
+        scrolled sideways instead of the table: the header's theme toggle left the screen, the
+        search box and the New assignment button were cut off, and the gradebook's sticky
+        Student column stuck to a scroll that was not the one moving, so it slid over the
+        sidebar. `w-full` does not prevent any of that — it sets the basis and leaves the
+        minimum alone.
+
+        With a floor of zero the width is definite at every level below, which is what lets the
+        `overflow-x-auto` around each table be the thing that scrolls.
+      */}
+      <SidebarInset className="min-w-0">
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 h-4" />
