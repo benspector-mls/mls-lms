@@ -1,6 +1,7 @@
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
+import prettier from "eslint-config-prettier";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +36,13 @@ const eslintConfig = [
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  /*
+    Last, deliberately. This turns off every eslint rule that overlaps with
+    Prettier, so formatting has exactly one authority and `npm run lint` never
+    reports a problem `npm run format` would fix. It disables rules rather than
+    adding any, which is why it has to come after everything it is switching off.
+  */
+  prettier,
 ];
 
 export default eslintConfig;

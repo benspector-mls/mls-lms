@@ -1,0 +1,21 @@
+# Generated, vendored, and build output. The same trees eslint.config.mjs ignores,
+# and for the same reason: formatting them produces an enormous diff of files
+# nobody edits, and every one of them is rewritten by its own tool anyway.
+.next/
+lib/generated/
+prisma/migrations/
+
+# Clones and reference copies, all gitignored already.
+swe-assignment-grading-guides/
+marcy-curriculum-docs/
+assignment-templates/
+v0/
+
+# Machine-written.
+package-lock.json
+*.tsbuildinfo
+next-env.d.ts
+
+# The curriculum prose. printWidth would hard-wrap paragraphs that are
+# deliberately one line each.
+*.md
