@@ -309,7 +309,10 @@ export function NewCourseDialog({
               ...Object.fromEntries(copyable.map((course) => [course.id, sourceLabel(course)])),
             }}
           >
-            <SelectTrigger>
+            {/* `w-full min-w-0` because the trigger is `w-fit whitespace-nowrap` by default,
+                and a label of a program name plus a term plus "Archived" would otherwise widen
+                this whole form rather than truncate inside it. */}
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder="Start empty" />
             </SelectTrigger>
             <SelectContent>

@@ -155,24 +155,33 @@ export function CopyAssignmentDialog({
         {courses.isPending ? (
           <Skeleton className="h-24 w-full" />
         ) : (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
+          /*
+            `min-w-0` all the way down, and not decoration.
+
+            `DialogContent` is a grid and `SelectTrigger` is `w-fit whitespace-nowrap`, so a grid
+            item's default `min-width: auto` lets a long cohort label — a program name, a term,
+            and a marker — grow the trigger past the dialog's own `max-w-sm` and drag the panel
+            out with it. The footer's negative margins are measured against a width the content
+            no longer has, so it reads as a strip offset from everything above it.
+          */
+          <div className="flex min-w-0 flex-col gap-4">
+            <div className="flex min-w-0 flex-col gap-1.5">
               <Label htmlFor="copy-target-course">Into which cohort</Label>
               <Select
                 value={targetCourseId}
                 onValueChange={(value) => {
                   if (value) setTargetCourseId(value);
                 }}
+                /*
+                  The name and the term, and not which one is current. The trigger is one line
+                  that truncates, so a marker on the end is the first thing to be cut — it is
+                  said below the select instead, where there is room for it to be a sentence.
+                */
                 items={Object.fromEntries(
-                  targets.map((course) => [
-                    course.id,
-                    course.id === courseId
-                      ? `${course.name} · ${course.cohortTerm} · this one`
-                      : `${course.name} · ${course.cohortTerm}`,
-                  ]),
+                  targets.map((course) => [course.id, `${course.name} · ${course.cohortTerm}`]),
                 )}
               >
-                <SelectTrigger id="copy-target-course">
+                <SelectTrigger id="copy-target-course" className="w-full min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -196,15 +205,15 @@ export function CopyAssignmentDialog({
               */}
               {sameCourse && (
                 <p className="text-xs text-muted-foreground">
-                  A copy beside the original gets its own repository name, ending in
-                  <span className="font-mono"> -copy</span>. Copying into another cohort keeps
-                  the name, because that cohort&apos;s short name already tells the repositories
-                  apart.
+                  This is the cohort it is already in, so the copy gets a repository name of its
+                  own ending in <span className="font-mono whitespace-nowrap">-copy</span>.
+                  Copying into another cohort keeps the name, because that cohort&apos;s short
+                  name already tells the repositories apart.
                 </p>
               )}
             </div>
 
-            <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 flex-col gap-1.5">
               <Label htmlFor="copy-target-module">Into which module</Label>
               {target.isPending ? (
                 <Skeleton className="h-9 w-full" />
@@ -219,7 +228,7 @@ export function CopyAssignmentDialog({
                   onValueChange={(value) => setTargetModuleId(value)}
                   items={Object.fromEntries(modules.map((module) => [module.id, module.name]))}
                 >
-                  <SelectTrigger id="copy-target-module">
+                  <SelectTrigger id="copy-target-module" className="w-full min-w-0">
                     <SelectValue placeholder="Choose a module" />
                   </SelectTrigger>
                   <SelectContent>
