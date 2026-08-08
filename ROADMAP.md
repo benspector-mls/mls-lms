@@ -4,7 +4,6 @@ How the built system works is in [README.md](README.md). This file is only what 
 
 - [The order of work](#the-order-of-work)
 - [Outstanding verification](#outstanding-verification)
-- [Small things](#small-things)
 - [Token management](#token-management)
 - [A code review pass](#a-code-review-pass)
   - [An automated test suite](#an-automated-test-suite)
@@ -41,14 +40,13 @@ What is left divides into three kinds of thing: measurement, a review of code th
 
 The ordering principle is: the cheap things, then measurement, then a review of code that already works, then the features that add real surface area. Measurement before the review because a real cohort produces figures rather than estimates; the review before the large features because every one of them adds readers to the parts it would touch.
 
-1. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
-2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-4. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-5. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-6. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-7. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
-8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
+1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+2. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+3. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+5. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+6. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
+7. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
 
 [Triggering and orchestration](#triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -62,14 +60,6 @@ Everything in the README's [what is verified](README.md#what-is-verified-and-how
 
 1. **A Python assignment on `python-pytest`**, for results shaped identically to the Jest ones. No Python template exists in `assignment-templates/` yet.
 2. **`allowStudentDependencies: true`** against an assignment that genuinely asks students to add a dependency to the repository's **root** `package.json`. No current assignment does — `swe-1-3-node-modules` looked like the candidate and turned out not to be, since its dependency lives in a nested package. Note that the default presets install with `--ignore-scripts`, so a dependency needing an install script to fetch a platform binary needs an override.
-
----
-
-## Small things
-
-Individually not worth their own section, and kept here so they are not lost. Each one is small enough to do whenever something else is open in the same file.
-
-- **The breadcrumb should read "Course Name (cohort)".** It names the cohort as plain text and gives only the name, so two terms of the same program produce identical trails — which is the fact the course switcher spends a whole control on. The data is already there and needs no new fetch: `ShellBreadcrumb` reads `courses.listMine`, which selects `cohortTerm`, and `useBreadcrumbs` simply types its parameter as `{ id, name }[]` and ignores the rest.
 
 ---
 

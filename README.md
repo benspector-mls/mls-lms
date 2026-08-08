@@ -997,7 +997,9 @@ The switcher above is instructors-only for the same reason. A student used to ge
 
 Switching cohort keeps the view rather than returning to a front page: triage becomes the other cohort's triage, the roster the other cohort's roster. That only holds for the seven views every course has, so an assignment's queue, its edit form, and a student's record land on settings instead — each belongs to one cohort and cannot travel. `sameViewInCourse` is where that is decided, and a view missing from it does not fail: it falls through to settings, so switching cohort from the roster would silently land on settings and read as the switcher losing your place. All of them are checked by `verify:enrollment` for that reason.
 
-The breadcrumb names the cohort as plain text rather than as a link, because there is no course home for it to point at — the address it would use redirects, and a first step that lands somewhere the reader did not name is worse than one that only says where they are.
+**The breadcrumb's first step is the cohort, name and term together** — "Software Engineering Fellowship (Fall 2026)" — for the reason the switcher carries the term beside every name: a program runs every term under the same name, so the name alone is the same first step in every cohort of it, on every screen. Parenthesised rather than the switcher's middot, because a trail already separates its steps and a second free-standing separator inside one of them reads as another step. It costs no fetch, since `courses.listMine` is what the breadcrumb reads and the term is already in it.
+
+It is plain text rather than a link, because there is no course home for it to point at — the address it would use redirects, and a first step that lands somewhere the reader did not name is worse than one that only says where they are.
 
 `lib/links.ts` is the one place these are constructed, so the triage list and the gradebook cells agree on where a submission opens, and `lib/instructor/course-scope.ts` redirects the two routes that name a course twice over — as a segment and through the assignment — when the two disagree.
 

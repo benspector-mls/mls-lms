@@ -128,7 +128,9 @@ interface Crumb {
   href?: string
 }
 
-function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
+function useBreadcrumbs(
+  courses: { id: string; name: string; cohortTerm: string }[],
+): Crumb[] {
   const trpc = useTRPC()
   const pathname = usePathname()
   const segments = pathname.split("/").filter(Boolean)
@@ -148,7 +150,22 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
     enabled: Boolean(assignmentId),
   })
 
-  const courseName = (id: string) => courses.find((c) => c.id === id)?.name ?? "Course"
+  /*
+    The cohort as well as the name, for the reason the switcher carries it: a program runs
+    every term under the same name, so "Software Engineering Fellowship" is the first step of
+    an identical trail in every cohort of it. The term is what tells two of them apart.
+
+    Parenthesised rather than the switcher's middot, because a breadcrumb already separates
+    its steps and a second free-standing separator inside one step reads as another step.
+
+    "Course" where the list has no row for the id — an address naming a cohort the caller is
+    not in, which every procedure behind the screen refuses anyway. There is no term to give
+    alongside it, which is why the fallback is the bare word rather than a half-built label.
+  */
+  const courseLabel = (id: string) => {
+    const course = courses.find((c) => c.id === id)
+    return course ? `${course.name} (${course.cohortTerm})` : "Course"
+  }
 
   if (inCourse) {
     const courseId = segments[2]
@@ -161,7 +178,7 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
       point at redirects to Settings, and a breadcrumb whose first step lands somewhere the
       reader did not name is worse than one that only says where they are.
     */
-    const crumbs: Crumb[] = [{ label: courseName(courseId) }]
+    const crumbs: Crumb[] = [{ label: courseLabel(courseId) }]
 
     if (rest[0] === "triage") crumbs.push({ label: "Grading triage" })
     else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" })
@@ -195,7 +212,7 @@ function useBreadcrumbs(courses: { id: string; name: string }[]): Crumb[] {
   if (segments[0] === "instructor") return [{ label: "Grading triage" }]
 
   if (segments[0] === "courses" && segments[1]) {
-    return [{ label: "Courses", href: "/courses" }, { label: courseName(segments[1]) }]
+    return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }]
   }
   return [{ label: "Courses" }]
 }
