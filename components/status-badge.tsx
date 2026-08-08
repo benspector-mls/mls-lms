@@ -131,7 +131,7 @@ export function DraftStatusBadge({
 
 const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
   REPO: Code,
-  GOOGLE_DOC: FileText,
+  GOOGLE_DRIVE: FileText,
   FILE_UPLOAD: Upload,
   EXTERNAL_URL: LinkIcon,
 };

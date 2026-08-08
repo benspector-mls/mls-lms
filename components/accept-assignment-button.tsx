@@ -16,7 +16,7 @@ import { useTRPC } from '@/trpc/client';
  *
  * Labelled "Accept" rather than "Accept on GitHub", because accepting is the step and how
  * it is carried out depends on the kind: a repository is generated from a template, and a
- * Google Doc assignment sends the student to Google's own prompt to take a copy. The
+ * Google Drive assignment sends the student to Google's own prompt to take a copy. The
  * procedure returns `copyUrl` when there is somewhere to be sent, so this component does
  * not have to know which kind it is looking at.
  */
@@ -62,11 +62,11 @@ export function AcceptAssignmentButton({
         disabled={accept.isPending}
       >
         {accept.isPending
-          ? kind === 'GOOGLE_DOC'
-            ? 'Opening Google Docs…'
+          ? kind === 'GOOGLE_DRIVE'
+            ? 'Opening Google Drive…'
             : 'Creating repository…'
-          : kind === 'GOOGLE_DOC'
-            ? 'Accept and copy the doc'
+          : kind === 'GOOGLE_DRIVE'
+            ? 'Accept and take your copy'
             : 'Accept'}
       </Button>
 

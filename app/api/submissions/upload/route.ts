@@ -90,10 +90,10 @@ export async function POST(request: Request) {
       profileId: profile.id,
       assignment,
       filename: file.name,
-      // What the browser claimed, stored so the download can be served as the right type. It
-      // is deliberately NOT what the file type check consults — see `checkUpload`, which goes
-      // by extension because browsers disagree about the same file.
-      contentType: file.type || 'application/octet-stream',
+      // What the browser claimed is deliberately not passed at all. The extension decides both
+      // whether the file is accepted and what type it is stored under — see `checkUpload` —
+      // because browsers disagree about the same file, and the bucket's allow-list is built
+      // from those same entries.
       bytes: Buffer.from(await file.arrayBuffer()),
     });
 

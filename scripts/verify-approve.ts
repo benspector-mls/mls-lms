@@ -258,7 +258,7 @@ function skip(reason: string) {
 }
 
 /**
- * A Google Doc assignment from authoring to a released grade, through the tRPC callers.
+ * A Google Drive assignment from authoring to a released grade, through the tRPC callers.
  *
  * The strongest check available for hand grading, because every part of it is a seam rather
  * than a function: an instructor authors it, a student accepts and submits it, triage decides
@@ -330,23 +330,23 @@ async function handGradedLifecycle(db: typeof import("../lib/prisma").db) {
       const { assignment } = await asInstructor.assignments.create({
         courseId: course.id,
         draft: {
-          kind: "GOOGLE_DOC",
+          kind: "GOOGLE_DRIVE",
           title: "Reflection (verify:approve)",
           moduleId,
           dueAt: null,
-          templateDocUrl: "https://docs.google.com/document/d/1AbC_dEF-123/view",
+          templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123/view",
           submissionInstructions: "Take a copy, write your reflection, submit the link.",
           sections: [{ grading: "manual", label: "Reflection", pointValue: 20 }],
         },
       });
-      check("a Google Doc assignment can be authored", assignment.pointValue, 20);
+      check("a Google Drive assignment can be authored", assignment.pointValue, 20);
 
       await asInstructor.assignments.publish({ assignmentId: assignment.id });
 
       // Accepting is being sent to Google's copy prompt, and nothing more. No repository is
       // generated and no GitHub call is made, which is why this runs with no network at all.
       const accepted = await asStudent.assignments.accept({ assignmentId: assignment.id });
-      check("accepting a Google Doc returns the copy prompt",
+      check("accepting a Drive assignment returns the copy prompt",
         accepted.copyUrl, "https://docs.google.com/document/d/1AbC_dEF-123/copy");
       check("...and creates no repository",
         [accepted.submission.repoFullName, accepted.submission.status], [null, "ACCEPTED"]);

@@ -160,7 +160,7 @@ export const submissionsRouter = createTRPCRouter({
         // The assignment rather than the submission, because a submission row may not exist
         // yet: for a kind with no Accept, submitting is the first thing that happens to it.
         assignmentId: z.string().uuid(),
-        /** The student's copy of the document, for GOOGLE_DOC. */
+        /** The student's copy of the document, for GOOGLE_DRIVE. */
         submittedUrl: z.string().url().max(2000).nullable().default(null),
       }),
     )

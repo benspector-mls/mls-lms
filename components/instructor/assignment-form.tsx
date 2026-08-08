@@ -35,6 +35,7 @@ import {
   isUploadFileTypeKey,
   MAX_UPLOAD_BYTES,
   UPLOAD_FILE_TYPE_KEYS,
+  extensionsOf,
   UPLOAD_FILE_TYPES,
   type UploadFileTypeKey,
 } from '@/lib/uploads/file-types';
@@ -81,7 +82,7 @@ type Kind = AssignmentKind;
  * what has been typed — including the repository fields an instructor filled in before
  * switching the kind, which a union would discard on every switch. What crosses to the server
  * is the narrowed shape, and `.strict()` on the other side is what makes that mandatory
- * rather than a convention: a Google Doc draft carrying `templateRepo: ""` is a validation
+ * rather than a convention: a Drive draft carrying `templateRepo: ""` is a validation
  * error, not a field quietly ignored.
  */
 type FormState = {
@@ -107,7 +108,7 @@ type FormState = {
   templateRef: string | null;
   runnerPreset: string;
   runnerConfig: null;
-  templateDocUrl: string;
+  templateDriveUrl: string;
   /** Keys of UPLOAD_FILE_TYPES. Only a FILE_UPLOAD assignment sends these. */
   acceptedFileTypes: UploadFileTypeKey[];
   submissionInstructions: string;
@@ -120,9 +121,9 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
     label: 'GitHub repository',
     hint: 'Generated from a template. The student opens a pull request, and the pipeline grades it.',
   },
-  GOOGLE_DOC: {
-    label: 'Google Doc',
-    hint: 'Students take their own copy of a template document and submit the link. Graded by hand.',
+  GOOGLE_DRIVE: {
+    label: 'Google Drive',
+    hint: 'Students take their own copy of a template Doc, Sheet, or Slides deck and submit the link. Graded by hand.',
   },
   FILE_UPLOAD: {
     label: 'File upload',
@@ -180,8 +181,8 @@ function toDraft(state: FormState): unknown {
     };
   }
 
-  if (state.kind === 'GOOGLE_DOC') {
-    return { ...shared, kind: 'GOOGLE_DOC', templateDocUrl: state.templateDocUrl.trim() };
+  if (state.kind === 'GOOGLE_DRIVE') {
+    return { ...shared, kind: 'GOOGLE_DRIVE', templateDriveUrl: state.templateDriveUrl.trim() };
   }
 
   if (state.kind === 'FILE_UPLOAD') {
@@ -739,17 +740,17 @@ function Editor({
                 </Field>
               </div>
 
-              {state.kind === 'GOOGLE_DOC' && (
+              {state.kind === 'GOOGLE_DRIVE' && (
                 <Field
-                  label="Template document"
-                  findings={fieldFindings('templateDocUrl')}
-                  hint="Accepting sends the student to Google's own prompt to take a copy, built from this link. Paste the sharing link — it should end in /view or /edit."
+                  label="Template file"
+                  findings={fieldFindings('templateDriveUrl')}
+                  hint="A Doc, a Sheet, or a Slides deck. Accepting sends the student to Google's own prompt to take a copy, built from this link. Paste the sharing link — it should end in /view or /edit."
                 >
                   <Input
-                    value={state.templateDocUrl}
-                    placeholder="https://docs.google.com/document/d/…/view"
+                    value={state.templateDriveUrl}
+                    placeholder="https://docs.google.com/presentation/d/…/edit"
                     onChange={(event) =>
-                      setState({ ...state, templateDocUrl: event.target.value })
+                      setState({ ...state, templateDriveUrl: event.target.value })
                     }
                   />
                 </Field>
@@ -786,7 +787,7 @@ function Editor({
                           />
                           <span>{UPLOAD_FILE_TYPES[key].label}</span>
                           <span className="text-xs text-muted-foreground">
-                            {UPLOAD_FILE_TYPES[key].extensions.join(' ')}
+                            {extensionsOf(key).join(' ')}
                           </span>
                         </label>
                       );
@@ -1272,7 +1273,7 @@ function blankDraft({
     templateRef: null,
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
-    templateDocUrl: existingState?.templateDocUrl ?? '',
+    templateDriveUrl: existingState?.templateDriveUrl ?? '',
     // Ticked rather than empty, because every file-upload assignment needs at least one and a
     // PDF is what almost all of them want. An instructor changes it; they cannot forget it.
     acceptedFileTypes:
@@ -1310,7 +1311,7 @@ function fromDraft(draft: Draft): FormState {
     templateRef: draft.templateRef,
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
-    templateDocUrl: draft.templateDocUrl ?? '',
+    templateDriveUrl: draft.templateDriveUrl ?? '',
     acceptedFileTypes: (draft.acceptedFileTypes ?? []).filter(isUploadFileTypeKey),
     submissionInstructions: draft.submissionInstructions ?? '',
     sections: (draft.sections as SectionDraft[]) ?? [],

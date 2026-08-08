@@ -51,7 +51,7 @@ const assignmentFields = {
   // All three student-facing. The template document is what Accept sends them to a copy of,
   // the accepted types are what their upload control offers and refuses, and the instructions
   // are what the assignment says about turning it in.
-  templateDocUrl: true,
+  templateDriveUrl: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
 } as const;
@@ -113,8 +113,8 @@ function writableFields(spec: NonNullable<Awaited<ReturnType<typeof validateAssi
     // Both null on a REPO assignment and both spelled out anyway. Every field of the spec
     // appears here, because a key left out of this object is not a compile error — it is a
     // column that silently keeps its old value on update and its default on create, which
-    // for `templateDocUrl` would be a Google Doc assignment with nothing to distribute.
-    templateDocUrl: spec.templateDocUrl,
+    // for `templateDriveUrl` would be a Google Drive assignment with nothing to distribute.
+    templateDriveUrl: spec.templateDriveUrl,
     acceptedFileTypes: spec.acceptedFileTypes,
     submissionInstructions: spec.submissionInstructions,
     sections: spec.sections as never,
@@ -312,7 +312,7 @@ export const assignmentsRouter = createTRPCRouter({
           templateRepo: true,
           assignmentRepoName: true,
           githubOrg: true,
-          templateDocUrl: true,
+          templateDriveUrl: true,
           // The cohort's short name, which prefixes the repository this creates.
           course: { select: { cohortSlug: true } },
         },
@@ -332,15 +332,15 @@ export const assignmentsRouter = createTRPCRouter({
         What accepting *is* depends on the kind, and this is where that stops being
         incidental.
 
-        For a Google Doc it is being sent to Google's own copy prompt: no repository, no
+        For a Drive assignment it is being sent to Google's own copy prompt: no repository, no
         collaborators, no credentials, and nothing created on this side beyond the row
         recording that the student started. For a repository it is generating one from the
         template, which is everything below. FILE_UPLOAD and EXTERNAL_URL reach neither — they
         have no Accept at all, because there is nothing to hand out, and the refusal below is
         what a request arriving anyway is answered with.
       */
-      if (assignment.kind === 'GOOGLE_DOC') {
-        if (!assignment.templateDocUrl) {
+      if (assignment.kind === 'GOOGLE_DRIVE') {
+        if (!assignment.templateDriveUrl) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message:
@@ -365,7 +365,7 @@ export const assignmentsRouter = createTRPCRouter({
           update: {},
         });
 
-        return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDocUrl) };
+        return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl) };
       }
 
       if (assignment.kind === 'FILE_UPLOAD' || assignment.kind === 'EXTERNAL_URL') {
@@ -704,7 +704,7 @@ export const assignmentsRouter = createTRPCRouter({
           templateRef: true,
           runnerPreset: true,
           runnerConfig: true,
-          templateDocUrl: true,
+          templateDriveUrl: true,
           acceptedFileTypes: true,
           submissionInstructions: true,
           sections: true,
@@ -1103,7 +1103,7 @@ type CopyableAssignment = {
   templateRef: string | null;
   runnerPreset: string;
   runnerConfig: unknown;
-  templateDocUrl: string | null;
+  templateDriveUrl: string | null;
   acceptedFileTypes: string[];
   submissionInstructions: string | null;
   sections: unknown;
@@ -1125,7 +1125,7 @@ export const copyableAssignmentSelect = {
   templateRef: true,
   runnerPreset: true,
   runnerConfig: true,
-  templateDocUrl: true,
+  templateDriveUrl: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
   sections: true,
@@ -1225,7 +1225,7 @@ export async function copyAssignmentInto(
         templateRef: source.templateRef,
         runnerPreset: source.runnerPreset,
         runnerConfig: source.runnerConfig,
-        templateDocUrl: source.templateDocUrl,
+        templateDriveUrl: source.templateDriveUrl,
         acceptedFileTypes: source.acceptedFileTypes,
         submissionInstructions: source.submissionInstructions,
         sections: source.sections,

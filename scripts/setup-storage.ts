@@ -55,12 +55,39 @@ async function main() {
       process.exit(1);
     }
 
+    /*
+      Both halves are compared, and the type list is the one that matters.
+
+      This used to update only when the *size limit* had drifted, which made re-running after
+      adding a file type a no-op that printed "Nothing else to do" — leaving the route accepting
+      a kind of file the bucket then refused. That failure appears only on a real upload and only
+      in the environment nobody looked at, which is exactly what re-running this is supposed to
+      prevent.
+    */
     const limit = Number(existing.file_size_limit ?? 0);
-    if (limit !== MAX_UPLOAD_BYTES) {
-      console.log(
-        `\nUpdating the size limit from ${limit || "none"} to ${MAX_UPLOAD_BYTES} ` +
-        `(${formatBytes(MAX_UPLOAD_BYTES)}) to match MAX_UPLOAD_BYTES.`,
-      );
+    const existingTypes = new Set(existing.allowed_mime_types ?? []);
+    const missing = allowedMimeTypes.filter((type) => !existingTypes.has(type));
+    const stale = [...existingTypes].filter((type) => !allowedMimeTypes.includes(type));
+
+    if (limit !== MAX_UPLOAD_BYTES || missing.length > 0 || stale.length > 0) {
+      if (limit !== MAX_UPLOAD_BYTES) {
+        console.log(
+          `\nUpdating the size limit from ${limit || "none"} to ${MAX_UPLOAD_BYTES} ` +
+          `(${formatBytes(MAX_UPLOAD_BYTES)}) to match MAX_UPLOAD_BYTES.`,
+        );
+      }
+      // Named rather than counted. A type the bucket was missing is a file kind students could
+      // not hand in, and knowing which one is the difference between reading this line and
+      // reproducing the failure.
+      if (missing.length > 0) {
+        console.log(`\nAdding ${missing.length} type(s) the bucket did not accept:`);
+        for (const type of missing) console.log(`  + ${type}`);
+      }
+      if (stale.length > 0) {
+        console.log(`\nRemoving ${stale.length} type(s) no file type asks for:`);
+        for (const type of stale) console.log(`  - ${type}`);
+      }
+
       const { error } = await storage.updateBucket(SUBMISSION_UPLOAD_BUCKET, {
         public: false,
         fileSizeLimit: MAX_UPLOAD_BYTES,
@@ -70,10 +97,11 @@ async function main() {
         console.error(`Could not update the bucket: ${error.message}`);
         process.exit(1);
       }
-      console.log("Updated.");
+      console.log("\nUpdated.");
+      return;
     }
 
-    console.log("\nNothing else to do.");
+    console.log("\nNothing else to do — the limit and the type list already match.");
     return;
   }
 

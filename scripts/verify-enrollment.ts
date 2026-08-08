@@ -371,7 +371,7 @@ async function main() {
       /*
         The repository columns, on the kinds that have them.
 
-        Narrowed to REPO deliberately: a Google Doc or file-upload assignment has no template and
+        Narrowed to REPO deliberately: a Drive or file-upload assignment has no template and
         no answer keys, and the schema requires them to be null. A check over every kind would
         fail on a correctly copied document — which is exactly how it did fail first time.
       */

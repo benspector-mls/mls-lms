@@ -41,6 +41,7 @@ async function main() {
   const {
     acceptAttributeFor, checkUpload, describeAcceptedTypes, extensionOf, formatBytes,
     isUploadFileTypeKey, MAX_UPLOAD_BYTES, mimeTypesFor, previewKindOf, safeDownloadName,
+    contentTypeFor, extensionsOf,
     UPLOAD_FILE_TYPE_KEYS,
   } = await import("../lib/uploads/file-types");
 
@@ -49,7 +50,7 @@ async function main() {
 
   check("a PDF is accepted where PDFs are asked for",
     checkUpload({ filename: "resume.pdf", sizeBytes: 1024, acceptedTypes: pdfOnly }),
-    { ok: true, type: "pdf", extension: ".pdf" });
+    { ok: true, type: "pdf", extension: ".pdf", contentType: "application/pdf" });
   check("case does not matter",
     checkUpload({ filename: "RESUME.PDF", sizeBytes: 1024, acceptedTypes: pdfOnly }).ok, true);
   check("a type the assignment did not ask for is refused",
@@ -59,7 +60,7 @@ async function main() {
     { ok: false, reason: "This assignment accepts .pdf, and that is a .png file." });
   check("the same file is accepted where images are asked for",
     checkUpload({ filename: "screenshot.png", sizeBytes: 1024, acceptedTypes: ["image"] }),
-    { ok: true, type: "image", extension: ".png" });
+    { ok: true, type: "image", extension: ".png", contentType: "image/png" });
 
   /*
     The last dot decides. Matching on "contains .pdf" would accept resume.pdf.exe, which is an
@@ -104,6 +105,54 @@ async function main() {
   check("the bucket's allow-list covers every type an assignment can ask for",
     mimeTypesFor(UPLOAD_FILE_TYPE_KEYS).includes("application/pdf"), true);
 
+  /*
+    --- the extension decides the content type, and it has to ------------------
+
+    The bucket carries its own allow-list built from these same entries by `setup:storage`, so
+    the only types ever stored have to be the ones on it. Storing what the browser reported
+    instead is the failure this pair guards: a `.docx` arrives as `application/octet-stream` on
+    a machine without Word, and a `.ipynb` almost never arrives as anything Jupyter would
+    recognise — accepted by the route, refused by the bucket, on one student's machine and no
+    other.
+  */
+  check("every extension has a content type",
+    UPLOAD_FILE_TYPE_KEYS.flatMap(extensionsOf).every((ext) => contentTypeFor(ext) !== null),
+    true);
+  check("...and every one of them is on the bucket's allow-list",
+    UPLOAD_FILE_TYPE_KEYS.flatMap(extensionsOf)
+      .every((ext) => mimeTypesFor(UPLOAD_FILE_TYPE_KEYS).includes(contentTypeFor(ext)!)),
+    true);
+  check("a notebook is stored as a notebook, whatever the browser said",
+    contentTypeFor(".ipynb"), "application/x-ipynb+json");
+  check("a spreadsheet is stored as one too",
+    contentTypeFor(".xlsx"),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  check("case does not matter", contentTypeFor(".PDF"), "application/pdf");
+  check("an extension nothing accepts has none", contentTypeFor(".exe"), null);
+  check("the check hands back the type the file will be stored under",
+    (() => {
+      const result = checkUpload({
+        filename: "analysis.ipynb",
+        sizeBytes: 1024,
+        acceptedTypes: ["notebook"],
+      });
+      return result.ok ? result.contentType : result.reason;
+    })(),
+    "application/x-ipynb+json");
+
+  // --- the two types added for notebooks and spreadsheets --------------------
+  check("a notebook is accepted where the assignment asks for one",
+    checkUpload({ filename: "mod-3.ipynb", sizeBytes: 2048, acceptedTypes: ["notebook"] }).ok,
+    true);
+  check("...and refused where it does not",
+    checkUpload({ filename: "mod-3.ipynb", sizeBytes: 2048, acceptedTypes: ["pdf"] }).ok,
+    false);
+  check("a spreadsheet covers the three shapes one arrives in",
+    extensionsOf("spreadsheet"), [".xlsx", ".xls", ".csv"]);
+  check("a CSV is a spreadsheet rather than plain text, because that is what asks for it",
+    checkUpload({ filename: "data.csv", sizeBytes: 512, acceptedTypes: ["document"] }).ok,
+    false);
+
   check("bytes are formatted for a person", formatBytes(MAX_UPLOAD_BYTES), "25.0 MB");
   check("...and small files are not reported as 0.0 MB", formatBytes(2048), "2 KB");
 
@@ -126,6 +175,15 @@ async function main() {
   check("...whichever image it is", previewKindOf("photo.webp"), "image");
   // No browser renders a .docx, so an empty frame would be a worse answer than a download.
   check("a Word document cannot", previewKindOf("resume.docx"), null);
+  check("nor a spreadsheet", previewKindOf("data.xlsx"), null);
+  /*
+    Nor a notebook, which is the one that costs something. It is the most-read of these and the
+    download-and-open-elsewhere loop that embedding a PDF exists to remove is exactly what a
+    grader is left with. Rendering one is a real dependency and its own decision — this check is
+    here to say the answer is deliberate rather than an oversight.
+  */
+  check("nor a notebook, though that is the one worth rendering one day",
+    previewKindOf("analysis.ipynb"), null);
   check("nor plain text, which has no viewer worth framing", previewKindOf("notes.txt"), null);
   check("nor a file with no extension", previewKindOf("resume"), null);
 
@@ -236,6 +294,47 @@ async function main() {
   }
 
   check("the object is gone once removed", await submissionUploadExists(stored.path), false);
+
+  /*
+    --- the bucket's allow-list, against the newest type -----------------------
+
+    The one failure the pure checks above cannot see. Every extension having a content type is a
+    fact about this repository; the bucket accepting that content type is a fact about *this
+    environment*, and the two come apart the moment a file type is added and `setup:storage` is
+    not re-run somewhere. It appears only on a real upload, so this is a real upload.
+
+    A notebook because it is the newest and the least likely to have been on any allow-list by
+    accident — `application/pdf` would pass this on a bucket configured years ago.
+  */
+  const notebookBytes = Buffer.from('{"cells": [], "nbformat": 4}\n');
+  const notebookType = contentTypeFor(".ipynb")!;
+  let notebookStored: { path: string } | null = null;
+  try {
+    notebookStored = await storeSubmissionUpload({
+      submissionId: `verify-${Date.now()}`,
+      extension: ".ipynb",
+      contentType: notebookType,
+      bytes: notebookBytes,
+    });
+    check("the bucket accepts every type this build can store", true, true);
+  } catch (err) {
+    check(
+      "the bucket accepts every type this build can store",
+      `${notebookType} refused — run npm run setup:storage against this environment ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
+      true,
+    );
+  }
+  if (notebookStored) {
+    check("...and hands it back as itself",
+      (await fetch(await signedDownloadUrl({
+        path: notebookStored.path,
+        filename: "analysis.ipynb",
+        disposition: "inline",
+      }))).headers.get("content-type"),
+      notebookType);
+    await removeSubmissionUpload(notebookStored.path);
+  }
 
   // --- who may hand in, and who may read ------------------------------------
   const { db } = await import("../lib/prisma");
@@ -356,7 +455,6 @@ async function main() {
             profileId: studentId,
             assignment: handIn,
             filename: "screenshot.png",
-            contentType: "image/png",
             bytes: Buffer.from("not a pdf"),
           })),
         "BAD_REQUEST");
@@ -365,7 +463,6 @@ async function main() {
         profileId: studentId,
         assignment: handIn,
         filename: "Ben Spector resume.pdf",
-        contentType: "application/pdf",
         bytes: body,
       });
 
@@ -424,7 +521,7 @@ async function main() {
 
       // --- work made somewhere else ---------------------------------------
       //
-      // Handed in as a link like a Google Doc, and distributed like nothing at all. What is
+      // Handed in as a link like a Drive file, and distributed like nothing at all. What is
       // checked here is that the two halves land on the right side of each rule.
       const { assignment: linkAssignment } = await asInstructor.assignments.create({
         courseId: course.id,

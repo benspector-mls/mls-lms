@@ -144,7 +144,7 @@ export function GradingReview({
 
   /*
     Test evidence exists only where a template repository does. The suite comes from the
-    template and runs against a checkout of the student's repository, so a Google Doc or an
+    template and runs against a checkout of the student's repository, so a Drive file or an
     uploaded file has nothing to execute — not "no tests configured", which is a real state
     an assignment can be in and worth reporting, but no such thing as tests. The card is
     absent rather than empty, and the query is not made.

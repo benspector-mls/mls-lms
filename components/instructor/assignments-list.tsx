@@ -74,7 +74,7 @@ type Assignment = Data['assignments'][number];
  * All four, including `EXTERNAL_URL`. A kind missing from this list is a kind an instructor
  * cannot filter to, which reads as the filter being broken rather than as a list being short.
  */
-const KIND_ORDER = ['REPO', 'GOOGLE_DOC', 'FILE_UPLOAD', 'EXTERNAL_URL'] as const;
+const KIND_ORDER = ['REPO', 'GOOGLE_DRIVE', 'FILE_UPLOAD', 'EXTERNAL_URL'] as const;
 
 /**
  * Course order: the order the modules are taught in, which is neither alphabetical nor by

@@ -157,7 +157,6 @@ export async function storeAndRecordUpload(
     profileId: string;
     assignment: HandInAssignment;
     filename: string;
-    contentType: string;
     bytes: Buffer;
   },
 ) {
@@ -190,7 +189,16 @@ export async function storeAndRecordUpload(
   const { path } = await storeSubmissionUpload({
     submissionId: submission.id,
     extension: check.extension,
-    contentType: params.contentType,
+    /*
+      The type the extension implies, not the one the browser reported.
+
+      They are usually the same and the exceptions are the whole point: a `.docx` arrives as
+      `application/octet-stream` on a machine without Word, and a `.ipynb` almost never arrives
+      as anything Jupyter would recognise. The bucket has its own allow-list built from these
+      same entries, so storing what the browser said means an upload the route accepted and the
+      bucket refuses — on one student's machine and no other.
+    */
+    contentType: check.contentType,
     bytes: params.bytes,
   });
 
@@ -208,7 +216,7 @@ export async function storeAndRecordUpload(
       uploadPath: path,
       uploadFilename: params.filename,
       uploadSizeBytes: params.bytes.byteLength,
-      uploadContentType: params.contentType,
+      uploadContentType: check.contentType,
     },
     select: {
       id: true,

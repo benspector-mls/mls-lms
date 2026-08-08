@@ -18,31 +18,60 @@
  */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
+/**
+ * What a `FILE_UPLOAD` assignment may accept.
+ *
+ * **Each type maps its extensions to the content type they are stored under**, rather than
+ * keeping two lists side by side. The two have to agree — the extension decides whether a file
+ * is accepted, and the content type decides both what the bucket's allow-list permits and what
+ * the browser is handed on the way back — and lists that agree by being written in the same
+ * order agree until somebody adds one entry to one of them.
+ */
 export const UPLOAD_FILE_TYPES = {
   pdf: {
     label: "PDF",
-    extensions: [".pdf"],
-    mimeTypes: ["application/pdf"],
+    extensions: { ".pdf": "application/pdf" },
   },
   image: {
     label: "Images",
-    extensions: [".png", ".jpg", ".jpeg", ".gif", ".webp"],
-    mimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+    extensions: {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+    },
   },
   document: {
     label: "Word and plain text",
-    extensions: [".docx", ".doc", ".txt", ".md"],
-    mimeTypes: [
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "application/msword",
-      "text/plain",
-      "text/markdown",
-    ],
+    extensions: {
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+      ".txt": "text/plain",
+      ".md": "text/markdown",
+    },
   },
-} as const satisfies Record<
-  string,
-  { label: string; extensions: readonly string[]; mimeTypes: readonly string[] }
->;
+  spreadsheet: {
+    label: "Spreadsheets",
+    extensions: {
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".xls": "application/vnd.ms-excel",
+      ".csv": "text/csv",
+    },
+  },
+  /**
+   * A notebook is JSON, and `application/x-ipynb+json` is what Jupyter registers for it.
+   *
+   * The type stored is this one whatever the browser said, which for `.ipynb` is almost never
+   * this: browsers report it as `application/json`, as `application/octet-stream`, or as
+   * nothing at all. Admitting those to the bucket's allow-list would admit every JSON file and
+   * then every file, which is why the content type is decided here rather than accepted.
+   */
+  notebook: {
+    label: "Jupyter notebooks",
+    extensions: { ".ipynb": "application/x-ipynb+json" },
+  },
+} as const satisfies Record<string, { label: string; extensions: Record<string, string> }>;
 
 export type UploadFileTypeKey = keyof typeof UPLOAD_FILE_TYPES;
 
@@ -52,13 +81,18 @@ export function isUploadFileTypeKey(value: string): value is UploadFileTypeKey {
   return Object.hasOwn(UPLOAD_FILE_TYPES, value);
 }
 
+/** The extensions one type accepts, in the order they are written. */
+export function extensionsOf(key: UploadFileTypeKey): string[] {
+  return Object.keys(UPLOAD_FILE_TYPES[key].extensions);
+}
+
 /** Every MIME type any accepted type allows. The bucket's own allow-list is built from this. */
 export function mimeTypesFor(acceptedTypes: readonly string[]): string[] {
   return [
     ...new Set(
       acceptedTypes
         .filter(isUploadFileTypeKey)
-        .flatMap((key) => [...UPLOAD_FILE_TYPES[key].mimeTypes]),
+        .flatMap((key) => Object.values(UPLOAD_FILE_TYPES[key].extensions)),
     ),
   ];
 }
@@ -66,12 +100,27 @@ export function mimeTypesFor(acceptedTypes: readonly string[]): string[] {
 /** What a file input's `accept` attribute should hold. Extensions, for the reason below. */
 export function acceptAttributeFor(acceptedTypes: readonly string[]): string {
   return [
-    ...new Set(
-      acceptedTypes
-        .filter(isUploadFileTypeKey)
-        .flatMap((key) => [...UPLOAD_FILE_TYPES[key].extensions]),
-    ),
+    ...new Set(acceptedTypes.filter(isUploadFileTypeKey).flatMap(extensionsOf)),
   ].join(",");
+}
+
+/**
+ * The content type a file with this extension is stored under, or null for one nothing accepts.
+ *
+ * **What the browser said is not consulted**, for the same reason `checkUpload` goes by
+ * extension: browsers disagree about the same file, so a `.docx` arriving as
+ * `application/octet-stream` on one student's machine would be stored under a type the bucket's
+ * allow-list does not contain — accepted by the route and refused by the bucket, on that
+ * student's machine and no other. Deciding it here means the only types ever stored are the
+ * ones `mimeTypesFor` put on the allow-list.
+ */
+export function contentTypeFor(extension: string): string | null {
+  const lowered = extension.toLowerCase();
+  for (const key of UPLOAD_FILE_TYPE_KEYS) {
+    const found = (UPLOAD_FILE_TYPES[key].extensions as Record<string, string>)[lowered];
+    if (found) return found;
+  }
+  return null;
 }
 
 /** "PDF or Images", for telling a student what they may hand in. */
@@ -101,21 +150,22 @@ export function extensionOf(filename: string): string | null {
  * that arrived as `application/octet-stream` on one student's machine would be the one
  * submission an instructor still has to download.
  *
- * Word documents are absent because no browser renders one. They are downloaded, which is the
- * honest answer rather than an empty frame.
+ * Word documents, spreadsheets, and notebooks are absent because no browser renders one. They
+ * are downloaded, which is the honest answer rather than an empty frame. A notebook is the one
+ * that costs something — it is the most-read of these and the download-and-open-elsewhere loop
+ * that embedding a PDF exists to remove is exactly what a grader is left with. Rendering one is
+ * a real dependency and its own decision.
  */
 export function previewKindOf(filename: string): "pdf" | "image" | null {
   const extension = extensionOf(filename);
   if (extension === null) return null;
   if (extension === ".pdf") return "pdf";
-  if ((UPLOAD_FILE_TYPES.image.extensions as readonly string[]).includes(extension)) {
-    return "image";
-  }
+  if (Object.hasOwn(UPLOAD_FILE_TYPES.image.extensions, extension)) return "image";
   return null;
 }
 
 export type UploadCheck =
-  | { ok: true; type: UploadFileTypeKey; extension: string }
+  | { ok: true; type: UploadFileTypeKey; extension: string; contentType: string }
   | { ok: false; reason: string };
 
 /**
@@ -171,9 +221,7 @@ export function checkUpload(params: {
     };
   }
 
-  const type = accepted.find((key) =>
-    (UPLOAD_FILE_TYPES[key].extensions as readonly string[]).includes(extension),
-  );
+  const type = accepted.find((key) => Object.hasOwn(UPLOAD_FILE_TYPES[key].extensions, extension));
 
   if (!type) {
     return {
@@ -182,13 +230,12 @@ export function checkUpload(params: {
     };
   }
 
-  return { ok: true, type, extension };
+  // Never null here: `type` was found by this extension being one of its keys.
+  return { ok: true, type, extension, contentType: contentTypeFor(extension)! };
 }
 
 function describeExtensions(accepted: readonly UploadFileTypeKey[]): string {
-  const extensions = [
-    ...new Set(accepted.flatMap((key) => [...UPLOAD_FILE_TYPES[key].extensions])),
-  ];
+  const extensions = [...new Set(accepted.flatMap(extensionsOf))];
   if (extensions.length === 1) return extensions[0];
   return `${extensions.slice(0, -1).join(", ")} or ${extensions[extensions.length - 1]}`;
 }

@@ -402,9 +402,9 @@ export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; descr
     label: 'Code',
     description: 'Handed in as a pull request from your own copy of a repository.',
   },
-  GOOGLE_DOC: {
-    label: 'Google Doc',
-    description: 'Handed in as a link to your own copy of a document.',
+  GOOGLE_DRIVE: {
+    label: 'Google Drive',
+    description: 'Handed in as a link to your own copy of a Doc, Sheet, or Slides deck.',
   },
   FILE_UPLOAD: { label: 'File', description: 'Handed in as an uploaded file.' },
   EXTERNAL_URL: {

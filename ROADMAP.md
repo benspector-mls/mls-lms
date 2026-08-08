@@ -50,6 +50,7 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Not in this design](#not-in-this-design)
 - [A removed student's work — done](#a-removed-students-work--done)
   - [The short name stopped being editable](#the-short-name-stopped-being-editable)
+  - [The short name names the course as well as the term](#the-short-name-names-the-course-as-well-as-the-term)
   - [The check scripts were reporting passes they had not earned](#the-check-scripts-were-reporting-passes-they-had-not-earned)
 - [Course switching — done](#course-switching--done)
   - [The claim this document had wrong](#the-claim-this-document-had-wrong)
@@ -58,9 +59,10 @@ How the built system works is in [README.md](README.md). This file is only what 
   - [Co-teaching, which the settings screen needed and nothing had](#co-teaching-which-the-settings-screen-needed-and-nothing-had)
 - [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
 - [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
-- [Course ownership](#course-ownership)
-- [Archived courses need a way back, and a way out](#archived-courses-need-a-way-back-and-a-way-out)
-- [Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)
+- [Course ownership — done](#course-ownership--done)
+  - [What checking it found](#what-checking-it-found)
+- [Archived courses need a way back, and a way out — done](#archived-courses-need-a-way-back-and-a-way-out--done)
+- [Copying an assignment into another cohort — done](#copying-an-assignment-into-another-cohort--done)
 - [More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)
 - [Dividing grading between co-teachers](#dividing-grading-between-co-teachers)
 - [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
@@ -94,19 +96,18 @@ The sequence, most immediate first. A feature's own section says what is known a
 
 The ordering principle is: correctness gaps, then the cheap things, then measurement, then a review of code that already works, then the features that add real surface area. Measurement before the review because a real cohort produces figures rather than estimates; the review before the large features because every one of them adds readers to the parts it would touch.
 
-1. **[More kinds of thing a student can hand in](#more-kinds-of-thing-a-student-can-hand-in)** — Jupyter notebooks and spreadsheets are a few lines each. Google Slides is not a file type at all, which is the part worth reading.
-2. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
-3. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
-4. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
-5. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-6. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
-7. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
-8. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-9. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-10. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
-11. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
+1. **[Small things](#small-things)** — the breadcrumb should name the cohort. Do it whenever something else is open in that file.
+2. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
+3. **[A code review pass](#a-code-review-pass)** — Prisma usage, logic, architecture, and organization. Includes [adding an automated test suite](#an-automated-test-suite), which is decided rather than open.
+4. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+5. **[Dividing grading between co-teachers](#dividing-grading-between-co-teachers)** — now that a cohort can have more than one instructor, nothing says who grades what.
+6. **[Content that is not an assignment](#content-that-is-not-an-assignment)** — readings, rich text, embedded video, plus a Resources screen to author them. The largest of these, because it puts a second kind of thing under a module and every reader that assumes otherwise has to learn about it.
+7. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+8. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
+9. **[Student enrollment](#student-enrollment--done)**, remaining half: [targeted assignments and excusing a student](#targeted-assignments-and-excusing-a-student).
+10. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection. No longer deferred.
 
-Items 1, 2 and 5 through 7 are new and their ordering relative to each other is a proposal rather than a decision.
+Items 1 and 4 through 6 are new and their ordering relative to each other is a proposal rather than a decision.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that [token management](#token-management) produces anyway.
 
@@ -428,7 +429,7 @@ Nothing in this phase is outstanding.
 
 ### Phase 7 verification
 
-**Done, and re-runnable.** `npm run verify:uploads` is 73 checks over the file-upload and link-submitted paths, including a real store, sign, fetch, and remove — described in [the README](README.md#what-is-verified-and-how). `npm run verify:authoring` is 147 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
+**Done, and re-runnable.** `npm run verify:uploads` is 88 checks over the file-upload and link-submitted paths, including a real store, sign, fetch, and remove — described in [the README](README.md#what-is-verified-and-how). `npm run verify:authoring` is 156 checks: the schema rules as pure functions, and a second half that drives the tRPC callers against the real database inside a transaction that is rolled back, because authorization is half of what these procedures are and a check that only holds when called through the interface is not a check. Its strongest check is that authoring `swe-1-3-node-modules` through `create` produces a row matching the seeded one field for field — that assignment already grades correctly end to end, so an identical row proves the authoring path produces grading-correct output rather than merely well-formed output. `npm run verify:approve` covers the hand-graded half, described in [the README](README.md#what-is-verified-and-how).
 
 **The one thing a script cannot do is also done.** On localhost: a Google Doc assignment was authored, a student saw nothing until it was published, accepting landed on Google's copy prompt, the link came back, it was graded by hand and released. Every part of that sequence was already checked through the callers; what the walkthrough adds is that the screens carry it, which no rolled-back transaction can tell you.
 
@@ -985,26 +986,33 @@ The database's own backups are the only way back from a mistaken deletion. That 
 
 **An archived cohort takes no copies**, added with the rest because archived cohorts are now [in the course list](#archived-courses-need-a-way-back-and-a-way-out--done). One is a thing somebody can be looking at when they reach for a copy, and a finished term quietly gaining an assignment is a change nobody would see.
 
-`verify:authoring` is 147 checks. The one worth reading is that copying the same assignment into one cohort twice is refused — it follows from the copy keeping its repository name, it is the reason the name-match check needs a second target cohort, and it is the kind of thing a script discovers by colliding with its own fixture rather than by being written down first.
+`verify:authoring` is 156 checks. The one worth reading is that copying the same assignment into one cohort twice is refused — it follows from the copy keeping its repository name, it is the reason the name-match check needs a second target cohort, and it is the kind of thing a script discovers by colliding with its own fixture rather than by being written down first.
 
 ---
 
-## More kinds of thing a student can hand in
+## More kinds of thing a student can hand in — done
 
-Two of these three are a few lines. The third is not what it looks like.
+**Built**, and described in [the README](README.md#handing-in-a-file). Two of the three were a few lines. The third was not what it looked like.
 
-**Jupyter notebooks and spreadsheets are entries in `UPLOAD_FILE_TYPES`.** That map is a closed vocabulary on purpose — an instructor ticks named types and the extensions follow, because a typo'd MIME type is a student being told their correct file is the wrong kind on the due date. Adding `notebook` for `.ipynb` and `spreadsheet` for `.xlsx`, `.xls`, and `.csv` is a label, a list of extensions, and a list of MIME types.
+**Jupyter notebooks and spreadsheets are entries in `UPLOAD_FILE_TYPES`** — `notebook` for `.ipynb`, `spreadsheet` for `.xlsx`, `.xls`, and `.csv`. That map is a closed vocabulary on purpose: an instructor ticks named types and the extensions follow, because a typo'd MIME type is a student being told their correct file is the wrong kind on the due date.
 
-Two consequences that are not code:
+**Adding them turned up a defect the existing types already had.** The map kept extensions and MIME types as two lists side by side, and the stored content type was whatever the browser reported — so a `.docx` arriving as `application/octet-stream` on a machine without Word was accepted by the route and refused by the bucket, which builds its allow-list from those same MIME types. On that student's machine and no other. A notebook makes it certain rather than occasional: browsers report `.ipynb` as `application/json`, as `application/octet-stream`, or as nothing. Each type now maps its extensions **to** the content type they are stored under, `contentTypeFor` decides it, and the browser's claim is not passed to the storage layer at all.
 
-- **The bucket has its own allow-list, built from the same map by `npm run setup:storage`.** So adding a type means re-running that script against every environment, and forgetting to leaves the route accepting a file the bucket then refuses — a failure that appears only on a real upload, and only in the environment nobody re-ran.
-- **Neither previews.** `previewKindOf` returns `pdf` or `image` and everything else downloads, which is the honest answer for a spreadsheet and a poor one for a notebook. A notebook is the most-read of these three and the one where the download-and-open-elsewhere loop that [embedding a PDF exists to remove](README.md#handing-in-a-file) costs the most. Rendering one is a real dependency and its own decision; worth knowing that adding the type is small and making it *pleasant to grade* is not.
+**`npm run setup:storage` has to be re-run against every environment**, because that script builds the bucket's allow-list from this map. Forgetting leaves the route accepting a file the bucket then refuses, which appears only on a real upload and only where nobody re-ran it.
 
-**Google Slides is not a file type.** It is the same shape as `GOOGLE_DOC`: handed out as a copy link, handed in as a link to the student's own copy, graded by hand. The `/copy` substitution that makes that work is a property of how Google editor URLs are built, and it holds for Slides and Sheets exactly as it does for Docs — `/presentation/d/<id>/copy` and `/spreadsheets/d/<id>/copy`. So the choice is a fifth `AssignmentKind`, or widening `GOOGLE_DOC` to any Google editor URL.
+**Neither previews.** `previewKindOf` answers `pdf` or `image` and everything else downloads, which is the honest answer for a spreadsheet and a poor one for a notebook — the most-read of these and the one where the download-and-open-elsewhere loop that [embedding a PDF exists to remove](README.md#handing-in-a-file) costs most. Rendering one is a real dependency and its own decision; the check saying a notebook does not preview is there so the answer reads as deliberate rather than as an oversight.
 
-Widening is probably right and is not free: `assignmentSpecSchema` checks the link's *shape* deliberately, because a link the substitution does not match is one that sends every student to the instructor's own document to edit in place. Widening the check means widening it to a known set of Google editor paths, not to any Google URL. A fifth kind avoids that but pays the price the [kind axis](#step-0-the-kind-axis--done) was built to make cheap — which, on the evidence of `EXTERNAL_URL`, is an afternoon rather than a rewrite. Either way the deciding question is whether "a slide deck" and "a document" are different things to an instructor authoring an assignment, or the same thing with a different link.
+### Google Slides was not a file type, and the kind was misnamed
 
-An Excel spreadsheet has the same fork: a `.xlsx` upload and a Google Sheet link are different assignments, and which one is meant should be settled before either is built.
+`GOOGLE_DOC` is now `GOOGLE_DRIVE`, and `templateDocUrl` is `templateDriveUrl`. Slides and Sheets are the same shape as Docs: handed out as a copy link, handed in as a link to the student's own copy, graded by hand. The `/copy` substitution is a property of how Google's editor URLs are built and it holds for all three — so they were never three kinds, they were one kind named after the only editor its URL check happened to accept.
+
+**Widening the check meant naming the editors, not accepting any Google address.** The pattern matches `docs.google.com/(document|spreadsheets|presentation)/d/<id>/(view|edit|preview)`. A Form, a Drawing, a Drive folder, and a published `/pub` link are all `docs.google.com` and none of them produces a copy prompt from the substitution, so admitting them would move the failure from the field where the link was typed to every student who pressed Accept. That is the whole reason the shape is checked rather than trusted, and widening it without widening the substitution to match would have thrown it away.
+
+The alternative was a fifth `AssignmentKind`, and the deciding question was whether "a slide deck" and "a document" are different things to an instructor authoring an assignment or the same thing with a different link. They are the same thing: the fields, the distribution, the collection, and the grading are identical, and the only difference is which editor the template opens in.
+
+**The migration is two renames** — `ALTER TYPE ... RENAME VALUE` and `ALTER TABLE ... RENAME COLUMN`. Both are metadata-only in Postgres, both keep every existing row exactly as it is, and neither has a window in which a row means something different from what it meant a moment before. **It is required rather than optional**, unlike the ones before it: until it runs, every read of an assignment names a column the database does not have.
+
+An Excel spreadsheet had the same fork and it is settled the same way, in the other direction: a `.xlsx` upload and a Google Sheet link are genuinely different assignments — one is a file in private storage and the other is a link to a file the student owns — so both exist and an instructor picks the kind that matches what they are asking for.
 
 ---
 

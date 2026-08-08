@@ -18,7 +18,7 @@ import { preprocessRepoRef } from "./repo-ref";
  * manual-review reason whose cause is not obvious hours later.
  *
  * `kind` is what makes this a union rather than a flat object. A repository-backed
- * assignment needs three GitHub fields and can name a test runner; a Google Doc or an
+ * assignment needs three GitHub fields and can name a test runner; a Drive file or an
  * uploaded file has no repository to generate, no pull request to diff, and no suite
  * to execute. Those columns are nullable in the database because a column cannot
  * express "required for one kind" — this schema is where the requirement lives.
@@ -63,12 +63,12 @@ export const RUBRIC_NAME_BY_SECTION_TYPE: Record<SectionTypeName, string> = {
  * pipeline reaches: a `REPO` assignment is distributed from a template, collected as a pull
  * request, and graded by the model, while the rest are distributed as a link or as instructions,
  * collected as a link the student pastes or a file they upload, and graded by an instructor
- * typing the score and the feedback. Reading a Google Doc's contents or an uploaded file and
+ * typing the score and the feedback. Reading a Drive file's contents or an uploaded file and
  * generating a report from it is a separate feature and needs instructor-authored rubrics.
  */
 export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
   AssignmentKind.REPO,
-  AssignmentKind.GOOGLE_DOC,
+  AssignmentKind.GOOGLE_DRIVE,
   AssignmentKind.FILE_UPLOAD,
   AssignmentKind.EXTERNAL_URL,
 ]);
@@ -82,7 +82,7 @@ export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
  * other.
  */
 export const LINK_SUBMITTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
-  AssignmentKind.GOOGLE_DOC,
+  AssignmentKind.GOOGLE_DRIVE,
   AssignmentKind.EXTERNAL_URL,
 ]);
 
@@ -111,7 +111,7 @@ export class UnsupportedAssignmentKindError extends Error {
  *
  * Distinct from `UnsupportedAssignmentKindError` because it means the opposite thing. That
  * one says a kind is not built; this one says the kind is built and works, and the caller
- * asked it a question about repositories that does not apply — a Google Doc has no template
+ * asked it a question about repositories that does not apply — a Drive assignment has no template
  * to generate from and no pull request to diff. Reporting them as one another would tell an
  * instructor a working assignment is unimplemented.
  */
@@ -512,7 +512,7 @@ const noRepository = {
  * omitted for the same reason: a kind added later that forgets to say so fails to compile
  * instead of inheriting whatever the previous branch had.
  *
- * Empty rather than nullable, because "which file types does a Google Doc assignment
+ * Empty rather than nullable, because "which file types does a Google Drive assignment
  * accept" has an answer — none, it is not handed in as a file — and an empty list says
  * that without a third state to interpret.
  */
@@ -521,20 +521,28 @@ const noUpload = {
 };
 
 /**
- * A Google Docs URL the copy prompt can be built from.
+ * A Google Drive editor URL the copy prompt can be built from.
  *
- * Anchored on the document id and the final path segment rather than accepting any link,
- * because `copyUrlFromTemplate` below works by replacing that segment: a URL this pattern
- * does not match is one the substitution would silently leave alone, sending every student
- * to the instructor's own document to edit in place. `/edit` is accepted as well as `/view`
- * since that is what Google's Share dialog actually hands over.
+ * Anchored on the editor, the file id, and the final path segment rather than accepting any
+ * link, because `copyUrlFromTemplate` below works by replacing that segment: a URL this pattern
+ * does not match is one the substitution would silently leave alone, sending every student to
+ * the instructor's own file to edit in place. `/edit` is accepted as well as `/view` since that
+ * is what Google's Share dialog actually hands over.
+ *
+ * **Three editors, named, rather than any Google address.** Docs, Sheets, and Slides build
+ * their URLs the same way and take `/copy` the same way, which is what makes them one kind
+ * rather than three. Widening to `docs.google.com/*` would admit a Form, a Drawing, a folder
+ * listing, and a published `/pub` link — none of which the substitution produces a copy prompt
+ * from, and every one of which would fail on the student's side rather than on the field where
+ * it was typed.
  */
-const GOOGLE_DOC_URL = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+\/(view|edit|preview)(\?[^#]*)?(#.*)?$/;
+const GOOGLE_DRIVE_URL =
+  /^https:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/[A-Za-z0-9_-]+\/(view|edit|preview)(\?[^#]*)?(#.*)?$/;
 
 /**
- * Google's own "would you like to make a copy?" prompt for a document.
+ * Google's own "would you like to make a copy?" prompt for a Drive file.
  *
- * The whole of the Google Doc distribution mechanism. The application creates nothing, holds
+ * The whole of the Google Drive distribution mechanism. The application creates nothing, holds
  * no Google credentials, and touches no student's Drive — the copy is made by Google, on the
  * student's request, and belongs to them from the moment it exists. The alternative was Drive
  * API integration with OAuth against every student's Google account, which is a great deal of
@@ -543,8 +551,8 @@ const GOOGLE_DOC_URL = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]
  * The query string is dropped with the segment: `?usp=sharing` on a `/copy` URL is harmless
  * but meaningless, and keeping it would make the link look assembled rather than deliberate.
  */
-export function copyUrlFromTemplate(templateDocUrl: string): string {
-  return templateDocUrl.replace(/\/(view|edit|preview)(\?[^#]*)?(#.*)?$/, "/copy");
+export function copyUrlFromTemplate(templateDriveUrl: string): string {
+  return templateDriveUrl.replace(/\/(view|edit|preview)(\?[^#]*)?(#.*)?$/, "/copy");
 }
 
 export const assignmentSpecSchema = z.discriminatedUnion("kind", [
@@ -609,7 +617,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       runnerPreset: z.string().min(1).default("none"),
       runnerConfig: z.record(z.string(), z.unknown()).nullable().default(null),
       /** A repository assignment is distributed from a template, not from a document. */
-      templateDocUrl: z.null().default(null),
+      templateDriveUrl: z.null().default(null),
       ...noUpload,
     })
     .strict()
@@ -633,19 +641,20 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
 
   z
     .object({
-      kind: z.literal(AssignmentKind.GOOGLE_DOC),
+      kind: z.literal(AssignmentKind.GOOGLE_DRIVE),
       ...shared,
       ...noRepository,
       /**
-       * The document every student takes their own copy of. Required, because without it
-       * there is no way to distribute the assignment at all — a Google Doc assignment with
-       * no template is an instruction to write something somewhere.
+       * The Drive file every student takes their own copy of — a Doc, a Sheet, or a Slides
+       * deck. Required, because without it there is no way to distribute the assignment at
+       * all: a Drive assignment with no template is an instruction to write something
+       * somewhere.
        */
-      templateDocUrl: z
+      templateDriveUrl: z
         .string()
         .regex(
-          GOOGLE_DOC_URL,
-          'must be a Google Docs link ending in /view or /edit, e.g. ' +
+          GOOGLE_DRIVE_URL,
+          'must be a Google Docs, Sheets, or Slides link ending in /view or /edit, e.g. ' +
             'https://docs.google.com/document/d/<id>/view — that is what the copy prompt ' +
             'is built from',
         ),
@@ -662,7 +671,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       kind: z.literal(AssignmentKind.FILE_UPLOAD),
       ...shared,
       ...noRepository,
-      templateDocUrl: z.null().default(null),
+      templateDriveUrl: z.null().default(null),
       /**
        * What a student may hand in, and at least one is required.
        *
@@ -687,10 +696,10 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
    * second link doing what `submissionInstructions` already does better — that field is markdown,
    * so an instructor writes "start from [this Canva template](…)" alongside everything else the
    * student needs to know, rather than having a bare URL appear on the screen with no explanation
-   * of what to do with it. A column would also imply the copy-prompt machinery `GOOGLE_DOC` has,
+   * of what to do with it. A column would also imply the copy-prompt machinery `GOOGLE_DRIVE` has,
    * which no other service shares.
    *
-   * **And no shape check on what the student submits.** A `GOOGLE_DOC` submission is checked
+   * **And no shape check on what the student submits.** A `GOOGLE_DRIVE` submission is checked
    * against Google's URL pattern because the assignment was distributed as one; here the
    * assignment did not say where the work lives, so there is no pattern to check against and any
    * https link is a legitimate answer. Refusing one would mean guessing which services are
@@ -702,7 +711,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       ...shared,
       ...noRepository,
       ...noUpload,
-      templateDocUrl: z.null().default(null),
+      templateDriveUrl: z.null().default(null),
     })
     .strict(),
 ]);

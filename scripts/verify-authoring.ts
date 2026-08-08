@@ -133,10 +133,10 @@ check("something that is not a repository reference is refused",
   rejects({ ...repoSpec, answerKeyRepo: "just some words" }), ["answerKeyRepo"]);
 check("a kind with no repository may not name an answer key repository",
   rejects({
-    kind: AssignmentKind.GOOGLE_DOC,
+    kind: AssignmentKind.GOOGLE_DRIVE,
     title: "Story Prep Worksheet",
     moduleId: repoSpec.moduleId,
-    templateDocUrl: "https://docs.google.com/document/d/abc123/view",
+    templateDriveUrl: "https://docs.google.com/document/d/abc123/view",
     answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
     sections: [manualSection],
   }),
@@ -165,10 +165,10 @@ check("an absolute path is refused",
   rejects({ ...repoSpec, answerKeyDir: "/etc/passwd" }), ["answerKeyDir"]);
 check("a kind with no repository may not name an answer key folder",
   rejects({
-    kind: AssignmentKind.GOOGLE_DOC,
+    kind: AssignmentKind.GOOGLE_DRIVE,
     title: "Story Prep Worksheet",
     moduleId: repoSpec.moduleId,
-    templateDocUrl: "https://docs.google.com/document/d/abc123/view",
+    templateDriveUrl: "https://docs.google.com/document/d/abc123/view",
     answerKeyDir: "answer-keys/whatever",
     sections: [manualSection],
   }),
@@ -351,14 +351,14 @@ check("the none preset is accepted", rejects({ ...repoSpec, runnerPreset: "none"
 const DOC_URL = "https://docs.google.com/document/d/1AbC_dEF-123/view";
 
 const docSpec = {
-  kind: AssignmentKind.GOOGLE_DOC,
+  kind: AssignmentKind.GOOGLE_DRIVE,
   title: "Reflection: what I learned in mod 1",
   moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
-  templateDocUrl: DOC_URL,
+  templateDriveUrl: DOC_URL,
   sections: [manualSection],
 };
 
-check("a Google Doc assignment needs no repository fields", rejects(docSpec), "accepted");
+check("a Google Drive assignment needs no repository fields", rejects(docSpec), "accepted");
 check("...and its repository fields come out null", (() => {
   const parsed = parseAssignmentSpec(docSpec);
   return [parsed.templateRepo, parsed.assignmentRepoName, parsed.githubOrg];
@@ -368,9 +368,9 @@ check("...and its repository fields come out null", (() => {
   Accepting a runner here would produce an assignment that looks like it has test
   evidence and can never have any.
 */
-check("a Google Doc assignment may not name a runner",
+check("a Google Drive assignment may not name a runner",
   rejects({ ...docSpec, runnerPreset: "node-jest" }), ["runnerPreset"]);
-check("a Google Doc assignment may not name a repository",
+check("a Google Drive assignment may not name a repository",
   rejects({ ...docSpec, templateRepo: "marcy-lms-test/whatever" }), ["templateRepo"]);
 check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE" }), ["kind"]);
 
@@ -381,15 +381,57 @@ check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE"
   one the substitution would leave untouched, sending every student to the instructor's own
   document to edit in place. That is the failure this pattern exists to prevent.
 */
-check("a Google Doc assignment needs a template document",
-  rejects({ ...docSpec, templateDocUrl: undefined }), ["templateDocUrl"]);
-check("a link that is not a Google Doc is refused",
-  rejects({ ...docSpec, templateDocUrl: "https://example.com/some/doc/view" }), ["templateDocUrl"]);
-check("a Google Doc link with no final segment is refused",
-  rejects({ ...docSpec, templateDocUrl: "https://docs.google.com/document/d/1AbC_dEF-123" }),
-  ["templateDocUrl"]);
-check("a REPO assignment may not name a template document",
-  rejects({ ...repoSpec, templateDocUrl: DOC_URL }), ["templateDocUrl"]);
+check("a Google Drive assignment needs a template file",
+  rejects({ ...docSpec, templateDriveUrl: undefined }), ["templateDriveUrl"]);
+check("a link that is not a Drive editor link is refused",
+  rejects({ ...docSpec, templateDriveUrl: "https://example.com/some/doc/view" }), ["templateDriveUrl"]);
+check("a Drive link with no final segment is refused",
+  rejects({ ...docSpec, templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123" }),
+  ["templateDriveUrl"]);
+check("a REPO assignment may not name a template file",
+  rejects({ ...repoSpec, templateDriveUrl: DOC_URL }), ["templateDriveUrl"]);
+
+/*
+  Three editors, one kind.
+
+  A Doc, a Sheet, and a Slides deck are handed out as a `/copy` link built the same way, handed
+  in as a link, and graded by hand — so they were never three kinds, they were one kind named
+  after the only editor it happened to accept. What each pair below actually proves is that the
+  substitution still lands, because a pattern widened without the substitution being widened
+  with it would accept the link and then send every student to the instructor's own file.
+*/
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/edit";
+const SLIDES_URL = "https://docs.google.com/presentation/d/1AbC_dEF-123/edit";
+
+check("a Sheets link is accepted",
+  rejects({ ...docSpec, templateDriveUrl: SHEET_URL }), "accepted");
+check("...and takes a copy prompt", copyUrlFromTemplate(SHEET_URL),
+  "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/copy");
+check("a Slides link is accepted",
+  rejects({ ...docSpec, templateDriveUrl: SLIDES_URL }), "accepted");
+check("...and takes a copy prompt", copyUrlFromTemplate(SLIDES_URL),
+  "https://docs.google.com/presentation/d/1AbC_dEF-123/copy");
+check("a Slides link carrying a slide anchor is accepted, and drops it with the segment",
+  copyUrlFromTemplate("https://docs.google.com/presentation/d/1AbC_dEF-123/edit#slide=id.p"),
+  "https://docs.google.com/presentation/d/1AbC_dEF-123/copy");
+check("a Sheets link carrying a tab anchor does too",
+  copyUrlFromTemplate("https://docs.google.com/spreadsheets/d/1AbC_dEF-123/edit#gid=0"),
+  "https://docs.google.com/spreadsheets/d/1AbC_dEF-123/copy");
+
+/*
+  Named editors rather than any Google address, which is the half a widened pattern gets wrong.
+  None of these produces a copy prompt from the substitution, and each would fail on the
+  student's side rather than on the field where it was typed.
+*/
+check("a Google Form is refused, because /copy is not how one is shared",
+  rejects({ ...docSpec, templateDriveUrl: "https://docs.google.com/forms/d/1AbC_dEF-123/edit" }),
+  ["templateDriveUrl"]);
+check("a published link is refused",
+  rejects({ ...docSpec, templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123/pub" }),
+  ["templateDriveUrl"]);
+check("a Drive folder is refused",
+  rejects({ ...docSpec, templateDriveUrl: "https://drive.google.com/drive/folders/1AbC_dEF-123" }),
+  ["templateDriveUrl"]);
 
 check("/view becomes /copy", copyUrlFromTemplate(DOC_URL),
   "https://docs.google.com/document/d/1AbC_dEF-123/copy");
@@ -405,7 +447,7 @@ check("/edit?usp=sharing becomes /copy",
   asked for it — refusing it at authoring time is the difference between an assignment that
   cannot be built wrong and one that breaks the first time it is used.
 */
-check("a Google Doc assignment may not have a section the model grades",
+check("a Google Drive assignment may not have a section the model grades",
   refusedOn({ ...docSpec, sections: [codingSection] }, "sections.0.grading"), true);
 check("a file upload assignment may not either",
   refusedOn({
@@ -452,13 +494,13 @@ check("several types are accepted",
 
 // The mirror of the repository columns: a kind that is not handed in as a file accepts none,
 // and says so as an empty list rather than leaving the column to mean two things.
-check("a Google Doc assignment accepts no file types", parseAssignmentSpec(docSpec).acceptedFileTypes, []);
+check("a Google Drive assignment accepts no file types", parseAssignmentSpec(docSpec).acceptedFileTypes, []);
 check("and may not declare any",
   refusedOn({ ...docSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
 
 // --- work made somewhere else ------------------------------------------------
 //
-// Handed in as a link, like a Google Doc, and distributed like nothing at all. The distinction
+// Handed in as a link, like a Drive file, and distributed like nothing at all. The distinction
 // that matters is which of those two halves each rule follows.
 const linkSpec = {
   kind: AssignmentKind.EXTERNAL_URL,
@@ -474,10 +516,10 @@ check("no runner", parseAssignmentSpec(linkSpec).runnerPreset, "none");
 check("no file types", parseAssignmentSpec(linkSpec).acceptedFileTypes, []);
 // No template of any kind, and deliberately no field for one: a starting link belongs in the
 // markdown instructions, where it can say what to do with it.
-check("and no template document", parseAssignmentSpec(linkSpec).templateDocUrl, null);
-check("a template document may not be set on it",
-  refusedOn({ ...linkSpec, templateDocUrl: "https://docs.google.com/document/d/x/view" },
-    "templateDocUrl"),
+check("and no template document", parseAssignmentSpec(linkSpec).templateDriveUrl, null);
+check("a template file may not be set on it",
+  refusedOn({ ...linkSpec, templateDriveUrl: "https://docs.google.com/document/d/x/view" },
+    "templateDriveUrl"),
   true);
 check("nor may file types",
   refusedOn({ ...linkSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"), true);
@@ -492,7 +534,7 @@ check("and no section the model grades",
 check("all four kinds are handed in one of three ways",
   [...IMPLEMENTED_KINDS].map(isLinkSubmitted),
   [...IMPLEMENTED_KINDS].map((kind) =>
-    kind === AssignmentKind.GOOGLE_DOC || kind === AssignmentKind.EXTERNAL_URL));
+    kind === AssignmentKind.GOOGLE_DRIVE || kind === AssignmentKind.EXTERNAL_URL));
 
 // Optional on every kind, because each kind's own screen states the mechanical steps already.
 check("submission instructions are optional and default to null",
@@ -504,10 +546,10 @@ check("submission instructions are kept when given",
 
 // --- narrowing at the point of use -------------------------------------------
 check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
-check("GOOGLE_DOC does not", requiresRepository(AssignmentKind.GOOGLE_DOC), false);
+check("GOOGLE_DRIVE does not", requiresRepository(AssignmentKind.GOOGLE_DRIVE), false);
 check("all four kinds are implemented",
   [...IMPLEMENTED_KINDS].sort(),
-  [AssignmentKind.EXTERNAL_URL, AssignmentKind.FILE_UPLOAD, AssignmentKind.GOOGLE_DOC,
+  [AssignmentKind.EXTERNAL_URL, AssignmentKind.FILE_UPLOAD, AssignmentKind.GOOGLE_DRIVE,
     AssignmentKind.REPO].sort());
 check("a link-submitted kind is not repository-backed",
   requiresRepository(AssignmentKind.EXTERNAL_URL), false);
@@ -529,21 +571,21 @@ check("repositorySource narrows a REPO row",
 
 /*
   Three failures that must not be reported as one another, and the first two are opposites: a
-  Google Doc assignment *works* and simply has no repository, while a kind nobody has built is
+  Google Drive assignment *works* and simply has no repository, while a kind nobody has built is
   a feature that does not exist. A REPO row with no org is the third and the only one an
   instructor can act on — a row that should never have been written.
 */
 let notRepoBacked = "";
 try {
   repositorySource({
-    kind: AssignmentKind.GOOGLE_DOC,
+    kind: AssignmentKind.GOOGLE_DRIVE,
     templateRepo: null,
     assignmentRepoName: null,
     githubOrg: null,
   });
 } catch (err) { notRepoBacked = errName(err); }
-check("asking a Google Doc assignment for a repository throws NotRepositoryBackedError",
-  notRepoBacked, new NotRepositoryBackedError(AssignmentKind.GOOGLE_DOC).name);
+check("asking a Google Drive assignment for a repository throws NotRepositoryBackedError",
+  notRepoBacked, new NotRepositoryBackedError(AssignmentKind.GOOGLE_DRIVE).name);
 
 /*
   Every kind in the enum is implemented, so this is checked against a value that is not one at
@@ -555,7 +597,7 @@ try {
   assertKindImplemented("PRESENTATION" as AssignmentKind);
 } catch (err) { unsupported = errName(err); }
 check("a kind that is not implemented throws UnsupportedAssignmentKindError",
-  unsupported, new UnsupportedAssignmentKindError(AssignmentKind.GOOGLE_DOC).name);
+  unsupported, new UnsupportedAssignmentKindError(AssignmentKind.GOOGLE_DRIVE).name);
 
 let misconfigured = "", misconfiguredMessage = "";
 try {
@@ -610,7 +652,7 @@ async function procedures() {
       pointValue: true,
       completionThreshold: true, templateRepo: true, assignmentRepoName: true, githubOrg: true,
       templateRef: true, runnerPreset: true, runnerConfig: true, sections: true,
-      distributedAt: true, templateDocUrl: true, submissionInstructions: true,
+      distributedAt: true, templateDriveUrl: true, submissionInstructions: true,
     },
   });
 
@@ -887,7 +929,7 @@ async function procedures() {
     templateRef: loaded.templateRef,
     runnerPreset: loaded.runnerPreset,
     runnerConfig: loaded.runnerConfig,
-    templateDocUrl: loaded.templateDocUrl,
+    templateDriveUrl: loaded.templateDriveUrl,
     submissionInstructions: loaded.submissionInstructions,
     sections: loaded.sections,
   };
@@ -915,7 +957,7 @@ async function procedures() {
           title: true, answerKeyRepo: true, answerKeyDir: true, pointValue: true, completionThreshold: true,
           templateRepo: true, assignmentRepoName: true, githubOrg: true, templateRef: true,
           runnerPreset: true, runnerConfig: true, sections: true,
-          templateDocUrl: true, submissionInstructions: true,
+          templateDriveUrl: true, submissionInstructions: true,
         },
       });
       check("saving a loaded draft unchanged leaves every column as it was",
@@ -927,7 +969,7 @@ async function procedures() {
           assignmentRepoName: seeded.assignmentRepoName, githubOrg: seeded.githubOrg,
           templateRef: seeded.templateRef, runnerPreset: seeded.runnerPreset,
           runnerConfig: seeded.runnerConfig, sections: seeded.sections,
-          templateDocUrl: seeded.templateDocUrl,
+          templateDriveUrl: seeded.templateDriveUrl,
           submissionInstructions: seeded.submissionInstructions,
         }));
       throw new Error("ROLLBACK");

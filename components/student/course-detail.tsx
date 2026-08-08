@@ -464,7 +464,7 @@ function AssignmentDetail({
       )}
 
       {/*
-        A Google Doc has no pull request to observe, so submitting is an act rather than
+        A Drive assignment has no pull request to observe, so submitting is an act rather than
         something inferred. Offered until the work is in the queue, and again after a grade,
         since revising the document and asking for another look is this kind's resubmission.
       */}
@@ -485,14 +485,14 @@ function AssignmentDetail({
           className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'self-start')}
         >
           <FileText data-icon="inline-start" />
-          {assignment.kind === 'GOOGLE_DOC' ? 'The document you submitted' : 'The work you submitted'}
+          {assignment.kind === 'GOOGLE_DRIVE' ? 'The file you submitted' : 'The work you submitted'}
           {submission.isLate ? ' (late)' : ''}
           <ExternalLink data-icon="inline-end" />
         </a>
       )}
 
       {/*
-        The same shape as the Google Doc form above and offered on the same terms: until the
+        The same shape as the Drive form above and offered on the same terms: until the
         work is in the queue, and again after a grade, since uploading a revised file is this
         kind's resubmission.
       */}
@@ -566,7 +566,7 @@ function AssignmentDetail({
 /**
  * Handing in work that has no pull request.
  *
- * The whole of the submission signal for a Google Doc. A repository assignment is observed —
+ * The whole of the submission signal for a Drive assignment. A repository assignment is observed —
  * the webhook sees the pull request open and records it — and there is nothing to observe
  * here, so pressing this is what puts the work in front of the instructor. Without it,
  * finished work would read as never started.
@@ -582,7 +582,7 @@ function SubmitWorkForm({
 }: {
   assignmentId: string;
   /**
-   * Both link-submitted kinds use this form, and only the words differ. A Google Doc
+   * Both link-submitted kinds use this form, and only the words differ. A Drive assignment
    * assignment handed out a template, so the link wanted is "your own copy"; an external-url
    * assignment handed out nothing, so the link wanted is wherever the student made the work.
    * Asking for "your copy" of a Loom recording would be asking for something that does not
@@ -612,16 +612,16 @@ function SubmitWorkForm({
       }}
     >
       <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
-        {kind === 'GOOGLE_DOC'
+        {kind === 'GOOGLE_DRIVE'
           ? resubmitting
-            ? 'Submit your revised document'
-            : 'Submit your document'
+            ? 'Submit your revised file'
+            : 'Submit your file'
           : resubmitting
             ? 'Submit the link to your revised work'
             : 'Submit the link to your work'}
       </label>
       <p className="text-sm text-muted-foreground">
-        {kind === 'GOOGLE_DOC' ? (
+        {kind === 'GOOGLE_DRIVE' ? (
           <>
             Paste the link to <strong>your own copy</strong>, and make sure your instructor can
             open it.
@@ -642,8 +642,8 @@ function SubmitWorkForm({
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           placeholder={
-            kind === 'GOOGLE_DOC'
-              ? 'https://docs.google.com/document/d/…'
+            kind === 'GOOGLE_DRIVE'
+              ? 'https://docs.google.com/document/d/… or /presentation/d/…'
               : 'https://www.canva.com/design/… or https://www.loom.com/share/…'
           }
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
