@@ -4,10 +4,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { Inbox, Search, UserMinus, Users } from "lucide-react";
 
+import { BatchGenerate } from "@/components/instructor/batch-generate";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { GroupPicker } from "@/components/instructor/group-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
+import type { BatchState } from "@/hooks/use-batch-generate";
 import { studentHref } from "@/lib/links";
+import { displayNameOf } from "@/lib/people";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -51,6 +54,15 @@ export function GradingQueue({
 
   const [filter, setFilter] = React.useState<Filter>("needs_review");
   const [query, setQuery] = React.useState("");
+
+  /*
+    The batch's state, lifted here only so the rows can draw a spinner on what is in flight.
+
+    This list is a prop from a server component, so nothing on it moves until the run finishes
+    and refreshes. Without this, pressing Generate on twelve submissions would leave twelve rows
+    looking untouched for several minutes.
+  */
+  const [batch, setBatch] = React.useState<BatchState | null>(null);
 
   /*
     A student who has not opened a pull request is not in the queue. They have not done
@@ -180,6 +192,25 @@ export function GradingQueue({
                 </button>
               ))}
             </div>
+
+            {/*
+              Scoped to what the list is currently showing rather than to the whole assignment,
+              because that is what the instructor is looking at: a search narrowed to one student
+              offers to generate that student's report, and the Graded tab offers nothing. A
+              button above a list of twelve that quietly acted on forty would be worse than one
+              that acted on nothing.
+            */}
+            <BatchGenerate
+              candidates={filtered.map((row) => ({
+                submissionId: row.id,
+                label: displayNameOf(row.student, "Unknown student"),
+                bucket: row.bucket,
+              }))}
+              // One assignment, one rubric, one set of answer keys — so every subject shares a
+              // system prompt and the first run warms the cache the rest read from.
+              warmFirst
+              onStateChange={setBatch}
+            />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -199,15 +230,11 @@ export function GradingQueue({
                   <SubmissionRow
                     key={row.id}
                     row={row}
-                    primary={
-                      row.student.displayName ??
-                      row.student.githubUsername ??
-                      row.student.email ??
-                      "Unknown student"
-                    }
+                    primary={displayNameOf(row.student, "Unknown student")}
                     active={selected?.id === row.id}
                     onSelect={() => select(row.id)}
                     now={now}
+                    pending={batch?.inFlight.has(row.id) ?? false}
                   />
                 ))}
               </ul>

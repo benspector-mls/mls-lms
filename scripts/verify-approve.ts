@@ -10,7 +10,7 @@
  */
 import type { Db } from "../lib/prisma";
 
-import { createChecker, loadEnvironment } from "./verify/harness";
+import { createChecker, inOwnTransaction, loadEnvironment } from "./verify/harness";
 
 loadEnvironment();
 
@@ -333,6 +333,7 @@ async function main() {
   }
 
   await handGradedLifecycle(db);
+  await oneRunAtATime(db);
 
   await db.$disconnect();
 
@@ -599,3 +600,78 @@ main().catch((err) => {
   console.error("\n", err);
   process.exit(1);
 });
+
+/**
+ * Two attempts to grade one submission produce one run, not two.
+ *
+ * **The only check here that is about what two callers do at once**, which is why it drives
+ * `claimRun` directly rather than the procedure above it. Going through `gradingDrafts.generate`
+ * would mean actually generating a report — a sandbox, a model call, and a couple of minutes —
+ * to observe a decision made in a single statement before any of that. So the statement is
+ * exercised on its own, against real rows, inside a transaction that is rolled back.
+ *
+ * What it is guarding is money. Before this existed, `generateReportForSubmission` created its
+ * draft unconditionally, so two instructors on one queue — or one instructor pressing a batch
+ * button twice — graded every submission twice over, and only the later report was ever read.
+ */
+async function oneRunAtATime(db: Db) {
+  const { claimRun, CLAIM_EXPIRY_MS } = await import("../lib/grade/generate-report");
+  const { ReportGenerationError } = await import("../lib/grade/generate-report");
+
+  const submission = await db.submission.findFirst({
+    // A commit, because the interesting comparison is against `head_sha`. The null case is
+    // checked below on the same row, since it is the one a plain `=` gets wrong.
+    where: { headSha: { not: null } },
+    select: { id: true, headSha: true },
+  });
+
+  if (!submission?.headSha) {
+    skip("no submission with a commit to claim against");
+    return;
+  }
+
+  await inOwnTransaction(db, async (tx) => {
+    const first = await claimRun(tx, submission.id, submission.headSha);
+    check("a run can be claimed", first.status, "GENERATING");
+
+    let second = "";
+    try {
+      await claimRun(tx, submission.id, submission.headSha);
+      second = "claimed twice";
+    } catch (err) {
+      second = err instanceof ReportGenerationError ? "refused" : `unexpected: ${String(err)}`;
+    }
+    check("...and not claimed again while it is in flight", second, "refused");
+
+    // A different commit is different work. Blocking it would refuse to grade a resubmission
+    // while the previous commit's run was still going.
+    const other = await claimRun(tx, submission.id, "0000000000000000000000000000000000000000");
+    check("...while another commit is a separate run", other.status, "GENERATING");
+
+    /*
+      The null-commit case, which is hand-graded work with nothing to compare against. `=` would
+      make every one of these claimable forever, because NULL = NULL is not true — so a Google
+      Doc submission would be gradable twice at once and this is the check that says otherwise.
+    */
+    await claimRun(tx, submission.id, null);
+    let nullSecond = "";
+    try {
+      await claimRun(tx, submission.id, null);
+      nullSecond = "claimed twice";
+    } catch (err) {
+      nullSecond = err instanceof ReportGenerationError ? "refused" : `unexpected: ${String(err)}`;
+    }
+    check("a run with no commit is claimed once too", nullSecond, "refused");
+
+    /*
+      An abandoned claim is takeable, or a crashed run would block its submission forever — and
+      nothing in the interface clears a stuck GENERATING row.
+    */
+    await tx.gradingDraft.update({
+      where: { id: first.id },
+      data: { createdAt: new Date(Date.now() - CLAIM_EXPIRY_MS - 60_000) },
+    });
+    const afterExpiry = await claimRun(tx, submission.id, submission.headSha);
+    check("an abandoned claim can be taken", afterExpiry.status, "GENERATING");
+  });
+}

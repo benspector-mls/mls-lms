@@ -1,5 +1,7 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
+
 import { DraftStatusBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { completionMeta, draftStatusAddsSomething, formatRelative } from "@/lib/status";
@@ -28,6 +30,7 @@ export function SubmissionRow({
   active,
   onSelect,
   now,
+  pending = false,
 }: {
   row: QueueRow;
   /** Who or what this row is about — a student's name, or an assignment's title. */
@@ -40,6 +43,15 @@ export function SubmissionRow({
   active: boolean;
   onSelect: () => void;
   now: Date;
+  /**
+   * A report is being generated for this row *right now*, by a batch running in this browser.
+   *
+   * The same fact as the `GENERATING` draft badge below, arriving sooner. Both screens are
+   * server-rendered with their list passed down as a prop, so nothing on the row changes until
+   * the batch finishes and refreshes — without this, twenty rows would sit unchanged for several
+   * minutes and the run would look like it had not started.
+   */
+  pending?: boolean;
 }) {
   const draft = row.activeDraft;
 
@@ -84,6 +96,12 @@ export function SubmissionRow({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <SubmissionStatusBadge status={row.status} />
+          {pending && (
+            <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" />
+              Generating
+            </Badge>
+          )}
           {/*
               The draft's own state, where it says anything the submission's does not —
               generating a report does not move the submission, only approving does. The rule

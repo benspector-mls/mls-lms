@@ -10,7 +10,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:groups` | 46 | the database |
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
-| `verify:approve` | 48 | the database |
+| `verify:approve` | 48 → **53** | the database |
 | `verify:uploads` | 88 | the database, and the storage bucket |
 | `verify:authoring` | 156 | the database, and GitHub |
 | `verify:enrollment` | 200 | the database |
@@ -21,6 +21,8 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 `verify:resubmission` is not in the table because it takes a repository substring as an argument and refuses without one. It also has no fixed count: **it fails unless the repository it is pointed at holds a commit newer than the one it was graded on**, which is state a person stages by pushing and letting the webhook record it — the script says so in its own header, since item 4 is checked here rather than performed. A run reporting `FAIL the new commit was recorded  head X, graded X` is that missing fixture and not a regression. The way to tell them apart is to run the same command on the previous commit; a real regression fails there too.
 
 `calibrate` is not a check script: it grades a sample and prints a comparison for a person to read.
+
+**A number moves only when a script gains checks, and then it is written down here with both figures.** `verify:approve` went from 48 to 53 when batch generation added five: that a run can be claimed, that a second attempt on the same commit is refused, that another commit is separate work, that the no-commit case is claimed once too, and that an abandoned claim can be taken. The old figure stays beside the new one because the point of this file is that a count which changed for a reason looks exactly like one that changed by accident, unless somebody says which.
 
 **The first two rows are history rather than instructions.** `verify:sandbox` and `verify:grade` needed nothing — no database, no repository, no model — which is exactly what makes them unit tests rather than scripts, so their 142 assertions are now Jest cases and both scripts are gone. Nothing was dropped in the move: the sandbox suite carries 41 assertions and the three grading suites carry the other 101, in 100 cases, the one difference being that `hasTestEvidence`'s pair of checks share a case. The rows stay in the table because they are what the counts below were compared against, and because the next reader should know where those numbers went.
 

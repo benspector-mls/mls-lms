@@ -1,6 +1,8 @@
 import "server-only";
 
-import { db } from "../prisma";
+import { randomUUID } from "node:crypto";
+
+import { db, type Tx } from "../prisma";
 import { readSections, repositorySource } from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
@@ -49,6 +51,90 @@ export class ReportGenerationError extends Error {
 
 /** How much of a file to fetch. A minified bundle is not worth reading. */
 const MAX_FETCHED_FILE_BYTES = 200_000;
+
+/**
+ * Takes the run, or refuses because somebody else already has it.
+ *
+ * **One statement, which is what makes this a claim rather than a hope.** Reading for an
+ * in-flight draft and then creating one is a check-then-act with a window minutes wide: two
+ * requests both see nothing, both create a `GENERATING` row, and the submission is graded twice
+ * — two sandboxes, two model calls, two drafts, and only the later one is ever read. That went
+ * unnoticed while a person could press the button only once at a time. It stopped being
+ * theoretical the moment one press could stand for twenty.
+ *
+ * `INSERT … SELECT … WHERE NOT EXISTS` decides and writes in the same statement, so there is no
+ * window at all. The same reasoning as `modules.reorder`, which reaches for raw SQL to get
+ * atomicity rather than opening a transaction: a single statement is atomic by definition and
+ * composes with whatever is above it, where an interactive transaction would refuse to nest
+ * inside the one the check scripts already hold.
+ *
+ * **Scoped to the commit, not the submission.** A draft generating against an older commit does
+ * not describe this code, so it is not this run's business — the same rule every other reader
+ * applies through `draftIsStale`. `IS NOT DISTINCT FROM` rather than `=` because `head_sha` is
+ * null for hand-graded work with no commit at all, and `NULL = NULL` is not true.
+ *
+ * **A claim expires, and that is not a detail.** A run that dies without finishing — a crash, a
+ * deploy mid-run — leaves its row `GENERATING` with nothing to move it on, and nothing in the
+ * interface clears one. Without an expiry that row would block this submission's report forever,
+ * which is a worse failure than the one being prevented. So a claim older than
+ * `CLAIM_EXPIRY_MS` is treated as abandoned and may be taken.
+ *
+ * Fifteen minutes is deliberately far past any honest run. The sandbox is capped at 120 seconds
+ * and each section's model call has been measured at 27 to 40, against a function limit of 300 —
+ * so a live run cannot reach five minutes, let alone fifteen. The margin is what makes expiry
+ * safe: it can only ever release a run that is genuinely gone.
+ *
+ * **What this deliberately does not protect**, so the limit is known rather than assumed. The
+ * claim is taken here, late — after the test run and the GitHub reads, immediately before the
+ * model calls. Two genuinely simultaneous attempts on one submission therefore both pay for a
+ * sandbox, and only then does one discover it lost. Claiming earlier would save that, at the cost
+ * of restructuring which failures throw and which become a `FAILED` draft. It is not worth it:
+ * what the late claim still prevents is the *model* calls, which are the expensive half by an
+ * order of magnitude and the half that writes a report.
+ *
+ * Note also what it does not fix and is not new. A stuck `GENERATING` row still reads as the
+ * `generating` bucket, which triage excludes from outstanding work — so the submission is
+ * invisible to a batch until somebody opens it and presses the button. That was true before this
+ * function existed; the expiry means pressing the button then works rather than refusing.
+ *
+ * Exported, and taking a client rather than reaching for one, so a check script can drive it
+ * against real rows inside a transaction it then rolls back. That is what `Tx` is for, and it is
+ * the only way to check a statement whose whole point is what two callers do at once.
+ */
+export const CLAIM_EXPIRY_MS = 15 * 60 * 1000;
+
+export async function claimRun(
+  db: Tx,
+  submissionId: string,
+  headSha: string | null,
+): Promise<GradingDraft> {
+  const id = randomUUID();
+  const expiredBefore = new Date(Date.now() - CLAIM_EXPIRY_MS);
+
+  const claimed = await db.$executeRaw`
+    INSERT INTO grading_drafts (id, submission_id, head_sha, status, created_at, updated_at)
+    SELECT ${id}::uuid, ${submissionId}::uuid, ${headSha}, 'GENERATING', now(), now()
+     WHERE NOT EXISTS (
+       SELECT 1
+         FROM grading_drafts
+        WHERE submission_id = ${submissionId}::uuid
+          AND status = 'GENERATING'
+          AND head_sha IS NOT DISTINCT FROM ${headSha}
+          AND created_at > ${expiredBefore}
+     )
+  `;
+
+  if (claimed === 0) {
+    throw new ReportGenerationError(
+      "A report for this submission is already being generated. Wait for it to finish — it " +
+        "takes a couple of minutes.",
+    );
+  }
+
+  // Read back rather than returning a hand-built object, so the caller gets the row as the
+  // database actually wrote it — including the defaults this insert did not name.
+  return db.gradingDraft.findUniqueOrThrow({ where: { id } });
+}
 
 export async function generateReportForSubmission(submissionId: string): Promise<GradingDraft> {
   const submission = await db.submission.findUnique({
@@ -239,13 +325,7 @@ export async function generateReportForSubmission(submissionId: string): Promise
   //
   // GENERATING is written first, so a run that dies partway through leaves a row
   // explaining that it was attempted rather than no trace at all.
-  const draft = await db.gradingDraft.create({
-    data: {
-      submissionId: submission.id,
-      headSha: submission.headSha,
-      status: "GENERATING",
-    },
-  });
+  const draft = await claimRun(db, submission.id, submission.headSha);
 
   const reviewReasons: string[] = [];
 

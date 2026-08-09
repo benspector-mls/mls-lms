@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from "lucide-react";
 
+import { BatchGenerate } from "@/components/instructor/batch-generate";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { BatchState } from "@/hooks/use-batch-generate";
 import { courseHref, studentHref } from "@/lib/links";
+import { displayNameOf } from "@/lib/people";
 import { initials } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -62,6 +65,9 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     not_started: data.rows.filter((row) => row.submission === null).length,
   };
 
+  /* Lifted only so a row can show a spinner while its report is being generated. */
+  const [batch, setBatch] = React.useState<BatchState | null>(null);
+
   const filtered = data.rows.filter((row) => {
     if (filter === "needs_review") return needsReview(row);
     if (filter === "graded") return row.submission?.status === "GRADED";
@@ -86,11 +92,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
-  const name =
-    data.student.displayName ??
-    data.student.githubUsername ??
-    data.student.email ??
-    "Unknown student";
+  const name = displayNameOf(data.student, "Unknown student");
 
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
@@ -124,6 +126,34 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 </button>
               ))}
             </div>
+
+            {/*
+              Scoped to the filtered list, as on the grading queue, so the button acts on what is
+              being looked at. Rows with no submission carry no bucket and are simply not
+              candidates — a student cannot have a report generated for work they never started.
+            */}
+            <BatchGenerate
+              className="mt-3"
+              candidates={filtered.flatMap((row) =>
+                row.submission
+                  ? [
+                      {
+                        submissionId: row.submission.id,
+                        label: row.assignment.title,
+                        bucket: row.submission.bucket,
+                      },
+                    ]
+                  : [],
+              )}
+              /*
+                Off, unlike the queue. Each row here is a *different* assignment with its own
+                rubric section and its own answer keys, so no two subjects share a system prompt
+                and there is no cache for a first run to warm — holding one back would only make
+                an already small batch slower.
+              */
+              warmFirst={false}
+              onStateChange={setBatch}
+            />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -149,6 +179,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       active={selected?.assignment.id === row.assignment.id}
                       onSelect={() => select(row.submission!.id)}
                       now={now}
+                      pending={batch?.inFlight.has(row.submission.id) ?? false}
                     />
                   ) : (
                     <NotStartedRow key={row.assignment.id} row={row} />
