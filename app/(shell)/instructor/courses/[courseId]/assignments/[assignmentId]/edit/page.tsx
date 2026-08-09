@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import { editAssignmentHref } from "@/lib/links";
 import { AssignmentForm } from "@/components/instructor/assignment-form";
 import { PageFallback } from "@/components/list-states";
 import { requireCourseMatch } from "@/lib/instructor/course-scope";
@@ -37,7 +38,7 @@ async function EditAssignment({
   requireCourseMatch({
     urlCourseId: courseId,
     assignmentCourseId: existing.courseId,
-    canonical: `/instructor/courses/${existing.courseId}/assignments/${assignmentId}/edit`,
+    canonical: editAssignmentHref(existing.courseId, assignmentId),
   });
 
   return <AssignmentForm courseId={courseId} existing={existing} />;

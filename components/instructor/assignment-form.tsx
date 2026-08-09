@@ -27,6 +27,7 @@ import {
   repoNameFromRef,
   repoPathFromRef,
 } from "@/lib/assignments/repo-ref";
+import { courseAssignmentsHref } from "@/lib/links";
 import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
@@ -233,9 +234,18 @@ export function AssignmentForm({
       context={context.data}
       existing={existing}
       onSaved={(assignmentId) => {
-        // Back to the course, which is where an instructor sees the result in context —
-        // the new row, its draft badge, and its place in the module ordering.
-        router.push(`/instructor/courses/${courseId}`);
+        /*
+          To the assignments list, which is where an instructor sees the result in context —
+          the new row, its draft badge, and its place in the module ordering.
+
+          Written as the bare course address until the cohort's views became seven addresses,
+          at which point that address stopped being a page and became a redirect to Settings.
+          So saving an assignment landed on the cohort's name and slug, with nothing on screen
+          to say the save had worked but a toast that was already fading. The lesson is the
+          reason `lib/links.ts` exists: an address assembled from a template does not move when
+          the routes do, and this was the one place still assembling one by hand.
+        */
+        router.push(courseAssignmentsHref(courseId));
         void assignmentId;
       }}
     />

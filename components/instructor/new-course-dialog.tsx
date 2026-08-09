@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Plus } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { courseSettingsHref } from "@/lib/links";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
@@ -141,7 +142,16 @@ export function NewCourseDialog({
         setCopyFrom("");
         setSlug("");
         setSlugEdited(false);
-        router.push(`/instructor/courses/${result.course.id}`);
+        /*
+          Settings, named rather than reached through the bare course address's redirect.
+
+          The right landing for a brand-new cohort, and for the same reason the assignment
+          form lands on the assignments list instead: it is where the result is. A course
+          created a second ago has no triage, no gradebook, and no roster — what it has is a
+          join link to send, a short name that will prefix every repository it generates, and
+          a co-teaching link, and all three are here.
+        */
+        router.push(courseSettingsHref(result.course.id));
       },
       onError: (error) => toast.error(error.message),
     }),

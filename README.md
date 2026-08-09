@@ -14,6 +14,7 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
 - [Scripts](#scripts)
 - [Standing decisions](#standing-decisions)
 - [Request path](#request-path)
+  - [One way to ask each question](#one-way-to-ask-each-question)
 - [Data model](#data-model)
   - [Why the folder rather than a list of files](#why-the-folder-rather-than-a-list-of-files)
   - [Getting students into a course](#getting-students-into-a-course)
@@ -161,7 +162,7 @@ Everything below it is a script, because everything below it needs something rea
 | Script                        | What it does                                                                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `npm test`                    | Every unit test. `npm test -- tests/lib/grade` runs one directory; `-t "a pattern"` runs one case                                 |
-| `npm run typecheck`           | `tsc --noEmit`, which is the whole of it — `next build` typechecks too, and does far more                                          |
+| `npm run typecheck`           | `tsc --noEmit`, which is the whole of it — `next build` typechecks too, and does far more                                         |
 | `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers |
 | `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
 | `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                              |
@@ -1112,11 +1113,11 @@ The counts quoted below are what each script reported when its section was writt
 
 Below is **`claude-sonnet-5`, the current default, run three times** — three rather than once because the first two runs disagreed with each other, which is itself the most useful thing this measurement has produced.
 
-|                        | pair 1 (exemplar)      | pair 2 (held out)                             |
-| ---------------------- | ---------------------- | --------------------------------------------- |
-| Total                  | 12/15 = 12/15, ×3      | 12/15 = 12/15 once; 13/15 against 12/15 twice |
-| Per-question technical | all four agree, ×3     | three agree every run; **Q2 agrees once in three** |
-| Writing quality        | 1 = 1, ×3              | 2 = 2, ×3                                     |
+|                        | pair 1 (exemplar)  | pair 2 (held out)                                  |
+| ---------------------- | ------------------ | -------------------------------------------------- |
+| Total                  | 12/15 = 12/15, ×3  | 12/15 = 12/15 once; 13/15 against 12/15 twice      |
+| Per-question technical | all four agree, ×3 | three agree every run; **Q2 agrees once in three** |
+| Writing quality        | 1 = 1, ×3          | 2 = 2, ×3                                          |
 
 **The exemplar is reproduced exactly, every run.** On the held-out pair, the disagreement has moved: the recorded `claude-opus-5` figures put every technical score right and missed the writing score by a band, and this tier gets the writing score right every time and is unstable on one technical question — Question 2, where the instructor gave 2 of 3 and the model gave 3 twice and 2 once. Reading the reports, the model that awards 3 is not wrong about the content; it does not deduct for a stray closing sentence that is disconnected from the rest of the answer, which the instructor did. That is a judgment a rubric cannot fully specify, and it is the reason a draft is reviewed rather than published.
 
