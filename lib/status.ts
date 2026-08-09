@@ -73,9 +73,19 @@ export const STUDENT_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
     tone: "neutral",
     description: "Accept the assignment to create your repository.",
   },
+  /*
+    Grey, like `NOT_STARTED` above, because to a student the two are the same fact: nothing has
+    been handed in and the next move is theirs. Accepting creates a repository, which is
+    bookkeeping this application had to do — it is not progress on the work, and a coloured pill
+    beside it read as though it were.
+
+    The colour is the whole of the signal here, since the label already says "Accepted". What
+    grey buys is the row not standing out on a list where the things that *are* waiting on
+    somebody — submitted, awaiting another review, graded — carry a colour each.
+  */
   ACCEPTED: {
     label: "Accepted",
-    tone: "info",
+    tone: "neutral",
     description: "Work on the draft branch and open a pull request to submit.",
   },
   SUBMITTED: {

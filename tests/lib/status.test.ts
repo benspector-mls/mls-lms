@@ -76,6 +76,28 @@ describe("the student vocabulary is narrower on purpose", () => {
     const statuses = Object.keys(SUBMISSION_STATUS_META) as SubmissionStatus[];
     for (const status of statuses) expect(STUDENT_STATUS_META[status]).toBeDefined();
   });
+
+  /*
+    Nothing handed in reads as nothing handed in.
+
+    To a student, accepting and not having started are the same fact — the work is theirs to do
+    and nothing is with anybody else. Accepting creates a repository, which is bookkeeping this
+    application needed rather than progress on the assignment, and a coloured pill beside it read
+    as though something had happened.
+
+    Grey is therefore load-bearing on this list: colour is what separates the rows waiting on
+    somebody from the rows waiting on the student.
+  */
+  it("draws Accepted as quietly as Not started", () => {
+    expect(STUDENT_STATUS_META.ACCEPTED.tone).toBe("neutral");
+    expect(STUDENT_STATUS_META.ACCEPTED.tone).toBe(STUDENT_STATUS_META.NOT_STARTED.tone);
+  });
+
+  it("still gives the states that are waiting on somebody a colour each", () => {
+    const waiting = ["SUBMITTED", "RESUBMITTED", "GRADED"] as const;
+    for (const status of waiting) expect(STUDENT_STATUS_META[status].tone).not.toBe("neutral");
+    expect(new Set(waiting.map((s) => STUDENT_STATUS_META[s].tone)).size).toBe(waiting.length);
+  });
 });
 
 describe("completionMeta", () => {
