@@ -255,6 +255,8 @@ Supabase grants all permissions on new `public` tables to `anon` and `authentica
 
 **`trpc/server.tsx` invokes procedures directly in-process** — no HTTP hop for server components, so `Date` values stay `Date` values. The browser link uses a relative URL, which is why no `APP_URL` variable exists.
 
+**Queries are batched into one request; mutations are not.** `httpBatchLink` collapses calls made in the same tick into a single HTTP request, which is exactly right for the several small queries a screen makes on load and exactly wrong for anything that fans out: N mutations fired together would share one function invocation, and therefore one timeout, one failure, and a response that arrives only when the slowest is done. [Generating reports for a queue](#generating-every-pending-report-at-a-sitting) fires several two-minute mutations at once against a 300-second limit, so batched they could not finish at all. `splitLink` routes on `op.type`. Measured against a running server: three queries fired together make **one** request, three mutations make **three**.
+
 **Cache Components is on** (`cacheComponents: true` in `next.config.ts`). A route may not read uncached data outside `<Suspense>`, and **that includes `params`**. Every dynamic page is therefore a static shell whose async child does the awaiting:
 
 ```tsx
@@ -920,6 +922,22 @@ An instructor needs to know when a student has revised work that was already gra
 **The student is ready** is a deliberate act: a button that sets `RESUBMITTED`. `SUBMITTED` cannot serve, because it does not distinguish a first submission from a revision and an instructor working through a list needs to see which is which. A GitHub-native alternative exists — draft pull requests marked ready, which fires `pull_request.ready_for_review` — and costs no interface at all, but it depends on the draft pull request habit holding, and a student who opens an ordinary pull request never produces the event.
 
 Together they produce information neither gives alone: a submission with newer code and no readiness declaration is a student still working, or one who finished and forgot to say so.
+
+### Generating every pending report at a sitting
+
+An instructor grades in batches — a due date passes and a cohort's work arrives at once — so the grading queue and a student's record each offer one button for everything outstanding on them. It covers exactly the `needs_report` bucket of what the list is currently showing, so a search narrowed to one student offers that student's report and the Graded tab offers nothing.
+
+**The subject set is `triageBucket`'s, not a second opinion.** `planBatch` in `lib/grade/batch.ts` filters on the `bucket` each row already carries rather than re-deriving one from a status and a draft. Everywhere else a disagreement between two readings of "outstanding" is a cosmetic difference between screens; here it would be reports generated for work nobody asked about, so there is one reading.
+
+**The batch is N requests, not one.** Each submission is its own tRPC call, one function invocation, a pool of six at a time. That is not a shortcut around a job queue — it is what [ROADMAP.md](ROADMAP.md#what-the-review-pass-left-open) concluded: a single submission takes about two minutes against a 300-second limit, so fanning out one invocation per submission satisfies the only requirement that ever argued for a worker process. Six rather than the twenty concurrent sandboxes the account allows, because the sandbox is not what binds — the unmeasured limit is Anthropic's output tokens per minute, and running at the cap would leave nothing for a second instructor grading at the same time. `NEXT_PUBLIC_BATCH_GENERATE_WIDTH` raises it without a deploy.
+
+**The first submission runs alone on an assignment's queue, and does not on a student's record.** The cacheable block is the system prompt, built from the rubric section, agent rules, sample report and answer keys — so one assignment's queue is many students against one identical prefix, and firing them all cold means every request pays to *write* that cache instead of one writing and the rest reading. A student's record is the opposite: each row is a different assignment with different answer keys, so there is nothing to warm and holding the first back would only make a small batch slower.
+
+**One submission is graded once, and that is enforced in a single statement.** `generateReportForSubmission` used to create its draft unconditionally, so two instructors on one queue — or one batch pressed twice — meant two sandboxes and two model calls per submission, with only the later report ever read. The draft is now claimed with `INSERT … SELECT … WHERE NOT EXISTS`, which decides and writes at once and leaves no check-then-act window, the same reasoning as `modules.reorder`. Scoped to the commit rather than the submission, because a run against an older commit describes different code — and with `IS NOT DISTINCT FROM` rather than `=`, because `head_sha` is null for hand-graded work and `NULL = NULL` is not true.
+
+A claim older than fifteen minutes may be taken. A run that dies leaves its row `GENERATING` and nothing in the interface clears one, so without expiry a crash would block that submission's report forever — a worse failure than the one being prevented. Fifteen against a worst case under five is the margin that makes expiry safe rather than a second way to grade twice.
+
+**What it does not do**, stated rather than discovered. Closing the tab stops the batch: what is in flight finishes on the server and its report lands, nothing further starts, and reopening the screen shows exactly what got done, because each draft row is its own record. For a student's four outstanding assignments that is nothing; for a whole cohort it is the point at which a durable job design becomes worth building, and it is the reason the [automatic half](ROADMAP.md#triggering-and-orchestration) is still unbuilt rather than a gap in this one. The claim is also taken late — after the test run, immediately before the model calls — so two genuinely simultaneous attempts both pay for a sandbox before one discovers it lost. What the late claim still prevents is the model calls, which are the expensive half by an order of magnitude.
 
 ### Triage
 

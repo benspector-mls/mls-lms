@@ -46,7 +46,7 @@ The sequence is most immediate first. A feature's own section says what is known
 5. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
 6. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
 
-[Triggering and orchestration](#triggering-and-orchestration) is deliberately not in that list. Generating a report is an instructor action per submission today, which works, and the batch version is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
+[Triggering and orchestration](#triggering-and-orchestration) is deliberately not in that list, and is now half done: an instructor can grade a screen's worth of outstanding work with one press, which was the part that affected a working day. What is left — grading without being asked, and a batch that survives a closed tab — is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
 [Scaling](#scaling-what-a-hundred-students-costs-and-where-it-breaks) is not on the list and is not meant to be. It is a set of questions to hold rather than work to schedule, and most of what would answer them is measurement that [token management](#token-management) produces anyway.
 
@@ -227,31 +227,27 @@ This is also what makes the section types no longer a closed set, which the clas
 
 ## Triggering and orchestration
 
-The only architectural decision still open. Test execution and report generation are both callable as a plain function taking a submission id, so nothing built so far depends on how this is answered — and the question it answers has changed since it was first written.
+Half of this is built and half is open, and the open half is smaller than it was. An instructor can now grade a screen's worth of outstanding work with one press; what nothing does yet is grade without being asked, or keep going once the tab is closed.
 
-### Whether grading should be automatic at all
+### The grading session is built; automatic grading is the part still open
 
-The original design had the webhook start a run on every `opened`, `reopened`, and `synchronize`. That is worth reconsidering before it is built, because each run costs real money and most of them would be wasted.
+**Grading is not automatic, and the alternative to it now exists.** The original design had the webhook start a run on every `opened`, `reopened`, and `synchronize`, and that was reconsidered before being built, because each run costs real money and most would be wasted: a student who opens a pull request, closes it, opens another, and pushes six more commits generates a report per event, none of the intermediate ones read by anybody. At roughly $0.15 a report and a cohort of twenty-five, a week of ordinary student behavior is a meaningful bill for drafts nobody looks at.
 
-A student who opens a pull request, closes it, opens another, and pushes six more commits generates a report per event. None of the intermediate ones is read by anybody. At roughly $0.15 a report and a cohort of twenty-five, a week of ordinary student behavior is a meaningful bill for drafts nobody looks at — and every one of them lands in the instructor's queue as something to scroll past.
+So instead an instructor sits down, presses one button, and the application grades every submission whose current commit has no report — [generating every pending report at a sitting](README.md#generating-every-pending-report-at-a-sitting), on an assignment's queue and on a student's record. One report per submission per state of the code, generated when somebody is about to read it. Cost tracks the work an instructor does rather than the commits a student makes, and there is nothing to prune.
 
-The alternative is a **grading session**: the instructor sits down, presses "generate pending reports", and the application grades every submission whose current commit has no draft. One report per submission per state of the code, generated when somebody is actually about to read it. Cost tracks the work an instructor does rather than the commits a student makes, and there is nothing to prune.
+The five requirements that shaped it, and where each landed:
 
-It also fits how grading actually happens, which is in batches at a sitting rather than continuously.
+1. **The intent to grade is recorded durably before work begins.** Met by the `GENERATING` draft row, which already existed and is already a triage bucket.
+2. **Work that fails partway through can be retried without repeating what succeeded.** Met: the batch covers `needs_report`, so a second press finds only what is still outstanding, and the failures are offered back as a retry of themselves.
+3. **The same submission is never graded twice concurrently.** This was the one that was *not* met and had to be built — the draft was created unconditionally, so two instructors on one queue graded everything twice. Now claimed in a single `INSERT … WHERE NOT EXISTS`.
+4. **A batch is not bound by one invocation's time limit.** Met by fanning out one invocation per submission: a single submission takes about two minutes at the worst measured case against a 300-second limit.
+5. **Progress is readable from PostgreSQL while the batch runs.** Met by the same `GENERATING` rows, which is why a second tab sees a batch in flight rather than offering to start it again.
 
-This does not need the webhook to trigger anything, so the requirements below are about the batch, not about responding to GitHub inside ten seconds:
-
-1. The intent to grade is recorded durably before work begins, so a submission is never silently skipped.
-2. Work that fails partway through can be retried without repeating what already succeeded.
-3. The same submission is never graded twice concurrently.
-4. A batch of twenty-five submissions is not bound by one function invocation's time limit, though a single submission comfortably is.
-5. Progress is readable from PostgreSQL while the batch runs, because the instructor is watching it.
-
-Requirement 4 is the only one that still argues for anything beyond a plain function. **A single submission takes about two minutes at the worst measured case against a 300-second limit**, so fanning out one invocation per submission satisfies it without a worker process or step-by-step continuation. The measurements are in [what a report costs](README.md#what-a-report-costs) and the sandbox durations recorded in `test_runs.duration_ms`.
-
-The designs that follow were written for the automatic version and are kept because the durability and concurrency questions are the same either way.
+**What is left is durability across a closed tab.** The fan-out is driven from the browser, so closing it stops what has not started — fine for a student's four assignments, a real limit for a whole cohort. That is the remaining argument for a job table, and it is a smaller one than it was: four of the five requirements are already satisfied by rows that exist, so what a durable design would add is the ability to walk away, not correctness.
 
 ### If it does become automatic
+
+The designs below were written for the automatic version and are kept because the durability question above is the same one.
 
 The webhook starts a run on `opened`, `reopened`, and `synchronize`, and marks any existing draft `SUPERSEDED` on `synchronize`. Everything before this phase is callable as a plain function taking a submission id, so this phase adds a caller and changes nothing else.
 
