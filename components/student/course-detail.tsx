@@ -33,7 +33,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
-import { isLinkSubmitted } from "@/lib/assignments/spec";
+import { hasAcceptStep, isLinkSubmitted } from "@/lib/assignments/spec";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { gradingQueueHref } from "@/lib/links";
 import {
@@ -300,11 +300,8 @@ function AssignmentRow({ assignment, teaches }: { assignment: Assignment; teache
       // Rendered inside the left half rather than appended to the row, so a row with a
       // button has the same right-hand columns as one without.
       action={
-        !submission || status === "NOT_STARTED" ? (
-          // Neither of these has anything to hand out, so there is nothing for Accept to do.
-          assignment.kind === "FILE_UPLOAD" || assignment.kind === "EXTERNAL_URL" ? null : (
-            <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
-          )
+        (!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind) ? (
+          <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
         ) : null
       }
     />
@@ -315,11 +312,13 @@ function AssignmentRow({ assignment, teaches }: { assignment: Assignment; teache
     not a control — the Accept button is, and it sits on the row where it can be pressed
     without a detour.
 
-    FILE_UPLOAD has no Accept at all: there is no template and nothing to hand out, so the
-    first thing that happens to it is the student submitting. Its row therefore opens like
-    any other rather than carrying a button, and what it opens into says so.
+    That holds only for the kinds that have an Accept. A FILE_UPLOAD or EXTERNAL_URL
+    assignment hands out nothing, so the first thing that happens to it is the student
+    submitting — and the form for that is inside the row. Those rows therefore open from the
+    start, before there is any submission at all, because a row that neither opens nor carries
+    a button is a row a student cannot hand work in through.
   */
-  if ((!submission || status === "NOT_STARTED") && assignment.kind !== "FILE_UPLOAD") {
+  if ((!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind)) {
     return (
       <div className="flex items-center gap-x-3 px-3 py-2.5">
         <span aria-hidden="true" className="size-4 shrink-0" />
@@ -455,8 +454,8 @@ function RowSummary({
  * feedback, their own repository, and instructions — never a draft, a flag, or an
  * instructor note.
  *
- * `submission` is null for a FILE_UPLOAD assignment nobody has started, because that kind
- * has no Accept to create the row.
+ * `submission` is null for a FILE_UPLOAD or EXTERNAL_URL assignment nobody has started,
+ * because neither kind has an Accept to create the row.
  */
 function AssignmentDetail({
   assignment,

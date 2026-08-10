@@ -79,6 +79,24 @@ export function requiresRepository(kind: AssignmentKind): boolean {
   return kind === AssignmentKind.REPO;
 }
 
+/**
+ * Kinds that hand something out, and therefore have an Accept step.
+ *
+ * A REPO assignment generates a repository from a template and a GOOGLE_DRIVE one builds a
+ * `/copy` link, so for both of them there is something a student receives before there is
+ * anything to hand in. FILE_UPLOAD and EXTERNAL_URL hand out nothing at all: the first thing
+ * that happens to one is the student submitting.
+ *
+ * Named here rather than compared inline, because two places on a student's screen have to
+ * agree about it — whether the row draws an Accept button, and whether the row opens so the
+ * submission form inside it can be reached. When those two disagreed, an EXTERNAL_URL
+ * assignment showed a student "Not started" with no button and no way to open the row, which
+ * is to say no way to submit at all. `assignments.accept` refuses the same two kinds.
+ */
+export function hasAcceptStep(kind: AssignmentKind): boolean {
+  return kind === AssignmentKind.REPO || kind === AssignmentKind.GOOGLE_DRIVE;
+}
+
 export class UnsupportedAssignmentKindError extends Error {
   constructor(readonly kind: AssignmentKind) {
     super(
