@@ -33,6 +33,7 @@ import {
   FlagBadge,
   SubmissionStatusBadge,
 } from "@/components/status-badge";
+import { SubmittedLinkRow } from "@/components/submitted-link";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -233,6 +234,24 @@ export function GradingReview({
                 // a cohort of resumes graded by downloading each one in turn is most of the work
                 // of grading them.
                 previewByDefault
+              />
+            )}
+
+            {/*
+              The link a student handed in, beside the uploaded file and for the same reason it
+              sits here rather than in the hand-grading card: that card disappears the moment a
+              draft exists, and the work is most needed while the feedback is being written. It
+              was only ever in that card, so an instructor who pressed "Start grading" lost the
+              way to the document they were about to grade.
+
+              The address is shown rather than hidden behind the button, which is what
+              `SubmittedLinkRow` exists for.
+            */}
+            {submission.submittedUrl && (
+              <SubmittedLinkRow
+                url={submission.submittedUrl}
+                label="What the student submitted"
+                isLate={submission.isLate ?? false}
               />
             )}
 
@@ -758,6 +777,12 @@ function HandGradePanel({ submission, data }: { submission: QueueSubmission; dat
           student until you release it.
         </CardDescription>
       </CardHeader>
+      {/*
+        Only the button that starts grading. The student's work is drawn above this card by
+        `SubmittedLinkRow` and `UploadedFileRow`, which stay on the screen once a draft exists —
+        a second way to reach the same document from here would be one that disappears at the
+        moment it is most wanted, and it named the link without showing it.
+      */}
       <CardContent className="flex flex-wrap items-center gap-3">
         <Button
           disabled={!data.canGradeByHand || start.isPending}
@@ -770,18 +795,6 @@ function HandGradePanel({ submission, data }: { submission: QueueSubmission; dat
           )}
           {start.isPending ? "Opening…" : "Start grading"}
         </Button>
-
-        {submission.submittedUrl && (
-          <a
-            href={submission.submittedUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-          >
-            Open what the student submitted
-            <ExternalLink data-icon="inline-end" />
-          </a>
-        )}
       </CardContent>
     </Card>
   );

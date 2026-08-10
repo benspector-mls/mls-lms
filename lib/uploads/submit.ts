@@ -125,6 +125,39 @@ export async function assertCanHandIn(
     });
   }
 
+  /*
+    Work an instructor is part-way through reading is not work a student may replace.
+
+    **This is the whole of the rule that makes updating a submission safe.** Handing in again is
+    otherwise an overwrite — `submittedUrl` and the four upload columns are single-valued, so the
+    previous link or file is gone — and doing that while somebody is writing feedback about it
+    leaves a grade describing a document nobody can open. The repository kinds are protected from
+    the same thing by `draftIsStale`, which compares the draft's commit against the submission's;
+    a link or a file has no commit to compare, so the protection has to be this instead.
+
+    Deliberately narrow. `SUPERSEDED` is a draft that has already been replaced and `FAILED` is a
+    run that produced nothing, so neither is anybody's work in progress, and blocking on them
+    would lock a student out over a pipeline error they cannot see or fix. An approved draft is
+    not caught either, which is what leaves the ordinary resubmission path open after a grade.
+  */
+  const openDraft = await db.gradingDraft.findFirst({
+    where: {
+      submission: { assignmentId: assignment.id, studentId: params.profileId },
+      approvedAt: null,
+      status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
+    },
+    select: { id: true },
+  });
+
+  if (openDraft) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "Your instructor is reviewing this now, so it cannot be changed. Wait for their " +
+        "feedback — you can hand in revised work once it arrives.",
+    });
+  }
+
   return {
     id: assignment.id,
     kind: assignment.kind,

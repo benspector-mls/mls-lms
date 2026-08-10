@@ -217,6 +217,30 @@ export const assignmentsRouter = createTRPCRouter({
                   },
                 },
               },
+              /*
+                Whether an instructor has this open and is writing feedback about it, which is
+                what decides whether the student may still replace what they handed in.
+
+                **A count rather than the draft, and a count of exactly the states
+                `assertCanHandIn` refuses on**, so the form the screen offers and the mutation
+                behind it cannot disagree about whether handing in again is allowed. A student
+                shown an Update box that is then refused has been told to do something the
+                server will not accept.
+
+                One number and no statuses. Which state a grading draft is in is not a student's
+                business — `STUDENT_STATUS_META` collapses the queue for the same reason — and
+                "somebody is looking at this" is the only fact the screen needs.
+              */
+              _count: {
+                select: {
+                  gradingDrafts: {
+                    where: {
+                      approvedAt: null,
+                      status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -257,8 +281,15 @@ export const assignmentsRouter = createTRPCRouter({
       */
       return assignments.map((assignment) => ({
         ...assignment,
-        submissions: assignment.submissions.map((submission) => ({
+        submissions: assignment.submissions.map(({ _count, ...submission }) => ({
           ...submission,
+          /*
+            Flattened to the question it answers, so the browser never has to know it was a
+            filtered count — the same reason `activeDraft` is flattened off its relation in the
+            submissions router. It also means the number itself does not travel: how many drafts
+            an instructor has open is not something a student's screen should be able to render.
+          */
+          instructorHasStarted: _count.gradingDrafts > 0,
           gradingDrafts: submission.gradingDrafts.map((draft) => ({
             ...draft,
             sections: draft.sections.map(effectiveSection),

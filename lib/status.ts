@@ -395,6 +395,52 @@ export function completionMeta(
     : { label: "Incomplete", className: "text-destructive dark:text-red-400" };
 }
 
+/**
+ * What a student may do about work that is handed in by link or by file, and what to call it.
+ *
+ * Only these three kinds. A `REPO` assignment's submission signal is the pull request and the
+ * webhook owns every column behind it, so there is nothing here for one to decide — see
+ * `assertCanHandIn`, which refuses it outright.
+ *
+ * **The four modes are four different sentences, which is why this is one function rather than a
+ * pair of booleans at the call site.** They were two — "is it in the queue" and "has it been
+ * graded" — spelled out as a conjunction on the student's screen, and the gap that arrangement
+ * left is the reason this exists: work sitting in the queue matched neither, so a student who
+ * pasted the wrong link or uploaded the wrong file had no way to correct it and no way to be told
+ * why. Their only option was to wait for a grade on work they knew was wrong, and then resubmit.
+ *
+ * - `submit` — nothing handed in yet. `ACCEPTED` counts, because taking a copy of a Drive template
+ *   is receiving the work rather than returning it.
+ * - `update` — handed in, waiting, and nobody has looked at it. Replacing it is a correction, not a
+ *   new attempt: it overwrites what is there and the submission stays exactly where it is in the
+ *   queue.
+ * - `resubmit` — graded. Handing in again is a second attempt at work that already has feedback,
+ *   which is a different act and reads as one.
+ * - `locked` — an instructor has this open and is writing feedback about it. Replacing the work
+ *   underneath them would leave a grade describing a file that no longer exists.
+ *
+ * `instructorHasStarted` is deliberately one boolean rather than the draft's status. Which state a
+ * grading draft is in is not a student's business — the queue statuses are collapsed for the same
+ * reason in `STUDENT_STATUS_META` — and the only thing this has to answer is whether somebody is
+ * looking. It does not lock `submit`, because a draft on work that was never handed in is not
+ * something to protect.
+ */
+export type HandInMode = "submit" | "update" | "resubmit" | "locked";
+
+export function handInMode(
+  status: SubmissionStatus | null,
+  instructorHasStarted: boolean,
+): HandInMode {
+  if (status === null || status === "NOT_STARTED" || status === "ACCEPTED") return "submit";
+  if (instructorHasStarted) return "locked";
+  if (status === "GRADED") return "resubmit";
+
+  // SUBMITTED and RESUBMITTED, plus the three draft-shaped statuses nothing currently writes.
+  // Treating an unknown queue state as correctable is the safe direction: the worst case is a
+  // student fixing work nobody had started reading.
+  return "update";
+}
+
 export const TONE_DOT: Record<StatusTone, string> = {
   neutral: "bg-muted-foreground/50",
   info: "bg-sky-500",
@@ -538,6 +584,40 @@ export function formatRelative(d: Date | null | undefined, now: Date): string {
 
   const plural = value === 1 ? "" : "s";
   return past ? `${value} ${unit}${plural} ago` : `in ${value} ${unit}${plural}`;
+}
+
+/**
+ * The site a submitted link goes to, or null when it is not a link anything should open.
+ *
+ * **Two jobs, and the second is the reason it returns null rather than a best guess.** It names
+ * the host so a reader can see where a link goes before following it, and it is the test for
+ * whether a link may be turned into an anchor at all.
+ *
+ * `http` and `https` only. A URL is not the same thing as a web address: `javascript:alert(1)`
+ * parses perfectly and is a script that runs in whoever clicks it, on a page that is already
+ * signed in as an instructor with access to every student's work — and `submittedUrl` is a string
+ * a student typed, rendered later on somebody else's screen, which is the exact shape of a stored
+ * cross-site scripting hole. `data:` and `file:` are refused for the same reason. So this is the
+ * one place that decides, and both the schema that accepts a submission and the row that draws
+ * one ask it, rather than each carrying its own idea of what counts.
+ *
+ * `www.` is dropped because it is noise in every case where it appears — nobody checking a link
+ * is helped by the distinction between `www.canva.com` and `canva.com`.
+ */
+export function linkHost(url: string): string | null {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(url);
+  } catch {
+    // Not a URL at all, which is an ordinary mistake: a bare path, or a filename, pasted into a
+    // box asking for a link.
+    return null;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+
+  return parsed.host.replace(/^www\./, "") || null;
 }
 
 export function shortSha(sha: string | null | undefined, length = 7): string {

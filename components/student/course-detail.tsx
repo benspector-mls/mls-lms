@@ -13,10 +13,10 @@ import {
   CircleSlash,
   Clock,
   ExternalLink,
-  FileText,
   GitBranch,
   GitPullRequest,
   ListChecks,
+  Lock,
   RotateCcw,
   Wrench,
 } from "lucide-react";
@@ -27,6 +27,7 @@ import { ResourceItem } from "@/components/resource-item";
 import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/page-header";
 import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { SubmittedLinkRow } from "@/components/submitted-link";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -49,9 +50,11 @@ import {
   completionMeta,
   formatDate,
   formatPercent,
+  handInMode,
   scorePercent,
   sectionLabel,
   shortSha,
+  type HandInMode,
 } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
@@ -478,6 +481,15 @@ function AssignmentDetail({
     status === "NEEDS_MANUAL_REVIEW" ||
     status === "GRADING_FAILED";
 
+  /*
+    Whether this student may hand in, and what handing in would mean right now.
+
+    Only meaningful for the three kinds with no pull request; a REPO assignment is submitted by
+    opening one and neither form below is rendered for it. `instructorHasStarted` is false when
+    there is no submission at all, which is the same answer the absent row implies.
+  */
+  const mode = handInMode(submission?.status ?? null, submission?.instructorHasStarted ?? false);
+
   return (
     <div className="flex flex-col gap-4">
       {submission && <RepoLinks submission={submission} />}
@@ -509,43 +521,24 @@ function AssignmentDetail({
       )}
 
       {/*
-        A Drive assignment has no pull request to observe, so submitting is an act rather than
-        something inferred. Offered until the work is in the queue, and again after a grade,
-        since revising the document and asking for another look is this kind's resubmission.
-      */}
-      {isLinkSubmitted(assignment.kind) && !inQueue && status !== "RESUBMITTED" && (
-        <SubmitWorkForm
-          assignmentId={assignment.id}
-          kind={assignment.kind}
-          currentUrl={submission?.submittedUrl ?? null}
-          resubmitting={status === "GRADED"}
-        />
-      )}
+        What they handed in, before the box that changes it.
 
+        The order is the point: a student opening a row wants to know what is in first, and the
+        form to replace it second. It used to be the other way round, which was harmless while
+        the form only ever appeared on work that had not been submitted — and became wrong the
+        moment the form started appearing under work that had.
+
+        The address is shown rather than hidden behind the button, so a student can see whether
+        the link they pasted is the one they meant. That catches the mistake this whole feature
+        exists for at the point it can still be fixed silently.
+      */}
       {submission?.submittedUrl && (
-        <a
-          href={submission.submittedUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
-        >
-          <FileText data-icon="inline-start" />
-          {assignment.kind === "GOOGLE_DRIVE" ? "The file you submitted" : "The work you submitted"}
-          {submission.isLate ? " (late)" : ""}
-          <ExternalLink data-icon="inline-end" />
-        </a>
-      )}
-
-      {/*
-        The same shape as the Drive form above and offered on the same terms: until the
-        work is in the queue, and again after a grade, since uploading a revised file is this
-        kind's resubmission.
-      */}
-      {assignment.kind === "FILE_UPLOAD" && !inQueue && status !== "RESUBMITTED" && (
-        <UploadWorkForm
-          assignmentId={assignment.id}
-          acceptedFileTypes={assignment.acceptedFileTypes}
-          resubmitting={status === "GRADED"}
+        <SubmittedLinkRow
+          url={submission.submittedUrl}
+          label={
+            assignment.kind === "GOOGLE_DRIVE" ? "The file you submitted" : "The work you submitted"
+          }
+          isLate={submission.isLate ?? false}
         />
       )}
 
@@ -561,6 +554,51 @@ function AssignmentDetail({
           sizeBytes={submission.uploadSizeBytes}
           isLate={submission.isLate ?? false}
         />
+      )}
+
+      {/*
+        A Drive assignment has no pull request to observe, so submitting is an act rather than
+        something inferred. `handInMode` decides which act it is — a first submission, a
+        correction to work still waiting, or a second attempt after a grade — and `locked` is
+        where an instructor has it open, which `assertCanHandIn` refuses server-side.
+      */}
+      {isLinkSubmitted(assignment.kind) && mode !== "locked" && (
+        <SubmitWorkForm
+          assignmentId={assignment.id}
+          kind={assignment.kind}
+          currentUrl={submission?.submittedUrl ?? null}
+          mode={mode}
+        />
+      )}
+
+      {/* The same shape as the Drive form above and offered on exactly the same terms. */}
+      {assignment.kind === "FILE_UPLOAD" && mode !== "locked" && (
+        <UploadWorkForm
+          assignmentId={assignment.id}
+          acceptedFileTypes={assignment.acceptedFileTypes}
+          mode={mode}
+        />
+      )}
+
+      {/*
+        Why the box is gone, said where the box was.
+
+        A control that silently disappears is the same problem as one that refuses without
+        explaining: a student who came here to fix a wrong link needs to know it is too late and
+        what happens next, not to find nothing and wonder whether the page is broken.
+
+        It says somebody is reading the work and deliberately not which grading state it is in.
+        That distinction is the reason the screen is handed one boolean — see `handInMode`.
+      */}
+      {mode === "locked" && (
+        <Alert>
+          <Lock className="size-4" />
+          <AlertTitle>This can no longer be changed</AlertTitle>
+          <AlertDescription>
+            Your instructor is reviewing what you handed in, so it is fixed while they work. Once
+            their feedback arrives you can hand in revised work and ask for another look.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/*
@@ -609,6 +647,37 @@ function AssignmentDetail({
 }
 
 /**
+ * What the link form is called, per act and per kind.
+ *
+ * A table rather than nested conditionals, which is what this was: two ternaries deep by two
+ * kinds wide, and a third act would have made it three. Laid out flat, the six sentences can be
+ * read against each other, which is the only way to notice that "Submit your file" and "Update
+ * your file" have to differ by more than a verb — the second one is about a link that is already
+ * there.
+ */
+const LINK_FORM_HEADING: Record<Exclude<HandInMode, "locked">, { drive: string; url: string }> = {
+  submit: { drive: "Submit your file", url: "Submit the link to your work" },
+  update: { drive: "Change the file you submitted", url: "Change the link you submitted" },
+  resubmit: {
+    drive: "Submit your revised file",
+    url: "Submit the link to your revised work",
+  },
+};
+
+/**
+ * What the button says.
+ *
+ * "Update" rather than "Submit" on a correction, because the two are different promises: one
+ * hands work in and the other swaps what was handed in, and a student pressing "Submit" on work
+ * already submitted would reasonably expect a second attempt to be recorded.
+ */
+const LINK_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
+  submit: "Submit",
+  update: "Update",
+  resubmit: "Submit again",
+};
+
+/**
  * Handing in work that has no pull request.
  *
  * The whole of the submission signal for a Drive assignment. A repository assignment is observed —
@@ -618,12 +687,18 @@ function AssignmentDetail({
  *
  * The link is asked for rather than derived, because the student's copy is theirs and this
  * application never saw it created: Google made the copy in their Drive on their request.
+ *
+ * **Also where a wrong link is corrected**, which is the same form doing a different job and is
+ * why `mode` exists rather than a `resubmitting` boolean. A student who pasted the instructor's
+ * template instead of their own copy previously had no way back: the form was hidden the moment
+ * the work entered the queue, so the only route to a correct submission was to wait for a grade
+ * on work they knew was wrong and then resubmit.
  */
 function SubmitWorkForm({
   assignmentId,
   kind,
   currentUrl,
-  resubmitting,
+  mode,
 }: {
   assignmentId: string;
   /**
@@ -635,8 +710,8 @@ function SubmitWorkForm({
    */
   kind: AssignmentKind;
   currentUrl: string | null;
-  /** True after a grade, when submitting again is asking for another look at revised work. */
-  resubmitting: boolean;
+  /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
+  mode: Exclude<HandInMode, "locked">;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -645,6 +720,8 @@ function SubmitWorkForm({
   const submit = useMutation(
     trpc.submissions.submitWork.mutationOptions(settled({ onError: shownInPlace })),
   );
+
+  const changed = url.trim() !== (currentUrl ?? "");
 
   return (
     <form
@@ -655,14 +732,21 @@ function SubmitWorkForm({
       }}
     >
       <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
-        {kind === "GOOGLE_DRIVE"
-          ? resubmitting
-            ? "Submit your revised file"
-            : "Submit your file"
-          : resubmitting
-            ? "Submit the link to your revised work"
-            : "Submit the link to your work"}
+        {LINK_FORM_HEADING[mode][kind === "GOOGLE_DRIVE" ? "drive" : "url"]}
       </label>
+
+      {/*
+        What replacing it does, and it is only worth saying in this one mode. A correction
+        overwrites — there is one `submittedUrl` column — and a student who assumes both links go
+        to their instructor would leave the wrong one thinking it had been added to rather than
+        swapped. Nothing about the queue changes, which is the reassuring half and the reason
+        this is not phrased as a warning.
+      */}
+      {mode === "update" && (
+        <p className="text-sm text-muted-foreground">
+          This replaces the link above.
+        </p>
+      )}
       <p className="text-sm text-muted-foreground">
         {kind === "GOOGLE_DRIVE" ? (
           <>
@@ -691,8 +775,17 @@ function SubmitWorkForm({
           }
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
-        <Button size="sm" type="submit" disabled={submit.isPending || url.trim() === ""}>
-          {submit.isPending ? "Submitting…" : resubmitting ? "Submit again" : "Submit"}
+        <Button
+          size="sm"
+          type="submit"
+          /*
+            Nothing to send when the box still holds the link that is already stored. Without
+            this, Update is a button that appears to work and changes nothing — the mutation
+            would run, rewrite the same URL, and move `submittedAt` for no reason.
+          */
+          disabled={submit.isPending || url.trim() === "" || (mode === "update" && !changed)}
+        >
+          {submit.isPending ? "Submitting…" : LINK_FORM_BUTTON[mode]}
         </Button>
       </div>
       {submit.error && (
@@ -703,6 +796,19 @@ function SubmitWorkForm({
     </form>
   );
 }
+
+/** The upload form's three headings, for the reason `LINK_FORM_HEADING` is a table. */
+const UPLOAD_FORM_HEADING: Record<Exclude<HandInMode, "locked">, string> = {
+  submit: "Upload your file",
+  update: "Replace the file you uploaded",
+  resubmit: "Upload your revised file",
+};
+
+const UPLOAD_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
+  submit: "Upload",
+  update: "Replace",
+  resubmit: "Upload again",
+};
 
 /**
  * Handing in a file.
@@ -719,12 +825,12 @@ function SubmitWorkForm({
 function UploadWorkForm({
   assignmentId,
   acceptedFileTypes,
-  resubmitting,
+  mode,
 }: {
   assignmentId: string;
   acceptedFileTypes: string[];
-  /** True after a grade, when uploading again is asking for another look at revised work. */
-  resubmitting: boolean;
+  /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
+  mode: Exclude<HandInMode, "locked">;
 }) {
   const router = useRouter();
   const inputId = `upload-${assignmentId}`;
@@ -781,12 +887,23 @@ function UploadWorkForm({
       onSubmit={upload}
     >
       <label className="text-sm font-medium" htmlFor={inputId}>
-        {resubmitting ? "Upload your revised file" : "Upload your file"}
+        {UPLOAD_FORM_HEADING[mode]}
       </label>
       <p className="text-sm text-muted-foreground">
         {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)}. Your
         instructor is the only person who can open it.
       </p>
+      {/*
+        The same sentence the link form carries, and it matters more here: an uploaded file
+        replaces the stored one outright, so a student who uploads a second file is not adding a
+        page to their submission.
+      */}
+      {mode === "update" && (
+        <p className="text-sm text-muted-foreground">
+          This replaces the file above. Your work stays where it is in your instructor&apos;s queue
+          — correcting it does not put you at the back.
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <input
           id={inputId}
@@ -797,7 +914,7 @@ function UploadWorkForm({
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
         <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
-          {busy ? "Uploading…" : resubmitting ? "Upload again" : "Upload"}
+          {busy ? "Uploading…" : UPLOAD_FORM_BUTTON[mode]}
         </Button>
       </div>
       {file && !error && (

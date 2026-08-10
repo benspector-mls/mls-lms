@@ -9,6 +9,8 @@ import {
   formatDuration,
   formatPercent,
   formatRelative,
+  handInMode,
+  linkHost,
   scoreLabel,
   scorePercent,
   sectionLabel,
@@ -320,5 +322,105 @@ describe("sectionLabel", () => {
   it("renders an unknown type as words rather than as a database value", () => {
     // An instructor-authored section type will arrive here before this map learns about it.
     expect(sectionLabel("group_presentation")).toBe("Group presentation");
+  });
+});
+
+/**
+ * Which of the four things handing in means right now.
+ *
+ * The case worth having is `update`: work sitting in the queue matched neither of the two
+ * booleans this replaced, so a student who submitted the wrong link could not correct it and was
+ * shown nothing explaining why. Every status that is neither "not yet handed in" nor "already
+ * graded" has to land there.
+ */
+describe("handInMode", () => {
+  it("offers a first submission when nothing is handed in", () => {
+    expect(handInMode(null, false)).toBe("submit");
+    expect(handInMode("NOT_STARTED", false)).toBe("submit");
+  });
+
+  // Taking a copy of a Drive template is receiving the work, not returning it.
+  it("treats an accepted assignment as not yet handed in", () => {
+    expect(handInMode("ACCEPTED", false)).toBe("submit");
+  });
+
+  it("lets work still waiting be corrected", () => {
+    expect(handInMode("SUBMITTED", false)).toBe("update");
+    expect(handInMode("RESUBMITTED", false)).toBe("update");
+  });
+
+  // Nothing writes these three today. Treating an unrecognised queue state as correctable is the
+  // safe direction: the worst case is a student fixing work nobody had started reading.
+  it.each(["DRAFT_READY", "NEEDS_MANUAL_REVIEW", "GRADING_FAILED"] as const)(
+    "treats %s as correctable rather than as finished",
+    (status) => {
+      expect(handInMode(status, false)).toBe("update");
+    },
+  );
+
+  it("becomes a second attempt once a grade exists", () => {
+    expect(handInMode("GRADED", false)).toBe("resubmit");
+  });
+
+  /*
+    The rule that makes overwriting safe. `submittedUrl` and the upload columns are single-valued,
+    so handing in again destroys what an instructor is part-way through reading.
+  */
+  it("locks every mode where an instructor has the work open", () => {
+    expect(handInMode("SUBMITTED", true)).toBe("locked");
+    expect(handInMode("RESUBMITTED", true)).toBe("locked");
+    expect(handInMode("GRADED", true)).toBe("locked");
+  });
+
+  // A draft on work that was never handed in is not something to protect, and locking here would
+  // leave a student unable to submit at all.
+  it("does not lock a student out of submitting in the first place", () => {
+    expect(handInMode(null, true)).toBe("submit");
+    expect(handInMode("NOT_STARTED", true)).toBe("submit");
+    expect(handInMode("ACCEPTED", true)).toBe("submit");
+  });
+});
+
+/**
+ * The site a submitted link goes to, and whether it may be turned into an anchor at all.
+ *
+ * The refusals are the reason this is tested rather than inlined. `submittedUrl` is a string a
+ * student typed and an instructor later clicks from a signed-in page, so the scheme check is a
+ * security boundary and not formatting.
+ */
+describe("linkHost", () => {
+  it("names the host", () => {
+    expect(linkHost("https://docs.google.com/document/d/abc/edit")).toBe("docs.google.com");
+    expect(linkHost("http://example.org/path")).toBe("example.org");
+  });
+
+  it("drops www, which distinguishes nothing anybody is checking for", () => {
+    expect(linkHost("https://www.canva.com/design/DAF123/view")).toBe("canva.com");
+  });
+
+  it("keeps a port and a subdomain, which do distinguish something", () => {
+    expect(linkHost("https://staging.example.com:8443/x")).toBe("staging.example.com:8443");
+  });
+
+  // The case this exists for: it parses as a URL, and it is a script that would run on whoever
+  // clicked it — on a page already signed in as an instructor.
+  it("refuses javascript:", () => {
+    expect(linkHost("javascript:alert(1)")).toBeNull();
+    expect(linkHost("JavaScript:alert(1)")).toBeNull();
+  });
+
+  it("refuses the other schemes a link has no business using", () => {
+    expect(linkHost("data:text/html;base64,PHNjcmlwdD4=")).toBeNull();
+    expect(linkHost("file:///etc/passwd")).toBeNull();
+    expect(linkHost("vbscript:msgbox(1)")).toBeNull();
+  });
+
+  // The ordinary mistake rather than the alarming one: a path or a filename pasted into a box
+  // that asked for a link.
+  it("answers null for anything that is not a URL", () => {
+    expect(linkHost("")).toBeNull();
+    expect(linkHost("my-essay.docx")).toBeNull();
+    expect(linkHost("docs.google.com/document/d/abc")).toBeNull();
+    expect(linkHost("   ")).toBeNull();
   });
 });

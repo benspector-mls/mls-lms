@@ -13,6 +13,7 @@ import {
 import { teachableAssignment } from "@/lib/courses/scope";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
+import { linkHost } from "@/lib/status";
 import { signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
@@ -167,8 +168,24 @@ export const submissionsRouter = createTRPCRouter({
         // The assignment rather than the submission, because a submission row may not exist
         // yet: for a kind with no Accept, submitting is the first thing that happens to it.
         assignmentId: z.string().uuid(),
-        /** The student's copy of the document, for GOOGLE_DRIVE. */
-        submittedUrl: z.string().url().max(2000).nullable().default(null),
+        /**
+         * The student's copy of the document, for GOOGLE_DRIVE.
+         *
+         * `linkHost` rather than Zod's `.url()` alone, because the two ask different questions.
+         * `.url()` asks whether the string parses, and `javascript:alert(1)` parses — it is a
+         * script that would later be rendered as an anchor on an instructor's signed-in page.
+         * The same function the row draws with decides here, so nothing can be stored that the
+         * screen would then refuse to open.
+         */
+        submittedUrl: z
+          .string()
+          .max(2000)
+          .refine(
+            (url) => linkHost(url) !== null,
+            "That is not a web address. Paste a link beginning with https://",
+          )
+          .nullable()
+          .default(null),
       }),
     )
     .mutation(async ({ ctx, input }) => {
