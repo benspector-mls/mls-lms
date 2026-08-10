@@ -1,8 +1,10 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { cookies } from "next/headers";
 import { cache } from "react";
 import superjson from "superjson";
 import { z } from "zod";
 
+import { resolveViewAs, VIEW_AS_COOKIE } from "@/lib/auth/view-as";
 import { assertTeaches } from "@/lib/courses/membership";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -29,7 +31,27 @@ export const createTRPCContext = cache(async () => {
     data: { user },
   } = await supabase.auth.getUser();
 
-  return { db, user };
+  /*
+    An admin looking at the application as a test student, which is the whole of that feature.
+
+    `resolveViewAs` re-establishes the entitlement on every request — the signed-in user is an
+    ADMIN, the profile named is a test student — so the cookie is a request rather than a grant.
+    See `lib/auth/view-as.ts` for why it needs no signature.
+
+    Substituting the id is enough because `ctx.user` is read for its `.id` and nothing else.
+    `email` is replaced alongside it so the object does not carry one person's address under
+    another's id, which is a trap for whoever next reaches for a field on it.
+  */
+  const cookieValue = user ? (await cookies()).get(VIEW_AS_COOKIE)?.value : undefined;
+  const viewingAs =
+    user && cookieValue ? await resolveViewAs(db, { realUserId: user.id, cookieValue }) : null;
+
+  const effectiveUser =
+    user && viewingAs
+      ? { ...user, id: viewingAs.testStudent.id, email: viewingAs.testStudent.email ?? undefined }
+      : user;
+
+  return { db, user: effectiveUser, viewingAs };
 });
 
 type Context = Awaited<ReturnType<typeof createTRPCContext>>;

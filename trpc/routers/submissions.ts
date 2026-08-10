@@ -462,7 +462,12 @@ export const submissionsRouter = createTRPCRouter({
           gradedHeadSha: true,
           submittedAt: true,
           lastActivityAt: true,
-          student: { select: { id: true, displayName: true, email: true } },
+          // Deliberately narrower than `personSelect` — a pile of work to grade names people and
+          // does not need their GitHub handles. `testStudentNumber` is here because the row has to
+          // be able to say it is a rehearsal rather than somebody's work.
+          student: {
+            select: { id: true, displayName: true, email: true, testStudentNumber: true },
+          },
           // `sections` for the grading mode: an assignment the pipeline cannot grade lands
           // in a different bucket, because the action waiting on the instructor is
           // different and generating a report is not one of the things they can do.

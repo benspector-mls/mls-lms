@@ -1,13 +1,26 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
-import { Check, Copy, GitBranch, RotateCcw, UserMinus, Users } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Eye,
+  FlaskConical,
+  GitBranch,
+  RotateCcw,
+  Trash2,
+  UserMinus,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { EmptyState } from "@/components/list-states";
+import { RemoveTestStudentDialog } from "@/components/instructor/remove-test-student-dialog";
+import { TestStudentDialog } from "@/components/instructor/test-student-dialog";
+import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +86,20 @@ export function CourseRoster({ data }: { data: Data }) {
     ),
   );
 
+  /*
+    Whether to offer the test student controls at all. Admins only, matching the procedures — an
+    instructor pressing a button that always refuses is a worse interface than no button.
+
+    `useQuery` rather than `useSuspenseQuery`: the shell has already fetched this, so it is served
+    from the cache, and a boundary here would make the roster wait on a question it only needs in
+    order to draw one extra button.
+  */
+  const { data: profile } = useQuery(trpc.me.queryOptions());
+  const isAdmin = profile?.role === "ADMIN";
+
+  const [adding, setAdding] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<string | null>(null);
+
   const busy = remove.isPending || restore.isPending || regenerate.isPending;
   // Complements, so every enrollment lands in exactly one table. See the same reasoning in
   // `courses.gradebook`: filters naming both statuses would lose a third one from both lists.
@@ -88,6 +115,38 @@ export function CourseRoster({ data }: { data: Data }) {
         onRegenerate={() => regenerate.mutate({ courseId })}
       />
 
+      {/*
+        Below the join link rather than beside it. The join link is how the cohort gets its
+        students and is the point of this screen; this is a tool for checking the course, and
+        putting the two on one line would give them equal weight.
+      */}
+      {isAdmin && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border px-4 py-3">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-medium">Check this course as a student meets it</span>
+            <span className="text-xs text-muted-foreground">
+              A test student you can look through — accept the work, push to the repository, and
+              grade it back here. Left out of the cohort&apos;s student count.
+            </span>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <FlaskConical data-icon="inline-start" />
+            Add test student
+          </Button>
+        </div>
+      )}
+
+      <TestStudentDialog courseId={courseId} open={adding} onOpenChange={setAdding} />
+      {deleting && (
+        <RemoveTestStudentDialog
+          profileId={deleting}
+          open
+          onOpenChange={(next) => {
+            if (!next) setDeleting(null);
+          }}
+        />
+      )}
+
       {data.enrollments.length === 0 ? (
         <EmptyState
           icon={<Users />}
@@ -101,8 +160,10 @@ export function CourseRoster({ data }: { data: Data }) {
               courseId={courseId}
               enrollments={active}
               busy={busy}
+              isAdmin={isAdmin}
               onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
               onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
+              onDelete={setDeleting}
             />
           )}
 
@@ -125,8 +186,10 @@ export function CourseRoster({ data }: { data: Data }) {
                 courseId={courseId}
                 enrollments={removed}
                 busy={busy}
+                isAdmin={isAdmin}
                 onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
                 onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
+                onDelete={setDeleting}
               />
             </section>
           )}
@@ -236,14 +299,19 @@ function RosterTable({
   courseId,
   enrollments,
   busy,
+  isAdmin,
   onRemove,
   onRestore,
+  onDelete,
 }: {
   courseId: string;
   enrollments: Data["enrollments"];
   busy: boolean;
+  /** Whether to draw the test student controls. They refuse anybody else. */
+  isAdmin: boolean;
   onRemove: (enrollmentId: string) => void;
   onRestore: (enrollmentId: string) => void;
+  onDelete: (profileId: string) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
@@ -267,6 +335,7 @@ function RosterTable({
               enrollment.student.email ??
               "Unnamed";
             const removed = enrollment.status !== "ACTIVE";
+            const isTestStudent = enrollment.student.testStudentNumber !== null;
 
             // No dimming any more. It was how one mixed list said "this person has left", and
             // the two tables say it in words now — dimming on top of a heading that already
@@ -283,12 +352,18 @@ function RosterTable({
                     <div className="flex min-w-0 flex-col">
                       {/* Into their record for this cohort: every submission, every grade, and
                           the email and GitHub username a repository name is checked against. */}
-                      <Link
-                        href={studentHref(courseId, enrollment.student.id)}
-                        className="truncate font-medium hover:underline"
-                      >
-                        {name}
-                      </Link>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Link
+                          href={studentHref(courseId, enrollment.student.id)}
+                          className="truncate font-medium hover:underline"
+                        >
+                          {name}
+                        </Link>
+                        {/* Beside the name rather than in the Enrollment column, which answers a
+                            different question — a test student can also be removed, and both
+                            facts have to be readable at once. */}
+                        {isTestStudent && <TestStudentBadge />}
+                      </div>
                       <span className="truncate text-xs text-muted-foreground">
                         {enrollment.student.email ?? "—"}
                       </span>
@@ -309,28 +384,68 @@ function RosterTable({
                   <EnrollmentBadge status={enrollment.status} />
                 </TableCell>
                 <TableCell className="text-right">
-                  {removed ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => onRestore(enrollment.id)}
-                    >
-                      <RotateCcw data-icon="inline-start" />
-                      Restore
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      disabled={busy}
-                      onClick={() => onRemove(enrollment.id)}
-                    >
-                      <UserMinus data-icon="inline-start" />
-                      Remove
-                    </Button>
-                  )}
+                  <div className="flex items-center justify-end gap-1">
+                    {/*
+                      A form rather than a button with an onClick, because entering the view is a
+                      cookie and a full navigation — see `app/api/view-as/route.ts`. Only for an
+                      active enrollment: looking through a test student that has been removed from
+                      this cohort would show a course it cannot accept anything in.
+                    */}
+                    {isAdmin && isTestStudent && !removed && (
+                      <form method="post" action="/api/view-as">
+                        <input type="hidden" name="testStudentId" value={enrollment.student.id} />
+                        {/* Where to come back to. A test student can be in several cohorts, so
+                            leaving cannot work this out later — this is the one moment that knows
+                            which one is being checked. */}
+                        <input type="hidden" name="courseId" value={courseId} />
+                        <Button size="sm" variant="ghost" type="submit" disabled={busy}>
+                          <Eye data-icon="inline-start" />
+                          View as
+                        </Button>
+                      </form>
+                    )}
+
+                    {removed ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => onRestore(enrollment.id)}
+                      >
+                        <RotateCcw data-icon="inline-start" />
+                        Restore
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={busy}
+                        onClick={() => onRemove(enrollment.id)}
+                      >
+                        <UserMinus data-icon="inline-start" />
+                        Remove
+                      </Button>
+                    )}
+
+                    {/*
+                      Deleting the identity, which is wider than Remove and reaches every cohort it
+                      is in. Offered beside Remove rather than instead of it, because taking a test
+                      student out of one course is a real thing to want.
+                    */}
+                    {isAdmin && isTestStudent && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={busy}
+                        onClick={() => onDelete(enrollment.student.id)}
+                      >
+                        <Trash2 data-icon="inline-start" />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             );

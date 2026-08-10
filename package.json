@@ -38,7 +38,8 @@
     "verify:resources": "tsx --conditions=react-server scripts/verify-resources.ts",
     "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",
     "verify:staff": "tsx --conditions=react-server scripts/verify-staff.ts",
-    "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts"
+    "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts",
+    "verify:test-student": "tsx --conditions=react-server scripts/verify-test-student.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

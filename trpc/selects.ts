@@ -22,15 +22,22 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 /**
  * Who somebody is, wherever a screen shows a person.
  *
- * All four columns because the interface falls back through them: a display name if they set
+ * The first four columns because the interface falls back through them: a display name if they set
  * one, their GitHub login if not, their email as the last resort. `displayNameOf` below is that
  * fallback, and it reads exactly these.
+ *
+ * `testStudentNumber` is here rather than added at the three call sites that need it, which is what
+ * this module is for: the roster, the gradebook, and triage all draw a person, and all three have to
+ * be able to say this one is not real. A screen that read a person without it would show a test
+ * student as a student who has not started — the exact failure the badge exists to prevent, arrived
+ * at by omission.
  */
 export const personSelect = {
   id: true,
   displayName: true,
   email: true,
   githubUsername: true,
+  testStudentNumber: true,
 } satisfies Prisma.ProfileSelect;
 
 /**

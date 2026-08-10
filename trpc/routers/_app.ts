@@ -11,6 +11,7 @@ import { resourcesRouter } from "./resources";
 import { staffRouter } from "./staff";
 import { submissionsRouter } from "./submissions";
 import { testRunsRouter } from "./test-runs";
+import { testStudentsRouter } from "./test-students";
 
 /** Columns safe to send to the browser. Keeps future additions opt-in. */
 const profileFields = {
@@ -21,6 +22,7 @@ const profileFields = {
   githubUsername: true,
   role: true,
   createdAt: true,
+  testStudentNumber: true,
 } as const;
 
 export const appRouter = createTRPCRouter({
@@ -33,6 +35,29 @@ export const appRouter = createTRPCRouter({
       select: profileFields,
     }),
   ),
+
+  /**
+   * Whether this request is being answered as a test student, and on whose behalf.
+   *
+   * Reads `ctx.viewingAs` and deliberately not `ctx.user`, which under the switch *is* the test
+   * student — asking the caller who they are would get the answer the switch installed. The real
+   * admin is on the context precisely so this can be answered.
+   *
+   * Returns null the rest of the time, which is what the banner renders nothing for. It is a query
+   * rather than a field on `me` because `me` answers "who am I", and the honest answer to that while
+   * the cookie is set is the test student. Two questions, two procedures.
+   */
+  viewingAs: protectedProcedure.query(({ ctx }) => {
+    if (!ctx.viewingAs) return null;
+
+    return {
+      testStudent: {
+        displayName: ctx.viewingAs.testStudent.displayName,
+        number: ctx.viewingAs.testStudent.number,
+      },
+      admin: { displayName: ctx.viewingAs.admin.displayName },
+    };
+  }),
 
   /**
    * Let a user set their own display name.
@@ -69,6 +94,7 @@ export const appRouter = createTRPCRouter({
   testRuns: testRunsRouter,
   gradingDrafts: gradingDraftsRouter,
   staff: staffRouter,
+  testStudents: testStudentsRouter,
 });
 
 // export type definition of API

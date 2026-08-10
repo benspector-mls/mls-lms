@@ -6,6 +6,8 @@ How the built system works is in [README.md](README.md). This file is only what 
 - [Outstanding verification](#outstanding-verification)
 - [Token management](#token-management)
 - [What the review pass left open](#what-the-review-pass-left-open)
+- [Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)
+- [An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)
 - [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
 - [Salesforce synchronization](#salesforce-synchronization)
   - [Questions I need answered](#questions-i-need-answered)
@@ -16,7 +18,7 @@ How the built system works is in [README.md](README.md). This file is only what 
 - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
   - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
 - [Triggering and orchestration](#triggering-and-orchestration)
-  - [Whether grading should be automatic at all](#whether-grading-should-be-automatic-at-all)
+  - [The grading session is built; automatic grading is the part still open](#the-grading-session-is-built-automatic-grading-is-the-part-still-open)
   - [If it does become automatic](#if-it-does-become-automatic)
   - [The problem this must solve](#the-problem-this-must-solve)
   - [Candidate design A: job table with a worker process](#candidate-design-a-job-table-with-a-worker-process)
@@ -43,10 +45,9 @@ The sequence is most immediate first. A feature's own section says what is known
 2. **[Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)** — the diff beside the report instead of in another tab. High on this list because it is the only item that makes the hour an instructor already spends grading a shorter hour, and because the data is already fetched and discarded.
 3. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
 4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-5. **[Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)** — a test enrollment an instructor can look through. Its design is the one part of this area still open.
-6. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
-7. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
-8. **[An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)** — last, and not because it is least wanted. It reads a term of released feedback, so it has nothing to read until a term has been graded, and it is the one feature here whose output is about a person rather than a piece of work.
+5. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
+6. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
+7. **[An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)** — last, and not because it is least wanted. It reads a term of released feedback, so it has nothing to read until a term has been graded, and it is the one feature here whose output is about a person rather than a piece of work.
 
 [Triggering and orchestration](#triggering-and-orchestration) is deliberately not in that list, and is now half done: an instructor can grade a screen's worth of outstanding work with one press, which was the part that affected a working day. What is left — grading without being asked, and a batch that survives a closed tab — is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -212,23 +213,6 @@ Worth flagging in the same conversation, since some of it is their work rather t
 ### The shape of the work here, once those are answered
 
 A job that reads `PENDING` submissions, writes them, and records `SYNCED` with the record Id or `FAILED` with the reason. Deliberately not part of the approval transaction: approving already posts a pull request comment best-effort for the same reason, because a grade must not fail to be recorded because a third party is unavailable. That makes the sync retryable and makes a failed sync visible as a state rather than a lost write, which is the same shape as the undelivered-comment triage bucket.
-
----
-
-## Seeing a course as a student sees it
-
-An instructor should be able to look at what they have published the way a student meets it — the assignment list, the accept button, the submission instructions, the feedback screen. It is the cheapest way to catch an assignment whose instructions make no sense or whose kind hands out the wrong thing, and there is currently no way to do it.
-
-The cheap and common half is already covered for free by [the Modules screen](README.md#interface), which shows the course's shape the way a student meets it — an assignment filed under the wrong module, or a module that is empty when it should not be. What that screen deliberately does not have is anything to press.
-
-Doing it properly needs a **test enrollment**: a student-shaped identity the instructor can look through, enrolled in every course automatically, whose submissions are real rows so accepting and submitting behave normally. What that has to settle:
-
-- **Whose rows are they.** One test profile per instructor, per course, or one for the whole application. Per instructor is the least surprising — two instructors previewing the same course would otherwise fight over one submission — and the most rows.
-- **It must not appear anywhere a real student does.** The gradebook, the roster, triage, the queue, and every count on a course card. That is a filter in more places than it sounds, and each one missed reports a test row as a student who has not started. A flag on `Enrollment` or `Profile` is the mechanism; finding all the readers is the work.
-- **Whether it can be graded.** Almost certainly not: an approved grade on a test row would reach the Salesforce sync as a real one. Refusing at approval is the safer end.
-- **How an instructor switches into it**, and how obvious it is that they are in it. A preview that looks like the real thing is a way to grade the wrong person.
-
-This is the only part of the enrollment area whose design is unresolved — the four questions above — and there is a version that costs nothing meanwhile, which is joining your own course with a second GitHub account.
 
 ---
 

@@ -64,6 +64,20 @@ model Profile {
   /// login string (repository naming, collaborator invitations).
   githubUserId   BigInt?  @unique @map("github_user_id")
   role           Role     @default(STUDENT)
+  /// Non-null marks this profile as a **test student** — a student-shaped identity an admin
+  /// creates to look at a course the way a student meets it, accept its work, and grade the
+  /// result. Its value is the number in the name: `Test Student 3`, handle `test-student-3`.
+  ///
+  /// One nullable ordinal rather than a boolean beside a counter, for two reasons. It carries
+  /// both facts in one column, so "is a test student" and "which one" cannot disagree. And
+  /// `@unique` is what makes two admins creating one at the same moment safe: the second loses
+  /// the race at the database rather than by having checked first and been overtaken.
+  ///
+  /// Every reader that reports a *number of students* must exclude these
+  /// (`where: { testStudentNumber: null }`) — a test row counted as a student is a figure
+  /// somebody quotes. Readers that list students deliberately include them, badged, because
+  /// grading one is the whole point.
+  testStudentNumber Int?  @unique @map("test_student_number")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
   // default on the column so the on-signup trigger (which writes via raw SQL,

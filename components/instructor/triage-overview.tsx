@@ -20,6 +20,7 @@ import {
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { FlagBadge } from "@/components/status-badge";
+import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -443,9 +444,13 @@ function TriageRow({ row, now }: { row: Row; now: Date }) {
       </Avatar>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {row.student.displayName ?? row.student.email ?? "Unknown student"}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-sm font-medium">
+            {row.student.displayName ?? row.student.email ?? "Unknown student"}
+          </p>
+          {/* So a pile of work to grade says which of it is a rehearsal. */}
+          {row.student.testStudentNumber !== null && <TestStudentBadge />}
+        </div>
         <p className="truncate text-sm text-muted-foreground">{row.assignment.title}</p>
 
         <div className="mt-1 flex flex-wrap items-center gap-1.5 empty:mt-0">

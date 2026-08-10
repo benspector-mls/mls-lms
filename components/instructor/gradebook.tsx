@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BarChart3 } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
+import { TestStudentBadge } from "@/components/test-student-badge";
 import {
   Table,
   TableBody,
@@ -156,9 +157,12 @@ function Grid({
               <TableCell className="sticky left-0 z-10 bg-card font-medium">
                 {/* Into their record for this cohort. A row of scores prompts "what happened
                     with this person", and the name is where a reader already points. */}
-                <Link href={studentHref(courseId, student.id)} className="hover:underline">
-                  {student.displayName ?? student.email ?? student.githubUsername}
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link href={studentHref(courseId, student.id)} className="hover:underline">
+                    {student.displayName ?? student.email ?? student.githubUsername}
+                  </Link>
+                  {student.testStudentNumber !== null && <TestStudentBadge />}
+                </div>
               </TableCell>
 
               {assignments.map((assignment) => {

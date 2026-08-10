@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ViewAsBanner } from "@/components/view-as-banner";
 import {
   courseAssignmentsHref,
   courseResourcesHref,
@@ -682,6 +683,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
           </div>
         </header>
+        {/*
+          Below the header and above everything else, in its own boundary for the same reason the
+          sidebar and breadcrumb are in theirs: it reads the session, and a layout that reads
+          uncached data blocks every page beneath it. The fallback is nothing at all — an empty
+          strip flashing in on every navigation would be worse than the banner arriving a moment
+          after the page, and it renders nothing in the overwhelmingly common case anyway.
+        */}
+        <React.Suspense fallback={null}>
+          <ViewAsBanner />
+        </React.Suspense>
         <main className="flex-1 overflow-x-hidden">{children}</main>
       </SidebarInset>
     </SidebarProvider>

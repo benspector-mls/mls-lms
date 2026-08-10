@@ -34,6 +34,34 @@ export async function getRepo(installationId: number, params: { owner: string; r
   }
 }
 
+/**
+ * Deletes a repository. **The only destructive GitHub call this application makes.**
+ *
+ * It exists for one caller: removing a test student, which is expected to clean up after itself
+ * because the repositories it generated are litter rather than work. Nothing about a real student's
+ * repository should ever reach this — their work outlives their enrollment, and a graded submission
+ * points at a repository somebody may want to read a term later.
+ *
+ * A 404 is success, for the reason `deleteAuthUser` treats one that way: the point of the call is
+ * that the repository should not exist afterwards, and one already gone satisfies it. That is the
+ * ordinary case when a previous removal failed partway, or when the repository was deleted by hand.
+ *
+ * Needs the App's `administration: write` permission, which `scripts/verify-github-app.ts` already
+ * asserts is granted — it is the same permission `generate` needs to create one.
+ */
+export async function deleteRepo(installationId: number, params: { owner: string; repo: string }) {
+  const octokit = await getInstallationOctokit(installationId);
+  try {
+    await octokit.request("DELETE /repos/{owner}/{repo}", {
+      owner: params.owner,
+      repo: params.repo,
+    });
+  } catch (err) {
+    if (err instanceof Object && "status" in err && err.status === 404) return;
+    throw err;
+  }
+}
+
 export async function addCollaborator(
   installationId: number,
   params: { owner: string; repo: string; username: string; permission?: "pull" | "push" | "admin" },

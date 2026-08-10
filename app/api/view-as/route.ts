@@ -1,0 +1,85 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { type NextRequest } from "next/server";
+
+import { isUuid, resolveViewAs, VIEW_AS_COOKIE, VIEW_AS_COURSE_COOKIE } from "@/lib/auth/view-as";
+import { db } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
+
+/**
+ * Entering a test student's view. A route handler rather than a procedure, for two reasons.
+ *
+ * A tRPC mutation in this application answers over `fetch` and cannot reliably write a cookie, and
+ * this act is a cookie. Writing one and redirecting is what route handlers are for here already —
+ * `app/auth/callback/route.ts` does exactly that with the session cookie.
+ *
+ * And a full navigation is wanted rather than tolerated: the sidebar, the navigation, and every
+ * screen change at once, so there is nothing to invalidate and no window in which half the
+ * application believes one thing and half believes another.
+ *
+ * Reached by a plain `<form method="post">`, so it needs no client JavaScript. The refusals below
+ * are worded because somebody pressed a button here; the same checks in `resolveViewAs` report
+ * nothing, because there nobody did.
+ */
+export async function POST(request: NextRequest) {
+  const form = await request.formData();
+  const testStudentId = form.get("testStudentId");
+  const courseId = form.get("courseId");
+  const { origin } = new URL(request.url);
+
+  if (typeof testStudentId !== "string") {
+    redirect(`${origin}/auth/error?error=${encodeURIComponent("No test student named.")}`);
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect(`${origin}/auth/login`);
+
+  /*
+    The same function the context uses, so the rule for entering a view and the rule for being
+    answered inside one cannot drift apart. If this permits it, every later request permits it.
+  */
+  const viewingAs = await resolveViewAs(db, {
+    realUserId: user.id,
+    cookieValue: testStudentId,
+  });
+
+  if (!viewingAs) {
+    redirect(
+      `${origin}/auth/error?error=${encodeURIComponent(
+        "Only an admin may look at a course as a test student, and only as a test student.",
+      )}`,
+    );
+  }
+
+  const jar = await cookies();
+  const options = {
+    httpOnly: true,
+    sameSite: "lax",
+    // Not readable by script and not sent on a cross-site request. `secure` off in development
+    // because localhost is served over http, which would otherwise silently drop it.
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    // No `maxAge`: session cookies, so closing the browser leaves the view. An admin who forgets
+    // they are in it is the failure this feature has to work hardest against.
+  } as const;
+
+  jar.set(VIEW_AS_COOKIE, viewingAs.testStudent.id, options);
+
+  /*
+    Where to go back to. Set from the course whose roster this was pressed on, and *cleared* rather
+    than left when there is none — a stale value from a previous switch would send the admin back to
+    a course they were not in this time, which is worse than the fallback.
+  */
+  if (typeof courseId === "string" && isUuid(courseId)) {
+    jar.set(VIEW_AS_COURSE_COOKIE, courseId, options);
+  } else {
+    jar.delete(VIEW_AS_COURSE_COOKIE);
+  }
+
+  // Where a student lands, because that is what the admin is now looking at.
+  redirect(`${origin}/courses`);
+}

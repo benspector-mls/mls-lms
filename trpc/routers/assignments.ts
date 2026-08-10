@@ -313,7 +313,17 @@ export const assignmentsRouter = createTRPCRouter({
           return acceptDriveAssignment(ctx.db, { assignment, studentId: student.id });
 
         case "REPO":
-          return acceptRepoAssignment(ctx.db, { assignment, student });
+          /*
+            `actingAdmin` is the admin looking through a test student, and null for a real student's
+            accept. It is what gets push access to a test student's repository, since the handle the
+            repository is named after belongs to no GitHub account. See the test-student branch in
+            `lib/assignments/accept.ts` for why that account is invited and the student's is not.
+          */
+          return acceptRepoAssignment(ctx.db, {
+            assignment,
+            student,
+            actingAdmin: ctx.viewingAs?.admin ?? null,
+          });
 
         case "FILE_UPLOAD":
         case "EXTERNAL_URL":

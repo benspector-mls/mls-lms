@@ -78,10 +78,16 @@ export const coursesRouter = createTRPCRouter({
         //
         // ACTIVE only, unlike the `where` above: this is "how many students does this cohort
         // have", which a departed one is not the answer to.
+        //
+        // Test students are excluded for the same reason and it is the same question. This figure
+        // is the one somebody quotes — a cohort of 25 must not read as 26 because an admin
+        // previewed the course. They are deliberately *not* excluded from the roster, gradebook,
+        // or triage, which list students rather than count them, and where a test row is the
+        // point.
         _count: {
           select: {
             assignments: true,
-            enrollments: { where: { status: "ACTIVE" } },
+            enrollments: { where: { status: "ACTIVE", student: { testStudentNumber: null } } },
           },
         },
         // The caller's own enrollment, so a card can say they have left this one.
