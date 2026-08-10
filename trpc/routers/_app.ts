@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { displayNameSchema } from "@/lib/people";
 import { createTRPCRouter, protectedProcedure } from "../init";
 import { assignmentsRouter } from "./assignments";
 import { coursesRouter } from "./courses";
@@ -65,17 +66,17 @@ export const appRouter = createTRPCRouter({
    * Deliberately narrow: the id comes from the verified session and never from
    * input, and only display_name is written. That is what makes it safe for
    * `role` to live on the same table.
+   *
+   * The rule itself is `displayNameSchema` in `lib/people.ts`, which the Profile form reads too, so
+   * what the field accepts and what this procedure accepts cannot drift apart.
+   *
+   * **Under an admin's test-student view this renames the test student**, because `ctx.user.id` is
+   * the test student's for the whole request — see `createTRPCContext`. That is the honest answer
+   * rather than an exception worth carving out: it is how a test student gets a name that says what
+   * it is being used to check, and the amber banner is on screen the entire time.
    */
   updateDisplayName: protectedProcedure
-    .input(
-      z.object({
-        displayName: z
-          .string()
-          .trim()
-          .min(2, "Please use at least 2 characters.")
-          .max(50, "Please use 50 characters or fewer."),
-      }),
-    )
+    .input(z.object({ displayName: displayNameSchema }))
     .mutation(({ ctx, input }) =>
       ctx.db.profile.update({
         where: { id: ctx.user.id },

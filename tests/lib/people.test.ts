@@ -1,4 +1,10 @@
-import { displayNameOf, initials } from "@/lib/people";
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  DISPLAY_NAME_MIN_LENGTH,
+  displayNameOf,
+  displayNameSchema,
+  initials,
+} from "@/lib/people";
 
 /**
  * The two questions every screen asks about a person.
@@ -85,5 +91,61 @@ describe("initials", () => {
   // rather than a degenerate one.
   it("gives one letter for an email address", () => {
     expect(initials("ben@marcylabschool.org")).toBe("B");
+  });
+});
+
+/**
+ * The rule the Profile form and the `updateDisplayName` procedure share.
+ *
+ * Worth testing for the reason it is shared at all: the form decides what to disable the Save
+ * button on and the procedure decides what to refuse, and the failure they can produce between them
+ * is a name that types cleanly and will not save.
+ */
+describe("displayNameSchema", () => {
+  const parse = (input: string) => displayNameSchema.safeParse(input);
+
+  it("takes an ordinary name", () => {
+    expect(parse("Ada Lovelace")).toMatchObject({ success: true, data: "Ada Lovelace" });
+  });
+
+  // The whole point of `.trim()` running before the length checks rather than after.
+  it("trims before measuring, so the stored name carries no padding", () => {
+    expect(parse("  Ada Lovelace  ")).toMatchObject({ success: true, data: "Ada Lovelace" });
+  });
+
+  it("refuses a name that is only whitespace", () => {
+    // Four characters long before the trim, and zero after it.
+    expect(parse("    ").success).toBe(false);
+  });
+
+  it("refuses one below the floor", () => {
+    expect(parse("A").success).toBe(false);
+    expect(parse("").success).toBe(false);
+  });
+
+  it("accepts exactly the floor", () => {
+    expect(parse("Jo").success).toBe(true);
+  });
+
+  it("accepts exactly the ceiling and refuses one past it", () => {
+    expect(parse("a".repeat(DISPLAY_NAME_MAX_LENGTH)).success).toBe(true);
+    expect(parse("a".repeat(DISPLAY_NAME_MAX_LENGTH + 1)).success).toBe(false);
+  });
+
+  // A pasted name arrives with the newline attached, and a trailing one must not be what puts a
+  // name of exactly the maximum length over the limit.
+  it("is not pushed over the ceiling by a trailing newline", () => {
+    expect(parse(`${"a".repeat(DISPLAY_NAME_MAX_LENGTH)}\n`).success).toBe(true);
+  });
+
+  // The messages are read by whoever typed the name, under the field, so they are part of the
+  // behaviour rather than incidental to it.
+  it("says what is wrong in the words the form shows", () => {
+    expect(parse("A").error?.issues[0]?.message).toBe(
+      `Please use at least ${DISPLAY_NAME_MIN_LENGTH} characters.`,
+    );
+    expect(parse("a".repeat(DISPLAY_NAME_MAX_LENGTH + 1)).error?.issues[0]?.message).toBe(
+      `Please use ${DISPLAY_NAME_MAX_LENGTH} characters or fewer.`,
+    );
   });
 });

@@ -16,6 +16,7 @@ import {
   LogOut,
   Settings,
   ShieldCheck,
+  UserRound,
   Users,
 } from "lucide-react";
 
@@ -624,6 +625,20 @@ function UserMenu({
               </>
             )}
           </DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        {/*
+          The way to the Profile screen, and the only one. It belongs here rather than in the
+          navigation above because everything up there is a place to work — a cohort, a list, a
+          queue — and this is the account those are being worked in. It is also where the name and
+          the address already are, two lines up on the trigger, so it is where somebody who wants to
+          change one of them looks first.
+        */}
+        <DropdownMenuGroup>
+          <DropdownMenuItem render={<Link href="/profile" />}>
+            <UserRound />
+            Profile
+          </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>

@@ -6,8 +6,11 @@
  * and on the client, by every avatar and every row of a roster. `trpc/selects.ts` cannot be the
  * home because it imports Prisma's generated types and sits in the transport layer; `lib/status.ts`
  * cannot be, because that is the vocabulary of a *submission* and this is the vocabulary of a
- * *person*. So: no imports, no `server-only`, and nothing here touches the database.
+ * *person*. So: no `server-only`, nothing here touches the database, and the one import is Zod,
+ * which the authoring specs under `lib/` already rely on running in the browser.
  */
+
+import { z } from "zod";
 
 /**
  * Whatever this person is best called.
@@ -50,6 +53,46 @@ export function displayNameOf(
  * name that has already fallen through, so an email address gives `B` for `ben@…`, which is the
  * right answer for somebody who has set nothing else.
  */
+/**
+ * How long a display name may be.
+ *
+ * Exported as numbers as well as folded into the schema below, because the form needs them for
+ * things a schema cannot do: `maxLength` on the input, so the ceiling stops the typing rather than
+ * refusing the save, and a live character count as it is approached.
+ *
+ * **Two at the bottom** because a single letter is indistinguishable from a slip of the keyboard,
+ * and `initials` draws one letter either way — so a one-character name costs a reader everything
+ * and gains them nothing. **Fifty at the top** because this string is rendered in a sidebar row, a
+ * roster cell, and a gradebook column header, every one of which truncates: a longer name is not
+ * so much stored as hidden.
+ */
+export const DISPLAY_NAME_MIN_LENGTH = 2;
+export const DISPLAY_NAME_MAX_LENGTH = 50;
+
+/**
+ * What a display name somebody typed has to satisfy.
+ *
+ * **One definition, read by the procedure and by the form that calls it**, for the reason
+ * `lib/assignments/spec.ts` holds one definition of an assignment: a limit written out twice
+ * disagrees with itself eventually, and this particular disagreement surfaces as a form that
+ * accepts a name and a server that then refuses it, with the reason arriving in a toast after the
+ * text has already been typed.
+ *
+ * `.trim()` runs before the length checks rather than after, which is what makes `"  "` too short
+ * instead of two characters long, and what stops a pasted name with a trailing newline from being
+ * one character over the ceiling.
+ *
+ * There is no way to *clear* a name here, and that is deliberate: the signup trigger fills the
+ * column for every account — from the GitHub profile, or from the local part of the email address —
+ * so an empty one is not a state anybody is in, and offering to reach it would mean offering to be
+ * listed on a roster as an email address.
+ */
+export const displayNameSchema = z
+  .string()
+  .trim()
+  .min(DISPLAY_NAME_MIN_LENGTH, `Please use at least ${DISPLAY_NAME_MIN_LENGTH} characters.`)
+  .max(DISPLAY_NAME_MAX_LENGTH, `Please use ${DISPLAY_NAME_MAX_LENGTH} characters or fewer.`);
+
 export function initials(name: string | null | undefined): string {
   const letters = (name ?? "")
     .split(/\s+/)
