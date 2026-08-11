@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { gradebookIsEmpty, sortGradebookAssignments } from "@/lib/gradebook/csv";
 import { gradingQueueHref, studentHref } from "@/lib/links";
 import { scoreLabel, scorePercent } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -43,15 +44,14 @@ export function Gradebook({ data }: { data: Gradebook }) {
   const active = data.activeEnrollments.map((enrollment) => enrollment.student);
   const removed = data.removedEnrollments.map((enrollment) => enrollment.student);
 
-  const assignments = [...data.assignments].sort((a, b) => {
-    // Course order, which is `module.position` — the sequence an instructor set, not
-    // anything alphabetical or parsed out of a name.
-    const byModule =
-      a.module.position - b.module.position || a.module.name.localeCompare(b.module.name);
-    return byModule !== 0 ? byModule : a.title.localeCompare(b.title);
-  });
+  /*
+    Course order, which is `module.position` — the sequence an instructor set, not anything
+    alphabetical or parsed out of a name. Shared with the CSV export rather than sorted here, so the
+    columns of the downloaded file are these columns in this order.
+  */
+  const assignments = sortGradebookAssignments(data.assignments);
 
-  if ((active.length === 0 && removed.length === 0) || assignments.length === 0) {
+  if (gradebookIsEmpty(data)) {
     return (
       <EmptyState
         icon={<BarChart3 />}

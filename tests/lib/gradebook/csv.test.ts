@@ -1,0 +1,298 @@
+import {
+  gradebookCsv,
+  gradebookCsvFilename,
+  gradebookIsEmpty,
+  sortGradebookAssignments,
+  type GradebookCsvAssignment,
+  type GradebookCsvData,
+  type GradebookCsvPerson,
+} from "@/lib/gradebook/csv";
+
+function assignment(overrides: Partial<GradebookCsvAssignment> = {}): GradebookCsvAssignment {
+  return {
+    id: "a1",
+    title: "Loops",
+    pointValue: 10,
+    module: { position: 0, name: "Module 1" },
+    ...overrides,
+  };
+}
+
+function student(overrides: Partial<GradebookCsvPerson> = {}): GradebookCsvPerson {
+  return {
+    id: "s1",
+    displayName: "Ada Lovelace",
+    email: "ada@example.com",
+    githubUsername: "ada",
+    testStudentNumber: null,
+    ...overrides,
+  };
+}
+
+function gradebook(overrides: Partial<GradebookCsvData> = {}): GradebookCsvData {
+  return {
+    assignments: [assignment()],
+    activeEnrollments: [{ student: student() }],
+    removedEnrollments: [],
+    cells: [{ assignmentId: "a1", studentId: "s1", finalScore: 9 }],
+    removedCells: [],
+    ...overrides,
+  };
+}
+
+/** The file split back into records and fields, for assertions that are about one cell. */
+function rows(csv: string): string[][] {
+  return csv
+    .trimEnd()
+    .split("\r\n")
+    .map((line) => line.split(","));
+}
+
+describe("column order follows the course, not the alphabet", () => {
+  it("sorts by module position, then module name, then title", () => {
+    const sorted = sortGradebookAssignments([
+      assignment({ id: "c", title: "Arrays", module: { position: 2, name: "Module 3" } }),
+      assignment({ id: "b", title: "Zebras", module: { position: 1, name: "Module 2" } }),
+      assignment({ id: "a", title: "Async", module: { position: 1, name: "Module 2" } }),
+    ]);
+
+    expect(sorted.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("puts the columns of the file in that same order", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        assignments: [
+          assignment({ id: "a2", title: "Recursion", module: { position: 1, name: "Module 2" } }),
+          assignment({ id: "a1", title: "Loops", module: { position: 0, name: "Module 1" } }),
+        ],
+        cells: [
+          { assignmentId: "a2", studentId: "s1", finalScore: 4 },
+          { assignmentId: "a1", studentId: "s1", finalScore: 9 },
+        ],
+      }),
+    );
+
+    const [header, , ada] = rows(csv);
+    expect(header.slice(4)).toEqual(["Loops", "Recursion"]);
+    // The scores have to travel with their columns, which is the failure a sort can hide: both
+    // orderings look plausible in isolation, and only the pairing is wrong.
+    expect(ada.slice(4)).toEqual(["9", "4"]);
+  });
+});
+
+describe("a gap is blank and never a zero", () => {
+  it("leaves a cell empty when the student never accepted the assignment", () => {
+    const csv = gradebookCsv(gradebook({ cells: [] }));
+    expect(rows(csv)[2].slice(4)).toEqual([""]);
+  });
+
+  it("leaves a cell empty when the submission exists but is not graded", () => {
+    const csv = gradebookCsv(
+      gradebook({ cells: [{ assignmentId: "a1", studentId: "s1", finalScore: null }] }),
+    );
+    expect(rows(csv)[2].slice(4)).toEqual([""]);
+  });
+
+  it("writes a score as a bare number a spreadsheet can sum", () => {
+    const csv = gradebookCsv(
+      gradebook({ cells: [{ assignmentId: "a1", studentId: "s1", finalScore: 8.5 }] }),
+    );
+    expect(rows(csv)[2].slice(4)).toEqual(["8.5"]);
+  });
+
+  it("writes a zero when the score really is zero", () => {
+    const csv = gradebookCsv(
+      gradebook({ cells: [{ assignmentId: "a1", studentId: "s1", finalScore: 0 }] }),
+    );
+    expect(rows(csv)[2].slice(4)).toEqual(["0"]);
+  });
+});
+
+describe("who is in the file", () => {
+  it("puts removed students below the active ones and says which is which", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        activeEnrollments: [{ student: student({ id: "s1", displayName: "Ada" }) }],
+        removedEnrollments: [{ student: student({ id: "s2", displayName: "Grace" }) }],
+        cells: [{ assignmentId: "a1", studentId: "s1", finalScore: 9 }],
+        removedCells: [{ assignmentId: "a1", studentId: "s2", finalScore: 6 }],
+      }),
+    );
+
+    const [, , ada, grace] = rows(csv);
+    expect(ada[0]).toBe("Ada");
+    expect(ada[3]).toBe("Active");
+    expect(grace[0]).toBe("Grace");
+    expect(grace[3]).toBe("Removed");
+    // A departed student's kept work is the point of removing rather than deleting, so it has to
+    // reach the file — marked, so it can be excluded from any figure.
+    expect(grace[4]).toBe("6");
+  });
+
+  it("marks a test student in the name, the way the grid marks it with a badge", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        activeEnrollments: [{ student: student({ displayName: "Test 1", testStudentNumber: 1 }) }],
+      }),
+    );
+
+    expect(rows(csv)[2][0]).toBe("Test 1 (test student)");
+  });
+
+  it("falls back through the name chain rather than leaving the column empty", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        activeEnrollments: [{ student: student({ displayName: null }) }],
+      }),
+    );
+
+    expect(rows(csv)[2][0]).toBe("ada");
+  });
+
+  it("carries email and GitHub username as their own columns", () => {
+    const csv = gradebookCsv(gradebook());
+    const [header, , ada] = rows(csv);
+
+    expect(header.slice(0, 4)).toEqual(["Student", "Email", "GitHub username", "Enrollment"]);
+    expect(ada.slice(1, 3)).toEqual(["ada@example.com", "ada"]);
+  });
+});
+
+describe("the point values row", () => {
+  it("sits under the header, labelled, with one value per assignment", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        assignments: [
+          assignment({ id: "a1", title: "Loops", pointValue: 10 }),
+          assignment({
+            id: "a2",
+            title: "Recursion",
+            pointValue: 20,
+            module: { position: 1, name: "Module 2" },
+          }),
+        ],
+      }),
+    );
+
+    // Raw scores are uninterpretable without it: 7 is a good result out of 8 and a poor one out
+    // of 20, and the grid never had to say which because every cell on screen reads `7/8`.
+    expect(rows(csv)[1]).toEqual(["Points possible", "", "", "", "10", "20"]);
+  });
+});
+
+describe("text a spreadsheet cannot misread", () => {
+  it("quotes a name containing a comma so the row does not shift a column", () => {
+    const csv = gradebookCsv(
+      gradebook({ activeEnrollments: [{ student: student({ displayName: "Lovelace, Ada" }) }] }),
+    );
+
+    expect(csv).toContain('"Lovelace, Ada"');
+    // Split naively, the row would have one field too many and every score would be one column
+    // to the right of the assignment it belongs to.
+    expect(csv.split("\r\n")[2].split('"')[2]).toBe(",ada@example.com,ada,Active,9");
+  });
+
+  it("doubles a quote inside a field", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        activeEnrollments: [{ student: student({ displayName: 'Ada "The Countess"' }) }],
+      }),
+    );
+
+    expect(csv).toContain('"Ada ""The Countess"""');
+  });
+
+  it("keeps a newline inside a field from becoming a new record", () => {
+    const csv = gradebookCsv(
+      gradebook({ activeEnrollments: [{ student: student({ displayName: "Ada\nLovelace" }) }] }),
+    );
+
+    expect(csv).toContain('"Ada\nLovelace"');
+    // Three records: header, point values, and one student — not four.
+    expect(csv.trimEnd().split("\r\n")).toHaveLength(3);
+  });
+
+  it("refuses to let a display name run as a formula", () => {
+    const csv = gradebookCsv(
+      gradebook({
+        activeEnrollments: [{ student: student({ displayName: '=HYPERLINK("http://evil","x")' }) }],
+      }),
+    );
+
+    // Quoting alone would not do it — both Excel and Google Sheets parse the formula out of a
+    // quoted field, and this file is opened on the machine holding the rest of the roster.
+    expect(csv).toContain("'=HYPERLINK");
+  });
+
+  it.each(["+1", "-1", "@sum", "=1"])("neutralizes a leading %s", (name) => {
+    const csv = gradebookCsv(
+      gradebook({ activeEnrollments: [{ student: student({ displayName: name }) }] }),
+    );
+
+    expect(rows(csv)[2][0].startsWith("'")).toBe(true);
+  });
+
+  it("leaves an ordinary name alone", () => {
+    const csv = gradebookCsv(gradebook());
+    expect(rows(csv)[2][0]).toBe("Ada Lovelace");
+  });
+});
+
+describe("nothing to export", () => {
+  it.each([
+    ["no assignments", gradebook({ assignments: [] })],
+    ["no students", gradebook({ activeEnrollments: [], cells: [] })],
+  ])("reports %s as empty", (_case, data) => {
+    expect(gradebookIsEmpty(data)).toBe(true);
+  });
+
+  it("counts a cohort of only removed students as something to export", () => {
+    // Their kept record is exactly what somebody downloading an archived cohort wants.
+    expect(
+      gradebookIsEmpty(
+        gradebook({
+          activeEnrollments: [],
+          cells: [],
+          removedEnrollments: [{ student: student({ id: "s2" }) }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("reports a populated gradebook as not empty", () => {
+    expect(gradebookIsEmpty(gradebook())).toBe(false);
+  });
+});
+
+describe("the filename", () => {
+  const DATE = new Date(2026, 7, 11);
+
+  it("names the cohort and the day", () => {
+    expect(gradebookCsvFilename({ cohortTerm: "Fall 2026", groupLabel: null, date: DATE })).toBe(
+      "gradebook-fall-2026-2026-08-11.csv",
+    );
+  });
+
+  it("names the group when the screen was filtered", () => {
+    expect(
+      gradebookCsvFilename({ cohortTerm: "Fall 2026", groupLabel: "Section A", date: DATE }),
+    ).toBe("gradebook-fall-2026-section-a-2026-08-11.csv");
+  });
+
+  it("leaves no doubled hyphen when a term slugifies to nothing", () => {
+    expect(gradebookCsvFilename({ cohortTerm: "!!!", groupLabel: null, date: DATE })).toBe(
+      "gradebook-2026-08-11.csv",
+    );
+  });
+
+  it("pads a single-digit month and day", () => {
+    expect(
+      gradebookCsvFilename({
+        cohortTerm: "Spring 2027",
+        groupLabel: null,
+        date: new Date(2027, 0, 5),
+      }),
+    ).toBe("gradebook-spring-2027-2027-01-05.csv");
+  });
+});
