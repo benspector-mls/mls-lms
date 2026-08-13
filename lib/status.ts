@@ -396,6 +396,53 @@ export function completionMeta(
 }
 
 /**
+ * Whether the student has done their part: something has been handed in and nobody is waiting
+ * on them.
+ *
+ * The complement of the three states where the next move is the student's — no submission row
+ * at all, `NOT_STARTED`, and `ACCEPTED` — rather than a list of the six that count, so a status
+ * added later is treated as handed in until somebody says otherwise. That is the safe direction
+ * for the one screen that asks: a deadline list that wrongly omits an assignment is a missed
+ * deadline, and one that wrongly keeps an assignment is a row a student can see is wrong.
+ *
+ * Note what this deliberately does not distinguish. `GRADED` counts, including work that came
+ * back below the threshold. Resubmitting is a second attempt at work already handed in, not an
+ * outstanding deadline, and putting returned work back on a due-date list would tell a student
+ * they had missed something they in fact did.
+ */
+export function handedIn(status: SubmissionStatus | null | undefined): boolean {
+  return status != null && status !== "NOT_STARTED" && status !== "ACCEPTED";
+}
+
+/**
+ * Whether there is a report the student has not said they read.
+ *
+ * **`feedbackReviewedAt` is compared against `gradedAt`, never merely checked for null**, and
+ * that comparison is the whole reason this is a function rather than a field test at each call
+ * site. A submission can be graded more than once: a student reads their first report, revises,
+ * asks for another review, and is graded again. Their `feedbackReviewedAt` is already set at
+ * that point, so a null check would call the second report read before it had been written, and
+ * the one screen that exists to say "there is something new to read" would never mention it.
+ *
+ * Only `GRADED`. The queue-shaped statuses have no released report to read, and work sitting
+ * with an instructor is not unread feedback — it is not feedback yet.
+ */
+export function feedbackIsUnread(submission: {
+  status: SubmissionStatus;
+  gradedAt: Date | null;
+  feedbackReviewedAt: Date | null;
+}): boolean {
+  if (submission.status !== "GRADED") return false;
+  if (submission.feedbackReviewedAt == null) return true;
+
+  // A grade with no timestamp is older than anything a student could have pressed, so a
+  // recorded read stands. Treating it as unread would leave a row nothing could ever clear.
+  if (submission.gradedAt == null) return false;
+
+  return submission.feedbackReviewedAt < submission.gradedAt;
+}
+
+/**
  * What a student may do about work that is handed in by link or by file, and what to call it.
  *
  * Only these three kinds. A `REPO` assignment's submission signal is the pull request and the
@@ -551,6 +598,36 @@ export function formatDateTime(d: Date | null | undefined): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/**
+ * A deadline, named by its day. "Thursday, Oct 9 at 11:59 PM".
+ *
+ * Longer than `formatDateTime` on purpose, and used only where a due date is the whole point of
+ * the row. A student planning an evening thinks in weekdays — "it's due Thursday" — and works
+ * out which date that is afterwards, so the weekday leads and the date confirms it. On a list
+ * where the date is one column among several, `formatDate` is still the right one; this would be
+ * a sentence where a date was wanted.
+ *
+ * No year. Every deadline a student is shown is within the term they are reading it in, and a
+ * year on each one is four characters of noise in every case.
+ */
+export function formatDueDate(d: Date | null | undefined): string {
+  if (!d) return "—";
+
+  const day = d.toLocaleDateString("en-US", {
+    timeZone: SCHOOL_TIME_ZONE,
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    timeZone: SCHOOL_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  return `${day} at ${time}`;
 }
 
 /**

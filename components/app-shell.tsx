@@ -11,6 +11,7 @@ import {
   ClipboardList,
   GraduationCap,
   Layers,
+  LayoutDashboard,
   Library,
   ListChecks,
   LogOut,
@@ -203,6 +204,13 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
   // `/instructor` itself, which shows nothing and redirects into a cohort's triage.
   if (segments[0] === "instructor") return [{ label: "Grading triage" }];
 
+  /*
+    A student's screens that are not one course. One step and no parent: the dashboard spans every
+    course rather than sitting under one, and a trail claiming otherwise would be describing a
+    hierarchy this side of the application does not have.
+  */
+  if (segments[0] === "dashboard") return [{ label: "Dashboard" }];
+
   if (segments[0] === "courses" && segments[1]) {
     return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }];
   }
@@ -347,6 +355,7 @@ function MainNav({
   if (role === "student") {
     return (
       <>
+        <StudentWork pathname={pathname} />
         <StudentCourses courses={courses} pathname={pathname} />
         <AdminGroup isAdmin={isAdmin} pathname={pathname} />
       </>
@@ -432,17 +441,46 @@ type StudentCourse = {
 };
 
 /**
+ * The screen that spans a student's courses, above the courses themselves.
+ *
+ * **A group of one, and separated from the list below deliberately.** Everything under "My
+ * courses" is one cohort; this is the view across all of them, and putting it among them would
+ * make it read as a course. It is where signing in lands and what the sidebar opens on, because
+ * "what is due" is the question a student arrives with and no single course can answer it.
+ *
+ * The Notes screen will be the second item here.
+ */
+function StudentWork({ pathname }: { pathname: string }) {
+  return (
+    <SidebarGroup>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname === "/dashboard"}
+            tooltip="Dashboard"
+            render={<Link href="/dashboard" />}
+          >
+            <LayoutDashboard />
+            <span>Dashboard</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarGroup>
+  );
+}
+
+/**
  * A student's courses, each one a link.
  *
- * The whole of their navigation, because a student's application *is* their courses — there is no
- * second thing for them to be doing. It replaced a single "My courses" item under a heading
- * reading "Student", which spent a row telling a reader who they were and then made reaching a
- * course two clicks: one to a list, one to the course.
+ * Most of their navigation, and every course they are in rather than a link to a list of them. It
+ * replaced a single "My courses" item under a heading reading "Student", which spent a row telling
+ * a reader who they were and then made reaching a course two clicks: one to a list, one to the
+ * course.
  *
  * `/courses` is not offered as an item of its own. It is still a real screen — the breadcrumb
- * links to it, and it is where `/` lands — but with every course named here it would be a row
- * pointing at a list of the rows above it. The exception is a student with no enrollment yet,
- * where it is the only thing there is to offer and the screen explains what to do.
+ * links to it — but with every course named here it would be a row pointing at a list of the rows
+ * above it. The exception is a student with no enrollment yet, where it is the only thing there is
+ * to offer and the screen explains what to do.
  *
  * **Archived and left-behind cohorts stay, labelled**, exactly as the course list shows them. A
  * cohort somebody has finished or been removed from is still theirs to read — that is what

@@ -26,6 +26,7 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
   - [Deleting a cohort](#deleting-a-cohort)
   - [One student, or one assignment: the same screen from two sides](#one-student-or-one-assignment-the-same-screen-from-two-sides)
   - [A removed student's work](#a-removed-students-work)
+  - [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
   - [Migrations are authored with `migrate diff`, never `migrate dev`](#migrations-are-authored-with-migrate-diff-never-migrate-dev)
 - [GitHub integration](#github-integration)
 - [Test execution](#test-execution)
@@ -48,13 +49,20 @@ Work still ahead is in [ROADMAP.md](ROADMAP.md).
 - [Review, approval, and delivery](#review-approval-and-delivery)
   - [Handing in a file](#handing-in-a-file)
   - [Grading by hand](#grading-by-hand)
+  - [Correcting a submission before anybody has read it](#correcting-a-submission-before-anybody-has-read-it)
+  - [What a submitted link goes to](#what-a-submitted-link-goes-to)
   - [Resubmission](#resubmission)
   - [Generating every pending report at a sitting](#generating-every-pending-report-at-a-sitting)
   - [Triage](#triage)
   - [Resources: what is in a module that is not work](#resources-what-is-in-a-module-that-is-not-work)
   - [Groups, and grading a portion of a cohort](#groups-and-grading-a-portion-of-a-cohort)
 - [Interface](#interface)
+  - [What is due, across every cohort](#what-is-due-across-every-cohort)
+  - [Where a course stands, in one line](#where-a-course-stands-in-one-line)
+  - [One assignment, in a panel](#one-assignment-in-a-panel)
+  - [Whether the feedback was read](#whether-the-feedback-was-read)
   - [A cohort's seven views are seven addresses](#a-cohorts-seven-views-are-seven-addresses)
+  - [Your own account, and the name a roster shows](#your-own-account-and-the-name-a-roster-shows)
   - [Copying an assignment into another cohort](#copying-an-assignment-into-another-cohort)
 - [What is verified, and how](#what-is-verified-and-how)
 - [Deploying](#deploying)
@@ -160,30 +168,31 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 Everything below it is a script, because everything below it needs something real: the development database, a repository, a sandbox, or a model call. They are re-runnable and are the fastest way to find out whether a change broke a *flow*. Two things about writing one: `tsx` compiles to CommonJS, which rejects top-level `await`, so the body goes in a `main()` or a `.then()`; and anything importing a module marked `server-only` needs `--conditions=react-server` in its npm script. Nine of them drive the real procedures against the development database inside a transaction that is rolled back. `scripts/verify/harness.ts` holds the `check`, `refusal`, and transaction helpers they share; `scripts/verify/BASELINE.md` records what each one reported before the [review pass](#one-way-to-ask-each-question), which is what a run is compared against — a script that quietly stops checking something exits zero too.
 
-| Script                        | What it does                                                                                                                      |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `npm test`                    | Every unit test. `npm test -- tests/lib/grade` runs one directory; `-t "a pattern"` runs one case                                 |
-| `npm run typecheck`           | `tsc --noEmit`, which is the whole of it — `next build` typechecks too, and does far more                                         |
-| `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers |
-| `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction |
-| `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                              |
-| `npm run verify:groups`       | Student groups, and that filtering to one narrows all four screens to the same set of students                                    |
-| `npm run verify:resources`    | Readings, notes, and videos — including every URL shape the video embed refuses                                                   |
-| `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                       |
-| `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                      |
-| `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                          |
-| `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                      |
-| `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points          |
-| `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                      |
-| `npm run verify:resubmission` | The resubmission and re-approval loop end to end; `--post` also posts a real comment                                              |
+| Script                        | What it does                                                                                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm test`                    | Every unit test. `npm test -- tests/lib/grade` runs one directory; `-t "a pattern"` runs one case                                                                                                |
+| `npm run typecheck`           | `tsc --noEmit`, which is the whole of it — `next build` typechecks too, and does far more                                                                                                        |
+| `npm run verify:approve`      | The approval guards, the delivery outcomes, the triage buckets, and a hand-graded assignment end to end, all through tRPC callers                                                                |
+| `npm run verify:authoring`    | The rules that decide what a valid assignment is, then the authoring procedures through tRPC callers in a rolled-back transaction                                                                |
+| `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                                                                                             |
+| `npm run verify:groups`       | Student groups, and that filtering to one narrows all four screens to the same set of students                                                                                                   |
+| `npm run verify:resources`    | Readings, notes, and videos — including every URL shape the video embed refuses                                                                                                                  |
+| `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                                                                                      |
+| `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                                                                                     |
+| `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                                                                                         |
+| `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                                                                                     |
+| `npm run verify:app`          | The GitHub App this environment is configured with: key, permissions, events, installation, and where its webhook points                                                                         |
+| `npm run verify:e2b`          | Creates one real sandbox and checks the properties only a real sandbox shows                                                                                                                     |
+| `npm run verify:resubmission` | The resubmission and re-approval loop end to end; `--post` also posts a real comment                                                                                                             |
 | `npm run verify:test-student` | Test students: who may make one, the switch in both directions, and the counts. `--live` also creates and deletes a real account; `--live --github` also generates and deletes a real repository |
-| `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                        |
-| `npm run grade`               | Generates one real report from the terminal                                                                                       |
-| `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                |
-| `npm run approve`             | Approves a draft from the terminal                                                                                                |
-| `npm run accept`              | Runs the accept flow from the terminal                                                                                            |
-| `npm run setup:storage`       | Creates the private uploads bucket, or brings its size limit and type allow-list back into step with the code                     |
-| `npm run db:diff`             | Generates a migration — see [Data model](#data-model), and never `migrate dev`                                                    |
+| `npm run verify:dashboard`    | A student's dashboard and progress bar against live rows, and that neither reaches another student's work                                                                                        |
+| `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                                                                                       |
+| `npm run grade`               | Generates one real report from the terminal                                                                                                                                                      |
+| `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                                                                               |
+| `npm run approve`             | Approves a draft from the terminal                                                                                                                                                               |
+| `npm run accept`              | Runs the accept flow from the terminal                                                                                                                                                           |
+| `npm run setup:storage`       | Creates the private uploads bucket, or brings its size limit and type allow-list back into step with the code                                                                                    |
+| `npm run db:diff`             | Generates a migration — see [Data model](#data-model), and never `migrate dev`                                                                                                                   |
 
 `scripts/list-installations.ts` is the odd one out: not an npm script, and run with `tsx` when a new organization's installation id is needed.
 
@@ -1049,27 +1058,92 @@ Two things this is deliberately not yet, both on the roadmap: an assignment give
 
 `app/(shell)/` holds the signed-in application; `app/auth/` holds the Supabase auth screens.
 
-| Route                                                       | Screen                                                                 |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Route                                                       | Screen                                                                  |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `/profile`                                                  | Your own account: the name everybody sees, and what is stored about you |
-| `/courses`                                                  | A student's courses                                                    |
-| `/courses/[courseId]`                                       | Assignments, status, and feedback for one course                       |
-| `/instructor`                                               | Nothing: picks the most recent cohort the caller teaches and redirects |
-| `/instructor/courses/[courseId]`                            | Nothing: redirects to that cohort's settings                           |
-| `/instructor/courses/[courseId]/triage`                     | What is waiting on the instructor in this cohort                       |
-| `/instructor/courses/[courseId]/assignments`                | Every assignment in the cohort, and where new ones are made            |
-| `/instructor/courses/[courseId]/resources`                  | Readings, notes, and videos, by module. Nothing here is graded         |
-| `/instructor/courses/[courseId]/gradebook`                  | Assignments × roster, each cell carrying its triage bucket             |
-| `/instructor/courses/[courseId]/roster`                     | Who is in the cohort, the join link, and the cohort's groups           |
-| `/instructor/courses/[courseId]/modules`                    | The order the cohort is taught in                                      |
-| `/instructor/courses/[courseId]/settings`                   | The cohort itself: short name, instructors, archiving                  |
-| `/instructor/courses/[courseId]/assignments/[assignmentId]` | The grading queue and the review surface, `?submission=` to open one   |
-| `/instructor/courses/[courseId]/students/[studentId]`       | One student's whole record in this cohort — the queue's other axis     |
-| `/instructor/assignments/[assignmentId]`                    | The queue's old address: looks up the course and redirects             |
-| `/admin`                                                    | Staff: who may teach, and who may decide that. Admins only             |
-| `/join/[token]`                                             | Where a cohort's student join link lands                               |
-| `/invite/[token]`                                           | Where an instructor invitation lands                                   |
-| `/co-teach/[token]`                                         | Where a cohort's co-teaching link lands                                |
+| `/dashboard`                                                | A student's work across every cohort. Where signing in lands            |
+| `/courses`                                                  | A student's courses                                                     |
+| `/courses/[courseId]`                                       | Assignments and progress for one course, `?assignment=` to open one     |
+| `/instructor`                                               | Nothing: picks the most recent cohort the caller teaches and redirects  |
+| `/instructor/courses/[courseId]`                            | Nothing: redirects to that cohort's settings                            |
+| `/instructor/courses/[courseId]/triage`                     | What is waiting on the instructor in this cohort                        |
+| `/instructor/courses/[courseId]/assignments`                | Every assignment in the cohort, and where new ones are made             |
+| `/instructor/courses/[courseId]/resources`                  | Readings, notes, and videos, by module. Nothing here is graded          |
+| `/instructor/courses/[courseId]/gradebook`                  | Assignments × roster, each cell carrying its triage bucket              |
+| `/instructor/courses/[courseId]/roster`                     | Who is in the cohort, the join link, and the cohort's groups            |
+| `/instructor/courses/[courseId]/modules`                    | The order the cohort is taught in                                       |
+| `/instructor/courses/[courseId]/settings`                   | The cohort itself: short name, instructors, archiving                   |
+| `/instructor/courses/[courseId]/assignments/[assignmentId]` | The grading queue and the review surface, `?submission=` to open one    |
+| `/instructor/courses/[courseId]/students/[studentId]`       | One student's whole record in this cohort — the queue's other axis      |
+| `/instructor/assignments/[assignmentId]`                    | The queue's old address: looks up the course and redirects              |
+| `/admin`                                                    | Staff: who may teach, and who may decide that. Admins only              |
+| `/join/[token]`                                             | Where a cohort's student join link lands                                |
+| `/invite/[token]`                                           | Where an instructor invitation lands                                    |
+| `/co-teach/[token]`                                         | Where a cohort's co-teaching link lands                                 |
+
+### What is due, across every cohort
+
+`/dashboard` is where signing in lands and the only read in this application with no course in its input. That is deliberate and it is the whole point of the screen: **"what is due" is a question that spans cohorts**, and a course page can only answer it one cohort at a time. Compare grading triage, which refuses to work across courses for the opposite reason — an instructor's "what do I do next" depends on which cohort they are teaching this hour, where a student's does not.
+
+Four sections, every one of them derived from real submission state:
+
+- **Overdue**, above everything else. A missed deadline is the most useful thing on the screen and burying it under a week of upcoming work is how it stays missed.
+- **Coming up**, soonest first, with the date and how far off it is. "Thursday, Oct 9 at 11:59 PM" is what goes in a calendar and "in 2 days" is what says whether to worry; neither alone does both jobs.
+- **Feedback to read** — graded work carrying a report the student has not marked read, newest first and capped at ten. A cap rather than a scroll, because a list of thirty says the opposite of "there is something new here".
+- **Started, not handed in**, quieter than the rest. Work a student has taken up is work they already know about.
+
+**Nothing is dismissible, and that is the design rather than a missing feature.** Handing the work in is the only thing that clears a deadline and marking the report read is the only thing that clears a report. A dismiss button would let this screen say a student was finished when they were not, which is the one mistake it must never make.
+
+Two rules about what does *not* appear. **Graded work is never a deadline**, including work that came back below the threshold: resubmitting is a second attempt at work already handed in, and listing it as overdue would tell a student they had missed a deadline they in fact met. And **"started" means `ACCEPTED` and nothing else** — the broader reading, every published assignment not yet accepted, is most of a nine-month course, and a student in week two would find forty rows of work they had not begun.
+
+`assignments.listMine` is the one read behind it, and its `select` is deliberately much narrower than `listForCourse`'s: no `feedbackMarkdown` and no grading drafts. The dashboard draws a score and a link, and shipping every cohort's full feedback text to render a list of links would make this the most expensive page in the application. It is also scoped more tightly than a course page — active enrollments in cohorts that are still running — because a removed student keeps *reading* the feedback they were given, but a deadline list for a cohort they are no longer in would be telling them to hand in work that would be refused.
+
+`/dashboard` forwards anybody who is not a student to `/instructor`. That is routing rather than authorization: `listMine` would answer an instructor honestly, with the handful of cohorts they happen to be enrolled in as a student, which is not what they came for. It is also why all three sign-in paths name one destination — two of them run in the browser before any profile has been read, so there is no role there to branch on.
+
+### Where a course stands, in one line
+
+The student's course page opens with a segmented bar over every assignment they can see, and the number beside it — "7 of 9 complete" — is the same function as the bar's green segment rather than a second reading of what complete means. That pairing's only real failure is telling a student two different things on one screen, so `completeCount` and `progressSegments` both live in `lib/student/progress.ts` and neither the header nor the bar computes anything itself.
+
+**The bar is decoration and the text under it is the content.** The bar is `aria-hidden`, the count and the legend are real text, and nothing is said in colour alone — which is what makes it readable on a phone, where there is no hover, and to a screen reader, where there is no bar. Tooltips are a convenience for a mouse and carry nothing the legend does not.
+
+Eight submission statuses become five segments, and the collapsing is the whole of the decision:
+
+| Segment                | Colour        | From                                                                           |
+| ---------------------- | ------------- | ------------------------------------------------------------------------------ |
+| Not accepted           | outlined grey | no submission row, or `NOT_STARTED`                                            |
+| Accepted, in progress  | filled grey   | `ACCEPTED`                                                                     |
+| Submitted for feedback | amber         | the five queue-shaped statuses, and a resubmission of work below the threshold |
+| Graded, incomplete     | red           | `GRADED` below the threshold                                                   |
+| Graded, complete       | emerald       | `isComplete`                                                                   |
+
+Both the tooltip and the legend lowercase the label, so the wording lives in `SEGMENTS` in one place and is read down the list in one voice.
+
+The colours are the tone system's rather than a palette of the bar's own, because the bar sits directly above the status badges it summarises and a green segment over a blue "Graded" pill would be two answers to one question. Green means the completion threshold was met and nothing else, which is the rule `lib/status.ts` carries a test of its own for.
+
+Two of those rows are worth reading twice. The five queue statuses are one segment for the same reason `STUDENT_STATUS_META` gives them one label: `DRAFT_READY`, `NEEDS_MANUAL_REVIEW`, and `GRADING_FAILED` describe this application's problems rather than the student's work, and a student shown a red segment for a pipeline error reasonably concludes they broke something.
+
+And **`isComplete` is read before the status, which is what stops a completion being taken away.** Meeting the threshold is durable — the gradebook records it, and asking for another look does not withdraw it. Reading the status first meant a student who passed an assignment and then resubmitted to improve on it moved out of the green segment and their count went *down* by one: the bar punishing them for the behaviour it should encourage. It also disagreed with the score column beside it, which has always read `isComplete` whatever the status says. Every unit case passed while that was wrong, because none of them had thought to combine `RESUBMITTED` with `isComplete: true`; `verify:dashboard` found it against a real database that had four of them.
+
+### One assignment, in a panel
+
+`/courses/[courseId]?assignment=<id>` opens a panel over the course list. **A panel rather than a row that expands, and rather than a page of its own.** The list stays visible behind it, which is what a student wants working down a module — and it has an address, which a collapsed row does not. That address is what the dashboard links to.
+
+**It costs no query.** Everything in it comes from the assignment row the course page already fetched: `listForCourse` returns the approved grading drafts, and their sections arrive already collapsed to the instructor's edits by `effectiveSection` on the server. A procedure of its own would have been a second implementation of a question already answered, and the model's unedited output would have had to travel to a student's browser to make it work.
+
+Two tabs, because they answer questions asked at different times.
+
+- **Submissions** — the instructions, how to hand in, what was handed in, and the form that changes it. `handInMode` still decides which of the four sentences that form is.
+- **Feedback** — every round, oldest first, with the read marker above them. Offered only when there is something on it; a lone tab is a label pretending to be a control, and an empty Feedback tab reads as a page that failed to load. The tab carries a count when there is more than one round, since a resubmission is graded afresh rather than as an edit and "Feedback 2" says there is more than one report to read.
+
+Which tab opens is deliberately *not* in the address, unlike which assignment is. A link to an assignment is a link to the work; a link to a tab of it is a claim about what the reader should look at first, and the answer to that changes with the row rather than with the link. Feedback opens when there is feedback, for a dashboard link and a row press alike.
+
+**Every row now opens**, which the collapsing version could not manage: a row with nothing behind it yet had nothing to expand into, so an unaccepted assignment was a plain undecorated line whose only control was Accept — and its instructions could not be read before deciding. The Accept button stays on the row as well as in the panel, because it is the common first action and worth one press rather than two; it stops the click from reaching the row so pressing it does not also open a panel over the work it has just created. A module holding the assignment the address names is forced open, so following a link from the dashboard lands somewhere the student can see rather than over a collapsed section.
+
+### Whether the feedback was read
+
+`submissions.feedbackReviewedAt` records a student saying they have read the report, and **it is compared against `gradedAt` rather than merely checked for null.** That comparison is what makes one column enough for work that is graded more than once: a student reads their first report, revises, asks for another look, and is graded again — their `feedbackReviewedAt` is already set at that point, so a null check would call the second report read before it had been written, and the one screen that exists to say "there is something new" would never mention it. `feedbackIsUnread` is that comparison and the only thing that should ask the question.
+
+**It gates nothing.** Resubmitting never waits on it and `assertCanHandIn` has never heard of it. It also does not touch `lastActivityAt`, which drives the instructor's queue ordering — reading feedback is not activity on the work, and moving that column would push a submission up a pile nobody needed to look at again.
 
 ### A cohort's seven views are seven addresses
 
@@ -1209,6 +1283,10 @@ Calibration also found two errors in the reference reports rather than in the pi
 The list now carries each module's assignments, so three more things are checked about them: they come back in **due-date order with the undated one last**, against a module whose rows were created out of order and whose undated assignment sorts first alphabetically, so neither insertion order nor the title could produce the expected answer; an unpublished assignment is returned to an instructor and **not to a student**, which is the reason that procedure reads the membership rather than discarding it; and `_count` deliberately disagrees with the length of that list, because removal is refused on drafts too and a count of only what the caller can see would offer a Remove button the procedure then refuses.
 
 One thing that verification taught rather than confirmed: **provoking a database constraint aborts the whole Postgres transaction**, so every check that trips a unique index or a foreign key needs a transaction of its own. Discovered by having the first duplicate-name check take eleven unrelated checks down with it.
+
+**The student's dashboard.** `verify:dashboard` is 27 checks, and what it exists for is the three that cannot be asked of a fixture: that one student's submissions do not reach another's dashboard, that no other student's submission is attached to the caller's rows, and that one student cannot mark another's feedback read. Prisma is not restricted by row level security, so each of those is a `where` clause and nothing else, and a missing one is invisible in the interface — every screen still looks right to the person who wrote it. The partitioning and the bar are pure functions checked under `npm test`; this script is about whether the procedures feeding them return the right rows for the right person.
+
+**It earned its place on the first run.** Its check that the bar's green segment and the count above it are the same number caught `progressStateOf` reading a submission's status before `isComplete`, which meant **a student who passed an assignment and then asked for another look lost the completion** — the segment moved to amber and "5 of 9 complete" became 4 of 9. Every unit case passed while that was wrong, because none of them had thought to combine `RESUBMITTED` with `isComplete: true`; the development database had four of them. That is the argument for these scripts in one sentence: a fixture contains what its author imagined, and a cohort contains what happened.
 
 **Resources.** `verify:resources` is 64 checks, and the half that matters most is a pure function — checked under `npm test`, since it needs nothing. **A video URL this application does not recognise must be refused rather than framed**, so `parseVideoUrl` is checked against every shape the two providers actually use — watch links, share links, shorts, the mobile host, Vimeo's channel and unlisted forms — and against twelve that must come back null: a host merely *containing* `youtube.com`, a subdomain trick, a lookalike host, a `javascript:` URL, a `data:` URL, another video service, a channel rather than a video, an id of the wrong length, and a traversal in place of one. Every one of those is a string a substring match would accept. The embed and watch addresses are checked to be rebuilt from the stored id rather than echoed from the paste, which is what collapses the twenty ways of writing one YouTube link into one and stops this application printing a link to something its own embed refused.
 

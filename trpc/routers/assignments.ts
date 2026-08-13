@@ -129,6 +129,80 @@ export const assignmentsRouter = createTRPCRouter({
     }),
 
   /**
+   * Every assignment the caller can see, across every course they are in. The dashboard's
+   * only read.
+   *
+   * **The one read in this application with no course in its input**, which is the whole point:
+   * "what is due" is a question that spans cohorts, and answering it a course at a time is what
+   * the course pages already do. Compare `submissions.triage`, which refuses to work across
+   * courses for the opposite reason — an instructor's "what do I do next" depends on which cohort
+   * they are teaching this hour, where a student's does not.
+   *
+   * **The select is deliberately much narrower than `listForCourse`'s.** No `feedbackMarkdown` and
+   * no grading drafts: the dashboard draws a score and a link, and shipping every course's full
+   * feedback text to render a list of links would make this the most expensive page in the
+   * application. Following the link is what loads the report.
+   *
+   * Active enrollments in cohorts that are still running, which is narrower than the course page
+   * on purpose. A removed student keeps reading the feedback they were given and an archived
+   * cohort stays readable — both are settled — but a deadline list for a cohort somebody has
+   * finished or been removed from would be telling them to hand in work that would be refused.
+   */
+  listMine: profileProcedure.query(async ({ ctx }) => {
+    const assignments = await ctx.db.assignment.findMany({
+      where: {
+        // Unpublished work is invisible here for the same reason it is on a course page, and
+        // unconditionally: this procedure has no instructor mode to fall into.
+        distributedAt: { not: null },
+        course: {
+          archivedAt: null,
+          enrollments: { some: { studentId: ctx.profile.id, status: "ACTIVE" } },
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        kind: true,
+        dueAt: true,
+        pointValue: true,
+        module: { select: moduleSummarySelect },
+        course: { select: { id: true, name: true } },
+        submissions: {
+          // Scoped to the caller, which is the only thing preventing one student from reading
+          // another's work — Prisma bypasses row level security.
+          where: { studentId: ctx.profile.id },
+          select: {
+            id: true,
+            status: true,
+            finalScore: true,
+            finalScorePossible: true,
+            isComplete: true,
+            gradedAt: true,
+            feedbackReviewedAt: true,
+          },
+        },
+      },
+      // The soonest deadline first, and work with no deadline at the foot rather than at the
+      // head. `dashboardSections` sorts each of its lists anyway; this makes the payload itself
+      // readable and keeps the two orderings from disagreeing about where a null belongs.
+      orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { title: "asc" }],
+    });
+
+    /*
+      Flattened from a list of at most one to one row or null.
+
+      The relation is scoped to the caller, so `submissions` can only ever hold their own
+      submission or nothing, and every call site would otherwise unwrap a single-element array
+      for no reason. `listForCourse` leaves it as an array because its consumers were written
+      against that shape; a new read has no such history to keep.
+    */
+    return assignments.map(({ submissions, ...assignment }) => ({
+      ...assignment,
+      submission: submissions[0] ?? null,
+    }));
+  }),
+
+  /**
    * Assignments for one course, with the caller's own submission attached.
    *
    * Access is restricted to people connected to the course: an enrolled student
@@ -189,6 +263,10 @@ export const assignmentsRouter = createTRPCRouter({
               isComplete: true,
               feedbackMarkdown: true,
               gradedAt: true,
+              // Read against `gradedAt` rather than for null — see `feedbackIsUnread`. Both
+              // columns travel because the panel decides whether to offer the button, and the
+              // question needs the pair.
+              feedbackReviewedAt: true,
               headSha: true,
               gradedHeadSha: true,
               // Earlier rounds of feedback, oldest first. A student who resubmits gets

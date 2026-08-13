@@ -22,7 +22,11 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
   /**
    * Where to land after signing in. `next` is set when something sent the viewer here
    * mid-visit — an expired session, usually — so they resume where they were rather
-   * than at their course list.
+   * than at their dashboard.
+   *
+   * The fallback is one address for both roles because this runs in the browser before
+   * any profile has been read, so there is no role here to branch on. `/dashboard`
+   * forwards an instructor to their grading queue.
    *
    * Only relative paths are honoured. An absolute URL in a query parameter is how an
    * open redirect works: a link to our own login page that bounces the viewer to
@@ -30,7 +34,9 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
    */
   const requested = searchParams.get("next");
   const next =
-    requested && requested.startsWith("/") && !requested.startsWith("//") ? requested : "/courses";
+    requested && requested.startsWith("/") && !requested.startsWith("//")
+      ? requested
+      : "/dashboard";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

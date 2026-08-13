@@ -1,62 +1,35 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
-import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import * as React from "react";
 import {
   ArrowLeft,
   CheckCircle2,
   ChevronRight,
   CircleSlash,
-  Clock,
-  ExternalLink,
-  GitBranch,
-  GitPullRequest,
   ListChecks,
-  Lock,
-  RotateCcw,
   Wrench,
 } from "lucide-react";
 
 import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
 import { EmptyState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
-import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/page-header";
 import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
-import { SubmittedLinkRow } from "@/components/submitted-link";
-import { UploadedFileRow } from "@/components/uploaded-file";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
-import { hasAcceptStep, isLinkSubmitted } from "@/lib/assignments/spec";
-import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { hasAcceptStep } from "@/lib/assignments/spec";
 import { gradingQueueHref } from "@/lib/links";
-import {
-  acceptAttributeFor,
-  checkUpload,
-  describeAcceptedTypes,
-  formatBytes,
-  MAX_UPLOAD_BYTES,
-} from "@/lib/uploads/file-types";
-import { useTRPC } from "@/trpc/client";
-import type { RouterOutputs } from "@/trpc/types";
-import {
-  completionMeta,
-  formatDate,
-  formatPercent,
-  handInMode,
-  scorePercent,
-  sectionLabel,
-  shortSha,
-  type HandInMode,
-} from "@/lib/status";
+import { completionMeta, formatDate, formatPercent, scorePercent } from "@/lib/status";
+import { completeCount } from "@/lib/student/progress";
 import { cn } from "@/lib/utils";
+
+import { AssignmentPanel } from "./assignment-panel";
+import { CourseProgressBar } from "./progress-bar";
+import type { Assignment, Course, Resource, Submission } from "./types";
 
 /**
  * A student's assignments for one course.
@@ -64,13 +37,19 @@ import { cn } from "@/lib/utils";
  * Grouped by module and collapsed down to one row each, because a nine-month program
  * runs to something like fifty assignments and a page of cards is unreadable at that
  * length. A row carries only what you scan for — where it stands, what it is worth, what
- * you got, when it is due — and opens for the feedback itself.
+ * you got, when it is due — and opens a panel for the work itself.
  */
 
-type Course = RouterOutputs["courses"]["get"];
-type Assignment = RouterOutputs["assignments"]["listForCourse"][number];
-type Submission = Assignment["submissions"][number];
-type Resource = RouterOutputs["resources"]["listForCourse"][number];
+/**
+ * The row's own address in the document, so arriving at `?assignment=…` can scroll to it.
+ *
+ * One function rather than the same template string in two places, because the two places are a
+ * `getElementById` and the `id` it has to match — a difference between them fails by finding
+ * nothing, which looks exactly like a row that is already in view.
+ */
+function assignmentRowId(assignmentId: string): string {
+  return `assignment-row-${assignmentId}`;
+}
 
 export function StudentCourseDetail({
   course,
@@ -91,7 +70,88 @@ export function StudentCourseDetail({
   githubLinked: boolean;
 }) {
   const modules = groupByModule(course, assignments, resources);
-  const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
+
+  /*
+    Which assignment is open is React state, and the address is kept in step with it.
+
+    **Not `router.replace`, which is what this was and is why the panel was slow to appear.** A
+    changed search parameter is a soft navigation in the App Router: it misses the router cache,
+    fetches a fresh payload for the route, and re-runs this page's server component — `me`,
+    `courses.get`, `assignments.listForCourse`, and `resources.listForCourse`, against the database,
+    every time a row was pressed. The panel could not begin animating until that round trip
+    committed, and closing paid the same cost again. Not one of those reads can return anything the
+    page does not already have, because the parameter is read here in the browser and the server
+    component never looks at it.
+
+    `history.replaceState` moves the address without navigating, so opening is a state change and
+    nothing else.
+
+    **The panel always mounts closed, and the parameter is adopted a frame later.** Arriving from a
+    link is then the same sequence as pressing a row — closed, then open — where reading the
+    parameter as the initial state made it the one case that mounted already open. That asymmetry is
+    what a link from the dashboard fell into: `Sheet` is a Base UI dialog whose entrance is a
+    `closed → open` transition with a `data-starting-style` frame, and it has no such frame to
+    render when the first render is already open. Costing one frame to have one path is worth it,
+    and the entrance animation is the same from both directions as a result.
+
+    The effect and `show` cannot fight, whether or not Next mirrors `replaceState` back into
+    `useSearchParams`. If it does, the effect re-sets the value `show` has already set, which is a
+    no-op. If it does not, the parameter never changes after mount and the effect never runs again.
+    Either way the state is what the panel reads and the address is what a reader copies.
+
+    `replaceState` rather than `pushState`, in both directions. The address stays shareable either
+    way, and this keeps the back button as the way out of the course page rather than a walk back
+    through every panel the student happened to open. Escape, the close button, and the backdrop are
+    the ways to close it, and `Sheet` handles all three.
+  */
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const paramId = searchParams.get("assignment");
+  const [openId, setOpenId] = React.useState<string | null>(null);
+
+  /*
+    Adopting the parameter opens the panel and brings the row it names into view behind it.
+
+    **The scroll happens before the state above has been rendered, and that ordering is the whole
+    trick.** `setOpenId` is batched and flushes after this effect returns, so the page is still
+    unlocked at the moment `scrollIntoView` runs — a modal dialog stops the page scrolling once it
+    is open, and the same two lines in the other order move nothing.
+
+    Instant rather than smooth, because a student arriving from a link has no position to preserve:
+    there is nothing on screen yet for a glide to give continuity with, and an animation that the
+    panel's scroll lock interrupts half way leaves the list somewhere arbitrary.
+
+    `center` rather than `start` so the sticky header cannot sit over the row. Only on arrival from
+    the address, never in `show` — a row a student has just pressed is already where they are
+    looking, and moving the page under them would be the panel stealing their place in the list.
+  */
+  React.useEffect(() => {
+    setOpenId(paramId);
+    if (!paramId) return;
+
+    document
+      .getElementById(assignmentRowId(paramId))
+      ?.scrollIntoView({ block: "center", behavior: "instant" });
+  }, [paramId]);
+
+  const show = React.useCallback(
+    (assignmentId: string | null) => {
+      setOpenId(assignmentId);
+      window.history.replaceState(
+        null,
+        "",
+        assignmentId ? `${pathname}?assignment=${assignmentId}` : pathname,
+      );
+    },
+    [pathname],
+  );
+
+  /*
+    A stale or invented id opens nothing rather than erroring. An address can outlive the
+    assignment it names — an instructor can unpublish one — and the course list behind it is a
+    perfectly good thing to be looking at instead.
+  */
+  const openAssignment = openId ? (assignments.find((a) => a.id === openId) ?? null) : null;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
@@ -106,14 +166,13 @@ export function StudentCourseDetail({
         All courses
       </Link>
 
-      <PageHeader
-        title={course.name}
-        description={
-          assignments.length === 0
-            ? course.cohortTerm
-            : `${course.cohortTerm} · ${complete} of ${assignments.length} complete`
-        }
-      />
+      <PageHeader title={course.name} description={course.cohortTerm} />
+
+      {/*
+        Where the course stands, in one line. Below the header because it is about the work
+        rather than about the cohort, and above the modules because it is the summary of them.
+      */}
+      {assignments.length > 0 && <CourseProgressBar assignments={assignments} />}
 
       {/*
         Accepting an assignment creates a repository named after the GitHub username, so
@@ -148,10 +207,24 @@ export function StudentCourseDetail({
               assignments={rows}
               resources={moduleResources}
               teaches={course.teaches}
+              openAssignmentId={openId}
+              onOpen={show}
             />
           ))}
         </div>
       )}
+
+      {/*
+        One panel for the page rather than one per row. Fifty rows would otherwise mount fifty
+        dialogs and their portals, and the panel is handed the assignment it is pointed at.
+      */}
+      <AssignmentPanel
+        assignment={openAssignment}
+        open={openAssignment != null}
+        onOpenChange={(next) => {
+          if (!next) show(null);
+        }}
+      />
     </div>
   );
 }
@@ -204,20 +277,33 @@ function ModuleSection({
   assignments,
   resources,
   teaches,
+  openAssignmentId,
+  onOpen,
 }: {
   name: string;
   assignments: Assignment[];
   resources: Resource[];
   teaches: boolean;
+  openAssignmentId: string | null;
+  onOpen: (assignmentId: string | null) => void;
 }) {
-  // Collapsed when there is nothing in it at all — resources count, so a module holding only
-  // readings opens rather than reading as empty. A module with nothing yet is worth seeing in
-  // the list and not worth taking up space open.
+  /*
+    Collapsed when there is nothing in it at all — resources count, so a module holding only
+    readings opens rather than reading as empty. A module with nothing yet is worth seeing in the
+    list and not worth taking up space open.
+
+    Forced open when it holds the assignment the address names, which is what makes a link from
+    the dashboard land somewhere a student can see. Without it, following one would open the panel
+    over a module still collapsed underneath, and closing the panel would leave them looking at a
+    course page that had apparently ignored the link.
+  */
+  const holdsOpenAssignment =
+    openAssignmentId != null && assignments.some((a) => a.id === openAssignmentId);
   const [open, setOpen] = React.useState(assignments.length > 0 || resources.length > 0);
-  const complete = assignments.filter((a) => a.submissions[0]?.isComplete).length;
+  const complete = completeCount(assignments);
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
       <section className="overflow-hidden rounded-lg border border-border">
         {/*
           The heading wraps the control rather than sitting inside it: a button may only
@@ -253,7 +339,12 @@ function ModuleSection({
                 <ul className="divide-y divide-border border-t border-border">
                   {assignments.map((assignment) => (
                     <li key={assignment.id}>
-                      <AssignmentRow assignment={assignment} teaches={teaches} />
+                      <AssignmentRow
+                        assignment={assignment}
+                        teaches={teaches}
+                        isOpen={assignment.id === openAssignmentId}
+                        onOpen={onOpen}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -288,76 +379,93 @@ function ModuleSection({
   );
 }
 
-function AssignmentRow({ assignment, teaches }: { assignment: Assignment; teaches: boolean }) {
-  const [open, setOpen] = React.useState(false);
-
+/**
+ * One assignment, as a row that opens the panel.
+ *
+ * **Every row opens, which the collapsing version could not manage.** A row with nothing behind
+ * it yet had nothing to expand into, so an unaccepted assignment was a plain undecorated line and
+ * the Accept button was the only control on it — which meant the instructions could not be read
+ * before deciding to accept. The panel always has something to show, so the distinction goes.
+ *
+ * The Accept button stays on the row as well as in the panel. It is the common first action and
+ * worth one press rather than two, and it stops the click from reaching the row so pressing it
+ * does not also open a panel over the work it just created.
+ */
+function AssignmentRow({
+  assignment,
+  teaches,
+  isOpen,
+  onOpen,
+}: {
+  assignment: Assignment;
+  teaches: boolean;
+  isOpen: boolean;
+  onOpen: (assignmentId: string | null) => void;
+}) {
   // listForCourse scopes the relation to the caller, so this is the student's own
   // submission or nothing at all.
   const submission = assignment.submissions[0] ?? null;
   const status = submission?.status ?? "NOT_STARTED";
-
-  const summary = (
-    <RowSummary
-      assignment={assignment}
-      submission={submission}
-      // Rendered inside the left half rather than appended to the row, so a row with a
-      // button has the same right-hand columns as one without.
-      action={
-        (!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind) ? (
-          <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
-        ) : null
-      }
-    />
-  );
-
-  /*
-    An assignment with nothing behind it yet has nothing to expand into, so the row is
-    not a control — the Accept button is, and it sits on the row where it can be pressed
-    without a detour.
-
-    That holds only for the kinds that have an Accept. A FILE_UPLOAD or EXTERNAL_URL
-    assignment hands out nothing, so the first thing that happens to it is the student
-    submitting — and the form for that is inside the row. Those rows therefore open from the
-    start, before there is any submission at all, because a row that neither opens nor carries
-    a button is a row a student cannot hand work in through.
-  */
-  if ((!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind)) {
-    return (
-      <div className="flex items-center gap-x-3 px-3 py-2.5">
-        <span aria-hidden="true" className="size-4 shrink-0" />
-        {summary}
-      </div>
-    );
-  }
+  const awaitingAccept =
+    (!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind);
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <div className="flex items-center">
       {/* Not wrapping: the two halves keep their columns in line, and a wrap would let the
           right-hand group drop under the title on one row and not the next. */}
-      <CollapsibleTrigger className="group flex w-full items-center gap-x-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/50">
-        <ChevronRight
-          aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
+      <button
+        id={assignmentRowId(assignment.id)}
+        type="button"
+        onClick={() => onOpen(assignment.id)}
+        aria-expanded={isOpen}
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-x-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/50",
+          // The open row stays marked while the panel is over it, so it is clear which of fifty
+          // rows the panel is describing once the reader looks back at the list.
+          isOpen && "bg-accent/60",
+        )}
+      >
+        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        <RowSummary
+          assignment={assignment}
+          submission={submission}
+          // Rendered inside the left half rather than appended to the row, so a row with a
+          // button has the same right-hand columns as one without.
+          action={
+            awaitingAccept ? (
+              /*
+                A span rather than the button itself carrying the handler: the Accept control is
+                inside the row's button, and a nested button is invalid markup that browsers
+                resolve by discarding one of them. This stops the press here instead.
+              */
+              <span
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                role="presentation"
+              >
+                <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
+              </span>
+            ) : null
+          }
         />
-        {summary}
-      </CollapsibleTrigger>
+      </button>
 
-      <CollapsibleContent>
-        <div className="border-t border-border bg-muted/20 px-3 py-4 sm:pl-10">
-          <AssignmentDetail assignment={assignment} submission={submission} />
-
-          {teaches && (
-            <Link
-              href={gradingQueueHref(assignment.courseId, assignment.id)}
-              className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Wrench className="size-3.5" />
-              Every submission for this assignment
-            </Link>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+      {/*
+        An instructor reading their own course as a student, which is what the test-student view
+        is for. Outside the row's button for the same reason the Accept control stops the event:
+        a link inside a button is markup neither element survives.
+      */}
+      {teaches && (
+        <Link
+          href={gradingQueueHref(assignment.courseId, assignment.id)}
+          title="Every submission for this assignment"
+          className="mr-3 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Wrench className="size-3.5" />
+          <span className="sr-only">Every submission for this assignment</span>
+        </Link>
+      )}
+    </div>
   );
 }
 
@@ -451,735 +559,6 @@ function RowSummary({
     </>
   );
 }
-
-/**
- * What is behind a row once it opens. Everything here is student-safe: released
- * feedback, their own repository, and instructions — never a draft, a flag, or an
- * instructor note.
- *
- * `submission` is null for a FILE_UPLOAD or EXTERNAL_URL assignment nobody has started,
- * because neither kind has an Accept to create the row.
- */
-function AssignmentDetail({
-  assignment,
-  submission,
-}: {
-  assignment: Assignment;
-  submission: Submission | null;
-}) {
-  const rounds = submission ? feedbackRounds(submission) : [];
-  const status = submission?.status ?? "NOT_STARTED";
-  const revised =
-    submission != null &&
-    submission.gradedHeadSha != null &&
-    submission.headSha != null &&
-    submission.headSha !== submission.gradedHeadSha;
-
-  const inQueue =
-    status === "SUBMITTED" ||
-    status === "DRAFT_READY" ||
-    status === "NEEDS_MANUAL_REVIEW" ||
-    status === "GRADING_FAILED";
-
-  /*
-    Whether this student may hand in, and what handing in would mean right now.
-
-    Only meaningful for the three kinds with no pull request; a REPO assignment is submitted by
-    opening one and neither form below is rendered for it. `instructorHasStarted` is false when
-    there is no submission at all, which is the same answer the absent row implies.
-  */
-  const mode = handInMode(submission?.status ?? null, submission?.instructorHasStarted ?? false);
-
-  return (
-    <div className="flex flex-col gap-4">
-      {submission && <RepoLinks submission={submission} />}
-
-      {/*
-        The assignment's own instructions, where the instructor wrote any. Above the
-        mechanical steps because it says what the work is, and those say how to hand it in.
-      */}
-      {assignment.submissionInstructions && (
-        <div className="rounded-lg border border-border bg-background p-4">
-          <p className="mb-2 text-sm font-medium">Instructions</p>
-          <Markdown className="text-sm" content={assignment.submissionInstructions} />
-        </div>
-      )}
-
-      {assignment.kind === "REPO" && status === "ACCEPTED" && (
-        <div className="rounded-lg border border-border bg-background p-4">
-          <p className="mb-2 text-sm font-medium">How to submit</p>
-          <ol className="ml-4 list-decimal text-sm text-muted-foreground [&>li]:mt-1">
-            <li>
-              Commit and push your work to the <code>draft</code> branch of your repository.
-            </li>
-            <li>
-              Open a pull request from <code>draft</code> into <code>main</code>.
-            </li>
-            <li>Your instructor reviews the pull request and releases feedback here.</li>
-          </ol>
-        </div>
-      )}
-
-      {/*
-        What they handed in, before the box that changes it.
-
-        The order is the point: a student opening a row wants to know what is in first, and the
-        form to replace it second. It used to be the other way round, which was harmless while
-        the form only ever appeared on work that had not been submitted — and became wrong the
-        moment the form started appearing under work that had.
-
-        The address is shown rather than hidden behind the button, so a student can see whether
-        the link they pasted is the one they meant. That catches the mistake this whole feature
-        exists for at the point it can still be fixed silently.
-      */}
-      {submission?.submittedUrl && (
-        <SubmittedLinkRow
-          url={submission.submittedUrl}
-          label={
-            assignment.kind === "GOOGLE_DRIVE" ? "The file you submitted" : "The work you submitted"
-          }
-          isLate={submission.isLate ?? false}
-        />
-      )}
-
-      {/*
-        What they handed in, so a student can tell that the right file went. No link: the
-        bucket is private and a download is a signed URL minted per request, which is
-        `UploadedFileRow`'s job.
-      */}
-      {submission?.uploadFilename && (
-        <UploadedFileRow
-          submissionId={submission.id}
-          filename={submission.uploadFilename}
-          sizeBytes={submission.uploadSizeBytes}
-          isLate={submission.isLate ?? false}
-        />
-      )}
-
-      {/*
-        A Drive assignment has no pull request to observe, so submitting is an act rather than
-        something inferred. `handInMode` decides which act it is — a first submission, a
-        correction to work still waiting, or a second attempt after a grade — and `locked` is
-        where an instructor has it open, which `assertCanHandIn` refuses server-side.
-      */}
-      {isLinkSubmitted(assignment.kind) && mode !== "locked" && (
-        <SubmitWorkForm
-          assignmentId={assignment.id}
-          kind={assignment.kind}
-          currentUrl={submission?.submittedUrl ?? null}
-          mode={mode}
-        />
-      )}
-
-      {/* The same shape as the Drive form above and offered on exactly the same terms. */}
-      {assignment.kind === "FILE_UPLOAD" && mode !== "locked" && (
-        <UploadWorkForm
-          assignmentId={assignment.id}
-          acceptedFileTypes={assignment.acceptedFileTypes}
-          mode={mode}
-        />
-      )}
-
-      {/*
-        Why the box is gone, said where the box was.
-
-        A control that silently disappears is the same problem as one that refuses without
-        explaining: a student who came here to fix a wrong link needs to know it is too late and
-        what happens next, not to find nothing and wonder whether the page is broken.
-
-        It says somebody is reading the work and deliberately not which grading state it is in.
-        That distinction is the reason the screen is handed one boolean — see `handInMode`.
-      */}
-      {mode === "locked" && (
-        <Alert>
-          <Lock className="size-4" />
-          <AlertTitle>This can no longer be changed</AlertTitle>
-          <AlertDescription>
-            Your instructor is reviewing what you handed in, so it is fixed while they work. Once
-            their feedback arrives you can hand in revised work and ask for another look.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/*
-        Every queue state a student can be in reads the same way, deliberately: whether a
-        draft exists, failed, or was never attempted is this system's business.
-      */}
-      {inQueue && (
-        <Alert>
-          <Clock className="size-4" />
-          <AlertTitle>Waiting on your instructor</AlertTitle>
-          <AlertDescription>
-            {assignment.kind === "REPO"
-              ? "Your pull request is in. Feedback appears here once it is released."
-              : "Your work is in. Feedback appears here once it is released."}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {status === "RESUBMITTED" ? (
-        <Alert>
-          <RotateCcw className="size-4" />
-          <AlertTitle>Your revision is being reviewed</AlertTitle>
-          <AlertDescription>
-            You asked for another look. Your most recent feedback is below; a new review will be
-            added when it is ready.
-          </AlertDescription>
-        </Alert>
-      ) : revised ? (
-        <Alert>
-          <RotateCcw className="size-4" />
-          <AlertTitle>You have pushed changes since this feedback</AlertTitle>
-          <AlertDescription className="flex flex-col items-start gap-3">
-            <p>
-              The feedback below describes commit {shortSha(submission.gradedHeadSha)}; your
-              repository is now at {shortSha(submission.headSha)}. Pushing on its own does not ask
-              for another review — say so when you are finished.
-            </p>
-            <RequestReviewButton submissionId={submission.id} />
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {rounds.length > 0 && <FeedbackHistory rounds={rounds} />}
-    </div>
-  );
-}
-
-/**
- * What the link form is called, per act and per kind.
- *
- * A table rather than nested conditionals, which is what this was: two ternaries deep by two
- * kinds wide, and a third act would have made it three. Laid out flat, the six sentences can be
- * read against each other, which is the only way to notice that "Submit your file" and "Update
- * your file" have to differ by more than a verb — the second one is about a link that is already
- * there.
- */
-const LINK_FORM_HEADING: Record<Exclude<HandInMode, "locked">, { drive: string; url: string }> = {
-  submit: { drive: "Submit your file", url: "Submit the link to your work" },
-  update: { drive: "Change the file you submitted", url: "Change the link you submitted" },
-  resubmit: {
-    drive: "Submit your revised file",
-    url: "Submit the link to your revised work",
-  },
-};
-
-/**
- * What the button says.
- *
- * "Update" rather than "Submit" on a correction, because the two are different promises: one
- * hands work in and the other swaps what was handed in, and a student pressing "Submit" on work
- * already submitted would reasonably expect a second attempt to be recorded.
- */
-const LINK_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
-  submit: "Submit",
-  update: "Update",
-  resubmit: "Submit again",
-};
-
-/**
- * Handing in work that has no pull request.
- *
- * The whole of the submission signal for a Drive assignment. A repository assignment is observed —
- * the webhook sees the pull request open and records it — and there is nothing to observe
- * here, so pressing this is what puts the work in front of the instructor. Without it,
- * finished work would read as never started.
- *
- * The link is asked for rather than derived, because the student's copy is theirs and this
- * application never saw it created: Google made the copy in their Drive on their request.
- *
- * **Also where a wrong link is corrected**, which is the same form doing a different job and is
- * why `mode` exists rather than a `resubmitting` boolean. A student who pasted the instructor's
- * template instead of their own copy previously had no way back: the form was hidden the moment
- * the work entered the queue, so the only route to a correct submission was to wait for a grade
- * on work they knew was wrong and then resubmit.
- */
-function SubmitWorkForm({
-  assignmentId,
-  kind,
-  currentUrl,
-  mode,
-}: {
-  assignmentId: string;
-  /**
-   * Both link-submitted kinds use this form, and only the words differ. A Drive assignment
-   * assignment handed out a template, so the link wanted is "your own copy"; an external-url
-   * assignment handed out nothing, so the link wanted is wherever the student made the work.
-   * Asking for "your copy" of a Loom recording would be asking for something that does not
-   * exist.
-   */
-  kind: AssignmentKind;
-  currentUrl: string | null;
-  /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
-  mode: Exclude<HandInMode, "locked">;
-}) {
-  const trpc = useTRPC();
-  const settled = useServerMutation();
-  const [url, setUrl] = React.useState(currentUrl ?? "");
-
-  const submit = useMutation(
-    trpc.submissions.submitWork.mutationOptions(settled({ onError: shownInPlace })),
-  );
-
-  const changed = url.trim() !== (currentUrl ?? "");
-
-  return (
-    <form
-      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit.mutate({ assignmentId, submittedUrl: url.trim() });
-      }}
-    >
-      <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
-        {LINK_FORM_HEADING[mode][kind === "GOOGLE_DRIVE" ? "drive" : "url"]}
-      </label>
-
-      {/*
-        What replacing it does, and it is only worth saying in this one mode. A correction
-        overwrites — there is one `submittedUrl` column — and a student who assumes both links go
-        to their instructor would leave the wrong one thinking it had been added to rather than
-        swapped. Nothing about the queue changes, which is the reassuring half and the reason
-        this is not phrased as a warning.
-      */}
-      {mode === "update" && (
-        <p className="text-sm text-muted-foreground">
-          This replaces the link above.
-        </p>
-      )}
-      <p className="text-sm text-muted-foreground">
-        {kind === "GOOGLE_DRIVE" ? (
-          <>
-            Paste the link to <strong>your own copy</strong>, and make sure your instructor can open
-            it.
-          </>
-        ) : (
-          <>
-            Paste the link to your finished work, and{" "}
-            <strong>check that the sharing settings let your instructor open it</strong> — a private
-            link looks like nothing was submitted.
-          </>
-        )}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          id={`submit-url-${assignmentId}`}
-          type="url"
-          required
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          placeholder={
-            kind === "GOOGLE_DRIVE"
-              ? "https://docs.google.com/document/d/… or /presentation/d/…"
-              : "https://www.canva.com/design/… or https://www.loom.com/share/…"
-          }
-          className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        />
-        <Button
-          size="sm"
-          type="submit"
-          /*
-            Nothing to send when the box still holds the link that is already stored. Without
-            this, Update is a button that appears to work and changes nothing — the mutation
-            would run, rewrite the same URL, and move `submittedAt` for no reason.
-          */
-          disabled={submit.isPending || url.trim() === "" || (mode === "update" && !changed)}
-        >
-          {submit.isPending ? "Submitting…" : LINK_FORM_BUTTON[mode]}
-        </Button>
-      </div>
-      {submit.error && (
-        <p className="text-sm text-destructive" role="alert">
-          {submit.error.message}
-        </p>
-      )}
-    </form>
-  );
-}
-
-/** The upload form's three headings, for the reason `LINK_FORM_HEADING` is a table. */
-const UPLOAD_FORM_HEADING: Record<Exclude<HandInMode, "locked">, string> = {
-  submit: "Upload your file",
-  update: "Replace the file you uploaded",
-  resubmit: "Upload your revised file",
-};
-
-const UPLOAD_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
-  submit: "Upload",
-  update: "Replace",
-  resubmit: "Upload again",
-};
-
-/**
- * Handing in a file.
- *
- * Posts to `/api/submissions/upload` rather than calling a tRPC mutation, because tRPC's
- * transport is JSON and a file would have to be base64'd into it. One request stores the bytes
- * and marks the work submitted, so there is no state where a student has uploaded something
- * and the submission does not say so — see the route's own comment.
- *
- * The size and type are checked here as well as on the server. Not as the guarantee, which is
- * the server's and the bucket's: as the difference between being told immediately and being
- * told after spending a minute uploading 40MB on a phone tether.
- */
-function UploadWorkForm({
-  assignmentId,
-  acceptedFileTypes,
-  mode,
-}: {
-  assignmentId: string;
-  acceptedFileTypes: string[];
-  /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
-  mode: Exclude<HandInMode, "locked">;
-}) {
-  const router = useRouter();
-  const inputId = `upload-${assignmentId}`;
-  const [file, setFile] = React.useState<File | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-
-  const choose = (chosen: File | null) => {
-    setFile(chosen);
-    if (!chosen) return setError(null);
-
-    const check = checkUpload({
-      filename: chosen.name,
-      sizeBytes: chosen.size,
-      acceptedTypes: acceptedFileTypes,
-    });
-    setError(check.ok ? null : check.reason);
-  };
-
-  async function upload(event: React.FormEvent) {
-    event.preventDefault();
-    if (!file || error) return;
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      const body = new FormData();
-      body.set("assignmentId", assignmentId);
-      body.set("file", file);
-
-      const response = await fetch("/api/submissions/upload", { method: "POST", body });
-
-      if (!response.ok) {
-        // The route answers with a message written for a student on every refusal it makes,
-        // so this shows what came back rather than a status code.
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(payload?.error ?? "That upload did not go through. Try again.");
-        return;
-      }
-
-      setFile(null);
-      router.refresh();
-    } catch {
-      setError("That upload did not go through — check your connection and try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form
-      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4"
-      onSubmit={upload}
-    >
-      <label className="text-sm font-medium" htmlFor={inputId}>
-        {UPLOAD_FORM_HEADING[mode]}
-      </label>
-      <p className="text-sm text-muted-foreground">
-        {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)}. Your
-        instructor is the only person who can open it.
-      </p>
-      {/*
-        The same sentence the link form carries, and it matters more here: an uploaded file
-        replaces the stored one outright, so a student who uploads a second file is not adding a
-        page to their submission.
-      */}
-      {mode === "update" && (
-        <p className="text-sm text-muted-foreground">
-          This replaces the file above. Your work stays where it is in your instructor&apos;s queue
-          — correcting it does not put you at the back.
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          id={inputId}
-          type="file"
-          required
-          accept={acceptAttributeFor(acceptedFileTypes)}
-          onChange={(event) => choose(event.target.files?.[0] ?? null)}
-          className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        />
-        <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
-          {busy ? "Uploading…" : UPLOAD_FORM_BUTTON[mode]}
-        </Button>
-      </div>
-      {file && !error && (
-        <p className="text-xs text-muted-foreground">
-          {file.name} — {formatBytes(file.size)}
-        </p>
-      )}
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-    </form>
-  );
-}
-
-/**
- * Asks for another review.
- *
- * Deliberately an explicit act rather than something a push implies. A student pushing
- * commits after a grade is ordinary — they may be tidying up, or not finished — and
- * treating every push as a request would fill the instructor's queue with work nobody
- * asked to have reviewed.
- */
-function RequestReviewButton({ submissionId }: { submissionId: string }) {
-  const trpc = useTRPC();
-  const settled = useServerMutation();
-
-  const declare = useMutation(
-    trpc.submissions.declareResubmission.mutationOptions(settled({ onError: shownInPlace })),
-  );
-
-  return (
-    <div className="flex flex-col items-start gap-1">
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={declare.isPending}
-        onClick={() => declare.mutate({ submissionId })}
-      >
-        {declare.isPending ? "Sending…" : "Ask for another review"}
-      </Button>
-      {declare.error && (
-        <p className="text-sm text-destructive" role="alert">
-          {declare.error.message}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function RepoLinks({ submission }: { submission: Submission }) {
-  if (!submission.repoUrl && !submission.prUrl) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {submission.repoUrl && (
-        <a
-          href={submission.repoUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-        >
-          <GitBranch data-icon="inline-start" />
-          Your repository
-          <ExternalLink data-icon="inline-end" />
-        </a>
-      )}
-      {submission.prUrl && (
-        <a
-          href={submission.prUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-        >
-          <GitPullRequest data-icon="inline-start" />
-          Your pull request{submission.isLate ? " (late)" : ""}
-          <ExternalLink data-icon="inline-end" />
-        </a>
-      )}
-    </div>
-  );
-}
-
-interface FeedbackRound {
-  key: string;
-  number: number;
-  gradedAt: Date | null;
-  earned: number | null;
-  possible: number | null;
-  sections: {
-    sectionType: string;
-    reportMarkdown: string | null;
-    scoreEarned: number | null;
-    scorePossible: number | null;
-  }[];
-}
-
-/**
- * The student's feedback history, oldest first.
- *
- * Each approved draft is one round. A resubmission is graded afresh rather than as an
- * edit of the first attempt, so the rounds accumulate and reading them in order is what
- * shows what changed.
- *
- * The fallback covers a submission graded before drafts existed, or graded by hand:
- * `feedbackMarkdown` on the submission is then the only copy of the feedback, and
- * dropping it would silently lose a student's grade.
- */
-function feedbackRounds(submission: Submission): FeedbackRound[] {
-  if (submission.gradingDrafts.length > 0) {
-    return submission.gradingDrafts.map((draft, index) => ({
-      key: draft.id,
-      number: index + 1,
-      gradedAt: draft.approvedAt,
-      earned: sumOrNull(draft.sections.map((s) => s.scoreEarned)),
-      possible: sumOrNull(draft.sections.map((s) => s.scorePossible)),
-      sections: draft.sections,
-    }));
-  }
-
-  if (!submission.feedbackMarkdown) return [];
-
-  return [
-    {
-      key: "submission",
-      number: 1,
-      gradedAt: submission.gradedAt,
-      earned: submission.finalScore,
-      possible: submission.finalScorePossible,
-      sections: [
-        {
-          sectionType: "feedback",
-          reportMarkdown: submission.feedbackMarkdown,
-          scoreEarned: submission.finalScore,
-          scorePossible: submission.finalScorePossible,
-        },
-      ],
-    },
-  ];
-}
-
-/** Null if any part is missing, because a partial sum is worse than no total. */
-function sumOrNull(values: (number | null)[]): number | null {
-  if (values.length === 0 || values.some((v) => v == null)) return null;
-  return values.reduce((total: number, v) => total + v!, 0);
-}
-
-function FeedbackHistory({ rounds }: { rounds: FeedbackRound[] }) {
-  const latest = rounds[rounds.length - 1];
-
-  return (
-    <div className="flex flex-col gap-3">
-      {rounds.map((round) => (
-        <FeedbackRoundCard
-          key={round.key}
-          round={round}
-          isLatest={round.key === latest.key}
-          multiRound={rounds.length > 1}
-        />
-      ))}
-    </div>
-  );
-}
-
-function FeedbackRoundCard({
-  round,
-  isLatest,
-  multiRound,
-}: {
-  round: FeedbackRound;
-  isLatest: boolean;
-  multiRound: boolean;
-}) {
-  // The most recent round is open; earlier ones collapse so the history stays readable
-  // without being hidden.
-  const [open, setOpen] = React.useState(isLatest);
-  const percent = scorePercent(round.earned, round.possible);
-
-  const header = (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">
-          {multiRound ? `Review ${round.number}` : "Instructor feedback"}
-        </span>
-        {round.gradedAt && (
-          <span className="text-xs text-muted-foreground">{formatDate(round.gradedAt)}</span>
-        )}
-      </div>
-      {round.earned != null && (
-        <div className="flex items-center gap-2 text-sm whitespace-nowrap">
-          <span className="font-medium tabular-nums">
-            {round.earned}/{round.possible}
-          </span>
-          <span className="text-muted-foreground">{formatPercent(percent)}</span>
-        </div>
-      )}
-    </div>
-  );
-
-  const body = <RoundSections round={round} />;
-
-  if (isLatest) {
-    return (
-      <div className="rounded-lg border border-border bg-background p-4">
-        <div className="mb-3">{header}</div>
-        <Separator className="mb-3" />
-        {body}
-      </div>
-    );
-  }
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-lg border border-border bg-background">
-        <CollapsibleTrigger className="group flex w-full items-center gap-2 p-4 text-left">
-          {header}
-          <ChevronRight
-            aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="border-t border-border p-4">{body}</div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
-  );
-}
-
-/**
- * A round's sections. Each is scored and reported separately, so they are headed
- * separately — except where there is only one, which needs no heading to tell it apart
- * from itself.
- */
-function RoundSections({ round }: { round: FeedbackRound }) {
-  const single = round.sections.length === 1;
-
-  return (
-    <div className="flex flex-col gap-5">
-      {round.sections.map((section) => (
-        <div key={section.sectionType} className="flex flex-col gap-2">
-          {!single && (
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h4 className="text-sm font-semibold">{sectionLabel(section.sectionType)}</h4>
-              {section.scoreEarned != null && (
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {section.scoreEarned}/{section.scorePossible}
-                </span>
-              )}
-            </div>
-          )}
-          {section.reportMarkdown ? (
-            <Markdown content={section.reportMarkdown} />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No written feedback was recorded for this section.
-            </p>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /**
  * "2 of 5 complete · 3 resources", or what is true when one half is empty.
  *

@@ -43,11 +43,14 @@ The sequence is most immediate first. A feature's own section says what is known
 
 1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](README.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
 2. **[Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)** — the diff beside the report instead of in another tab. High on this list because it is the only item that makes the hour an instructor already spends grading a shorter hour, and because the data is already fetched and discarded.
-3. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
-4. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
-5. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
-6. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
-7. **[An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)** — last, and not because it is least wanted. It reads a term of released feedback, so it has nothing to read until a term has been graded, and it is the one feature here whose output is about a person rather than a piece of work.
+3. **[Notes a student keeps on their own work](#notes-a-student-keeps-on-their-own-work)** — the assignment panel's third tab, and a screen listing them. High for how little it is: one table, no new dependency, and it is the half of [the dashboard](README.md#what-is-due-across-every-cohort) that is about what a student took from the work rather than about what is left of it.
+4. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
+5. **[Subscribing a calendar to due dates](#subscribing-a-calendar-to-due-dates)** — one route that renders text and one column. Depends on nothing, so its position is a judgment about how much it is wanted rather than about what it needs; it goes here because due dates are the thing students say they lose track of and this is the version of the answer that costs almost nothing.
+6. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+7. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
+8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
+9. **[An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)** — last of the grading-side features, and not because it is least wanted. It reads a term of released feedback, so it has nothing to read until a term has been graded, and it is the one feature here whose output is about a person rather than a piece of work.
+10. **[A chat scoped to a student's own course context](#a-chat-scoped-to-a-students-own-course-context)** — last, and behind the item above it for a reason that is not sequencing: the two contradict each other on whether a synthesis across a term may reach a student unedited, and that has to be settled before either is built. It is also the one item here that needs a graded term before it can be *judged*, not merely before it can be run.
 
 [Triggering and orchestration](#triggering-and-orchestration) is deliberately not in that list, and is now half done: an instructor can grade a screen's worth of outstanding work with one press, which was the part that affected a working day. What is left — grading without being asked, and a batch that survives a closed tab — is a convenience rather than a blocker. It stays written down because the decision will eventually be needed and the reasoning is already done.
 
@@ -119,7 +122,7 @@ Undecided, and worth deciding before building: whether this is a file tree with 
 
 **Every report is about one submission, and nobody has read them together.** A student finishes a term with a dozen approved drafts, each one a careful account of a single piece of work at a single moment. The question an instructor actually has at the end — is this person getting better, at what, and what should they work on next — is answered by all of them at once and by none of them individually. That is a real gap and it is the thing the accumulated feedback is uniquely able to answer.
 
-The material exists and is already assembled. `feedbackRounds` in [components/student/course-detail.tsx](components/student/course-detail.tsx) is the shape: every approved draft's sections, oldest first, one round per grading, with a fallback to `submission.feedbackMarkdown` for work graded by hand or graded before drafts existed. Read across a student's submissions rather than within one, that is the input.
+The material exists and is already assembled. `feedbackRounds` in [components/student/assignment-panel.tsx](components/student/assignment-panel.tsx) is the shape: every approved draft's sections, oldest first, one round per grading, with a fallback to `submission.feedbackMarkdown` for work graded by hand or graded before drafts existed. Read across a student's submissions rather than within one, that is the input.
 
 **This is a different kind of AI feature from grading, and the difference is the whole risk.** A grading report is checked: [the cross-check](README.md#what-the-cross-check-may-and-may-not-assert) compares its arithmetic against itself and its claims against a real test run, and it is a *draft* an instructor approves before anybody sees it. A growth evaluation has no deterministic facts to be checked against. There is no test suite for "improving at asking for help", nothing to contradict a confident sentence about a person, and the subject is a person rather than a piece of work. So:
 
@@ -133,6 +136,57 @@ What this touches:
 - **Cost, and it is a different shape.** A term of one student's feedback is a large input for a single call, and it is per student rather than per section — so a cohort of twenty-five is twenty-five long prompts with nothing shareable between them, since each one *is* a different student. Nothing here caches the way [an assignment's queue does](README.md#generating-every-pending-report-at-a-sitting).
 - **Which course, and whether a student has more than one.** `submissions.listForStudent` already returns the other cohorts a student is in, because somebody repeating a module has two sets of work. A growth evaluation that silently covered one of them would be answering a narrower question than it appeared to.
 - **It needs a term to have happened.** With three graded assignments there is no growth to describe, and a confident paragraph saying otherwise is worse than no feature. This is the item on this list most improved by waiting for real data, which is also what makes it a natural companion to [token management](#token-management).
+
+---
+
+## Notes a student keeps on their own work
+
+**The third tab of the assignment panel, which is why the panel has tabs before it has three of them.** A student reading feedback has nowhere in this application to write down what they took from it, so what happens is nothing, or it happens in a document this application will never see beside the work it is about. The whole value is proximity: the note sits with the assignment and the report rather than in a second system that has to be kept in sync with the first.
+
+One note per student per assignment — `@@unique([studentId, assignmentId])` — attached to the assignment rather than to a submission or a grading round, so a resubmission does not orphan it and a second round of feedback finds the same note. Overwritten in place, with no version history.
+
+**Markdown in a `<Textarea>` with a live preview, not a rich text editor.** That is settled, and for three reasons worth keeping written down. It adds no dependency, where an editor means ProseMirror plus a second rendering path with its own sanitiser beside [components/markdown.tsx](components/markdown.tsx), which deliberately enables no raw HTML. It stores what every other prose column in this database stores, so a note is readable by anything that reads feedback. And the rubric grades markdown usage — `MARKDOWN` is one of the writing flags — so a student writing notes in it is practising the thing they are marked on rather than being protected from it. [components/instructor/resource-dialog.tsx](components/instructor/resource-dialog.tsx) is the shape to copy.
+
+Saved on blur rather than behind a button, with a confirmation that fades. A note nobody pressed Save on is the failure mode, and it is silent.
+
+`/notes` is the second screen: every note the student has, grouped by course and then by module, each entry showing the first hundred characters and linking to `/courses/[courseId]?assignment=[id]`. **A navigation aid and not an authoring surface** — no creating a note from there, no folders, no search in the first version. The panel is where a note is written, because that is where the work is.
+
+What to know before building it:
+
+- **The new table needs its own privilege statements.** `REVOKE ALL … FROM anon, authenticated` and `ENABLE ROW LEVEL SECURITY`, copied from an existing migration, until the [project-wide default privileges question](#open-items) is decided. A student's private notes are the worst table in this schema to leave readable from browser JavaScript.
+- **The note editor wants to appear before grading, not only after.** A student takes notes while working, and an assignment that is `ACCEPTED` or handed in has as much to write about as one that has come back. `NOT_STARTED` is the one state where the tab is not worth offering.
+- **`/notes` is a cross-course read**, so it is the second procedure with no course in its input after `assignments.listMine`, and it wants that one's scoping rules: the notes themselves are the student's own, but which of them to *show* is a question about enrollments.
+
+---
+
+## Subscribing a calendar to due dates
+
+A URL a student adds to Google Calendar once, which their calendar polls on its own. **No OAuth, no Google API, no credentials held here** — the whole feature is a route that renders text, and that is the reason to do this version rather than the integration: due dates and newly published assignments reach a subscriber without anybody pressing anything.
+
+A per-student token on `Profile`, generated the first time they ask for the link and regenerable if they paste it somewhere public. `newJoinToken` in [lib/courses/join-token.ts](lib/courses/join-token.ts) is the generator to reuse rather than a second way of making a secret. `GET /api/calendar/[token]` returns the feed; [lib/supabase/proxy.ts](lib/supabase/proxy.ts) already excludes `/api` from the sign-in redirect for the GitHub webhook's sake, so the route is reachable without a session — which it has to be, since no calendar application sends a cookie.
+
+Two decisions rather than details:
+
+- **The feed carries titles and due dates and never a score or a status.** The URL is a credential a student may paste into a shared calendar, forward, or lose, and the token is the whole of the authorization. A due date leaking is an inconvenience; a grade leaking is not.
+- **Times are emitted in UTC**, which needs no `VTIMEZONE` block and cannot be misread. There is no course timezone to consult and there should not be — `SCHOOL_TIME_ZONE` exists so a deadline means the same instant to everyone in the cohort.
+
+One event per assignment with a `dueAt`, across active enrollments in cohorts that are not archived — the same scoping as `assignments.listMine`, and worth sharing with it. A stable `UID` per assignment is what makes a re-poll update an event rather than duplicate it, and it is the one detail that turns this from a feature into a support burden if it is got wrong.
+
+Known limits, both worth stating before somebody reports them as bugs. **A feed is polled roughly daily**, so a due date moved the night before will not reach a subscriber in time; if instructors move deadlines close to the wire in practice, that is the finding that argues for the API integration and nothing else is. And Google Calendar's web interface handles `https://calendar.google.com/calendar/r?cid=<encoded>` more reliably than a bare `webcal://` link, which depends on an operating system handler being registered — so offer the address to copy as well as the button.
+
+---
+
+## A chat scoped to a student's own course context
+
+Blocked, and not on a technical dependency: **the capability worth having is patterns across a term of feedback, and there is nothing to read until a term has been graded.** Building it against three assignments would be building it against the one case where it has nothing true to say.
+
+What it may see: approved `feedbackMarkdown`, the READMEs of assignments the student has accepted, their own submission statuses, and the [five core competencies](reference-material/competencies.md). What it may not, enforced by what is passed rather than by asking the prompt nicely: rubric scoring bands, answer keys, any other student's anything, and any judgment of work that has not been handed in. That last one is the load the guardrail carries — a chat that will tell a student whether their code passes before they submit it is a grading service, and every incentive in the program points the wrong way from there.
+
+The writing-support case is the one with a real design in it. A student pastes their own text; the model responds with observations and questions and never a rewrite. "This sentence is unclear — what do you mean by 'it works differently'?" is the behaviour, and "here is a clearer version" is the failure. One question at a time rather than a list of every issue, which is the difference between a tutor and an editor.
+
+**This conflicts with [an evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term), and the conflict has to be resolved before either is built.** That section states, as non-negotiable, that a synthesis across a term is a draft an instructor edits with no automatic path to a student — because there are no deterministic facts to check it against and the subject is a person rather than a piece of work. A chat that answers "what patterns are in my feedback" *is* that synthesis, reaching the student directly and unedited. Both cannot be built as written. Which one is right is a decision about the program rather than about this codebase, and the honest options are: the synthesis stays instructor-mediated and the chat declines the question; the chat answers it but only by quoting released feedback verbatim with links, inferring nothing; or the rule changes deliberately and is rewritten in both places.
+
+Cheaper things worth noticing before the chat is the answer. "Explain what my instructor meant by this" is a per-report question with the report already on screen. "What should I do next" is what `/dashboard` answers today with no model at all. The chat earns its place on the questions neither of those can reach, and scoping it to those is what keeps it from being a worse version of a screen that already exists.
 
 ---
 

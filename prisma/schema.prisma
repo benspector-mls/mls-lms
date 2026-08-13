@@ -783,6 +783,19 @@ model Submission {
   /// columns, needing no API call and true the instant the push lands.
   gradedHeadSha      String?   @map("graded_head_sha")
 
+  /// When the student said they had read the feedback they were given.
+  ///
+  /// **Read against `gradedAt` rather than merely checked for null**, which is what makes one
+  /// column enough for a submission that is graded more than once. A student who reads their
+  /// report, resubmits, and is graded again has this column already set, so a null check would
+  /// call the second report read before it existed. `feedbackIsUnread` in `lib/status.ts` is
+  /// that comparison, and it is the only thing that should ask this question.
+  ///
+  /// It gates nothing. Resubmitting does not require it and `assertCanHandIn` has never heard
+  /// of it — it exists so a student can keep track of what they have been through, and so
+  /// their dashboard can stop showing them a report they have read.
+  feedbackReviewedAt DateTime? @map("feedback_reviewed_at") @db.Timestamptz(6)
+
   /// Unused in this build. Present so the future Salesforce job can query
   /// `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at
   /// that point. Nothing writes these columns yet.

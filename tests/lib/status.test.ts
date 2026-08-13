@@ -4,11 +4,14 @@ import {
   completionMeta,
   DRAFT_STATUS_META,
   draftStatusAddsSomething,
+  feedbackIsUnread,
   FLAG_META,
   flagMeta,
+  formatDueDate,
   formatDuration,
   formatPercent,
   formatRelative,
+  handedIn,
   handInMode,
   linkHost,
   scoreLabel,
@@ -378,6 +381,138 @@ describe("handInMode", () => {
     expect(handInMode(null, true)).toBe("submit");
     expect(handInMode("NOT_STARTED", true)).toBe("submit");
     expect(handInMode("ACCEPTED", true)).toBe("submit");
+  });
+});
+
+/**
+ * Whether the next move is the student's.
+ *
+ * The one screen that asks is the dashboard's deadline list, so a wrong answer here is either a
+ * missed deadline or a row a student can see is wrong. Those are not equally bad, which is why the
+ * function is written as the complement of the three states rather than as a list of the six.
+ */
+describe("handedIn", () => {
+  it("says no while the next move is the student's", () => {
+    expect(handedIn(null)).toBe(false);
+    expect(handedIn(undefined)).toBe(false);
+    expect(handedIn("NOT_STARTED")).toBe(false);
+    expect(handedIn("ACCEPTED")).toBe(false);
+  });
+
+  it("says yes for everything sitting with an instructor", () => {
+    expect(handedIn("SUBMITTED")).toBe(true);
+    expect(handedIn("RESUBMITTED")).toBe(true);
+    expect(handedIn("DRAFT_READY")).toBe(true);
+    expect(handedIn("NEEDS_MANUAL_REVIEW")).toBe(true);
+    expect(handedIn("GRADING_FAILED")).toBe(true);
+  });
+
+  /*
+    Including work that came back below the threshold. Resubmitting is a second attempt at work
+    already handed in, and putting a returned assignment back on a due-date list would tell a
+    student they had missed a deadline they in fact met.
+  */
+  it("counts graded work, complete or not", () => {
+    expect(handedIn("GRADED")).toBe(true);
+  });
+
+  // The complement is exact: every status is on exactly one side of this.
+  it("agrees with handInMode about which states are the student's move", () => {
+    const statuses: SubmissionStatus[] = [
+      "NOT_STARTED",
+      "ACCEPTED",
+      "SUBMITTED",
+      "DRAFT_READY",
+      "GRADED",
+      "RESUBMITTED",
+      "GRADING_FAILED",
+      "NEEDS_MANUAL_REVIEW",
+    ];
+
+    for (const status of statuses) {
+      expect(handedIn(status)).toBe(handInMode(status, false) !== "submit");
+    }
+  });
+});
+
+/**
+ * Whether there is a report the student has not said they read.
+ *
+ * The second round is the case this exists for, and the one a null check gets wrong.
+ */
+describe("feedbackIsUnread", () => {
+  const graded = new Date("2026-10-09T14:00:00Z");
+
+  it("is unread until the student says otherwise", () => {
+    expect(feedbackIsUnread({ status: "GRADED", gradedAt: graded, feedbackReviewedAt: null })).toBe(
+      true,
+    );
+  });
+
+  it("is read once they have", () => {
+    expect(
+      feedbackIsUnread({
+        status: "GRADED",
+        gradedAt: graded,
+        feedbackReviewedAt: new Date("2026-10-09T18:00:00Z"),
+      }),
+    ).toBe(false);
+  });
+
+  /*
+    The defect a null check would have. A student reads their first report, revises, asks for
+    another review, and is graded again — `feedbackReviewedAt` is already set at that point, so the
+    new report would never be announced.
+  */
+  it("is unread again when a later grade arrives", () => {
+    expect(
+      feedbackIsUnread({
+        status: "GRADED",
+        gradedAt: new Date("2026-10-20T09:00:00Z"),
+        feedbackReviewedAt: new Date("2026-10-09T18:00:00Z"),
+      }),
+    ).toBe(true);
+  });
+
+  // Nothing has been released to read yet, whatever the queue is doing.
+  it.each(["NOT_STARTED", "ACCEPTED", "SUBMITTED", "RESUBMITTED", "DRAFT_READY"] as const)(
+    "has nothing to report for %s",
+    (status) => {
+      expect(feedbackIsUnread({ status, gradedAt: null, feedbackReviewedAt: null })).toBe(false);
+    },
+  );
+
+  // A recorded read stands rather than becoming permanently unread, which nothing could clear.
+  it("keeps a read on a grade carrying no timestamp", () => {
+    expect(feedbackIsUnread({ status: "GRADED", gradedAt: null, feedbackReviewedAt: graded })).toBe(
+      false,
+    );
+  });
+});
+
+/**
+ * A deadline, named by its day.
+ *
+ * Formatted in the school's timezone rather than the reader's, which is the point of the case
+ * spanning the daylight-saving change: the same wall-clock deadline is a different UTC instant in
+ * March than in November, and a student in Brooklyn must read both as 11:59 PM.
+ */
+describe("formatDueDate", () => {
+  it("leads with the weekday", () => {
+    // 2026-10-10T03:59Z is 11:59 PM on Friday 9 October in New York.
+    expect(formatDueDate(new Date("2026-10-10T03:59:00Z"))).toBe("Friday, Oct 9 at 11:59 PM");
+  });
+
+  it("reads the same either side of the clocks changing", () => {
+    // Eastern Daylight Time, UTC-4.
+    expect(formatDueDate(new Date("2026-10-02T03:59:00Z"))).toBe("Thursday, Oct 1 at 11:59 PM");
+    // Eastern Standard Time, UTC-5. One hour further from UTC, same local deadline.
+    expect(formatDueDate(new Date("2026-12-04T04:59:00Z"))).toBe("Thursday, Dec 3 at 11:59 PM");
+  });
+
+  it("has an em dash for no deadline", () => {
+    expect(formatDueDate(null)).toBe("—");
+    expect(formatDueDate(undefined)).toBe("—");
   });
 });
 

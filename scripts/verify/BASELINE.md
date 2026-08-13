@@ -18,6 +18,11 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:assets` | 62 | GitHub |
 | `verify:e2b` | 8 | a real E2B sandbox |
 | `verify:test-student` | 42, or 56 with `--live`, or 64 with `--live --github` | the database; `--live` also Supabase; `--github` also GitHub |
+| `verify:dashboard` | 27 | the database |
+
+**`verify:dashboard` also postdates this file.** Its 27 assume a cohort with at least two active students and a fixture student holding at least one graded and one ungraded submission; short of any of those it reports a skip and therefore exits non-zero rather than quietly measuring less. Three of the 27 are the reason it is a script and not a suite — that one student's submissions do not reach another's dashboard, that no other student's submission is attached to the caller's rows, and that one student cannot mark another's feedback read — and none of them can be asked of a fixture, because what they check is a `where` clause against live rows that Prisma is not restricted by row level security from ignoring.
+
+**It earned its place immediately.** Its check that the bar's green segment and the "5 of 9 complete" above it are the same number caught `progressStateOf` reading a submission's status before `isComplete`, which meant a student who passed an assignment and then asked for another look lost the completion: the segment moved to amber and the count went down by one. Every unit case still passed, because none of them had thought to combine `RESUBMITTED` with `isComplete: true` — the arrangement a real database had four of.
 
 **`verify:test-student` postdates this file** and is recorded here rather than left out, because the reason the file exists applies to it from the start. Its three figures are three runs and not three moods: the 42 need only the database, `--live` adds the fourteen that create and delete a real Supabase account, and `--github` adds the eight that generate and delete a real repository. All three rose by five when leaving the view gained a destination — the course id travels in a cookie and is interpolated into a redirect path, so the shape check guarding it is asserted against the strings somebody would try — and by one more for the check below.
 

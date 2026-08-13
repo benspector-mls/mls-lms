@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   // redirect, letting a crafted link bounce a freshly authenticated user to an
   // attacker's site.
   const next = searchParams.get("next");
-  const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/courses";
+  const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 
   redirect(`${origin}${safeNext}`);
 }

@@ -107,44 +107,60 @@ function decorateSubmission<T extends ReviewableSubmission>(
 }
 
 export const submissionsRouter = createTRPCRouter({
-  /** Every submission belonging to the caller, newest activity first. */
-  mine: profileProcedure.query(async ({ ctx }) =>
-    ctx.db.submission.findMany({
-      // Scoped to the caller. Prisma bypasses row level security, so this where
-      // clause is the only thing preventing one student from reading another's
-      // submissions.
-      where: { studentId: ctx.profile.id },
-      orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
-      select: {
-        id: true,
-        status: true,
-        repoUrl: true,
-        prUrl: true,
-        prNumber: true,
-        submittedUrl: true,
-        submittedAt: true,
-        isLate: true,
-        finalScore: true,
-        finalScorePossible: true,
-        isComplete: true,
-        // The graded feedback, read straight from the submission. There is no separate
-        // publish step: approving is what makes these columns non-null, and this page
-        // shows them from that moment.
-        feedbackMarkdown: true,
-        gradedAt: true,
-        headSha: true,
-        gradedHeadSha: true,
-        assignment: {
-          select: {
-            id: true,
-            title: true,
-            dueAt: true,
-            module: { select: moduleSummarySelect },
-          },
-        },
-      },
+  /**
+   * A student saying they have read the feedback they were given.
+   *
+   * **It gates nothing, and that is deliberate.** Resubmitting does not require it and
+   * `assertCanHandIn` has never heard of it. What it buys is a dashboard that can stop showing a
+   * report the student has already been through, which is the difference between a list of things
+   * to do and a list of things that exist.
+   *
+   * One timestamp, read against `gradedAt` rather than merely checked for null — see
+   * `feedbackIsUnread`. That is what makes a second round of feedback unread again without a
+   * second column, and it is why this writes the clock rather than a boolean.
+   */
+  markFeedbackReviewed: profileProcedure
+    .input(z.object({ submissionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const submission = await ctx.db.submission.findUnique({
+        where: { id: input.submissionId },
+        select: { id: true, studentId: true, status: true },
+      });
+
+      if (!submission) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
+      }
+
+      // Scoped to the caller's own submission. Prisma bypasses row level security, so
+      // this comparison is the only thing stopping one student acting on another's.
+      if (submission.studentId !== ctx.profile.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This is not your submission." });
+      }
+
+      /*
+        Refused rather than recorded, because a read timestamp on ungraded work would be a
+        claim about a report that does not exist — and once `gradedAt` arrived it would sit
+        earlier than the grade, which `feedbackIsUnread` correctly reads as unread anyway. The
+        row would be harmless and meaningless, which is worse than an error a caller can see.
+      */
+      if (submission.status !== "GRADED") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "There is no feedback on this submission yet.",
+        });
+      }
+
+      /*
+        No `lastActivityAt`, unlike every other student write in this file. That column drives
+        the instructor's queue ordering, and a student reading their feedback is not activity on
+        the work — it would move a submission up a grading pile nobody needed to look at again.
+      */
+      return ctx.db.submission.update({
+        where: { id: submission.id },
+        data: { feedbackReviewedAt: new Date() },
+        select: { id: true, feedbackReviewedAt: true },
+      });
     }),
-  ),
 
   /**
    * A student declaring that work with no pull request is finished.
