@@ -52,7 +52,16 @@ export function GradingQueue({
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("submission");
 
-  const [filter, setFilter] = React.useState<Filter>("needs_review");
+  /*
+    All, and it is the first tab as well as the opening one — a leftmost tab that is not the one
+    selected reads as a control somebody has already touched.
+
+    The queue opens on the whole assignment rather than on what is outstanding. Both are defensible
+    and the difference is what the screen is for: "what do I do next" against "how is this cohort
+    doing on this piece of work". The second is the one an instructor cannot get anywhere else,
+    since To do is a click away and is also what triage already answers a cohort at a time.
+  */
+  const [filter, setFilter] = React.useState<Filter>("all");
   const [query, setQuery] = React.useState("");
 
   /*
@@ -167,13 +176,13 @@ export function GradingQueue({
             <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(
                 [
+                  { key: "all", label: `All`, count: counts.all },
                   {
                     key: "needs_review",
                     label: `To do`,
                     count: counts.needs_review,
                   },
                   { key: "graded", label: `Graded`, count: counts.graded },
-                  { key: "all", label: `All`, count: counts.all },
                 ] as { key: Filter; label: string; count: number }[]
               ).map((tab) => (
                 <button
