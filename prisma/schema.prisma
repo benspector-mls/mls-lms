@@ -1057,6 +1057,12 @@ enum AuditAction {
   JOIN_TOKEN_REGENERATED
   /// A grade was released to a student, which is the act Salesforce will later mirror.
   GRADE_APPROVED
+
+  /// The two operations that cost money — a model call and a sandbox — recorded so the ledger
+  /// that answers "how many of these has this person just run" is the one already being written.
+  /// See `lib/audit/rate-limit.ts` for why these live here rather than in a counter of their own.
+  DRAFT_GENERATED
+  TESTS_RUN
   /// An admin began looking at the application as a test student.
   ///
   /// **There is deliberately no matching VIEW_AS_EXITED.** The view is held by a session cookie

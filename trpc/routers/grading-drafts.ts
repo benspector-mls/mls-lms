@@ -2,6 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { isManualOnly, manualSections } from "@/lib/assignments/spec";
+import { assertWithinRate, DRAFT_GENERATION_LIMIT } from "@/lib/audit/rate-limit";
+import { auditActor, recordEvent } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { approveDraft, ApprovalError, deliveryOutcome, retryComment } from "@/lib/grade/approve";
 import { teachableSubmission } from "@/lib/courses/scope";
@@ -69,6 +71,30 @@ export const gradingDraftsRouter = createTRPCRouter({
         prNumber: true,
         repoFullName: true,
         assignment: { select: { id: true, title: true, courseId: true, sections: true } },
+      });
+
+      const actor = auditActor(ctx);
+
+      await assertWithinRate(ctx.db, {
+        actorId: actor.id,
+        action: "DRAFT_GENERATED",
+        limit: DRAFT_GENERATION_LIMIT,
+        whatTheyDid: "generate another draft",
+      });
+
+      /*
+        Recorded before the call rather than after, and that ordering is the limit.
+
+        Counting only successful generations would let a failing loop run without bound: every
+        attempt spends the model call, and a run that throws after the tokens are gone has cost
+        exactly as much as one that returned. What is being limited is spending, so what is
+        counted is attempts.
+      */
+      await recordEvent(ctx.db, {
+        action: "DRAFT_GENERATED",
+        actor,
+        subject: { id: submission.id, label: submission.assignment.title },
+        course: { id: submission.assignment.courseId },
       });
 
       try {

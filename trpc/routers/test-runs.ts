@@ -6,6 +6,8 @@ import {
   UnknownRunnerPresetError,
   resolveRunner,
 } from "@/lib/sandbox/presets";
+import { auditActor, recordEvent } from "@/lib/audit/record";
+import { assertWithinRate, TEST_RUN_LIMIT } from "@/lib/audit/rate-limit";
 import { teachableSubmission } from "@/lib/courses/scope";
 import { runTestsForSubmission } from "@/lib/sandbox/run-tests";
 import { createTRPCRouter, instructorProcedure } from "../init";
@@ -64,6 +66,23 @@ export const testRunsRouter = createTRPCRouter({
         assignment: {
           select: { id: true, title: true, runnerPreset: true, runnerConfig: true },
         },
+      });
+
+      const actor = auditActor(ctx);
+
+      await assertWithinRate(ctx.db, {
+        actorId: actor.id,
+        action: "TESTS_RUN",
+        limit: TEST_RUN_LIMIT,
+        whatTheyDid: "run them",
+      });
+
+      // Before the run rather than after, for the reason `gradingDrafts.generate` gives: a
+      // sandbox that fails has been paid for, so attempts are what the ceiling counts.
+      await recordEvent(ctx.db, {
+        action: "TESTS_RUN",
+        actor,
+        subject: { id: submission.id, label: submission.assignment.title },
       });
 
       try {
