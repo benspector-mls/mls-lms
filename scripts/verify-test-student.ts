@@ -106,7 +106,10 @@ async function main() {
 
   const admin = await db.profile.findFirst({
     where: { role: "ADMIN" },
-    select: { id: true, githubUsername: true, email: true },
+    // `role` is selected so this row can be passed to `createAuthUser` and `deleteAuthUser`, which
+    // now refuse a caller who is not an ADMIN. Redundant against the `where` above, and that is
+    // the point: the check reads the column rather than trusting how the row was found.
+    select: { id: true, githubUsername: true, email: true, role: true },
   });
 
   /*
@@ -553,10 +556,16 @@ async function main() {
 
     let abandonedId: string | null = null;
     try {
-      const abandoned = await createAuthUser({
-        email: testStudentEmail(nextNumber),
-        displayName: testStudentName(nextNumber),
-      });
+      // The real admin row this script signs in as, rather than a stand-in shape: these two calls
+      // now require an ADMIN caller, and a check that passes only because the script asserted its
+      // own authorization would be checking nothing.
+      const abandoned = await createAuthUser(
+        { profile: admin },
+        {
+          email: testStudentEmail(nextNumber),
+          displayName: testStudentName(nextNumber),
+        },
+      );
       abandonedId = abandoned.id;
 
       const claimed = await asAdmin.testStudents.create({ courseId: course.id });
@@ -573,7 +582,7 @@ async function main() {
           .remove({ profileId: abandonedId })
           // If claiming failed, the profile is unmarked and `remove` refuses it — which is correct,
           // and means the account has to go the way it came.
-          .catch(() => deleteAuthUser(abandonedId!));
+          .catch(() => deleteAuthUser({ profile: admin }, abandonedId!));
         const gone = await db.profile.findUnique({ where: { id: abandonedId } });
         check("and the claimed account deletes like any other", gone, null);
       }

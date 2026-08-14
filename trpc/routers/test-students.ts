@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { auditActor, recordEvent } from "@/lib/audit/record";
 import { getConfiguredInstallationId, isGithubAppConfigured } from "@/lib/github/app-client";
 import { deleteRepo } from "@/lib/github/repos";
 import { testStudentEmail, testStudentHandle, testStudentName } from "@/lib/students/test-student";
@@ -150,7 +151,7 @@ export const testStudentsRouter = createTRPCRouter({
         }
 
         try {
-          const created = await createAuthUser({
+          const created = await createAuthUser(ctx, {
             email: testStudentEmail(number),
             displayName: testStudentName(number),
           });
@@ -209,6 +210,24 @@ export const testStudentsRouter = createTRPCRouter({
           select: { id: true, status: true },
         });
 
+        /*
+          Recorded because this is one of only two places the service role key is used, and the
+          only one that creates an identity. A test student is an account that can be signed in
+          as through `view-as` and that appears in a real cohort's roster — which is exactly the
+          kind of thing somebody should be able to account for later.
+
+          Outside the transaction the two writes above are not in, deliberately: the auth user
+          already exists at this point and cannot be rolled back by Postgres, so an event that
+          vanished with a failed transaction would be denying something that did happen.
+        */
+        await recordEvent(ctx.db, {
+          action: "TEST_STUDENT_CREATED",
+          actor: auditActor(ctx),
+          subject: { id: profile.id, label: testStudentName(number) },
+          course: { id: course.id, label: course.name },
+          detail: { number, handle: testStudentHandle(number) },
+        });
+
         return { ...profile, enrollmentStatus: enrollment.status };
       } catch (err) {
         /*
@@ -216,7 +235,7 @@ export const testStudentsRouter = createTRPCRouter({
           unmarked profile — which would be indistinguishable from a real person and would hold the
           email address that names the number.
         */
-        await deleteAuthUser(authUserId).catch(() => {
+        await deleteAuthUser(ctx, authUserId).catch(() => {
           console.error(
             `test-students.create: could not delete the auth user ${authUserId} after failing to ` +
               `mark it as test student ${number}. It must be removed by hand.`,
@@ -386,7 +405,24 @@ export const testStudentsRouter = createTRPCRouter({
         }
       }
 
-      await deleteAuthUser(student.id);
+      /*
+        Recorded *before* the account goes, because deleting it cascades through the profile to
+        every submission, test run, and grading draft attached to it. Afterwards there is nothing
+        left to name in the event — which is the case the snapshot columns on `audit_events` exist
+        for, and the order that keeps them accurate.
+      */
+      await recordEvent(ctx.db, {
+        action: "TEST_STUDENT_DELETED",
+        actor: auditActor(ctx),
+        subject: { id: student.id, label: student.displayName ?? "a test student" },
+        detail: {
+          number: student.testStudentNumber,
+          repositoriesDeleted: repositories.length - failed.length,
+          repositoriesLeftBehind: failed,
+        },
+      });
+
+      await deleteAuthUser(ctx, student.id);
 
       return {
         displayName: student.displayName,

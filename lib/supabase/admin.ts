@@ -20,8 +20,16 @@ import "server-only";
  * Compute an instance is reused across concurrent requests, and configuration cached at module
  * scope is shared state between them.
  *
- * **The service role key bypasses row level security and every policy.** These functions are
- * therefore only ever called from an `adminProcedure`, and each takes the narrowest input it can.
+ * **The service role key bypasses row level security and every policy.** Both functions therefore
+ * take an authorized context and refuse a caller who is not an ADMIN, rather than documenting that
+ * rule and trusting each call site to have honoured it.
+ *
+ * What that check is and is not worth stating plainly: server code can fabricate an object with
+ * `role: "ADMIN"` on it, so this stops a mistake and not an attacker. A mistake is the realistic
+ * failure — a future procedure reaching for `createAuthUser` because it needs an account, from a
+ * builder that admits instructors — and the rule stops being something a reader has to already
+ * know. The guarantee against an attacker is upstream, in the procedure builders in
+ * `trpc/init.ts`, and this does not replace it.
  */
 
 /** A failure from the auth admin API, worded for the admin who hit it. */
@@ -38,6 +46,29 @@ export class AuthAdminError extends Error {
 
 /** The status Supabase answers with when the address is already taken. */
 export const EMAIL_TAKEN_STATUS = 422;
+
+/**
+ * Just enough of a caller to check. Deliberately not `AuthedCtx`: neither function here touches
+ * the database, and asking for a client they do not use would be asking a caller to prove
+ * something unrelated to what is being decided.
+ */
+type ServiceRoleCaller = { profile: { role: string } };
+
+/**
+ * Refuses anybody but an admin, before the key is read.
+ *
+ * Ordered that way on purpose — a non-admin caller never reaches the branch that pulls the key
+ * out of the environment, so the failure is about authorization rather than about configuration.
+ */
+function assertMayUseServiceRole(caller: ServiceRoleCaller, what: string): void {
+  if (caller.profile.role !== "ADMIN") {
+    throw new AuthAdminError(
+      `Only an admin may ${what}. This uses the Supabase service role key, which bypasses ` +
+        `row level security and every policy on every table.`,
+      403,
+    );
+  }
+}
 
 function adminConfig(): { url: string; key: string } {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -67,10 +98,15 @@ function adminConfig(): { url: string; key: string } {
  * because that case is not an error at the caller: it means another admin took the number first,
  * and the answer is to try the next one.
  */
-export async function createAuthUser(params: {
-  email: string;
-  displayName: string;
-}): Promise<{ id: string }> {
+export async function createAuthUser(
+  caller: ServiceRoleCaller,
+  params: {
+    email: string;
+    displayName: string;
+  },
+): Promise<{ id: string }> {
+  assertMayUseServiceRole(caller, "create a test student");
+
   const { url, key } = adminConfig();
 
   const response = await fetch(`${url}/auth/v1/admin/users`, {
@@ -116,7 +152,9 @@ export async function createAuthUser(params: {
  * one already gone satisfies that. It is reached in the ordinary way when creating a test student
  * fails partway and the cleanup runs twice.
  */
-export async function deleteAuthUser(id: string): Promise<void> {
+export async function deleteAuthUser(caller: ServiceRoleCaller, id: string): Promise<void> {
+  assertMayUseServiceRole(caller, "delete a test student");
+
   const { url, key } = adminConfig();
 
   const response = await fetch(`${url}/auth/v1/admin/users/${id}`, {
