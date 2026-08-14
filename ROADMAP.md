@@ -8,12 +8,15 @@ How the built system works is in [README.md](README.md). This file is only what 
 - [What the review pass left open](#what-the-review-pass-left-open)
 - [Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)
 - [An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)
+- [Notes a student keeps on their own work](#notes-a-student-keeps-on-their-own-work)
+- [Subscribing a calendar to due dates](#subscribing-a-calendar-to-due-dates)
+- [A chat scoped to a student's own course context](#a-chat-scoped-to-a-students-own-course-context)
 - [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
 - [Salesforce synchronization](#salesforce-synchronization)
+  - [What came back from Idlewild](#what-came-back-from-idlewild)
   - [Questions I need answered](#questions-i-need-answered)
   - [What may need to be built on the Salesforce end](#what-may-need-to-be-built-on-the-salesforce-end)
   - [The shape of the work here, once those are answered](#the-shape-of-the-work-here-once-those-are-answered)
-- [Seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it)
 - [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
 - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
   - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
@@ -46,7 +49,7 @@ The sequence is most immediate first. A feature's own section says what is known
 3. **[Notes a student keeps on their own work](#notes-a-student-keeps-on-their-own-work)** — the assignment panel's third tab, and a screen listing them. High for how little it is: one table, no new dependency, and it is the half of [the dashboard](README.md#what-is-due-across-every-cohort) that is about what a student took from the work rather than about what is left of it.
 4. **[Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)** — grading every resubmission at a sitting. A second axis over triage rather than a new bucket, for a reason worth knowing before building it.
 5. **[Subscribing a calendar to due dates](#subscribing-a-calendar-to-due-dates)** — one route that renders text and one column. Depends on nothing, so its position is a judgment about how much it is wanted rather than about what it needs; it goes here because due dates are the thing students say they lose track of and this is the version of the answer that costs almost nothing.
-6. **[Salesforce synchronization](#salesforce-synchronization)** — blocked on a conversation with the consultants who built our Salesforce implementation. The questions that conversation has to answer are written out below. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
+6. **[Salesforce synchronization](#salesforce-synchronization)** — the consultants have answered the administrator half and named what needs a Salesforce developer instead, so what blocks this now is that developer and three decisions that are ours to make. Note that it manages assignment records as well as submission records, so it depends on assignment authoring rather than merely following it.
 7. **[Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)** — half of which is settled, since [a group](README.md#groups-and-grading-a-portion-of-a-cohort) is the way to name a subset of students.
 8. **[AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)** — which begins with [instructor-authored rubrics](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion), since none of the four fixed section types fits a resume or a reflection.
 9. **[An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)** — last of the grading-side features, and not because it is least wanted. It reads a term of released feedback, so it has nothing to read until a term has been graded, and it is the one feature here whose output is about a person rather than a piece of work.
@@ -153,7 +156,7 @@ Saved on blur rather than behind a button, with a confirmation that fades. A not
 
 What to know before building it:
 
-- **The new table needs its own privilege statements.** `REVOKE ALL … FROM anon, authenticated` and `ENABLE ROW LEVEL SECURITY`, copied from an existing migration, until the [project-wide default privileges question](#open-items) is decided. A student's private notes are the worst table in this schema to leave readable from browser JavaScript.
+- **The new table gets its own privilege statements**, copied from an existing migration, even though [the project-wide default](README.md#request-path) already closes it on creation. A student's private notes are the worst table in this schema to leave readable from browser JavaScript, and the block travelling with the table is what a reader finds.
 - **The note editor wants to appear before grading, not only after.** A student takes notes while working, and an assignment that is `ACCEPTED` or handed in has as much to write about as one that has come back. `NOT_STARTED` is the one state where the tab is not worth offering.
 - **`/notes` is a cross-course read**, so it is the second procedure with no course in its input after `assignments.listMine`, and it wants that one's scoping rules: the notes themselves are the student's own, but which of them to *show* is a question about enrollments.
 
@@ -207,7 +210,7 @@ Two things it needs beyond a filter control:
 
 ## Salesforce synchronization
 
-**Blocked on a conversation with the consultants who built our Salesforce implementation.** Everything below the questions is guesswork until that happens, which is why the field mapping was never guessed at.
+**The consultants have replied, and what they answered is in [its own section](#what-came-back-from-idlewild).** Enough is now known to stop guessing about the object and the environment; what remains is a Salesforce developer for the integration's shape, and three decisions that only Marcy can make. The field mapping is still not written down here because it is a reading exercise against a real org rather than something to invent.
 
 **What already exists here.** `submissions` carries three dormant columns — `salesforceSyncStatus` (`PENDING`, `SYNCED`, `FAILED`), `salesforceRecordId`, and `salesforceSyncedAt` — and approving a grade sets the status to `PENDING`. Nothing reads them. They exist so that a synchronization job can query `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at that point.
 
@@ -217,6 +220,24 @@ It also widens the feature past what those columns cover. Managing assignment *a
 
 - **The ordering is forced.** A submission record presumably cannot exist without its assignment record, so authoring an assignment has to create the Salesforce side before any grade for it can sync. That makes this feature depend on assignment authoring rather than merely following it.
 - **`assignments` and `courses` both need the same three columns** `submissions` already has. Correct assumption: only `submissions` has them, because it was the only table whose sync was being thought about when they were added. A course is presumably a cohort or program record on their end and an assignment hangs off it, so all three levels need to hold their Salesforce id and sync state. One small migration once the objects' shapes are known — deliberately not written until then, on the same reasoning that left the field mapping un-guessed.
+
+### What came back from Idlewild
+
+They answered the questions a System Administrator can answer, sorted the rest into two piles, and gave a recommendation on the whole approach.
+
+**Their recommendation is not to build this now.** The stated reasons are internal capacity to maintain a custom integration over the long term, the team's inexperience with the Salesforce platform specifically, and an October target for building, testing, and integrating. Their suggested first step if it goes ahead anyway is to bring in a Salesforce developer in at least an advisory capacity, before the build rather than during it. Their own scope explicitly excludes code review, testing, external connection practices, and monitoring API versions over time — so the parts of this that are code are ours regardless.
+
+**Answered, and they remove work:**
+
+- **The object exists and is called Assignment Submission.** Its complete field list, with types and API names, is at Setup → Object Manager → Assignment Submission → Fields & Relationships, and shows every field regardless of page layout or profile visibility. So the field mapping stops being a guess and becomes a reading exercise.
+- **Sandboxes are not a constraint.** Marcy can create up to 30 developer sandboxes — three are in use — plus one partial copy, and a System Administrator can make one at any time. Develop against a developer sandbox with invented data rather than the partial copy, which would put real student information in a looser environment.
+- **The API ceiling is 127,000 calls per 24 hours**, visible at Setup → System Overview, and more can be bought. At one write per approved grade this is not a limit worth designing around.
+- **Validation rules, flows, and dependencies are discoverable rather than mysterious.** They are in Setup, per object; the "Where is this used?" button on a field answers what reads it. Salesforce has a documented order of operations for how validations and automations fire, which they recommend reading before designing the write.
+- **A dedicated integration user with a restricted profile is the right shape**, which is what was already assumed. It likely needs a paid licence, and its permissions should be set at both object and field level.
+
+**Still needs a Salesforce developer**, and these are the ones that decide the integration's shape: which API endpoints exist for these objects, what the reliable student identifier is, whether REST or sObject Collections or Bulk fits one write per grade, and who creates the Connected App and issues the certificate for the JWT bearer flow.
+
+**Ours to decide, and nobody else can:** whether the sync also runs updates rather than only first writes, whether it is one-way or two-way, and — the one that changes the most code — whether a grade corrected here may overwrite Salesforce, or whether Salesforce becomes the system of record once written.
 
 ### Questions I need answered
 
@@ -240,13 +261,11 @@ It also widens the feature past what those columns cover. Managing assignment *a
 - Do you want the feedback text at all? It is markdown and can run to several hundred words, so I need to know whether to send it, and whether to strip the formatting.
 - Are there required fields on that object that I have no way to supply?
 
-**API access.** I need server-to-server access with no human in the loop:
+**API access.** I need server-to-server access with no human in the loop. Sandboxes, the request ceiling, and the integration user are [already settled](#what-came-back-from-idlewild); what is left is for a Salesforce developer:
 
 - Which API should I use — REST, sObject Collections, or Bulk? Volume is small: one write per approved grade, so roughly 25 per assignment per cohort.
 - Can we set up a Connected App with the OAuth JWT bearer flow, and who creates it and issues the certificate?
-- Is there an integration user I should authenticate as, or should one be created? What profile or permission set should it have — I want the narrowest that works.
-- Is there a sandbox org I can develop and test against, and how do I get access?
-- What API request limits are we working within?
+- What exactly goes in the integration user's permission set, at object and field level, for a user that only writes a handful of fields on one object?
 
 **Re-syncing without creating duplicates.** A grade can be corrected after it has been sent, and a student can resubmit and be graded again:
 
@@ -256,7 +275,7 @@ It also widens the feature past what those columns cover. Managing assignment *a
 
 **What else fires when I write.** This is the part I cannot see and am most likely to break:
 
-- Are there validation rules, triggers, flows, or required-field rules on that object that a write would set off?
+- Which validation rules, triggers, flows, and required-field rules actually exist on that object? They are discoverable in Setup, so this is a lookup rather than a question — but it has to be done before the first write, alongside Salesforce's documented order of operations for how they fire.
 - Does anything downstream read those fields — reports, dashboards, a program-completion calculation, anything that emails a student or a funder?
 - Could someone edit a grade directly in Salesforce? If so, we need to agree which side wins.
 
@@ -267,6 +286,10 @@ Worth flagging in the same conversation, since some of it is their work rather t
 ### The shape of the work here, once those are answered
 
 A job that reads `PENDING` submissions, writes them, and records `SYNCED` with the record Id or `FAILED` with the reason. Deliberately not part of the approval transaction: approving already posts a pull request comment best-effort for the same reason, because a grade must not fail to be recorded because a third party is unavailable. That makes the sync retryable and makes a failed sync visible as a state rather than a lost write, which is the same shape as the undelivered-comment triage bucket.
+
+**Each write gets an audit event, and the log is already there for it.** [`audit_events`](README.md#data-model) is append-only and records `GRADE_APPROVED` today, which is the act a Salesforce record mirrors — so what is missing is one more action for the write itself, carrying the payload sent and the result. That record is what makes "may I overwrite what is in Salesforce" answerable afterwards instead of theoretical: without it, a corrected grade and the question of which side wrote last are reconstructed from mutable rows.
+
+**The student identifier should be stored, not matched on.** If the integration resolves a student by email at write time, it needs read access on Contact and it breaks when an address changes. Storing the Salesforce record Id against the profile once, at enrollment, means the running integration writes to an id it already holds — no lookup by personal information, and a narrower permission set for the integration user. That is worth proposing rather than asking about.
 
 ---
 
@@ -504,7 +527,7 @@ Also unresolved, and cheap to note now: an instructor uploading a rubric to a fo
 - **An early-intervention dashboard.** `lastActivityAt`, `isLate`, and `status` already support it.
 - **A per-student record that accumulates over time and informs grading.** Requires deciding what is tracked and deserves its own design discussion.
 - **A grading assistant mode** that identifies patterns across a student's assignments relative to a rubric. Depends on the previous item existing first.
-- **Adding a student to a cohort directly, without the link.** It needs a way to find a person by email across the whole application, which is a search over `Profile` that nothing else needs and that exposes who else uses the system. The join link covers the case that actually happens at the start of term.
+- **Adding a student to a cohort directly, without the link.** It needs a way to find a person by email across the whole application, which is a search over `Profile` that nothing else needs and that exposes who else uses the system. The link and [the roster](README.md#getting-students-into-a-course) together cover the case that actually happens at the start of term: the instructor already writes down who is expected, and adding somebody mid-term is one more line in that box.
 
 Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 assignments, route to `needs_manual_review` rather than expanding the rubric now.
 
@@ -515,6 +538,5 @@ Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 a
 - **Which GitHub organization — settled.** A **new organization**, created for this, rather than `The-Marcy-Lab-School-Assignments`. That org holds the GitHub Classroom era's templates and will not be used at all. Everything verified so far used `marcy-lms-test`, and moving to the new one is a matter of `SEED_GITHUB_ORG`, an App installation, and each assignment's `githubOrg`.
 
   **What matters about the new org is the templates' provenance, not its name.** Classroom wrote `.github/workflows/classroom.yml` into the assignment templates it managed, and every repository generated from one inherits it. A template created fresh, or copied from `marcy-lms-test` — confirmed clean, 27 templates and no workflows at all — carries nothing. A template forked, transferred, or imported from the Classroom-era org brings the workflow with it. So the rule to hold when populating the new org is where each template came from.
-- **Project-wide Supabase default privileges.** Undecided, pending a conversation with your partner. Until it is decided, every new table needs its own `REVOKE` and row level security statements.
 - **`package.json` merge policy for a legitimate dependency collision.** The template wins on a version collision, which is correct when the assignment specifies a version deliberately. Revisit if an assignment ever wants students to choose one.
 - **Uploaded objects are never pruned.** A re-upload writes a new object and the previous one is left in place deliberately, so a bucket grows with every resubmission. Nothing collects them, and nothing needs to yet.
