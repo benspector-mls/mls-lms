@@ -1,6 +1,6 @@
 # Security
 
-What protects student data in this application, where each control lives, and the settings that are not in this repository but are load-bearing anyway.
+What protects student data in this application, where each control lives, and the settings that live outside this repository and matter just as much.
 
 ## The one thing to do before students arrive
 
@@ -17,7 +17,7 @@ With it off, GitHub is the only way in, which is the intended design — student
 | Who may read a course | `assertCourseMember` / `assertActiveStudent` | `lib/courses/membership.ts` |
 | Who may act in a course | Procedure builders, not call-site checks | `trpc/init.ts` |
 | Which cohort an instructor may touch | `courseProcedure`, `lib/courses/scope.ts` | `trpc/init.ts` |
-| What the browser may read from Postgres | Table privileges — nothing | migration `20260814024306` |
+| What client-side JavaScript may read | Table privileges — nothing | migration `20260814024306` |
 | What happened, and who did it | Append-only `audit_events` | `lib/audit/record.ts` |
 | Spending on models and sandboxes | Counts out of the audit log | `lib/audit/rate-limit.ts` |
 
@@ -43,7 +43,7 @@ These are not in version control and none of them are visible from the code.
 - **Redirect URLs** (Authentication → URL Configuration): only the deployment's own origins. `app/auth/callback/route.ts` and `app/auth/confirm/route.ts` both refuse non-relative `next` values, but a loose allowlist here is a separate door.
 - **Rate limits** (Authentication → Rate Limits): tighten sign-in and token refresh. Supabase enforces these; the application cannot.
 - **Session length**: shorter is better for an application that shows grades on shared laptops.
-- **Service role key**: rotate it. It has lived in a development environment for months, and it bypasses row level security and every policy. Prefer the newer `sb_secret_…` format, which can be issued more than once and revoked individually, so the next rotation is not an outage.
+- **Service role key**: rotate it. It has been in a development environment since the project started, and it bypasses row level security and every policy. Prefer the newer `sb_secret_…` format, which can be issued more than once and revoked individually, so the next rotation is not an outage.
 
 ## Settings to add at the platform edge
 

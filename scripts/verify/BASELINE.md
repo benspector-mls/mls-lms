@@ -13,7 +13,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:approve` | 48 → **53** | the database |
 | `verify:uploads` | 88 | the database, and the storage bucket |
 | `verify:authoring` | 156 | the database, and GitHub |
-| `verify:enrollment` | 200 | the database |
+| `verify:enrollment` | 200 → **209** | the database |
 | `verify:app` | 16 | GitHub |
 | `verify:assets` | 62 | GitHub |
 | `verify:e2b` | 8 | a real E2B sandbox |
@@ -32,7 +32,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 
 `calibrate` is not a check script: it grades a sample and prints a comparison for a person to read.
 
-**A number moves only when a script gains checks, and then it is written down here with both figures.** `verify:approve` went from 48 to 53 when batch generation added five: that a run can be claimed, that a second attempt on the same commit is refused, that another commit is separate work, that the no-commit case is claimed once too, and that an abandoned claim can be taken. The old figure stays beside the new one because the point of this file is that a count which changed for a reason looks exactly like one that changed by accident, unless somebody says which.
+**A number moves only when a script gains checks, and then it is written down here with both figures.** `verify:enrollment` went from 200 to 209 when the roster arrived: that somebody nobody expected is refused, that the screen says so before the button, that an instructor can write down who is expected, that the screen then offers the button, that pasting the same list twice adds nobody, that joining claims the entry, that a claimed entry cannot be removed, and — the two that hold the ordering in place — that a student already in the cohort is unaffected by having no entry, and that their screen still says they are in it. `verify:approve` went from 48 to 53 when batch generation added five: that a run can be claimed, that a second attempt on the same commit is refused, that another commit is separate work, that the no-commit case is claimed once too, and that an abandoned claim can be taken. The old figure stays beside the new one because the point of this file is that a count which changed for a reason looks exactly like one that changed by accident, unless somebody says which.
 
 **The first two rows are history rather than instructions.** `verify:sandbox` and `verify:grade` needed nothing — no database, no repository, no model — which is exactly what makes them unit tests rather than scripts, so their 142 assertions are now Jest cases and both scripts are gone. Nothing was dropped in the move: the sandbox suite carries 41 assertions and the three grading suites carry the other 101, in 100 cases, the one difference being that `hasTestEvidence`'s pair of checks share a case. The rows stay in the table because they are what the counts below were compared against, and because the next reader should know where those numbers went.
 
