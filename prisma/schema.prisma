@@ -94,6 +94,8 @@ model Profile {
   editedSections    GradingDraftSection[] @relation("EditedSections")
   invitesCreated    InstructorInvite[]    @relation("InvitesCreated")
   invitesRedeemed   InstructorInvite[]    @relation("InvitesRedeemed")
+  rosterEntriesClaimed RosterEntry[]      @relation("RosterClaimed")
+  rosterEntriesAdded   RosterEntry[]      @relation("RosterAdded")
 
   @@map("profiles")
   @@schema("public")
@@ -211,6 +213,7 @@ model Course {
 
   instructors CourseInstructor[]
   enrollments Enrollment[]
+  rosterEntries RosterEntry[]
   assignments Assignment[]
   modules     Module[]
   groups      CourseGroup[]
@@ -1135,5 +1138,62 @@ model AuditEvent {
   @@index([courseId, occurredAt(sort: Desc)])
   @@index([action, occurredAt(sort: Desc)])
   @@map("audit_events")
+  @@schema("public")
+}
+
+/// Somebody expected in a cohort, recorded before they ever sign in.
+///
+/// **The allowlist half of joining a course.** A join link is unguessable but not private: an
+/// instructor sends it however they already talk to their students, which means into a group
+/// chat, an email thread, or a message somebody forwards. Before this table the link was the
+/// whole credential — `enrollments.ts` said so — and the controls were after the fact: rotate the
+/// link, remove whoever got in. This makes the link necessary and not sufficient. Holding it
+/// admits nobody who is not already expected by name.
+///
+/// **Matched on GitHub login or email, either one.** Two keys rather than one because each fails
+/// in a way the other covers. A student who renames their GitHub account between the roster being
+/// entered and their first sign-in no longer matches by login; a student whose GitHub email is
+/// private presents a `users.noreply.github.com` address and never matched by email to begin
+/// with. Requiring one and accepting either is what makes the roster survive contact with real
+/// accounts. Both are stored lowercased — GitHub logins are case-insensitive, and the handle the
+/// signup trigger captures preserves whatever casing GitHub had.
+///
+/// **One entry admits one person, once.** `claimedById` is set in the same transaction as the
+/// enrollment, so a second person who somehow matched the same entry finds it taken. A student
+/// who is removed and later restored still matches their own claimed entry, which is why the
+/// check is "unclaimed, or claimed by you" rather than "unclaimed".
+model RosterEntry {
+  id       String @id @default(uuid()) @db.Uuid
+  courseId String @map("course_id") @db.Uuid
+
+  /// GitHub login, lowercased. Null when the instructor only had an address.
+  githubUsername String? @map("github_username")
+  /// Email, lowercased. Null when the instructor only had a handle.
+  email          String?
+
+  /// Who this is meant to be, in an instructor's words. Not matched on — it exists so a roster of
+  /// unclaimed entries reads as a list of people rather than a list of handles, which is what
+  /// makes a typo in one of the two keys above findable.
+  note String?
+
+  /// The profile that matched this entry and joined on it. Null until somebody does.
+  claimedById String?   @map("claimed_by_id") @db.Uuid
+  claimedAt   DateTime? @map("claimed_at") @db.Timestamptz(6)
+
+  addedById String?  @map("added_by_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  claimedBy Profile? @relation("RosterClaimed", fields: [claimedById], references: [id], onDelete: SetNull)
+  addedBy   Profile? @relation("RosterAdded", fields: [addedById], references: [id], onDelete: SetNull)
+
+  /// One entry per person per cohort, on whichever key was given. Two entries naming the same
+  /// student by different keys would each admit them once, which is one enrollment and two
+  /// claimed rows — harmless, and confusing enough on the screen to be worth preventing at the
+  /// point of entry rather than here.
+  @@unique([courseId, githubUsername])
+  @@unique([courseId, email])
+  @@index([courseId])
+  @@map("roster_entries")
   @@schema("public")
 }

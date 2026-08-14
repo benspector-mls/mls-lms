@@ -97,6 +97,38 @@ export function JoinCourse({
           <p className="text-sm text-muted-foreground">
             This cohort has finished, so it is not taking new students.
           </p>
+        ) : !preview.onRoster ? (
+          /*
+            Handled here rather than left to the mutation's refusal, unlike the four states above.
+            Those are things the person cannot act on until an instructor does; this one usually
+            has an answer they can reach themselves — they signed in with a personal GitHub
+            account instead of the one their instructor wrote down — and telling them after they
+            press Join means telling them once they have already concluded they are in the right
+            place.
+
+            The account is named for the same reason. Somebody who has two GitHub accounts cannot
+            see which one this browser is signed in as, and that is precisely the fact that
+            resolves it.
+          */
+          <>
+            <p className="flex items-center gap-1.5 text-sm text-amber-700 dark:text-amber-400">
+              <TriangleAlert className="size-4 shrink-0" />
+              This link is not for this account.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {preview.signedInAs ? (
+                <>
+                  You are signed in as{" "}
+                  <span className="font-mono text-foreground">{preview.signedInAs}</span>, which is
+                  not on the list of students expected in {preview.name}.
+                </>
+              ) : (
+                <>Your account is not on the list of students expected in {preview.name}.</>
+              )}{" "}
+              If you usually use a different GitHub account, sign out and try again with that one.
+              Otherwise ask your instructor to add you.
+            </p>
+          </>
         ) : alreadyActive ? (
           <>
             <p className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">

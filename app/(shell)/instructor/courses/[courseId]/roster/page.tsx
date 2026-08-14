@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import { ExpectedStudents } from "@/components/instructor/expected-students";
 import { GroupManager } from "@/components/instructor/group-manager";
 import { CourseRoster } from "@/components/instructor/roster";
 import { PageFallback } from "@/components/list-states";
@@ -32,10 +33,11 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
     one. The roster is where groups are *made*; a roster narrowed to a group could not show the
     student who is in none, which is exactly who an instructor comes here to place.
   */
-  const [data, groups, memberships] = await Promise.all([
+  const [data, groups, memberships, expected] = await Promise.all([
     queryClient.fetchQuery(trpc.courses.roster.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.groups.listForCourse.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.groups.membershipsForCourse.queryOptions({ courseId })),
+    queryClient.fetchQuery(trpc.enrollments.roster.queryOptions({ courseId })),
   ]);
 
   const active = data.enrollments.filter((enrollment) => enrollment.status === "ACTIVE").length;
@@ -46,6 +48,12 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
         title="Roster"
         description={`${active} ${active === 1 ? "student" : "students"} in this cohort`}
       />
+      {/*
+        Above the join link, because it is now the first step rather than an extra one: the link
+        admits nobody who is not on this list, so an instructor who meets the link first has a
+        cohort that silently refuses everybody they send it to.
+      */}
+      <ExpectedStudents courseId={courseId} entries={expected} />
       <CourseRoster data={data} />
       <GroupManager courseId={courseId} data={groups} memberships={memberships} />
     </div>

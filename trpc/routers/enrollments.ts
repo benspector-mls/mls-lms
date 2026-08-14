@@ -1,23 +1,41 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { auditActor, recordEvent } from "@/lib/audit/record";
+import {
+  claimRosterEntry,
+  findRosterMatch,
+  rosterApplies,
+  rosterRefusal,
+} from "@/lib/courses/roster";
+import { MAX_ROSTER_PASTE, rosterEntrySchema } from "@/lib/courses/roster-input";
 import { teachableEnrollment } from "@/lib/courses/scope";
 
-import { type AuthedCtx, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import {
+  type AuthedCtx,
+  courseProcedure,
+  createTRPCRouter,
+  instructorProcedure,
+  profileProcedure,
+} from "../init";
 import { displayNameOf, personNameSelect } from "../selects";
 
 /**
  * Getting students into a course, and out of it.
  *
- * **One join link per course.** An instructor copies it and sends it however they already talk
- * to their students; opening it and signing in with GitHub creates the enrollment. This
- * application holds no email credentials and sends nothing, which is the reason the link is per
- * course rather than per student — there is no point generating twenty-five tokens when
- * distributing them is a person's job either way.
+ * **One join link per course, and a list of who it works for.** An instructor writes down the
+ * students they expect — by GitHub login, by address, or both — and then sends the link however
+ * they already talk to them. This application holds no email credentials and sends nothing, which
+ * is the reason the link is per course rather than per student: there is no point generating
+ * twenty-five tokens when distributing them is a person's job either way.
  *
- * What that trades away is the allowlist. Anyone holding the link joins immediately, so the
- * controls are after the fact: `courses.regenerateJoinToken` invalidates a link that reached
- * the wrong person, and `remove` deals with whoever got in.
+ * The two halves do different work and neither is enough alone. The link is unguessable, which
+ * stops somebody finding a cohort; the roster is an allowlist, which stops somebody who was *sent*
+ * the link — forwarded from a group chat, or passed to a friend — from being admitted by it. See
+ * `lib/courses/roster.ts` for how a match is decided and why one entry admits one person.
+ *
+ * `courses.regenerateJoinToken` and `remove` are still here and still worth having, but they are
+ * now the second line rather than the only one.
  *
  * **Removing is a status, never a deleted row.** A student who leaves had submissions, grades,
  * and released feedback, and destroying those to tidy a roster is the worse failure. What
@@ -61,12 +79,29 @@ export const enrollmentsRouter = createTRPCRouter({
         select: { status: true },
       });
 
+      /*
+        Asked here as well as in `join`, through the same function, so the screen and the mutation
+        cannot disagree. A preview that offers a button the mutation then refuses is worse than no
+        preview: the student has already decided they are in the right place by the time they are
+        told otherwise.
+      */
+      const onRoster =
+        !rosterApplies(ctx.profile.role) ||
+        (await findRosterMatch(ctx.db, course.id, ctx.profile)) !== null;
+
       return {
         courseId: course.id,
         name: course.name,
         cohortTerm: course.cohortTerm,
         archived: course.archivedAt !== null,
         primaryInstructor: course.instructors[0]?.user.displayName ?? null,
+        /**
+         * Whether this account is expected in this cohort. False turns the join button into an
+         * explanation — see `rosterRefusal` for what that explanation may and may not say.
+         */
+        onRoster,
+        /** What they are signed in as, so the explanation can name the account rather than the person. */
+        signedInAs: ctx.profile.githubUsername ?? ctx.profile.email,
         /** So the screen can say "you are already in this course" rather than offering to join. */
         alreadyIn: existing?.status ?? null,
       };
@@ -132,6 +167,21 @@ export const enrollmentsRouter = createTRPCRouter({
         });
       }
 
+      /*
+        The roster check, before anything is written.
+
+        Placed after the "you teach this" refusal and before the enrollment, because a person who
+        teaches the course is not a student who failed a roster check and should not be told they
+        are. Staff are exempt for the reason `rosterApplies` gives.
+      */
+      const match = rosterApplies(ctx.profile.role)
+        ? await findRosterMatch(ctx.db, course.id, ctx.profile)
+        : null;
+
+      if (rosterApplies(ctx.profile.role) && !match) {
+        throw rosterRefusal(course.name, ctx.profile);
+      }
+
       const existing = await ctx.db.enrollment.findUnique({
         where: { courseId_studentId: { courseId: course.id, studentId: ctx.profile.id } },
         select: { id: true, status: true },
@@ -158,12 +208,193 @@ export const enrollmentsRouter = createTRPCRouter({
         return { courseId: course.id, name: course.name, joined: false };
       }
 
-      await ctx.db.enrollment.create({
-        data: { courseId: course.id, studentId: ctx.profile.id },
-        select: { id: true },
+      /*
+        The claim and the enrollment commit together.
+
+        **This is what makes one entry admit one person.** Claiming outside the transaction would
+        leave two ways to be wrong: an entry marked used with no enrollment behind it, which reads
+        on the roster as a student who joined and is missing from the cohort; or an enrollment with
+        the entry still free, which is the case the claim exists to prevent. `claimRosterEntry`
+        refuses at the database if somebody took it in between, and that refusal rolls this back.
+      */
+      return ctx.db.$transaction(async (tx) => {
+        if (match) {
+          const claimed = await claimRosterEntry(tx, match.id, ctx.profile.id);
+
+          if (!claimed) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                `Somebody else just joined ${course.name} using the place reserved for your ` +
+                `account. Ask your instructor to check the list of expected students.`,
+            });
+          }
+        }
+
+        await tx.enrollment.create({
+          data: { courseId: course.id, studentId: ctx.profile.id },
+          select: { id: true },
+        });
+
+        await recordEvent(tx, {
+          action: "ENROLLMENT_JOINED",
+          actor: auditActor(ctx),
+          subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a student") },
+          course: { id: course.id, label: course.name },
+          // Which of the two ways in this was. A staff member sitting in a cohort and a student
+          // arriving on their reserved place are both legitimate and are not the same event.
+          detail: match
+            ? { rosterEntryId: match.id, expectedAs: match.githubUsername ?? match.email }
+            : { viaStaffExemption: true, role: ctx.profile.role },
+        });
+
+        return { courseId: course.id, name: course.name, joined: true };
+      });
+    }),
+
+  /**
+   * Who is expected in this cohort, claimed or not.
+   *
+   * `courseProcedure`, so an instructor reads their own cohort's list and not another's. The
+   * unclaimed entries are the useful half of this screen: they are the students who have been
+   * sent the link and have not arrived, which is the list somebody chases.
+   */
+  roster: courseProcedure.query(async ({ ctx, input }) => {
+    const entries = await ctx.db.rosterEntry.findMany({
+      where: { courseId: input.courseId },
+      select: {
+        id: true,
+        githubUsername: true,
+        email: true,
+        note: true,
+        claimedAt: true,
+        claimedBy: { select: { id: true, ...personNameSelect } },
+        addedBy: { select: personNameSelect },
+        createdAt: true,
+      },
+      // Unclaimed first, because they are the ones with something left to do.
+      orderBy: [{ claimedAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+    });
+
+    return entries.map((entry) => ({
+      ...entry,
+      claimedByName: entry.claimedBy ? displayNameOf(entry.claimedBy, "a student") : null,
+      addedByName: entry.addedBy ? displayNameOf(entry.addedBy, "an instructor") : null,
+    }));
+  }),
+
+  /**
+   * Adds people to the list of students expected in this cohort.
+   *
+   * **Entries that are already there are skipped rather than refused.** Pasting a roster twice is
+   * something people do — a spreadsheet gains three names and the whole thing gets pasted again —
+   * and failing the entire write because of the twenty-two that were already present would make
+   * the obvious action the wrong one. What comes back says how many of each, so the screen can be
+   * honest about it.
+   */
+  addToRoster: courseProcedure
+    .input(
+      z.object({
+        entries: z.array(rosterEntrySchema).min(1).max(MAX_ROSTER_PASTE),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const course = await ctx.db.course.findUniqueOrThrow({
+        where: { id: input.courseId },
+        select: { id: true, name: true },
       });
 
-      return { courseId: course.id, name: course.name, joined: true };
+      return ctx.db.$transaction(async (tx) => {
+        /*
+          `skipDuplicates` leans on the two unique constraints, which is what makes "already there"
+          a decision the database makes rather than a read this has to do first. A read would be
+          wrong as well as slower: two instructors pasting overlapping lists at the same moment
+          would both find the row absent.
+        */
+        const written = await tx.rosterEntry.createMany({
+          data: input.entries.map((entry) => ({
+            courseId: input.courseId,
+            githubUsername: entry.githubUsername,
+            email: entry.email,
+            note: entry.note,
+            addedById: ctx.profile.id,
+          })),
+          skipDuplicates: true,
+        });
+
+        if (written.count > 0) {
+          await recordEvent(tx, {
+            action: "ROSTER_ENTRY_ADDED",
+            actor: auditActor(ctx),
+            course: { id: course.id, label: course.name },
+            // The keys rather than a count, because "who was added to this cohort" is the question
+            // this event is kept to answer, and a count cannot answer it.
+            detail: {
+              added: written.count,
+              keys: input.entries.map((entry) => entry.githubUsername ?? entry.email),
+            },
+          });
+        }
+
+        return {
+          added: written.count,
+          alreadyPresent: input.entries.length - written.count,
+        };
+      });
+    }),
+
+  /**
+   * Takes somebody off the list of expected students.
+   *
+   * **A claimed entry is refused.** Removing it would not remove the student — they are enrolled,
+   * and the enrollment is what the application reads — so it would only destroy the record of how
+   * they got in, leaving a cohort member nothing explains. `remove` below is how somebody leaves.
+   */
+  removeFromRoster: courseProcedure
+    .input(z.object({ entryId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const entry = await ctx.db.rosterEntry.findFirst({
+        // Scoped by `courseId` from the input, which `courseProcedure` has already checked the
+        // caller teaches. An entry id alone says nothing about which cohort it belongs to.
+        where: { id: input.entryId, courseId: input.courseId },
+        select: {
+          id: true,
+          githubUsername: true,
+          email: true,
+          claimedById: true,
+          course: { select: { id: true, name: true } },
+        },
+      });
+
+      if (!entry) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That entry is not on this cohort's list.",
+        });
+      }
+
+      if (entry.claimedById !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "That student has already joined on this entry, so removing it would take away the " +
+            "record of how they got in without taking away their place. Remove them from the " +
+            "roster instead.",
+        });
+      }
+
+      return ctx.db.$transaction(async (tx) => {
+        await tx.rosterEntry.delete({ where: { id: entry.id } });
+
+        await recordEvent(tx, {
+          action: "ROSTER_ENTRY_REMOVED",
+          actor: auditActor(ctx),
+          course: { id: entry.course.id, label: entry.course.name },
+          detail: { key: entry.githubUsername ?? entry.email },
+        });
+
+        return { id: entry.id };
+      });
     }),
 
   /**
@@ -178,13 +409,23 @@ export const enrollmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const enrollment = await loadTeachableEnrollment(ctx, input.enrollmentId);
 
-      const updated = await ctx.db.enrollment.update({
-        where: { id: input.enrollmentId },
-        data: { status: "REMOVED" },
-        select: { id: true, status: true },
-      });
+      return ctx.db.$transaction(async (tx) => {
+        const updated = await tx.enrollment.update({
+          where: { id: input.enrollmentId },
+          data: { status: "REMOVED" },
+          select: { id: true, status: true },
+        });
 
-      return { ...updated, studentName: enrollment.studentName };
+        await recordEvent(tx, {
+          action: "ENROLLMENT_REMOVED",
+          actor: auditActor(ctx),
+          subject: { id: enrollment.studentId, label: enrollment.studentName },
+          course: { id: enrollment.courseId, label: enrollment.courseName },
+          detail: { enrollmentId: updated.id },
+        });
+
+        return { ...updated, studentName: enrollment.studentName };
+      });
     }),
 
   /**
@@ -200,13 +441,23 @@ export const enrollmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const enrollment = await loadTeachableEnrollment(ctx, input.enrollmentId);
 
-      const updated = await ctx.db.enrollment.update({
-        where: { id: input.enrollmentId },
-        data: { status: "ACTIVE" },
-        select: { id: true, status: true },
-      });
+      return ctx.db.$transaction(async (tx) => {
+        const updated = await tx.enrollment.update({
+          where: { id: input.enrollmentId },
+          data: { status: "ACTIVE" },
+          select: { id: true, status: true },
+        });
 
-      return { ...updated, studentName: enrollment.studentName };
+        await recordEvent(tx, {
+          action: "ENROLLMENT_RESTORED",
+          actor: auditActor(ctx),
+          subject: { id: enrollment.studentId, label: enrollment.studentName },
+          course: { id: enrollment.courseId, label: enrollment.courseName },
+          detail: { enrollmentId: updated.id },
+        });
+
+        return { ...updated, studentName: enrollment.studentName };
+      });
     }),
 });
 
@@ -221,14 +472,18 @@ export const enrollmentsRouter = createTRPCRouter({
 async function loadTeachableEnrollment(
   ctx: AuthedCtx,
   enrollmentId: string,
-): Promise<{ courseId: string; studentName: string }> {
+): Promise<{ courseId: string; courseName: string; studentId: string; studentName: string }> {
   const found = await teachableEnrollment(ctx, enrollmentId, {
     courseId: true,
+    studentId: true,
+    course: { select: { name: true } },
     student: { select: personNameSelect },
   });
 
   return {
     courseId: found.courseId,
+    courseName: found.course.name,
+    studentId: found.studentId,
     studentName: displayNameOf(found.student, "that student"),
   };
 }
