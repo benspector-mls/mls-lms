@@ -130,7 +130,9 @@ npm run dev:webhook    # in a second terminal — forwards smee.io to /api/webho
 
 **`db:seed` creates; it does not modify.** It is for an empty database, and re-running it against one with real work in it leaves every existing row alone. That is a correction rather than a design: it used to reassert the shape it describes on every run, and each reassertion was a silent revert of a decision made in the application. All three happened on the development database — a renamed module was **recreated** under its seeded name, leaving an empty duplicate that a course copied from it then inherited; a removed student would have been **put back**; an edited assignment would have had its title and rubric **reverted**. Modules are now identified by position rather than name, roles are raised and never lowered, and existing enrollments and assignments are untouched. The cost is stated rather than discovered: a corrected spec does not reach a row that already exists — edit it in the application, or delete the row and seed again. The one exception is rubrics, which no router can author, so this script is their only author.
 
-Neither script creates accounts. Identity belongs to Supabase Auth, so both the seed and `grant:admin` look up a profile a real login created and fail with an explanation if it is absent.
+Neither script creates accounts. Identity belongs to Supabase Auth, so both the seed and `grant:admin` look up a profile a real login created and fail with an explanation if it is absent. Sign in with GitHub once before running either — that first sign-in is what creates the profile `grant:admin` then raises.
+
+**In the Supabase dashboard, enable the GitHub provider and disable the Email one.** Both matter. The publishable key is public, so email signup and password sign-in stay reachable against the Supabase API until that provider is off, whatever this application's screens offer — see [signing in](#signing-in). [SECURITY.md](SECURITY.md) lists the rest of the settings that live there rather than here.
 
 Copy `.env.example` to `.env.local`; it documents every variable and the traps behind several of them. In brief:
 
@@ -177,7 +179,7 @@ Everything below it is a script, because everything below it needs something rea
 | `npm run verify:modules`      | Creating, renaming, reordering, and removing a course's modules, through the callers                                                                                                             |
 | `npm run verify:groups`       | Student groups, and that filtering to one narrows all four screens to the same set of students                                                                                                   |
 | `npm run verify:resources`    | Readings, notes, and videos — including every URL shape the video embed refuses                                                                                                                  |
-| `npm run verify:enrollment`   | Creating a cohort, copying one, both links, co-teaching, and the removed-student pair — through the callers                                                                                      |
+| `npm run verify:enrollment`   | Creating a cohort, copying one, the roster and both links, co-teaching, and the removed-student pair — through the callers                                                                       |
 | `npm run verify:staff`        | Instructor invitations, admin promotion, and the grants that stop the browser writing a role                                                                                                     |
 | `npm run verify:uploads`      | The upload path end to end, including the private bucket and signed URLs                                                                                                                         |
 | `npm run verify:assets`       | That a deployed host can read its rubric — forces the local clone off and reads over the API                                                                                                     |
@@ -217,13 +219,16 @@ These are settled and do not need revisiting.
 - **Each assignment stores an explicit `sections` mapping** rather than guessing file paths by convention. Real assignments do not use consistent `{from-scratch,debug,modify}.js` filenames, and one pull request can contain more than one gradable section.
 - **The rubric taxonomy is fixed at the four sections that exist in `rubric.md` today**: `SHORT_RESPONSE`, `CODING_ALGORITHM_FLUENCY`, `CODING_SQL_FLUENCY`, and `CODING_FRONTEND`.
 - **Completion is judged at 75 percent**, matching the Complete/Incomplete policy in `working-with-assignments.md`. Stored per assignment as `completionThreshold`.
-- **Students join a course through one link per course.** An instructor copies it and sends it however they already talk to their students; opening it and signing in with GitHub creates the enrollment. This application holds no email credentials and sends nothing. See [getting students into a course](#getting-students-into-a-course).
+- **A student is admitted by a link and a list, never by either alone.** An instructor writes down who they expect in the cohort, then copies the one join link and sends it however they already talk to their students. Opening it and signing in with GitHub creates the enrollment for an account on that list and refuses one that is not. This application holds no email credentials and sends nothing. See [getting students into a course](#getting-students-into-a-course).
+- **Signing in is GitHub and nothing else.** There is no password form and no self-service signup, so every account arrives through GitHub and two-factor authentication is GitHub's to enforce. See [signing in](#signing-in).
 - **A course link grants a course; only an admin grants a role.** The cohort's co-teaching link admits an account that is already staff to one cohort, and refuses one that is not rather than promoting it. Becoming staff at all stays with `instructor_invites` and `adminProcedure`. See [co-teaching one cohort](#co-teaching-one-cohort).
 - **Deleting a cohort is permanent, owner-only, and reachable only through archiving.** Archiving is the reversible version, so it is the only route to the one that is not; the confirmation states what would go and asks for the cohort's short name. See [deleting a cohort](#deleting-a-cohort).
 - **Removing a student and archiving a course make lists go quiet; they never take work back.** A removed student keeps reading the feedback they were given, and an archived cohort stays readable to the people who were in it — and stays *in their course list*, labelled, rather than becoming an address somebody has to have kept. Neither can hand anything new in. A removed student's work leaves grading triage and the grading queue's list and moves to a Removed students table in the gradebook — see [a removed student's work](#a-removed-students-work).
 - **Teaching a cohort and owning one are different.** Every instructor on a course authors, grades, and reads every student's work; the owner additionally archives it and decides who else teaches it, and cannot be removed by anybody but themselves. See [who owns a cohort](#who-owns-a-cohort).
 - **GitHub's numeric user ID is the durable identity key**, because usernames are mutable.
 - **An uploaded submission is readable only through a signed URL a procedure minted.** The bucket is private and carries no policies, so the browser cannot reach it at all.
+- **The acts that decide who sees whose work are recorded, and the record cannot be rewritten.** `audit_events` is append-only, enforced by triggers rather than grants because Prisma owns the table. The actor is always the real signed-in person, never the test student an admin is viewing as. See [the data model](#data-model).
+- **The two operations that cost money are capped per person per hour.** Generating a grading draft is a model call and running tests is a sandbox; the ceiling exists to stop a stuck screen or a loop spending money, not to stop anybody working. See [a ceiling on what a mistake can spend](#a-ceiling-on-what-a-mistake-can-spend).
 - **The sandbox never holds a GitHub token.**
 - **Verification happens against the `marcy-lms-test` organization**, never the production organization, until a flow is proven.
 - **Production gets a new GitHub organization**, not the one holding the GitHub Classroom era's templates. What matters about it is each template's provenance rather than the org itself: Classroom wrote `.github/workflows/classroom.yml` into the templates it managed, so a template forked or transferred from there brings it along while one created fresh does not.
@@ -262,7 +267,13 @@ REVOKE ALL ON TABLE public.<table> FROM anon, authenticated;
 ALTER TABLE public.<table> ENABLE ROW LEVEL SECURITY;  -- no policies means no access
 ```
 
-Supabase grants all permissions on new `public` tables to `anon` and `authenticated` by default. That is the vulnerability migration `20260730024911_tighten_profiles_grants` fixed for `profiles`, where a signed-in student could have set their own `role` to `ADMIN` from browser JavaScript. Row level security with zero policies denies everything, and Prisma connects as the table owner so it is unaffected. **Every new table needs its own statements** until a project-wide default privileges setting is decided. The tradeoff is that these tables cannot be read directly with supabase-js; adding policies later to a table students depend on is harder than including them from the start.
+**The browser holds no privilege on any table in `public`, and a new table inherits none.** Migration `20260814024306_revoke_public_grants_project_wide` subtracts `anon` and `authenticated` from Supabase's default privileges for every role that creates a table here, so a table added in a hurry is closed on creation rather than open. The block above is still written on each new table — the default is a property of the database and the block is a property of the table, and the one that travels with the table is the one a reader finds.
+
+It is needed because Supabase grants everything on new `public` tables by default, which is how a signed-in student could once have set their own `role` to `ADMIN` from browser JavaScript — the hole `20260730024911_tighten_profiles_grants` closed for `profiles`. The application tables are not at risk from it, because the block above is written on each one. The table that is, is the one no migration in this directory creates: Prisma makes `_prisma_migrations` itself, so it inherits the default, and everything in `public` is reachable through PostgREST.
+
+Row level security with zero policies denies everything, and Prisma connects as the table owner so it is unaffected. The tradeoff is that these tables cannot be read directly with supabase-js. Nothing does: the browser's Supabase client is used for authentication and sign-out and makes no `.from(...)` call anywhere, and every read of application data goes through tRPC.
+
+`ALTER DEFAULT PRIVILEGES FOR ROLE` requires membership in the role it names, not merely that the role exists — the migration guards on `pg_has_role`, because the migration user is not a member of `supabase_admin` and a statement naming it fails outright.
 
 **`trpc/server.tsx` invokes procedures directly in-process** — no HTTP hop for server components, so `Date` values stay `Date` values. The browser link uses a relative URL, which is why no `APP_URL` variable exists.
 
@@ -286,13 +297,14 @@ export default function Page({ params }: { params: Promise<{ courseId: string }>
 
 ## Data model
 
-`prisma/schema.prisma`, thirty migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
+`prisma/schema.prisma`, thirty-six migrations applied. UUID primary keys, `timestamptz` timestamps, `created_at` and `updated_at` on every table, snake_case columns mapped from camelCase fields.
 
 ```
 Profile ──1:1── auth.users
         └──< InstructorInvite (created, and redeemed)
 
 Course ──< CourseInstructor ──> CourseGroup   (which group this instructor is grading)
+       ├──< RosterEntry                       (who is expected, before they sign in)
        ├──< Enrollment ──< GroupMembership >── CourseGroup
        ├──< CourseGroup
        └──< Module ──┬──< Assignment ──< Submission ──< GradingDraft ──< GradingDraftSection
@@ -300,13 +312,21 @@ Course ──< CourseInstructor ──> CourseGroup   (which group this instruct
                      └──< Resource
 
 Rubric ──< (referenced by assignment.sections[].rubricId)
+
+AuditEvent            (no foreign keys, deliberately — see below)
 ```
 
-Enums: `Role`, `EnrollmentStatus`, `AssignmentKind`, `ResourceKind`, `VideoProvider`, `RubricScaleType`, `SubmissionStatus`, `SalesforceSyncStatus`, `GradingDraftStatus`, `Confidence`, `TestRunStatus`, `TestRunTrigger`.
+Enums: `Role`, `EnrollmentStatus`, `AssignmentKind`, `ResourceKind`, `VideoProvider`, `RubricScaleType`, `SubmissionStatus`, `SalesforceSyncStatus`, `GradingDraftStatus`, `Confidence`, `TestRunStatus`, `TestRunTrigger`, `AuditAction`.
 
 **A module has two kinds of child and they are siblings**: `Assignment`, which is submitted and graded, and `Resource`, which is neither — see [resources](#resources-what-is-in-a-module-that-is-not-work). **A group joins to an `Enrollment` rather than to a `Profile`**, so the foreign key is what guarantees a group's members are students of that group's course — see [groups](#groups-and-grading-a-portion-of-a-cohort).
 
-**`profiles`** carries the `Role` enum, `githubUsername`, a display name fallback, and `githubUserId BigInt? @unique`. The numeric ID is recorded by the `sync_github_identity` trigger from `auth.identities.provider_id`, guarded by a regular expression because that column is text and other providers put non-numeric values in it. Repository naming still uses the username, because that is the existing convention, which is why `submissions.repo_github_login_at_creation` exists. `display_name` is filled at signup by `handle_new_user` and is the one column on this table a person may set about themselves — see [your own account](#your-own-account-and-the-name-a-roster-shows). The `tighten_profiles_grants` migration is what makes that safe: Postgres column privileges, not row level security, are what keep `role` and `github_username` out of reach of the browser client.
+**`profiles`** carries the `Role` enum, `githubUsername`, a display name fallback, and `githubUserId BigInt? @unique`. The numeric ID is recorded by the `sync_github_identity` trigger from `auth.identities.provider_id`, guarded by a regular expression because that column is text and other providers put non-numeric values in it. Repository naming still uses the username, because that is the existing convention, which is why `submissions.repo_github_login_at_creation` exists. `display_name` is filled at signup by `handle_new_user` and is the one column on this table a person may change about themselves, through the `updateDisplayName` procedure — see [your own account](#your-own-account-and-the-name-a-roster-shows). The browser writes no column of this table directly, `role` and `github_username` least of all; `verify:staff` asserts that the writable set is empty, because every procedure could be correct and a slipped grant would still let a student promote themselves from browser JavaScript.
+
+**`roster_entries`** is who is expected in a cohort, written before they have an account. See [getting students into a course](#getting-students-into-a-course) for how a match is decided. Three CHECK constraints carry what the Prisma schema cannot say: an entry needs at least one of `github_username` and `email`, both are stored equal to their own lowercase, and `claimed_by_id` and `claimed_at` are set together or not at all.
+
+**`audit_events`** is an append-only record of the acts that decide who can see whose work — role changes, invitations, roster changes, enrollments, join-token rotation, test students, grade releases, and the two operations that cost money. **It has no foreign keys, and that is the design.** A key gives one of two behaviours when the row it points at is deleted, and both destroy the record: `Cascade` removes the event, `SetNull` rewrites it — which the append-only trigger would refuse anyway, deadlocking an ordinary profile deletion. So every reference is a plain uuid beside a text snapshot of what it was called at the time, and the log outlives its subjects.
+
+Append-only is enforced by triggers on UPDATE, DELETE, and TRUNCATE rather than by grants, because grants do not constrain Prisma, which owns the table and is how every write reaches Postgres. `actor_id` is always the real signed-in person: `createTRPCContext` substitutes a test student's id onto `ctx.user` during a [view-as session](#seeing-a-course-as-a-student-sees-it), so `auditActor` reads `ctx.viewingAs` first and records the substitution in `acted_as_id`.
 
 **`modules`** is a course's own list of modules, created and named by an instructor and tied to nothing outside the application. `assignments.moduleId` is a foreign key onto it.
 
@@ -383,11 +403,37 @@ The three GitHub columns are therefore **nullable, and required only when the ki
 
 **`test_runs`** is described under [test execution](#test-execution).
 
+### Signing in
+
+**GitHub, and nothing else.** There is no password form, no self-service signup, and no password reset. Students need a GitHub account for the coursework regardless — accepting an assignment creates a repository named after their login — so requiring one to sign in asks for nothing they did not already need, and it removes passwords to reset, passwords reused from somewhere breached, and a reset flow that is a way in for anyone holding a mailbox.
+
+**Two-factor authentication is GitHub's**, not this application's. A GitHub organization can require it of every member in one setting, which is a stronger guarantee than anything here could offer and one nobody has to maintain.
+
+**The Supabase side is what actually closes it.** The publishable key is public by design, so `signUp` and `signInWithPassword` stay reachable against the Supabase API whether or not a form calls them — removing the forms is the visible half, and the Email provider being disabled in the Supabase dashboard is the half that closes the door. That is also the way back: re-enabling it there and sending a recovery link is what to do if everybody is ever locked out of GitHub, which is why `app/auth/confirm/route.ts` is kept although nothing in ordinary running sends a link to it.
+
+`app/auth/callback/route.ts` exchanges the PKCE code for a session. Both it and `/auth/confirm` honour only relative paths in `next`, because an absolute URL would be an open redirect firing at the moment somebody has just been authenticated.
+
+Identity belongs to Supabase Auth: `Profile.id` is a foreign key onto `auth.users.id`, and the `handle_new_user` trigger creates the profile. Test students are the one identity this application makes rather than receives — see [seeing a course as a student sees it](#seeing-a-course-as-a-student-sees-it).
+
+[SECURITY.md](SECURITY.md) lists the dashboard settings that are not in this repository and cannot be read from it.
+
 ### Getting students into a course
 
-**`courses.joinToken`** is one unique token per course — the student one, with **`courses.coTeachToken`** beside it for [co-teaching](#co-teaching-one-cohort). An instructor copies the link, sends it however they already talk to their students, and anyone who opens it and signs in with GitHub is enrolled. It is per *course* rather than per student because distributing the link is a person's job either way, so twenty-five tokens would buy nothing — and because this application holds no email credentials and sends nothing.
+**Two things together admit a student, and neither is enough alone.** An instructor writes down who they expect in the cohort, and then sends the link. The link is unguessable, which stops somebody finding a cohort; the roster is an allowlist, which stops somebody who was *sent* the link — forwarded out of a group chat, or passed to a friend — from being admitted by it.
 
-What that trades away is an allowlist, so the controls are after the fact: `regenerateJoinToken` replaces a link that reached the wrong person, and removing deals with whoever got in. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.roster`, which is instructor-only *and* teach-gated — and appears in nothing a student receives. The co-teach token is behind the same pair, on `courses.settings`.
+**`courses.joinToken`** is one unique token per course, with **`courses.coTeachToken`** beside it for [co-teaching](#co-teaching-one-cohort). It is per *course* rather than per student because distributing the link is a person's job either way, so twenty-five tokens would buy nothing — and because this application holds no email credentials and sends nothing. The token is random rather than derived from the course id, which appears in the address bar of every course page. It is returned by exactly one procedure — `courses.roster`, which is instructor-only *and* teach-gated — and appears in nothing a student receives. The co-teach token is behind the same pair, on `courses.settings`.
+
+**`roster_entries`** is the list. Each row names one expected person by GitHub login, by email, or by both, with a free-text note for who they are. Entries are added from a paste box on the roster screen — `lib/courses/roster-input.ts` parses commas or tabs in any column order, and the browser shows what it understood before anything is written, because that parser is the same function the procedure parses with.
+
+**Either key matches, because each fails in a way the other covers.** A student who renames their GitHub account between the roster being written and their first sign-in no longer matches by login; a student whose GitHub email is private presents a `users.noreply.github.com` address that was never on any roster. Both keys are stored lowercased, and a CHECK constraint says so, because a path that skipped normalizing would write a row nothing could find.
+
+**One entry admits one person, once.** `claimedById` is set in the same transaction as the enrollment, so a second person who somehow matched the same entry finds it taken. A student who is removed and later restored still matches their own claimed entry — the check is "unclaimed, or claimed by you" — and a claimed entry cannot be deleted, because it is the record of how somebody got in and removing it would not remove them.
+
+**An enrollment that already exists outranks the roster.** `join` and `preview` both answer from the enrollment before consulting the list, so a student already in a cohort is never refused by it. Membership is the stronger fact: an entry can be absent for reasons that say nothing about whether somebody belongs — staff are exempt, a claimed entry can be tidied by an instructor, and a cohort may predate its own list — and a check that consulted the list first would evict all of them at once.
+
+**Staff are exempt**, so the guarantee is "everybody enrolled as a student was expected by name, or is staff". An instructor or admin holding a link may sit in a cohort, and requiring them to write themselves onto its roster first would be friction with nothing behind it — they can add that row anyway.
+
+`regenerateJoinToken` and removing a student are the controls for a link that went astray. They are the second line rather than the only one.
 
 ### The cohort is in every repository name
 
@@ -446,7 +492,7 @@ They live side by side in `lib/courses/membership.ts` because the first two `whe
 
 **Revoking the last admin is refused.** There is no procedure that grants the *first* admin — deliberately — so an application with no admins has no way back except a database edit. `npm run grant:admin -- you@example.com` is that base case as a tool; it cannot create an account, because identity belongs to Supabase Auth, and it has no reverse.
 
-**The guarantee that is not in any procedure**: migration `20260730024911_tighten_profiles_grants` means `anon` and `authenticated` may UPDATE exactly `display_name` and `avatar_url` on `profiles`, and `instructor_invites` has no browser privileges at all. `verify:staff` asserts both, because every procedure here could be perfect and a slipped grant would still let a student promote themselves from browser JavaScript — which is why that migration exists.
+**The guarantee that is not in any procedure**: `anon` and `authenticated` hold no privilege on `profiles` or `instructor_invites` — no column of either is writable or readable from the browser. `verify:staff` asserts that the writable set on `profiles` is empty, because every procedure here could be perfect and a slipped grant would still let a student promote themselves from browser JavaScript, which is why `20260730024911_tighten_profiles_grants` exists and why `20260814024306_revoke_public_grants_project_wide` made it the default for every table rather than a thing to remember.
 
 ### Co-teaching one cohort
 
@@ -542,7 +588,7 @@ A published course cannot be checked from the outside. The Modules screen shows 
 
 **The number counts across the deployment, not per cohort**, because a profile has no course. Identity here is a Supabase auth user and what puts one in a course is an `Enrollment`, so the same test student can sit in several — and must, since `github_username` is unique and the handle comes from the number. Reusing one is safe: a repository is `{cohortSlug}-{assignmentRepoName}-{login}`, so two cohorts produce two repositories. The roster's dialog offers both, a new one or one that already exists, and lists the ones already here rather than hiding them.
 
-**The account is created, which nothing else in this application does.** `lib/supabase/admin.ts` speaks to two auth admin endpoints over plain `fetch` — not `createClient`, which eagerly builds a realtime client needing a global `WebSocket`. The on-signup trigger writes the profile, and `testStudents.create` marks it. Two things make that recoverable rather than fragile: the unique address is the interlock against a concurrent creation, and an account whose profile was never marked is **claimed** on the next attempt rather than stepped over. Without that, a create that died between the two steps left an address registered forever — its number unusable, its profile reading as an ordinary student in a roster. Pressing the button again repairs it.
+**The account is created, which nothing else in this application does.** `lib/supabase/admin.ts` speaks to two auth admin endpoints over plain `fetch` — not `createClient`, which eagerly builds a realtime client needing a global `WebSocket`. Both functions take an authorized caller and refuse one that is not an ADMIN, because the service role key they use bypasses row level security and every policy on every table; making that parameter required rather than optional is what makes a new call site a compile error rather than a thing to remember. The on-signup trigger writes the profile, and `testStudents.create` marks it. Two things make that recoverable rather than fragile: the unique address is the interlock against a concurrent creation, and an account whose profile was never marked is **claimed** on the next attempt rather than stepped over. Without that, a create that died between the two steps left an address registered forever — its number unusable, its profile reading as an ordinary student in a roster. Pressing the button again repairs it.
 
 **Switching in is one substituted field.** A session cookie holds the test student's profile id; `createTRPCContext` re-establishes on every request that the caller is an ADMIN and the target is a test student, then replaces the id on the context's user. `ctx.user` is read for its `.id` and nothing else, so that is sufficient: `profileProcedure` loads the test student, `requireRole` sees STUDENT, `studentProcedure` admits the caller, `assertActiveStudent` finds the enrollment, and the sidebar renders student navigation. Server Components go through the same function. That the feature is one substitution is the dividend of the session having had a single place it is read.
 
@@ -837,6 +883,18 @@ Output is roughly 60 percent of the cost, because thinking is billed as output. 
 
 **Caching works, and its window is short.** A repeated request read 7,590 tokens and wrote none; a later request for the same prompt wrote all 7,590 again, because the default cache lifetime is five minutes. Caching pays when a cohort is graded in one burst and pays nothing when grading is spread across an evening — an input to the orchestration decision, not a detail. Only the system prompt is cacheable today, which is 38 percent of the frontend input.
 
+### A ceiling on what a mistake can spend
+
+Generating a draft is a model call over a whole repository and running the tests is a sandbox. They are the only two things this application does that cost something per use, and each is capped per person per hour — twenty drafts, sixty test runs — by `lib/audit/rate-limit.ts`.
+
+**What this defends against is a loop, not a stranger.** Both procedures are instructor-only, so the procedure builders are what keep strangers out. A batch screen retried in a tight loop, a script left running, a button pressed forty times: none of them malicious, all of them expensive. Stopping a mistake at twenty rather than at twenty thousand is the whole ambition, and the refusal says when the caller can continue rather than only that they cannot, because the person reading it is in the middle of grading.
+
+**Counted out of `audit_events` rather than a counter of its own.** That table is already append-only, already carries `actor_id` and `occurred_at`, and already has the index this query wants, so a separate one would be a second write, a second thing to prune, and a second answer to "how many times has this person done that". It also means the limit and the record cannot disagree: an operation that was allowed is one the log knows about, because the log is what allowed it.
+
+**Attempts are counted, not successes**, and the event is written before the call. Counting only what succeeded would let a failing loop run without bound — every attempt spends the model call, and a run that throws after the tokens are gone cost exactly as much as one that returned.
+
+It is not a distributed limiter and does not try to be. Two requests in the same millisecond can both read a count below the ceiling; at one school with a handful of staff, the difference between stopping at twenty and twenty-one is nothing, and buying exactness would mean a lease held across a call that takes tens of seconds.
+
 ### Grading assets
 
 #### Two asset sources
@@ -1056,7 +1114,7 @@ Two things this is deliberately not yet, both on the roadmap: an assignment give
 
 ## Interface
 
-`app/(shell)/` holds the signed-in application; `app/auth/` holds the Supabase auth screens.
+`app/(shell)/` holds the signed-in application; `app/auth/` holds sign-in, the OAuth callback, the emailed-token route kept for recovery, and the error screen — see [signing in](#signing-in).
 
 | Route                                                       | Screen                                                                  |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -1070,14 +1128,14 @@ Two things this is deliberately not yet, both on the roadmap: an assignment give
 | `/instructor/courses/[courseId]/assignments`                | Every assignment in the cohort, and where new ones are made             |
 | `/instructor/courses/[courseId]/resources`                  | Readings, notes, and videos, by module. Nothing here is graded          |
 | `/instructor/courses/[courseId]/gradebook`                  | Assignments × roster, each cell carrying its triage bucket              |
-| `/instructor/courses/[courseId]/roster`                     | Who is in the cohort, the join link, and the cohort's groups            |
+| `/instructor/courses/[courseId]/roster`                     | Who is expected, who has joined, the join link, and the cohort's groups |
 | `/instructor/courses/[courseId]/modules`                    | The order the cohort is taught in                                       |
 | `/instructor/courses/[courseId]/settings`                   | The cohort itself: short name, instructors, archiving                   |
 | `/instructor/courses/[courseId]/assignments/[assignmentId]` | The grading queue and the review surface, `?submission=` to open one    |
 | `/instructor/courses/[courseId]/students/[studentId]`       | One student's whole record in this cohort — the queue's other axis      |
 | `/instructor/assignments/[assignmentId]`                    | The queue's old address: looks up the course and redirects              |
 | `/admin`                                                    | Staff: who may teach, and who may decide that. Admins only              |
-| `/join/[token]`                                             | Where a cohort's student join link lands                                |
+| `/join/[token]`                                             | Where a cohort's student join link lands, and says whether it is theirs |
 | `/invite/[token]`                                           | Where an instructor invitation lands                                    |
 | `/co-teach/[token]`                                         | Where a cohort's co-teaching link lands                                 |
 
@@ -1320,7 +1378,7 @@ The embedded preview is checked too — that an inline link serves the object as
 
 That last part is the check the whole delivery change exists for. It also required `approveDraft` to accept the caller's Prisma client: it read the module's own, so rows created inside a caller's transaction were invisible to it and the most consequential write in the application could only ever be tested up to the guards that refuse before writing.
 
-**Co-teaching, ownership, and moving between cohorts.** `verify:enrollment` is 199 checks and covers all of it through the callers inside a rolled-back transaction. The co-teaching group takes **one account** and puts it through the rule: refused while it is a student, with the refusal naming an instructor invitation and no `CourseInstructor` row written; promoted inside the transaction; then eligible, admitted, and — the check the feature exists for — able to call a teach-gated procedure on the cohort, because a row that exists but does not actually let somebody work in the course would look entirely correct in the database. Redeeming twice adds nothing and leaves one row. An archived cohort and a cohort they are enrolled in as a student both refuse them. Replacing the link stops the old one and leaves the instructors already on the course untouched. Removing one of two is allowed and takes their access with it; removing the last is refused, with the count asserted to be one first, because a spare instructor lying around would make that refusal pass while measuring nothing.
+**Getting into a cohort, co-teaching it, owning it, and moving between cohorts.** `verify:enrollment` is 209 checks and covers all of it through the callers inside a rolled-back transaction. The roster group walks the path a student actually takes: refused before anybody expected them, with the screen saying so before the button rather than the mutation saying so after; added by their instructor; admitted; the entry claimed by them; and the claimed entry then refused deletion, because it is the record of how they got in. Pasting the same list twice adds nobody and says so. The check that pins the hardest one to see deletes a student's entry out from under them while they are enrolled and asserts that nothing about their answer changes — **an enrollment that already exists outranks the list**, and every student who joined before the list existed has no entry, so an allowlist that consulted itself first would evict a whole cohort at once. The co-teaching group takes **one account** and puts it through the rule: refused while it is a student, with the refusal naming an instructor invitation and no `CourseInstructor` row written; promoted inside the transaction; then eligible, admitted, and — the check the feature exists for — able to call a teach-gated procedure on the cohort, because a row that exists but does not actually let somebody work in the course would look entirely correct in the database. Redeeming twice adds nothing and leaves one row. An archived cohort and a cohort they are enrolled in as a student both refuse them. Replacing the link stops the old one and leaves the instructors already on the course untouched. Removing one of two is allowed and takes their access with it; removing the last is refused, with the count asserted to be one first, because a spare instructor lying around would make that refusal pass while measuring nothing.
 
 **The ownership group is written in pairs**, because a one-sided check passes against a guard that refuses everybody: the owner is allowed and the co-teacher is refused at the same call, for archiving, reopening, removing the owner, and handing the cohort on. Three of its parts are worth knowing about. It **demotes the cohort's owner to `INSTRUCTOR` for the duration** and restores the role afterwards — the seeded course's creator is the deployment's admin, and `assertOwnsCourse` lets an admin through, so without that every "the owner may" check would have been passing on the admin bypass while claiming to measure ownership. It reaches the state a deleted owner's account would leave behind by **clearing `is_primary` off a course directly**, since nothing in the application deletes a profile, and then backdates one row, because Postgres resolves `now()` to the transaction's start time and both rows would otherwise share a `createdAt` to the microsecond — leaving the fallback's tie-break to decide a check about longest service. And it **reads the partial unique index out of `pg_indexes`** rather than trying to write a second primary row: the constraint is the one rule here that lives in the database rather than in a procedure, so a deployment that has not run the migration is a thing this should notice, and provoking it would abort the transaction every other check runs inside.
 
