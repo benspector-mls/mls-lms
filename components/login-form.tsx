@@ -1,126 +1,64 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { useSearchParams } from "next/navigation";
+
 import { GitHubAuthButton } from "@/components/github-auth-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { cn } from "@/lib/utils";
 
+/**
+ * Signing in, which is GitHub and nothing else.
+ *
+ * **There is deliberately no password form and no way to sign up here.** Three things follow from
+ * that, and they are the reason rather than the consequence:
+ *
+ * Students need a GitHub account for the coursework regardless — accepting an assignment creates a
+ * repository named after their login — so requiring one to sign in asks for nothing they did not
+ * already need. What it removes is a whole category of surface: passwords to reset, passwords
+ * reused from somewhere breached, and a reset flow that is a way in for anyone holding a mailbox.
+ *
+ * Two-factor authentication then comes from GitHub rather than from anything written here. A
+ * GitHub organization can require it of every member in one setting, which is a stronger guarantee
+ * than this application could offer and one nobody has to maintain.
+ *
+ * And accounts stop being self-service. There is no `signUp` call left anywhere, so every account
+ * arrives through GitHub — which is what makes "a password exists only where an admin put one"
+ * true rather than merely likely.
+ *
+ * **The Supabase side has to agree**, and this file cannot enforce it: the publishable key is
+ * public, so `signUp` and `signInWithPassword` remain reachable against the Supabase API whether
+ * or not a form calls them. Removing the forms is the visible half. The Email provider being
+ * disabled in the Supabase dashboard is the half that actually closes it, and re-enabling it there
+ * is the way back in if everybody is ever locked out of GitHub.
+ */
 export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRef<"div">) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
   const searchParams = useSearchParams();
 
-  /**
-   * Where to land after signing in. `next` is set when something sent the viewer here
-   * mid-visit — an expired session, usually — so they resume where they were rather
-   * than at their dashboard.
-   *
-   * The fallback is one address for both roles because this runs in the browser before
-   * any profile has been read, so there is no role here to branch on. `/dashboard`
-   * forwards an instructor to their grading queue.
-   *
-   * Only relative paths are honoured. An absolute URL in a query parameter is how an
-   * open redirect works: a link to our own login page that bounces the viewer to
-   * somebody else's site once they have signed in.
-   */
-  const requested = searchParams.get("next");
-  const next =
-    requested && requested.startsWith("/") && !requested.startsWith("//")
-      ? requested
-      : "/dashboard";
+  /*
+    Where to land afterwards. It matters most for a join link, which is the one address somebody
+    arrives at having never signed in — without it they authenticate, land on the dashboard, and
+    have no idea they were one step from joining the cohort they were sent.
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const supabase = createClient();
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw error;
-      router.push(next);
-      // The proxy reads the session from a cookie on the server. Without this the
-      // destination can render from a cache populated while signed out.
-      router.refresh();
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    Passed through rather than trusted: `GitHubAuthButton` builds a callback URL from it, and
+    `/auth/callback` refuses anything that is not a relative path.
+  */
+  const next = searchParams.get("next") ?? undefined;
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Login</CardTitle>
-          <CardDescription>Sign in with GitHub, or use your email below</CardDescription>
+          <CardTitle className="text-2xl">Sign in</CardTitle>
+          <CardDescription>
+            The Marcy Lab School LMS uses your GitHub account — the same one you push your
+            assignments from.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-6">
-            <GitHubAuthButton next={next} label="Sign in with GitHub" />
-            <div className="relative text-center text-sm">
-              <span className="absolute inset-0 top-1/2 border-t" />
-              <span className="relative bg-card px-2 text-muted-foreground">
-                or continue with email
-              </span>
-            </div>
-          </div>
-          <form onSubmit={handleLogin} className="mt-6">
-            <div className="flex flex-col gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="m@example.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
-                  <Link
-                    href="/auth/forgot-password"
-                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
-                  >
-                    Forgot your password?
-                  </Link>
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
-              </Button>
-            </div>
-            <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{" "}
-              <Link href="/auth/sign-up" className="underline underline-offset-4">
-                Sign up
-              </Link>
-            </div>
-          </form>
+        <CardContent className="flex flex-col gap-4">
+          <GitHubAuthButton label="Continue with GitHub" next={next} />
+          <p className="text-xs text-muted-foreground">
+            Signing in does not add you to a course. Your instructor sends a join link for that.
+          </p>
         </CardContent>
       </Card>
     </div>
