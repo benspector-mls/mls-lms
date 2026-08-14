@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Db } from "@/lib/prisma";
 
 import { isManualOnly } from "@/lib/assignments/spec";
+import { auditActor, recordEvent } from "@/lib/audit/record";
 import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
 import { newJoinToken } from "@/lib/courses/join-token";
 import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
@@ -986,10 +987,29 @@ export const coursesRouter = createTRPCRouter({
    * stay.
    */
   regenerateJoinToken: courseProcedure.mutation(async ({ ctx, input }) => {
-    return ctx.db.course.update({
-      where: { id: input.courseId },
-      data: { joinToken: newJoinToken() },
-      select: { id: true, joinToken: true },
+    return ctx.db.$transaction(async (tx) => {
+      const course = await tx.course.update({
+        where: { id: input.courseId },
+        data: { joinToken: newJoinToken() },
+        select: { id: true, name: true, joinToken: true },
+      });
+
+      /*
+        Worth recording because rotating the link is what an instructor does *after* something has
+        gone wrong — a link forwarded to the wrong person, a link posted somewhere public. The
+        event is the timestamp that says when the old one stopped working, which is the question
+        asked when working out how somebody got into a cohort.
+
+        The token itself is not recorded, new or old, for the reason `createInvite` does not record
+        one: it is the whole credential.
+      */
+      await recordEvent(tx, {
+        action: "JOIN_TOKEN_REGENERATED",
+        actor: auditActor(ctx),
+        course: { id: course.id, label: course.name },
+      });
+
+      return { id: course.id, joinToken: course.joinToken };
     });
   }),
 

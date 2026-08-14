@@ -1,6 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { auditActor, recordEvent } from "@/lib/audit/record";
+import { displayNameOf } from "@/lib/people";
 import {
   inviteExpiry,
   inviteIsUsable,
@@ -110,13 +112,26 @@ export const staffRouter = createTRPCRouter({
   createInvite: adminProcedure.mutation(async ({ ctx }) => {
     const now = new Date();
 
-    return ctx.db.instructorInvite.create({
-      data: {
-        token: newInviteToken(),
-        createdById: ctx.profile.id,
-        expiresAt: inviteExpiry(now),
-      },
-      select: { id: true, token: true, expiresAt: true },
+    return ctx.db.$transaction(async (tx) => {
+      const invite = await tx.instructorInvite.create({
+        data: {
+          token: newInviteToken(),
+          createdById: ctx.profile.id,
+          expiresAt: inviteExpiry(now),
+        },
+        select: { id: true, token: true, expiresAt: true },
+      });
+
+      await recordEvent(tx, {
+        action: "INVITE_CREATED",
+        actor: auditActor(ctx),
+        subject: { id: invite.id, label: "an instructor invitation" },
+        // The token is deliberately not recorded. It is the whole credential, and a log that
+        // holds live credentials is a second place they can be read from.
+        detail: { expiresAt: invite.expiresAt.toISOString() },
+      });
+
+      return invite;
     });
   }),
 
@@ -151,8 +166,23 @@ export const staffRouter = createTRPCRouter({
         });
       }
 
-      await ctx.db.instructorInvite.delete({ where: { id: invite.id } });
-      return { id: invite.id };
+      /*
+        Deleting the row removes the only trace that this invitation ever existed, which is
+        precisely why the event is written in the same transaction. After this, the audit log is
+        the record that somebody generated staff access and then withdrew it — a sequence worth
+        being able to see, and one that leaves nothing behind in `instructor_invites`.
+      */
+      return ctx.db.$transaction(async (tx) => {
+        await tx.instructorInvite.delete({ where: { id: invite.id } });
+
+        await recordEvent(tx, {
+          action: "INVITE_REVOKED",
+          actor: auditActor(ctx),
+          subject: { id: invite.id, label: "an unused instructor invitation" },
+        });
+
+        return { id: invite.id };
+      });
     }),
 
   /**
@@ -168,7 +198,10 @@ export const staffRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const target = await ctx.db.profile.findUnique({
         where: { id: input.profileId },
-        select: { id: true, role: true, displayName: true, email: true },
+        // `githubUsername` is selected for the audit event's label rather than for the response:
+        // it is the middle rung of `displayNameOf`'s fallback, and without it a person who set no
+        // display name is recorded by email address instead of by the handle they are known as.
+        select: { id: true, role: true, displayName: true, email: true, githubUsername: true },
       });
 
       if (!target) {
@@ -220,10 +253,30 @@ export const staffRouter = createTRPCRouter({
         }
       }
 
-      return ctx.db.profile.update({
-        where: { id: target.id },
-        data: { role: next },
-        select: { id: true, role: true, displayName: true, email: true },
+      /*
+        The change and its record commit together or not at all.
+
+        A role change that succeeds while its audit event fails is the case the log exists to
+        cover, so it is the one case it must not have. `recordEvent` takes the transaction for
+        exactly this reason — see `lib/audit/record.ts`.
+      */
+      return ctx.db.$transaction(async (tx) => {
+        const updated = await tx.profile.update({
+          where: { id: target.id },
+          data: { role: next },
+          select: { id: true, role: true, displayName: true, email: true },
+        });
+
+        await recordEvent(tx, {
+          action: "ROLE_CHANGED",
+          actor: auditActor(ctx),
+          subject: { id: target.id, label: displayNameOf(target, "an account") },
+          // Both ends, because "granted admin" and "revoked admin" are the same act with the
+          // arrow reversed, and a record of only the new value cannot tell them apart.
+          detail: { from: target.role, to: next },
+        });
+
+        return updated;
       });
     }),
 
@@ -306,27 +359,43 @@ export const staffRouter = createTRPCRouter({
         });
       }
 
-      const claimed = await ctx.db.instructorInvite.updateMany({
-        where: { id: invite.id, redeemedAt: null },
-        data: { redeemedAt: now, redeemedById: ctx.profile.id },
-      });
-
-      // Somebody else took it between the read above and this write.
-      if (claimed.count === 0) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "This invitation has already been used. Ask for a new one.",
+      return ctx.db.$transaction(async (tx) => {
+        const claimed = await tx.instructorInvite.updateMany({
+          where: { id: invite.id, redeemedAt: null },
+          data: { redeemedAt: now, redeemedById: ctx.profile.id },
         });
-      }
 
-      const role = raiseRole(ctx.profile.role as StaffRole, "INSTRUCTOR");
+        // Somebody else took it between the read above and this write.
+        if (claimed.count === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "This invitation has already been used. Ask for a new one.",
+          });
+        }
 
-      // Skipped entirely when the caller already outranks it, so an admin redeeming one does not
-      // even write to their own row.
-      if (role !== ctx.profile.role) {
-        await ctx.db.profile.update({ where: { id: ctx.profile.id }, data: { role } });
-      }
+        const role = raiseRole(ctx.profile.role as StaffRole, "INSTRUCTOR");
 
-      return { role, alreadyRedeemed: false as const };
+        // Skipped entirely when the caller already outranks it, so an admin redeeming one does
+        // not even write to their own row.
+        if (role !== ctx.profile.role) {
+          await tx.profile.update({ where: { id: ctx.profile.id }, data: { role } });
+        }
+
+        /*
+          The actor and the subject are the same person here, and that is worth recording rather
+          than collapsing: this is the one act in the application where somebody grants themselves
+          access, and what makes it legitimate is the invitation rather than who performed it. The
+          invitation's id is in `detail` so the event can be read against `createInvite`'s — which
+          together say who opened the door and who walked through it.
+        */
+        await recordEvent(tx, {
+          action: "INVITE_REDEEMED",
+          actor: auditActor(ctx),
+          subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "an account") },
+          detail: { inviteId: invite.id, from: ctx.profile.role, to: role },
+        });
+
+        return { role, alreadyRedeemed: false as const };
+      });
     }),
 });

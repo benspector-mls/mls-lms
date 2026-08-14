@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 
+import { recordEvent, viewAsActor } from "@/lib/audit/record";
 import { isUuid, resolveViewAs, VIEW_AS_COOKIE, VIEW_AS_COURSE_COOKIE } from "@/lib/auth/view-as";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -54,6 +55,25 @@ export async function POST(request: NextRequest) {
       )}`,
     );
   }
+
+  /*
+    Recorded before the cookie is set, not after.
+
+    Everything the admin does from here arrives attributed to them with `acted_as` filled in, so
+    this event is what says when that began — and an admin who enters a view and then leaves the
+    tab open is the case the banner exists for and the log has to be able to reconstruct. Written
+    outside a transaction because there is no database change to pair it with: the act is the
+    cookie, and a failure here should not stop somebody entering a preview.
+  */
+  await recordEvent(db, {
+    action: "VIEW_AS_ENTERED",
+    actor: viewAsActor(viewingAs),
+    subject: {
+      id: viewingAs.testStudent.id,
+      label: `Test Student ${viewingAs.testStudent.number}`,
+    },
+    ...(typeof courseId === "string" && isUuid(courseId) ? { course: { id: courseId } } : {}),
+  });
 
   const jar = await cookies();
   const options = {

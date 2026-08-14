@@ -1032,3 +1032,108 @@ model GradingDraftSection {
   @@map("grading_draft_sections")
   @@schema("public")
 }
+
+/// What an audit event records. One value per act worth being able to prove happened.
+///
+/// An enum rather than free text, because the point of this log is that the set of audited
+/// acts is a decision somebody made and can review — a string column lets a new action be
+/// introduced by a typo, and makes "which actions do we record?" a question you answer by
+/// querying production data instead of by reading the schema.
+enum AuditAction {
+  /// Somebody's role was raised or lowered. The single most consequential act in the system.
+  ROLE_CHANGED
+  INVITE_CREATED
+  /// Deleted before use. The row goes; this is what is left of it.
+  INVITE_REVOKED
+  INVITE_REDEEMED
+  ROSTER_ENTRY_ADDED
+  ROSTER_ENTRY_REMOVED
+  ENROLLMENT_JOINED
+  ENROLLMENT_REMOVED
+  ENROLLMENT_RESTORED
+  JOIN_TOKEN_REGENERATED
+  /// A grade was released to a student, which is the act Salesforce will later mirror.
+  GRADE_APPROVED
+  /// An admin began looking at the application as a test student.
+  ///
+  /// **There is deliberately no matching VIEW_AS_EXITED.** The view is held by a session cookie
+  /// with no lifetime, so closing the browser leaves it without any request being made — an exit
+  /// event would be absent far more often than it was present, and an event whose absence means
+  /// nothing is worse than no event, because a reader will draw a conclusion from it anyway.
+  /// What bounds a view is the `acted_as` columns on the events written during it.
+  VIEW_AS_ENTERED
+  /// Created and deleted through the Supabase service role key, which bypasses every policy.
+  TEST_STUDENT_CREATED
+  TEST_STUDENT_DELETED
+
+  @@schema("public")
+}
+
+/// An append-only record of the acts that decide who can see whose work.
+///
+/// **Why this table exists.** Every guard in `trpc/init.ts` answers "may this person do this?"
+/// and none of them answers "who did this, and when?". Those are different questions, and the
+/// second is the one asked after something has gone wrong — a grade nobody remembers changing,
+/// a student who says they never joined a cohort, an instructor account that should not have
+/// been staff. Without a record the answer is a reconstruction from mutable rows.
+///
+/// **No foreign keys, deliberately, and this is the whole design.** A key would give exactly
+/// one of two behaviours when the row it points at is deleted, and both destroy the record:
+/// `Cascade` removes the event, and `SetNull` rewrites it — which the append-only trigger on
+/// this table would refuse anyway, deadlocking an ordinary profile deletion. So the columns
+/// below hold plain uuids alongside a **text snapshot of who or what they were at the time**.
+/// A deleted test student leaves an event that still says which admin created it and what it
+/// was called. That is the property an audit log has to have: it outlives its subjects.
+///
+/// The snapshots are also what makes the log readable without joining four tables, and what
+/// makes it correct when a person changes their display name after the fact.
+model AuditEvent {
+  id         String      @id @default(uuid()) @db.Uuid
+  occurredAt DateTime    @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  action     AuditAction
+
+  /// **The real signed-in user, never the impersonated one.**
+  ///
+  /// `createTRPCContext` substitutes a test student's id onto `ctx.user` while an admin is in
+  /// a view-as session, so an event written from `ctx.user.id` would name the test student as
+  /// the actor — attributing an admin's act to an identity that cannot perform it. The context
+  /// carries `actorId` separately for this reason; see `lib/audit/record.ts`.
+  ///
+  /// Nullable for acts with no signed-in actor. Nothing writes one today, and a NOT NULL here
+  /// would mean a future system-initiated event — a scheduled sync, a webhook — had to invent
+  /// an actor to be recordable.
+  actorId    String?     @map("actor_id") @db.Uuid
+  /// Display name or email as it read when the event was written.
+  actorLabel String?     @map("actor_label")
+
+  /// The test student the actor was viewing as, when they were. Null in the ordinary case.
+  ///
+  /// Present so a reader can tell an admin acting as themselves from the same admin acting
+  /// inside a preview — which changes what the event means without changing who did it.
+  actedAsId    String? @map("acted_as_id") @db.Uuid
+  actedAsLabel String? @map("acted_as_label")
+
+  /// Who or what was acted upon: a profile, an enrollment, an invitation, a submission.
+  ///
+  /// Untyped on purpose. The subjects are heterogeneous and a column per kind would be mostly
+  /// nulls; `action` already says which table to look in, and `subjectLabel` says what it was
+  /// without looking at all.
+  subjectId    String? @map("subject_id") @db.Uuid
+  subjectLabel String? @map("subject_label")
+
+  /// The cohort this happened in, where it happened in one. Lets an instructor be shown their
+  /// own courses' events later without widening what they can read.
+  courseId    String? @map("course_id") @db.Uuid
+  courseLabel String? @map("course_label")
+
+  /// Everything else, shaped per action: the roles either side of a change, the score
+  /// released, the reason a refusal was recorded. Read by people, not by queries.
+  detail Json?
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([actorId, occurredAt(sort: Desc)])
+  @@index([courseId, occurredAt(sort: Desc)])
+  @@index([action, occurredAt(sort: Desc)])
+  @@map("audit_events")
+  @@schema("public")
+}

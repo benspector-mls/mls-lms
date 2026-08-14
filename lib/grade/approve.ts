@@ -1,5 +1,7 @@
 import "server-only";
 
+import { auditEventData, type AuditActor } from "../audit/record";
+import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
@@ -132,7 +134,20 @@ export async function approveDraft(params: {
           headSha: true,
           prNumber: true,
           repoFullName: true,
-          assignment: { select: { completionThreshold: true } },
+          // Selected for the audit event rather than for the grade: releasing a grade is the act
+          // a student and a funder both see the effects of, so the record has to say whose grade,
+          // on what, in which cohort — without a later reader having to join back to rows that
+          // may since have changed.
+          studentId: true,
+          student: { select: { displayName: true, email: true, githubUsername: true } },
+          assignment: {
+            select: {
+              completionThreshold: true,
+              title: true,
+              courseId: true,
+              course: { select: { name: true } },
+            },
+          },
         },
       },
     },
@@ -246,6 +261,34 @@ export async function approveDraft(params: {
   const feedbackMarkdown = buildFeedbackMarkdown(sections);
   const approvedAt = new Date();
 
+  /*
+    Who to attribute the release to.
+
+    **Not `auditActor`**, which takes a procedure's context: this function is reached from two
+    scripts as well as from `grading-drafts.approve`, so there is no context to take. `actedAs` is
+    empty rather than merely usually empty — `instructorProcedure` refuses a caller who reads as a
+    STUDENT, which is what somebody inside a test-student view reads as, so a grade cannot be
+    released from within one.
+
+    One indexed read, on an operation that already does several. What it buys is the event naming
+    the instructor rather than only carrying their id, which is the whole point of the snapshot
+    columns: the row stays legible after a name changes or an account goes.
+  */
+  const approvedBy = await client.profile.findUnique({
+    where: { id: params.approvedByProfileId },
+    // The three columns `displayNameOf` falls through, spelled out rather than imported from
+    // `trpc/selects.ts` — a module under `lib/` reaching into the transport layer is the wrong
+    // direction, the same reason `lib/people.ts` exists at all.
+    select: { displayName: true, email: true, githubUsername: true },
+  });
+
+  const approver: AuditActor = {
+    id: params.approvedByProfileId,
+    label: approvedBy ? displayNameOf(approvedBy, "an instructor") : "an instructor",
+    actedAsId: null,
+    actedAsLabel: null,
+  };
+
   // ---- Step one: the grade ------------------------------------------------
   //
   // Both rows together, because a draft marked APPROVED whose submission is not GRADED
@@ -277,6 +320,41 @@ export async function approveDraft(params: {
         approvedAt,
         approvedById: params.approvedByProfileId,
       },
+    }),
+    /*
+      The audit event, written with the grade rather than beside it.
+
+      **Here rather than in the router**, because this function is the only way a grade is
+      released and it is reached three ways: `grading-drafts.approve`, `scripts/approve.ts`, and
+      `scripts/verify-approve.ts`. An event recorded at the procedure would miss the two that an
+      instructor actually uses during a grading session, and a log that records some releases is
+      worse than one that records none — it invites the conclusion that the others did not happen.
+
+      `auditEventData` rather than `recordEvent` because these writes are collected unawaited and
+      handed to `$transaction` as an array; see `lib/audit/record.ts`.
+    */
+    client.auditEvent.create({
+      data: auditEventData({
+        action: "GRADE_APPROVED",
+        actor: approver,
+        subject: {
+          id: submission.studentId,
+          label: displayNameOf(submission.student, "a student"),
+        },
+        course: {
+          id: submission.assignment.courseId,
+          label: submission.assignment.course.name,
+        },
+        detail: {
+          submissionId: submission.id,
+          assignment: submission.assignment.title,
+          scoreEarned: finalScore,
+          scorePossible: finalScorePossible,
+          isComplete,
+          completionThreshold: threshold,
+          gradedHeadSha: draft.headSha,
+        },
+      }),
     }),
   ];
 
