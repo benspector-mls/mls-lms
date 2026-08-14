@@ -97,6 +97,17 @@ export function JoinCourse({
           <p className="text-sm text-muted-foreground">
             This cohort has finished, so it is not taking new students.
           </p>
+        ) : alreadyActive ? (
+          <>
+            <p className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+              <Check className="size-4" />
+              You are already in this course.
+            </p>
+            <Button onClick={() => router.push(`/courses/${preview.courseId}`)}>
+              Open course
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          </>
         ) : !preview.onRoster ? (
           /*
             Handled here rather than left to the mutation's refusal, unlike the four states above.
@@ -106,9 +117,15 @@ export function JoinCourse({
             press Join means telling them once they have already concluded they are in the right
             place.
 
-            The account is named for the same reason. Somebody who has two GitHub accounts cannot
-            see which one this browser is signed in as, and that is precisely the fact that
-            resolves it.
+            **Below the already-in branch, not above it.** `preview.onRoster` is true for anybody
+            with an enrollment, so the two cannot both apply — but a student who joined before the
+            roster existed has no entry, and this order means the screen stays right even if that
+            ever stops being true in the procedure. The worst version of this screen tells somebody
+            sitting in a course that the link to it is not for them.
+
+            The account is named for the same reason the refusal is here at all. Somebody who has
+            two GitHub accounts cannot see which one this browser is signed in as, and that is
+            precisely the fact that resolves it.
           */
           <>
             <p className="flex items-center gap-1.5 text-sm text-amber-700 dark:text-amber-400">
@@ -128,17 +145,6 @@ export function JoinCourse({
               If you usually use a different GitHub account, sign out and try again with that one.
               Otherwise ask your instructor to add you.
             </p>
-          </>
-        ) : alreadyActive ? (
-          <>
-            <p className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
-              <Check className="size-4" />
-              You are already in this course.
-            </p>
-            <Button onClick={() => router.push(`/courses/${preview.courseId}`)}>
-              Open course
-              <ArrowRight data-icon="inline-end" />
-            </Button>
           </>
         ) : (
           <>

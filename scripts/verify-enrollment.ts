@@ -529,8 +529,94 @@ async function main() {
           null,
         );
 
+        /*
+          ---- The roster, which the link is now only half of --------------------
+
+          The link is unguessable; the roster is an allowlist. Neither is enough alone, and the
+          order of these checks is the order somebody meets them: refused first, added, then in.
+        */
+        check(
+          "a student who was never expected cannot use the link",
+          await refusal(() => asStudent.enrollments.join({ token })),
+          "FORBIDDEN",
+        );
+        check("...and the screen says so before the button", preview?.onRoster, false);
+
+        const studentProfile = (await tx.profile.findUniqueOrThrow({
+          where: { id: studentId },
+          select: { githubUsername: true, email: true },
+        }))!;
+
+        const added = await asInstructor.enrollments.addToRoster({
+          courseId: empty.course.id,
+          entries: [
+            {
+              githubUsername: studentProfile.githubUsername,
+              email: studentProfile.email,
+              note: "Expected by the verification script",
+            },
+          ],
+        });
+        check("an instructor can write down who is expected", added.added, 1);
+        check(
+          "...and the screen now offers the button",
+          (await asStudent.enrollments.preview({ token }))?.onRoster,
+          true,
+        );
+
+        // Pasting the same list twice is something people do. The second paste adds nothing and
+        // says so rather than failing on the unique constraint.
+        check(
+          "adding the same person again is skipped rather than refused",
+          (
+            await asInstructor.enrollments.addToRoster({
+              courseId: empty.course.id,
+              entries: [
+                {
+                  githubUsername: studentProfile.githubUsername,
+                  email: studentProfile.email,
+                  note: null,
+                },
+              ],
+            })
+          ).alreadyPresent,
+          1,
+        );
+
         const joined = await asStudent.enrollments.join({ token });
         check("redeeming the link enrolls the student", joined.joined, true);
+
+        /*
+          One entry admits one person, and the claim is what says so. Written in the same
+          transaction as the enrollment, so an entry marked used always has a member behind it.
+        */
+        check(
+          "joining claims the entry that expected them",
+          (
+            await tx.rosterEntry.findFirst({
+              where: { courseId: empty.course.id, claimedById: studentId },
+              select: { claimedAt: true },
+            })
+          )?.claimedAt !== undefined,
+          true,
+        );
+
+        // A claimed entry cannot be tidied away: it is the record of how somebody got in, and
+        // removing it would not remove them.
+        const claimedEntry = await tx.rosterEntry.findFirstOrThrow({
+          where: { courseId: empty.course.id, claimedById: studentId },
+          select: { id: true },
+        });
+        check(
+          "a claimed entry cannot be removed from the list",
+          await refusal(() =>
+            asInstructor.enrollments.removeFromRoster({
+              courseId: empty.course.id,
+              entryId: claimedEntry.id,
+            }),
+          ),
+          "PRECONDITION_FAILED",
+        );
         check(
           "...as ACTIVE",
           (
@@ -553,6 +639,30 @@ async function main() {
           "...and there is one enrollment",
           await tx.enrollment.count({ where: { courseId: empty.course.id, studentId } }),
           1,
+        );
+
+        /*
+          **An enrollment that already exists outranks the roster, and this is the check that says
+          so.** Every student enrolled before the roster table existed has no entry, so a roster
+          check placed before the already-in branch tells somebody sitting in a course that the
+          link to it is not for their account. It did, until the order in `join` and `preview` was
+          corrected — which is a mistake with no symptom until a real cohort meets it.
+
+          Tested by taking the entry away underneath them: the enrollment stays, and so must the
+          answer.
+        */
+        await tx.rosterEntry.deleteMany({
+          where: { courseId: empty.course.id, claimedById: studentId },
+        });
+        check(
+          "a student already in the cohort is unaffected by having no entry",
+          (await asStudent.enrollments.join({ token })).joined,
+          false,
+        );
+        check(
+          "...and their screen still says they are in it, not that the link is not theirs",
+          (await asStudent.enrollments.preview({ token }))?.onRoster,
+          true,
         );
 
         // An instructor of the course is refused: an enrollment would put them in their own
@@ -1041,6 +1151,18 @@ async function main() {
           where: { id: elsewhere.course.id },
           select: { joinToken: true },
         }))!.joinToken;
+        // Expected in this cohort too. A cohort's roster is its own — being on one course's list
+        // says nothing about another's, which is the point of it being per course.
+        await asInstructor.enrollments.addToRoster({
+          courseId: elsewhere.course.id,
+          entries: [
+            {
+              githubUsername: studentProfile.githubUsername,
+              email: studentProfile.email,
+              note: null,
+            },
+          ],
+        });
         await asStudent.enrollments.join({ token: elsewhereToken });
         const foreignEnrollment = await tx.enrollment.findFirst({
           where: { courseId: elsewhere.course.id },

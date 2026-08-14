@@ -10,6 +10,7 @@ import {
 } from "@/lib/courses/roster";
 import { MAX_ROSTER_PASTE, rosterEntrySchema } from "@/lib/courses/roster-input";
 import { teachableEnrollment } from "@/lib/courses/scope";
+import { inTransaction } from "@/lib/prisma";
 
 import {
   type AuthedCtx,
@@ -80,12 +81,18 @@ export const enrollmentsRouter = createTRPCRouter({
       });
 
       /*
-        Asked here as well as in `join`, through the same function, so the screen and the mutation
-        cannot disagree. A preview that offers a button the mutation then refuses is worse than no
-        preview: the student has already decided they are in the right place by the time they are
-        told otherwise.
+        Asked here as well as in `join`, through the same function and in the same order, so the
+        screen and the mutation cannot disagree. A preview that offers a button the mutation then
+        refuses is worse than no preview: the student has already decided they are in the right
+        place by the time they are told otherwise.
+
+        **An existing enrollment answers this before the roster does**, matching `join`. Somebody
+        already in the cohort is not somebody the roster has anything to say about, and a student
+        enrolled before this table existed has no entry — telling them the link is not for their
+        account while they sit in the course would be the worst version of this screen.
       */
       const onRoster =
+        existing !== null ||
         !rosterApplies(ctx.profile.role) ||
         (await findRosterMatch(ctx.db, course.id, ctx.profile)) !== null;
 
@@ -167,21 +174,6 @@ export const enrollmentsRouter = createTRPCRouter({
         });
       }
 
-      /*
-        The roster check, before anything is written.
-
-        Placed after the "you teach this" refusal and before the enrollment, because a person who
-        teaches the course is not a student who failed a roster check and should not be told they
-        are. Staff are exempt for the reason `rosterApplies` gives.
-      */
-      const match = rosterApplies(ctx.profile.role)
-        ? await findRosterMatch(ctx.db, course.id, ctx.profile)
-        : null;
-
-      if (rosterApplies(ctx.profile.role) && !match) {
-        throw rosterRefusal(course.name, ctx.profile);
-      }
-
       const existing = await ctx.db.enrollment.findUnique({
         where: { courseId_studentId: { courseId: course.id, studentId: ctx.profile.id } },
         select: { id: true, status: true },
@@ -209,6 +201,31 @@ export const enrollmentsRouter = createTRPCRouter({
       }
 
       /*
+        The roster check, after every question about an enrollment that already exists and before
+        anything is written.
+
+        **The order is the whole of it.** Asked earlier, this refuses a student who is already in
+        the cohort — every student enrolled before this table existed has no entry, so reopening a
+        bookmarked link would tell them the link is not for their account while they sit in the
+        course it names. The roster decides who may *become* a member; it has no opinion about
+        somebody who already is one, and an allowlist introduced after a cohort started must not
+        retroactively evict it.
+
+        A removed student is refused above rather than here for the same reason: that refusal is
+        specific and true, and reaching a roster message instead would tell them the wrong thing
+        about why.
+
+        Staff are exempt, for the reason `rosterApplies` gives.
+      */
+      const match = rosterApplies(ctx.profile.role)
+        ? await findRosterMatch(ctx.db, course.id, ctx.profile)
+        : null;
+
+      if (rosterApplies(ctx.profile.role) && !match) {
+        throw rosterRefusal(course.name, ctx.profile);
+      }
+
+      /*
         The claim and the enrollment commit together.
 
         **This is what makes one entry admit one person.** Claiming outside the transaction would
@@ -217,7 +234,7 @@ export const enrollmentsRouter = createTRPCRouter({
         the entry still free, which is the case the claim exists to prevent. `claimRosterEntry`
         refuses at the database if somebody took it in between, and that refusal rolls this back.
       */
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         if (match) {
           const claimed = await claimRosterEntry(tx, match.id, ctx.profile.id);
 
@@ -304,7 +321,7 @@ export const enrollmentsRouter = createTRPCRouter({
         select: { id: true, name: true },
       });
 
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         /*
           `skipDuplicates` leans on the two unique constraints, which is what makes "already there"
           a decision the database makes rather than a read this has to do first. A read would be
@@ -383,7 +400,7 @@ export const enrollmentsRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         await tx.rosterEntry.delete({ where: { id: entry.id } });
 
         await recordEvent(tx, {
@@ -409,7 +426,7 @@ export const enrollmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const enrollment = await loadTeachableEnrollment(ctx, input.enrollmentId);
 
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         const updated = await tx.enrollment.update({
           where: { id: input.enrollmentId },
           data: { status: "REMOVED" },
@@ -441,7 +458,7 @@ export const enrollmentsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const enrollment = await loadTeachableEnrollment(ctx, input.enrollmentId);
 
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         const updated = await tx.enrollment.update({
           where: { id: input.enrollmentId },
           data: { status: "ACTIVE" },
