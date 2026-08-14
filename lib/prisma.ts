@@ -53,7 +53,31 @@ export type Db = typeof db;
  * real rows inside a transaction that is then rolled back.
  *
  * Note that a transaction client still carries `$transaction` at runtime even though this type
- * omits it, and calling it opens a *second* transaction on a different connection. Decide from
- * whether a client was handed in, never by asking the client what it is.
+ * omits it, and calling it opens a *second* transaction on a different connection. Never call it
+ * on a `Tx` — use `inTransaction` below, which knows how to tell the two apart.
  */
 export type Tx = Db | Prisma.TransactionClient;
+
+/**
+ * Runs several writes as one unit, whether or not the caller is already inside a transaction.
+ *
+ * **The problem this exists for is silent.** A procedure that writes two rows wants them to commit
+ * together, so it reaches for `ctx.db.$transaction`. In a request that is correct. Driven from a
+ * `verify:*` script — which builds a caller over a transaction so the whole run can be rolled back
+ * — `ctx.db` is a transaction client, and the `$transaction` it still carries at runtime opens a
+ * *second* transaction on a *different connection*. That connection cannot see the caller's
+ * uncommitted rows, so the writes land against a database missing everything the script just set
+ * up. Nothing throws about nesting; the failures arrive later and look like authorization bugs.
+ *
+ * `$disconnect` is the discriminator rather than `$transaction`, because only one of them tells
+ * the truth: both clients carry `$transaction`, and only the real one carries `$disconnect`.
+ *
+ * When the caller is already inside a transaction, the callback simply runs on their client — they
+ * own the atomicity, and their rollback covers these writes too. Which is the same trade
+ * `lib/grade/approve.ts` makes for its own writes, generalised so every procedure need not.
+ */
+export async function inTransaction<T>(client: Tx, run: (tx: Tx) => Promise<T>): Promise<T> {
+  const isRootClient = typeof (client as Partial<Db>).$disconnect === "function";
+
+  return isRootClient ? (client as Db).$transaction((tx) => run(tx)) : run(client);
+}

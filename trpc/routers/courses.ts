@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import type { Db } from "@/lib/prisma";
+import { inTransaction, type Db } from "@/lib/prisma";
 
 import { isManualOnly } from "@/lib/assignments/spec";
 import { auditActor, recordEvent } from "@/lib/audit/record";
@@ -987,7 +987,7 @@ export const coursesRouter = createTRPCRouter({
    * stay.
    */
   regenerateJoinToken: courseProcedure.mutation(async ({ ctx, input }) => {
-    return ctx.db.$transaction(async (tx) => {
+    return inTransaction(ctx.db, async (tx) => {
       const course = await tx.course.update({
         where: { id: input.courseId },
         data: { joinToken: newJoinToken() },

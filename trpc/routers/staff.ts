@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { displayNameOf } from "@/lib/people";
+import { inTransaction } from "@/lib/prisma";
 import {
   inviteExpiry,
   inviteIsUsable,
@@ -112,7 +113,7 @@ export const staffRouter = createTRPCRouter({
   createInvite: adminProcedure.mutation(async ({ ctx }) => {
     const now = new Date();
 
-    return ctx.db.$transaction(async (tx) => {
+    return inTransaction(ctx.db, async (tx) => {
       const invite = await tx.instructorInvite.create({
         data: {
           token: newInviteToken(),
@@ -172,7 +173,7 @@ export const staffRouter = createTRPCRouter({
         the record that somebody generated staff access and then withdrew it — a sequence worth
         being able to see, and one that leaves nothing behind in `instructor_invites`.
       */
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         await tx.instructorInvite.delete({ where: { id: invite.id } });
 
         await recordEvent(tx, {
@@ -260,7 +261,7 @@ export const staffRouter = createTRPCRouter({
         cover, so it is the one case it must not have. `recordEvent` takes the transaction for
         exactly this reason — see `lib/audit/record.ts`.
       */
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         const updated = await tx.profile.update({
           where: { id: target.id },
           data: { role: next },
@@ -359,7 +360,7 @@ export const staffRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.$transaction(async (tx) => {
+      return inTransaction(ctx.db, async (tx) => {
         const claimed = await tx.instructorInvite.updateMany({
           where: { id: invite.id, redeemedAt: null },
           data: { redeemedAt: now, redeemedById: ctx.profile.id },

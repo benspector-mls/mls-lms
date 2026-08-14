@@ -99,6 +99,12 @@ async function main() {
 
     So it is checked here rather than trusted, and it is the most valuable check in the file: it is
     the only one that would still fail if the whole staff router were correct.
+
+    **The browser now writes no column of this table at all.** The earlier migration left
+    `display_name` and `avatar_url` writable, and `20260814024306_revoke_public_grants_project_wide`
+    took even those away — nothing used them, because a profile edit goes through the
+    `updateDisplayName` procedure like every other write in this application. Asserting the empty
+    set is a stronger statement than the pair was, and it is the one the grants now make.
   */
   const writable = await db.$queryRawUnsafe<{ column_name: string }[]>(`
     SELECT column_name
@@ -110,9 +116,9 @@ async function main() {
      ORDER BY column_name
   `);
   check(
-    "the browser can only write its own display name and avatar",
+    "the browser can write no column of profiles, role least of all",
     writable.map((row) => row.column_name),
-    ["avatar_url", "display_name"],
+    [],
   );
 
   // And the invitations table is unreachable from the browser altogether. A row here is a
@@ -337,9 +343,19 @@ async function main() {
         );
 
         // ---- Granting and revoking admin -------------------------------------
+        //
+        // Counted relative to what this deployment already has rather than against a fixed
+        // number. A real database has however many admins the school has appointed, and a check
+        // that assumed one passed only on an empty seed.
+        const adminsBefore = (await asAdmin.staff.people()).adminCount;
+
         const promoted = await asAdmin.staff.setAdmin({ profileId: student.id, admin: true });
         check("an admin can promote an instructor", promoted.role, "ADMIN");
-        check("...and now there are two", (await asAdmin.staff.people()).adminCount, 2);
+        check(
+          "...and there is one more admin than before",
+          (await asAdmin.staff.people()).adminCount,
+          adminsBefore + 1,
+        );
         check(
           "promoting again changes nothing",
           (await asAdmin.staff.setAdmin({ profileId: student.id, admin: true })).role,
@@ -365,8 +381,17 @@ async function main() {
         has no way back except a database edit.
 
         Asserted as the *only* admin, measured rather than assumed, because a second admin lying
-        around would make this pass while testing nothing.
+        around would make this pass while testing nothing — which is exactly what happens on a real
+        deployment, where the school has appointed more than one.
+
+        So the others are demoted here first, inside the transaction that is about to be rolled
+        back. Written straight to the rows rather than through `setAdmin`, because the procedure is
+        the thing under test and using it to arrange its own preconditions would be circular.
       */
+        await tx.profile.updateMany({
+          where: { role: "ADMIN", id: { not: admin.id } },
+          data: { role: "INSTRUCTOR" },
+        });
         check("only one admin is left at this point", (await asAdmin.staff.people()).adminCount, 1);
         check(
           "revoking the last admin is refused",
