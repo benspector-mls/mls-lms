@@ -2,13 +2,19 @@ import { Suspense } from "react";
 
 import { ExpectedStudents } from "@/components/instructor/expected-students";
 import { GroupManager } from "@/components/instructor/group-manager";
-import { CourseRoster } from "@/components/instructor/roster";
+import { CourseRoster, JoinLinkCard } from "@/components/instructor/roster";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
  * Who is in this cohort, and the link that puts them there.
+ *
+ * **Two tabs, because the screen answers two questions that are asked months apart.** Running a
+ * cohort means reading the roster and arranging groups; starting one means writing down who is
+ * expected and sending them the link. Both were on one page, so the work of an ordinary week sat
+ * below the work of a single afternoon in September.
  *
  * Reads `courses.roster` rather than the gradebook, which is the point of that procedure
  * existing: this screen needs every enrollment and no submissions at all, and it used to fetch
@@ -49,13 +55,34 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
         description={`${active} ${active === 1 ? "student" : "students"} in this cohort`}
       />
       {/*
-        Above the join link, because it is now the first step rather than an extra one: the link
-        admits nobody who is not on this list, so an instructor who meets the link first has a
-        cohort that silently refuses everybody they send it to.
+        The roster first, and it is the tab an instructor lands on. Enrolling is what you do once
+        at the start of a term; reading the roster is what you do every week after that.
+
+        All four queries are fetched above regardless of which tab is open. They are one round
+        trip on a screen whose whole content is four lists, and fetching the second tab's data
+        only when it is opened would put a spinner between a click and a table.
       */}
-      <ExpectedStudents courseId={courseId} entries={expected} />
-      <CourseRoster data={data} />
-      <GroupManager courseId={courseId} data={groups} memberships={memberships} />
+      <Tabs defaultValue="active">
+        <TabsList>
+          <TabsTrigger value="active">Active Roster</TabsTrigger>
+          <TabsTrigger value="enroll">Enroll New Students</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="active" className="mt-4 flex flex-col gap-6">
+          <CourseRoster data={data} />
+          <GroupManager courseId={courseId} data={groups} memberships={memberships} />
+        </TabsContent>
+
+        {/*
+          The expected list above the join link, because it is the first step rather than an extra
+          one: the link admits nobody who is not on this list, so an instructor who meets the link
+          first has a cohort that silently refuses everybody they send it to.
+        */}
+        <TabsContent value="enroll" className="mt-4 flex flex-col gap-6">
+          <ExpectedStudents courseId={courseId} entries={expected} />
+          <JoinLinkCard courseId={courseId} joinToken={data.course.joinToken} active={active} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

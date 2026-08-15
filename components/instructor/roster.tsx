@@ -40,7 +40,7 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * The roster: the join link, and who has used it.
+ * Who is in this cohort: the Active roster tab.
  *
  * **Removed students are shown, not filtered out.** This is the instructor's own list and the
  * one screen where a departed student has to be visible — they are who Restore acts on, and a
@@ -76,15 +76,6 @@ export function CourseRoster({ data }: { data: Data }) {
       }),
     ),
   );
-  const regenerate = useMutation(
-    trpc.courses.regenerateJoinToken.mutationOptions(
-      settled({
-        onSuccess: () => {
-          toast.success("New join link. The old one no longer works.");
-        },
-      }),
-    ),
-  );
 
   /*
     Whether to offer the test student controls at all. Admins only, matching the procedures — an
@@ -100,7 +91,7 @@ export function CourseRoster({ data }: { data: Data }) {
   const [adding, setAdding] = React.useState(false);
   const [deleting, setDeleting] = React.useState<string | null>(null);
 
-  const busy = remove.isPending || restore.isPending || regenerate.isPending;
+  const busy = remove.isPending || restore.isPending;
   // Complements, so every enrollment lands in exactly one table. See the same reasoning in
   // `courses.gradebook`: filters naming both statuses would lose a third one from both lists.
   const active = data.enrollments.filter((enrollment) => enrollment.status === "ACTIVE");
@@ -108,34 +99,6 @@ export function CourseRoster({ data }: { data: Data }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <JoinLinkCard
-        joinToken={data.course.joinToken}
-        active={active.length}
-        busy={busy}
-        onRegenerate={() => regenerate.mutate({ courseId })}
-      />
-
-      {/*
-        Below the join link rather than beside it. The join link is how the cohort gets its
-        students and is the point of this screen; this is a tool for checking the course, and
-        putting the two on one line would give them equal weight.
-      */}
-      {isAdmin && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border px-4 py-3">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-medium">Check this course as a student meets it</span>
-            <span className="text-xs text-muted-foreground">
-              A test student you can look through — accept the work, push to the repository, and
-              grade it back here. Left out of the cohort&apos;s student count.
-            </span>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-            <FlaskConical data-icon="inline-start" />
-            Add test student
-          </Button>
-        </div>
-      )}
-
       <TestStudentDialog courseId={courseId} open={adding} onOpenChange={setAdding} />
       {deleting && (
         <RemoveTestStudentDialog
@@ -151,7 +114,7 @@ export function CourseRoster({ data }: { data: Data }) {
         <EmptyState
           icon={<Users />}
           title="Nobody has joined yet"
-          description="Send the link above. Students appear here as they use it."
+          description="Send the join link from Enroll new students. Students appear here as they use it."
         />
       ) : (
         <>
@@ -195,6 +158,27 @@ export function CourseRoster({ data }: { data: Data }) {
           )}
         </>
       )}
+
+      {/*
+        Below the roster rather than above it. The tables are what this tab is for; this is a tool
+        for checking the course, and a card at the top would be the first thing an instructor read
+        on a screen they opened to look at their students.
+      */}
+      {isAdmin && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border px-4 py-3">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-medium">Check this course as a student meets it</span>
+            <span className="text-xs text-muted-foreground">
+              A test student you can look through — accept the work, push to the repository, and
+              grade it back here. Left out of the cohort&apos;s student count.
+            </span>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <FlaskConical data-icon="inline-start" />
+            Add test student
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -209,18 +193,34 @@ export function CourseRoster({ data }: { data: Data }) {
  * **Regenerating says what it costs before it happens.** Anyone who has not joined yet is
  * holding a link that is about to stop working, so the confirmation names that rather than
  * asking "are you sure".
+ *
+ * On the Enroll new students tab, under the expected list, because those are the two halves of
+ * one act: the list says who may join and the link is what they join with. The count of students
+ * already in the cohort is passed in rather than fetched, since the tab beside this one has it.
  */
-function JoinLinkCard({
+export function JoinLinkCard({
+  courseId,
   joinToken,
   active,
-  busy,
-  onRegenerate,
 }: {
+  courseId: string;
   joinToken: string;
+  /** How many students are already enrolled, which the confirmation names. */
   active: number;
-  busy: boolean;
-  onRegenerate: () => void;
 }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const regenerate = useMutation(
+    trpc.courses.regenerateJoinToken.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("New join link. The old one no longer works.");
+        },
+      }),
+    ),
+  );
+
   const [copied, setCopied] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
 
@@ -269,9 +269,9 @@ function JoinLinkCard({
             <Button
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={regenerate.isPending}
               onClick={() => {
-                onRegenerate();
+                regenerate.mutate({ courseId });
                 setConfirming(false);
               }}
             >
