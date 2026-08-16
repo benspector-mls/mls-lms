@@ -1,30 +1,34 @@
 import { CalendarCheck } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
-import { AttendanceStatusBadge } from "@/components/status-badge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { countsAsAttended } from "@/lib/attendance/summary";
-import { formatSchoolDay } from "@/lib/school-time";
+import { AttendanceCalendar } from "@/components/student/attendance-calendar";
+import { formatSchoolDay, formatSchoolTime, type SchoolDay } from "@/lib/school-time";
 import { attendanceSourceLabel, formatPercent } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
  * A fellow's own attendance, in one cohort.
  *
- * **Two questions, in this order: am I in trouble, and which days do I owe an explanation for.**
- * So the figure leads, the missed days come next as their own short list, and the full record is
- * collapsed beneath — sixty rows of "present" is not what anybody opened this to read.
+ * **Two things, in this order: how much of the term you have been here for, and the term itself.**
+ * The figure leads because it is the question somebody opens this to ask, and the calendar carries
+ * the rest.
+ *
+ * **A list of missed days used to sit between them, and it went because it said twice what the
+ * calendar says once.** Red and amber squares are the missed days; the list repeated them as rows.
+ * What it had that they did not was the note and who recorded the mark, so those moved into the
+ * square's tooltip rather than being lost — see `AttendanceCalendar`.
  *
  * **It says out loud that an excused absence still counts as missed.** A fellow who sees Excused
  * beside a rate that did not move deserves to be told why by the screen rather than by working it
  * out, and it is the kind of rule people are owed in plain words before it matters to them.
  *
- * A server component. Every row is text.
+ * A server component, which is what lets it compose the provenance sentence: turning a source and
+ * a timestamp into words needs the school's timezone, and the calendar below is a client component.
  */
 
 type Record = RouterOutputs["attendance"]["myHistory"];
 
-export function StudentAttendanceRecord({ data }: { data: Record }) {
+export function StudentAttendanceRecord({ data, today }: { data: Record; today: SchoolDay }) {
   const { summary } = data;
 
   if (data.days.length === 0) {
@@ -37,10 +41,13 @@ export function StudentAttendanceRecord({ data }: { data: Record }) {
     );
   }
 
-  const missed = data.days.filter(
-    (day) => day.state !== "open" && (day.status === null || !countsAsAttended(day.status)),
-  );
-  const rest = data.days.filter((day) => !missed.includes(day));
+  const calendarDays = data.days.map((day) => ({
+    day: day.day,
+    status: day.status,
+    open: day.state === "open",
+    detail: day.state === "open" ? null : provenance(day),
+    note: day.note,
+  }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -66,50 +73,18 @@ export function StudentAttendanceRecord({ data }: { data: Record }) {
         </p>
       </section>
 
-      {missed.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium">Days you missed · {missed.length}</h2>
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {missed.map((day) => (
-              <Row key={day.id} day={day} />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <Collapsible>
-        <CollapsibleTrigger className="self-start text-sm text-muted-foreground underline-offset-4 hover:underline">
-          Every session · {data.days.length}
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2">
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {rest.map((day) => (
-              <Row key={day.id} day={day} />
-            ))}
-          </ul>
-        </CollapsibleContent>
-      </Collapsible>
+      <AttendanceCalendar days={calendarDays} enrolledFrom={data.enrolledFrom} today={today} />
     </div>
   );
 }
 
-function Row({ day }: { day: Record["days"][number] }) {
-  return (
-    <li className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
-      <span className="font-medium">{formatSchoolDay(day.day)}</span>
-      <span className="flex items-center gap-2 text-xs text-muted-foreground">
-        {day.note && <span className="max-w-60 truncate">{day.note}</span>}
-        <span>
-          {day.state === "open"
-            ? "Check-in is open"
-            : attendanceSourceLabel(day.source ?? "FINALIZED", day.recordedByName)}
-        </span>
-        {day.status ? (
-          <AttendanceStatusBadge status={day.status} />
-        ) : day.state !== "open" ? (
-          <AttendanceStatusBadge status="ABSENT" />
-        ) : null}
-      </span>
-    </li>
-  );
+/**
+ * Where one day's mark came from, in words.
+ *
+ * "checked in at 9:02" and "marked by Ben Spector" are different claims about the same status, and
+ * the difference is the one a fellow asks about when they disagree with a row.
+ */
+function provenance(day: Record["days"][number]): string {
+  const source = attendanceSourceLabel(day.source ?? "FINALIZED", day.recordedByName);
+  return day.checkedInAt ? `${source} at ${formatSchoolTime(day.checkedInAt)}` : source;
 }

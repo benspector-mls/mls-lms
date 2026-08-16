@@ -1,28 +1,30 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
 import { CheckCircle2, CircleSlash, Clock } from "lucide-react";
 import * as React from "react";
 
 import { AttendanceStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { myAttendanceHref } from "@/lib/links";
+import { formatSchoolTime } from "@/lib/school-time";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Check in, from wherever a fellow already is.
+ * Check in, on the attendance screen of the course it belongs to.
+ *
+ * **It sits here rather than on the dashboard**, which costs a click at nine in the morning and
+ * buys one place where a fellow's attendance lives. Three courses meant three cards stacked above
+ * the work on the one screen that is supposed to answer "what is due", and typing a code for
+ * Technical Interview Prep is not a thing anybody does from a list of overdue assignments. The
+ * sidebar puts this one click away from anywhere inside the course.
  *
  * **It renders nothing at all when no session is open**, rather than saying "no check-in today".
  * That distinction matters more than it looks: a card that announced its own absence would be a
  * false alarm every Saturday, over winter break, and on every morning an instructor is running
  * fifteen minutes behind. Silence is the correct thing to show when there is nothing to do.
- *
- * **A list, because a fellow can owe more than one.** They belong to a program and take several
- * courses inside it, so three sessions could be open on a Tuesday morning.
  *
  * Three details that sound small and are not:
  *
@@ -38,14 +40,17 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Today = RouterOutputs["attendance"]["today"];
 
-export function CheckInCard({ initial }: { initial: Today }) {
+export function CheckInCard({ courseId, initial }: { courseId: string; initial: Today }) {
   const trpc = useTRPC();
 
   /*
-    Re-read on a slow interval as well as after a check-in, so a fellow who has the dashboard open
-    when their instructor starts class sees the card appear without reloading. Thirty seconds is
-    far below the cost of noticing, and this is one small query on the one screen a student idles
-    on.
+    Re-read on a slow interval as well as after a check-in, so a fellow who opened this screen a
+    minute before class sees the card appear without reloading. Thirty seconds is far below the
+    cost of noticing.
+
+    `attendance.today` answers for every course a fellow is in — it is one query either way, and
+    narrowing it here rather than adding a per-course procedure keeps one answer to "what is open
+    right now" for the whole application.
   */
   const today = useQuery({
     ...trpc.attendance.today.queryOptions(),
@@ -53,15 +58,10 @@ export function CheckInCard({ initial }: { initial: Today }) {
     refetchInterval: 30_000,
   });
 
-  if (today.data.length === 0) return null;
+  const entry = today.data.find((row) => row.courseId === courseId);
+  if (!entry) return null;
 
-  return (
-    <section className="flex flex-col gap-3">
-      {today.data.map((entry) => (
-        <CourseCheckIn key={entry.courseId} entry={entry} />
-      ))}
-    </section>
-  );
+  return <CourseCheckIn entry={entry} />;
 }
 
 function CourseCheckIn({ entry }: { entry: Today[number] }) {
@@ -98,7 +98,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
           </span>
           <span className="text-xs text-muted-foreground">
             {record.source === "SELF_CHECK_IN" && record.checkedInAt
-              ? `Checked in at ${timeOnly(record.checkedInAt)}.`
+              ? `Checked in at ${formatSchoolTime(record.checkedInAt)}.`
               : record.recordedByName
                 ? `Marked by ${record.recordedByName}.`
                 : "Recorded by your instructor."}
@@ -106,7 +106,6 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
               " If you were here on time, tell your instructor — they can change this."}
           </span>
         </div>
-        <OwnRecordLink courseId={entry.courseId} />
       </Shell>
     );
   }
@@ -123,7 +122,6 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
             You are not marked in for today. Speak to your instructor — they can record it.
           </span>
         </div>
-        <OwnRecordLink courseId={entry.courseId} />
       </Shell>
     );
   }
@@ -172,17 +170,6 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
   );
 }
 
-function OwnRecordLink({ courseId }: { courseId: string }) {
-  return (
-    <Link
-      href={myAttendanceHref(courseId)}
-      className="shrink-0 text-xs text-muted-foreground underline-offset-4 hover:underline"
-    >
-      Your attendance
-    </Link>
-  );
-}
-
 function Shell({
   tone,
   children,
@@ -202,12 +189,4 @@ function Shell({
       {children}
     </div>
   );
-}
-
-function timeOnly(at: Date): string {
-  return at.toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }

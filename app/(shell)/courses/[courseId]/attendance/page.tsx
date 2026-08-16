@@ -3,18 +3,23 @@ import { Suspense } from "react";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { StudentAttendanceRecord } from "@/components/student/attendance-record";
+import { CheckInCard } from "@/components/student/check-in-card";
+import { schoolDayOf } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * A fellow's own attendance in one cohort.
+ * A fellow's own attendance in one cohort, and where they check in.
  *
- * Reached from the check-in card and from their course page — deliberately not a sidebar item, and
- * deliberately not on the dashboard. It is a fact about one course, and the dashboard's own group
- * is the one place in this application that spans them.
+ * **Both halves on one screen**, which is the whole reason check-in moved off the dashboard. A
+ * fellow in three courses had three cards stacked above the one screen that answers "what is due",
+ * and typing a code for Technical Interview Prep is not something anybody does from a list of
+ * overdue assignments. Here the code goes in beside the record it becomes a row of.
+ *
+ * Reached from the sidebar, which expands the course being read — see `StudentCourses`.
  *
  * `attendance.myHistory` is guarded by `assertCourseMember` rather than `assertActiveStudent`, so
  * a fellow removed from a cohort keeps reading their own record here — the same rule that keeps
- * their released feedback readable.
+ * their released feedback readable. Check-in itself refuses them, which is the right pair.
  */
 export default function MyAttendancePage({ params }: { params: Promise<{ courseId: string }> }) {
   return (
@@ -28,12 +33,27 @@ async function MyAttendance({ params }: { params: Promise<{ courseId: string }> 
   const { courseId } = await params;
   const queryClient = getQueryClient();
 
-  const data = await queryClient.fetchQuery(trpc.attendance.myHistory.queryOptions({ courseId }));
+  const [data, openNow] = await Promise.all([
+    queryClient.fetchQuery(trpc.attendance.myHistory.queryOptions({ courseId })),
+    queryClient.fetchQuery(trpc.attendance.today.queryOptions()),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader title="Your attendance" description={data.course.name} />
-      <StudentAttendanceRecord data={data} />
+
+      {/*
+        Above the record, and it renders nothing on the days there is no session — so this screen
+        is a record most of the time and a place to check in for ten minutes a day.
+      */}
+      <CheckInCard courseId={courseId} initial={openNow} />
+
+      {/*
+        The clock is read once, here, and handed down, so the server and the browser agree about
+        which square on the calendar is today. Reading it inside the component would put a
+        different answer in each render, which React reports as a hydration mismatch.
+      */}
+      <StudentAttendanceRecord data={data} today={schoolDayOf(new Date())} />
     </div>
   );
 }

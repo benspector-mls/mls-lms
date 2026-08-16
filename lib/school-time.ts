@@ -91,6 +91,22 @@ export function formatSchoolDay(day: SchoolDay): string {
   });
 }
 
+/**
+ * A clock time in Brooklyn. "9:02 AM".
+ *
+ * The attendance screens all want this and nothing else — a check-in has a date already, from the
+ * session it belongs to, so repeating it beside the time is noise. It lives here rather than in
+ * `lib/status.ts` because it is the zone that makes it correct, and three components had begun
+ * writing `timeZone: "America/New_York"` out by hand, which is one edit away from disagreeing.
+ */
+export function formatSchoolTime(at: Date): string {
+  return at.toLocaleTimeString("en-US", {
+    timeZone: SCHOOL_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** The same, without the weekday, for a column heading where the day is one of many. */
 export function formatSchoolDayShort(day: SchoolDay): string {
   return dateColumnFor(day).toLocaleDateString("en-US", {

@@ -5,6 +5,7 @@ import {
   Clock,
   ExternalLink,
   Flag,
+  MessageSquarePlus,
   MonitorPlay,
   Play,
   RotateCcw,
@@ -20,11 +21,12 @@ import { AttendanceStatusBadge } from "@/components/status-badge";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { splitForCorrection, type GridRow } from "@/lib/attendance/grid";
 import { attendancePresentHref, studentHref } from "@/lib/links";
 import { displayNameOf, initials } from "@/lib/people";
-import { formatSchoolDay } from "@/lib/school-time";
+import { formatSchoolDay, formatSchoolTime } from "@/lib/school-time";
 import { attendanceSourceLabel, formatDateTime } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
@@ -287,7 +289,7 @@ function SessionHeader({
             {open ? (
               <>
                 Open since {formatDateTime(session.startedAt)} · on time until{" "}
-                {onTimeUntil(session)} · closes on its own at {timeOnly(session.endsAt)}
+                {onTimeUntil(session)} · closes on its own at {formatSchoolTime(session.endsAt)}
               </>
             ) : session.state === "ended" ? (
               <>Ended at {formatDateTime(session.endedAt)}</>
@@ -377,15 +379,9 @@ function SessionHeader({
 }
 
 function onTimeUntil(session: NonNullable<Grid["session"]>): string {
-  return timeOnly(new Date(session.startedAt.getTime() + session.lateAfterMinutes * 60 * 1000));
-}
-
-function timeOnly(at: Date): string {
-  return at.toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatSchoolTime(
+    new Date(session.startedAt.getTime() + session.lateAfterMinutes * 60 * 1000),
+  );
 }
 
 function Counts({ counts, total }: { counts: Grid["counts"]; total: number }) {
@@ -468,31 +464,156 @@ function Row({
   busy: boolean;
 }) {
   const name = displayNameOf(row.student, "Unnamed");
+  const [editingNote, setEditingNote] = React.useState(false);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
-      <div className="flex min-w-0 items-center gap-3">
-        <Avatar className="size-8">
-          <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-            {initials(row.student.displayName)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex min-w-0 flex-col">
-          <div className="flex min-w-0 items-center gap-2">
-            <a
-              href={studentHref(courseId, row.student.id)}
-              className="truncate text-sm font-medium hover:underline"
-            >
-              {name}
-            </a>
-            {row.student.testStudentNumber !== null && <TestStudentBadge />}
+    <div className="flex flex-col gap-2 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar className="size-8">
+            <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+              {initials(row.student.displayName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex min-w-0 flex-col">
+            <div className="flex min-w-0 items-center gap-2">
+              <a
+                href={studentHref(courseId, row.student.id)}
+                className="truncate text-sm font-medium hover:underline"
+              >
+                {name}
+              </a>
+              {row.student.testStudentNumber !== null && <TestStudentBadge />}
+            </div>
+            <Provenance row={row} />
           </div>
-          <Provenance row={row} />
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-1">
+          <StatusButtons
+            row={row}
+            courseId={courseId}
+            day={day}
+            sessionId={sessionId}
+            busy={busy}
+          />
+          {/*
+            Only once there is a mark to explain. A note is a sentence about a decision, and
+            before a status is set there is no decision for it to be about — offering the button
+            first would mean writing "hospital appointment" against nothing.
+          */}
+          {row.record && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              disabled={busy}
+              aria-label={row.record.note ? `Edit the note for ${name}` : `Add a note for ${name}`}
+              onClick={() => setEditingNote((open) => !open)}
+            >
+              <MessageSquarePlus />
+              {row.record.note ? "Edit note" : "Note"}
+            </Button>
+          )}
         </div>
       </div>
 
-      <StatusButtons row={row} courseId={courseId} day={day} sessionId={sessionId} busy={busy} />
+      {editingNote && row.record && (
+        <NoteEditor
+          row={row}
+          courseId={courseId}
+          day={day}
+          sessionId={sessionId}
+          busy={busy}
+          onDone={() => setEditingNote(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * A sentence about why a mark is what it is.
+ *
+ * **It writes through `setStatus` with the status the row already has**, rather than through a
+ * procedure of its own. A note is not a thing in its own right — it is part of the decision, which
+ * is why it lives on the record beside the status and why the audit event for setting one is the
+ * same event. The cost is that the note cannot be written before the status, which is the correct
+ * order anyway.
+ *
+ * An empty box clears the note rather than storing an empty string: the field is optional, and
+ * `undefined` is what makes the procedure write null.
+ */
+function NoteEditor({
+  row,
+  courseId,
+  day,
+  sessionId,
+  busy,
+  onDone,
+}: {
+  row: GridRow;
+  courseId: string;
+  day: string;
+  sessionId: string;
+  busy: boolean;
+  onDone: () => void;
+}) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const [text, setText] = React.useState(row.record?.note ?? "");
+
+  const save = useMutation(
+    trpc.attendance.setStatus.mutationOptions({
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.attendance.grid.queryKey({ courseId, day }),
+        });
+        onDone();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  if (!row.record) return null;
+  const status = row.record.status;
+
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2 pl-11"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate({
+          sessionId,
+          enrollmentId: row.enrollmentId,
+          status,
+          note: text.trim() || undefined,
+        });
+      }}
+    >
+      <Input
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        maxLength={500}
+        autoFocus
+        placeholder="Why — a hospital appointment, a late train"
+        className="h-7 min-w-0 flex-1 text-xs"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onDone();
+        }}
+      />
+      <Button
+        type="submit"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        disabled={busy || save.isPending}
+      >
+        Save
+      </Button>
+      <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onDone}>
+        Cancel
+      </Button>
+    </form>
   );
 }
 
@@ -512,7 +633,7 @@ function Provenance({ row }: { row: GridRow }) {
     );
   }
 
-  const when = row.record.checkedInAt ? ` at ${timeOnly(row.record.checkedInAt)}` : "";
+  const when = row.record.checkedInAt ? ` at ${formatSchoolTime(row.record.checkedInAt)}` : "";
 
   return (
     <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground">

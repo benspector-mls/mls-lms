@@ -9,7 +9,6 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { CheckInCard } from "@/components/student/check-in-card";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { AssignmentKindBadge } from "@/components/status-badge";
@@ -22,8 +21,6 @@ import {
 } from "@/lib/status";
 import { dashboardIsEmpty, dashboardSections } from "@/lib/student/dashboard";
 import { cn } from "@/lib/utils";
-
-import type { RouterOutputs } from "@/trpc/types";
 
 import type { DashboardAssignment } from "./types";
 
@@ -44,12 +41,9 @@ import type { DashboardAssignment } from "./types";
  */
 export function StudentDashboard({
   assignments,
-  checkIns,
   now,
 }: {
   assignments: DashboardAssignment[];
-  /** Any attendance session open right now, in any of their courses. Usually empty. */
-  checkIns: RouterOutputs["attendance"]["today"];
   /** Passed in rather than read here, so the server and the browser agree. */
   now: Date;
 }) {
@@ -61,14 +55,6 @@ export function StudentDashboard({
         title="Your Work"
         description="Everything waiting on you, across all of your courses."
       />
-
-      {/*
-        Above everything, and it renders nothing when no session is open — so on most of the days
-        a fellow opens this screen, the dashboard looks exactly as it did before attendance
-        existed. When there *is* a code to type, it is the first thing on the page, because it is
-        the only thing here with a deadline measured in minutes.
-      */}
-      <CheckInCard initial={checkIns} />
 
       {dashboardIsEmpty(sections) ? (
         /*
