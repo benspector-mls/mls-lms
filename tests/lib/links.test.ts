@@ -1,4 +1,5 @@
 import {
+  attendanceHref,
   courseAssignmentsHref,
   courseHref,
   courseResourcesHref,
@@ -69,9 +70,10 @@ describe("opening one submission", () => {
  * roster would silently land somewhere else and read as the switcher losing your place.
  */
 describe("sameViewInCourse", () => {
-  describe("the seven views every course has, which travel", () => {
+  describe("the eight views every course has, which travel", () => {
     it.each([
       ["triage", triageHref(OTHER)],
+      ["attendance", attendanceHref(OTHER)],
       ["assignments", courseAssignmentsHref(OTHER)],
       ["resources", courseResourcesHref(OTHER)],
       ["gradebook", gradebookHref(OTHER)],
@@ -81,6 +83,18 @@ describe("sameViewInCourse", () => {
     ])("%s becomes the other cohort's %s", (segment, expected) => {
       expect(sameViewInCourse(`/instructor/courses/${COURSE}/${segment}`, OTHER)).toBe(expected);
     });
+  });
+
+  /*
+    Attendance's two tabs are one address, so the whole view travels. One *day* under it does not
+    travel to the other cohort's day — that cohort may not have met on it — but it does not fall
+    through to settings either: landing on the other cohort's attendance is what somebody switching
+    from an attendance screen asked for.
+  */
+  it("one day under attendance travels to the other cohort's attendance, not to settings", () => {
+    expect(sameViewInCourse(`/instructor/courses/${COURSE}/attendance/day/2026-08-14`, OTHER)).toBe(
+      attendanceHref(OTHER),
+    );
   });
 
   describe("the addresses that belong to one cohort and cannot travel", () => {

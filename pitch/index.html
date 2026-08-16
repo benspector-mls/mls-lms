@@ -1,0 +1,1781 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Replacing GitHub Classroom</title>
+    <style>
+      /* ---------- reset and stage ---------------------------------------- */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #14161a;
+        overflow: hidden;
+        font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+        color: #1c1f26;
+      }
+
+      #stage {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 1280px;
+        height: 720px;
+        transform-origin: center center;
+      }
+
+      .slide {
+        position: absolute;
+        inset: 0;
+        display: none;
+        flex-direction: column;
+        padding: 54px 68px 60px;
+        background: #fbfaf8;
+        overflow: hidden;
+      }
+      .slide.active {
+        display: flex;
+      }
+
+      /* ---------- type ---------------------------------------------------- */
+      h1 {
+        font-size: 60px;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+        margin: 0 0 24px;
+        font-weight: 700;
+      }
+      h2 {
+        font-size: 34px;
+        line-height: 1.18;
+        letter-spacing: -0.015em;
+        margin: 0 0 6px;
+        font-weight: 700;
+      }
+      .eyebrow {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8a8577;
+        margin: 0 0 14px;
+      }
+      .rule {
+        height: 3px;
+        width: 74px;
+        background: #c2410c;
+        margin: 0 0 26px;
+        flex: none;
+      }
+
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        gap: 40px;
+      }
+      .col {
+        flex: 1;
+        min-width: 0;
+      }
+      .col.narrow {
+        flex: 0 0 46%;
+      }
+
+      ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      li {
+        position: relative;
+        font-size: 21px;
+        line-height: 1.42;
+        padding: 0 0 0 24px;
+        margin: 0 0 13px;
+      }
+      li::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: 11px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #c2410c;
+      }
+      li strong {
+        font-weight: 650;
+      }
+      li em {
+        font-style: italic;
+        color: #55504a;
+      }
+
+      .dense li {
+        font-size: 18px;
+        line-height: 1.36;
+        margin-bottom: 9px;
+      }
+      .dense li::before {
+        top: 9px;
+        width: 6px;
+        height: 6px;
+      }
+
+      ol.steps {
+        margin: 0 0 22px;
+        padding: 0;
+        counter-reset: s;
+        list-style: none;
+      }
+      ol.steps li {
+        padding-left: 46px;
+        margin-bottom: 11px;
+        font-size: 21px;
+      }
+      ol.steps li::before {
+        counter-increment: s;
+        content: counter(s);
+        top: 0;
+        left: 0;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #ece7de;
+        color: #57534e;
+        font-size: 15px;
+        font-weight: 700;
+        display: grid;
+        place-items: center;
+      }
+      ol.steps .where {
+        color: #8a8577;
+        font-style: italic;
+      }
+
+      /* ---------- callout -------------------------------------------------- */
+      .punch {
+        margin: 18px 0 0;
+        padding: 18px 24px;
+        background: #1c1f26;
+        color: #fbfaf8;
+        border-radius: 10px;
+        font-size: 25px;
+        line-height: 1.28;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .punch.amber {
+        background: #7c2d12;
+      }
+      .note {
+        margin-top: 16px;
+        font-size: 17px;
+        line-height: 1.4;
+        color: #57534e;
+      }
+
+      /* ---------- tables --------------------------------------------------- */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 18px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 9px 14px 9px 0;
+        border-bottom: 1px solid #e3ded4;
+        vertical-align: top;
+        line-height: 1.34;
+      }
+      th {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: #8a8577;
+        font-weight: 700;
+        border-bottom-color: #cfc8bc;
+      }
+      td strong {
+        font-weight: 650;
+      }
+      table.tight td,
+      table.tight th {
+        font-size: 16px;
+        padding: 7px 12px 7px 0;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ---------- screenshot slot ------------------------------------------ */
+      .shot {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        object-fit: contain;
+        object-position: top center;
+        border: 1px solid #ddd6ca;
+        border-radius: 8px;
+        background: #fff;
+      }
+      .shot .ph {
+        display: none;
+      }
+      .shot.missing img {
+        display: none;
+      }
+      .shot.missing .ph {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex: 1;
+        min-height: 150px;
+        border: 2px dashed #c9c1b3;
+        border-radius: 8px;
+        background: repeating-linear-gradient(
+          45deg,
+          #f5f2ec,
+          #f5f2ec 10px,
+          #f0ece4 10px,
+          #f0ece4 20px
+        );
+        text-align: center;
+        padding: 20px;
+      }
+      .ph b {
+        font-size: 17px;
+        color: #57534e;
+        font-weight: 650;
+        max-width: 80%;
+        line-height: 1.35;
+      }
+      .ph code {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 13px;
+        color: #8a8577;
+        background: #fff;
+        border: 1px solid #ddd6ca;
+        border-radius: 4px;
+        padding: 3px 8px;
+      }
+      .shot figcaption {
+        flex: none;
+        margin-top: 9px;
+        font-size: 14px;
+        color: #8a8577;
+      }
+
+      /* ---------- flow diagram --------------------------------------------- */
+      .flow {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        font-size: 17px;
+      }
+      .flow .step {
+        background: #fff;
+        border: 1px solid #e3ded4;
+        border-left: 4px solid #c2410c;
+        border-radius: 7px;
+        padding: 10px 15px;
+        line-height: 1.3;
+      }
+      .flow .step.key {
+        background: #1c1f26;
+        color: #fbfaf8;
+        border-color: #1c1f26;
+        border-left-color: #f97316;
+        font-weight: 600;
+      }
+      .flow .arrow {
+        text-align: center;
+        color: #b9b1a3;
+        font-size: 13px;
+        line-height: 1;
+      }
+
+      /* ---------- title slide ----------------------------------------------- */
+      .slide.title {
+        justify-content: center;
+        background: #1c1f26;
+        color: #fbfaf8;
+        padding: 0 92px;
+      }
+      .slide.title h1 {
+        font-size: 76px;
+        margin-bottom: 28px;
+      }
+      .slide.title .sub {
+        font-size: 26px;
+        line-height: 1.4;
+        color: #d6cfc4;
+        max-width: 900px;
+        margin-bottom: 34px;
+      }
+      .slide.title .ask {
+        font-size: 21px;
+        color: #f97316;
+        font-weight: 600;
+      }
+
+      /* ---------- section divider -------------------------------------------- */
+      .slide.divider {
+        justify-content: center;
+        background: #ece7de;
+      }
+      .slide.divider .eyebrow {
+        color: #a08b6a;
+      }
+      .slide.divider h1 {
+        font-size: 64px;
+        margin: 0;
+        max-width: 900px;
+      }
+
+      /* ---------- chrome ------------------------------------------------------ */
+      .slidenum {
+        position: absolute;
+        right: 30px;
+        bottom: 22px;
+        font-size: 13px;
+        color: #b9b1a3;
+        font-variant-numeric: tabular-nums;
+      }
+      .slide.title .slidenum,
+      .slide.divider .slidenum {
+        display: none;
+      }
+
+      /* ---------- speaker notes ------------------------------------------------ */
+      aside.notes {
+        display: none;
+      }
+      #notespanel {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        max-height: 34vh;
+        overflow: auto;
+        background: #0d0f12;
+        color: #e7e2d8;
+        border-top: 2px solid #c2410c;
+        padding: 16px 26px 20px;
+        font-size: 15px;
+        line-height: 1.5;
+        display: none;
+        z-index: 20;
+      }
+      body.shownotes #notespanel {
+        display: block;
+      }
+      #notespanel h4 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #f97316;
+      }
+      #notespanel ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      #notespanel li {
+        font-size: 15px;
+        padding-left: 18px;
+        margin-bottom: 7px;
+        color: #e7e2d8;
+      }
+      #notespanel li::before {
+        background: #f97316;
+        top: 8px;
+        width: 5px;
+        height: 5px;
+      }
+
+      #help {
+        position: fixed;
+        right: 14px;
+        top: 12px;
+        font-size: 11px;
+        color: #6b6459;
+        z-index: 20;
+        font-family: ui-monospace, Menlo, monospace;
+      }
+
+      /* ---------- print / PDF export -------------------------------------------- */
+      @page {
+        size: 1280px 720px;
+        margin: 0;
+      }
+      @media print {
+        html,
+        body {
+          overflow: visible;
+          background: #fff;
+          height: auto;
+        }
+        #stage {
+          position: static;
+          transform: none !important;
+          width: auto;
+          height: auto;
+        }
+        .slide {
+          position: relative;
+          display: flex !important;
+          width: 1280px;
+          height: 720px;
+          page-break-after: always;
+          break-after: page;
+        }
+        #help,
+        #notespanel {
+          display: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="help">← → navigate · S speaker notes · F fullscreen</div>
+
+    <div id="stage">
+      <!-- ============================================================ 1 -->
+      <section class="slide title">
+        <h1>Replacing GitHub&nbsp;Classroom</h1>
+        <p class="sub">
+          Handing out assignments, collecting them, grading them, and getting feedback back to
+          students — built for the nine-month fullstack program.
+        </p>
+        <p class="ask">The ask at the end is one hour of your time, not a decision about next term.</p>
+        <aside class="notes">
+          <ul>
+            <li>Showing you what I built, what it does not do, and the two concerns already raised</li>
+            <li>Nobody is being asked today to commit to using this with real students</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ divider -->
+      <section class="slide divider">
+        <p class="eyebrow">Part one</p>
+        <h1>The gap</h1>
+      </section>
+
+      <!-- ============================================================ 2 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 2</p>
+        <h2>The four things we lost when GitHub Classroom and the LMS went away</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 34%">What it did</th>
+                  <th>What that meant in practice</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Handed out assignments</strong></td>
+                  <td>Every student got their own copy of the starter code, named so we could find it</td>
+                </tr>
+                <tr>
+                  <td><strong>Collected the work</strong></td>
+                  <td>We knew who had handed in, who had not, and when</td>
+                </tr>
+                <tr>
+                  <td><strong>Recorded a grade a student could read</strong></td>
+                  <td>A student could see their score and their feedback without asking for it</td>
+                </tr>
+                <tr>
+                  <td><strong>Shared the rest of the course</strong></td>
+                  <td>Readings, lecture notes, and recordings sat next to the work they belonged to</td>
+                </tr>
+              </tbody>
+            </table>
+            <ul style="margin-top: 20px">
+              <li><strong>GitHub Classroom</strong> did the first two, for coding work only</li>
+              <li><strong>The LMS</strong> — Canvas and Google Classroom — did all four, for everything</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">2</div>
+        <aside class="notes">
+          <ul>
+            <li>"GitHub Classroom is going away" undersells it — four services, all four gone</li>
+            <li>Hold this table; slide 14 shows which screen does each one now</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 3 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 3</p>
+        <h2>Grading one assignment today takes five steps across four systems</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <ol class="steps">
+              <li>Clone the student's repository — <span class="where">GitHub</span></li>
+              <li>Run the tests and work through the manual grading toolkit — <span class="where">your own machine</span></li>
+              <li>Post the feedback as a pull request comment — <span class="where">GitHub</span></li>
+              <li>Re-enter the grade — <span class="where">the LMS</span></li>
+              <li>Re-enter the grade and its metadata — <span class="where">Salesforce</span></li>
+            </ol>
+            <div class="punch">The same grade and feedback is typed three times.</div>
+          </div>
+          <div class="col narrow">
+            <ul>
+              <li>
+                <strong>Transcription errors</strong> — three chances for a number to arrive somewhere
+                as a different number
+              </li>
+              <li>
+                <strong>Hours in the wrong place</strong> — time re-typing a grade is time not spent
+                reading a student's code
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">3</div>
+        <aside class="notes">
+          <ul>
+            <li>Steps 1–3 are the work; steps 4–5 are typing something we already wrote</li>
+            <li>Not a discipline problem — it is what three systems each needing to be told the same thing looks like</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 4 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 4</p>
+        <h2>Opportunity to automate the AI grading step</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <ul>
+              <li>
+                We already have grading logic defined — <strong>rubrics, answer keys, sample reports,
+                meta prompts</strong> — in <code>grading-toolkit/</code>
+              </li>
+              <li>
+                We should still evaluate every AI report, but this application can
+                <strong>start the generation process for us</strong>
+              </li>
+              <li>
+                Our competency framework asks students to seek feedback and act on it — which only
+                works if the feedback is substantive enough to act on
+              </li>
+            </ul>
+            <div class="punch">
+              Automate the transcription, keep the judgment, give the hours back to the reading.
+            </div>
+          </div>
+        </div>
+        <div class="slidenum">4</div>
+        <aside class="notes">
+          <ul>
+            <li>"Automate grading" is not "spend less time on students" — it is the opposite argument</li>
+            <li>The toolkit that decides what good work looks like already exists and is not being replaced</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ divider -->
+      <section class="slide divider">
+        <p class="eyebrow">Part two</p>
+        <h1>What exists</h1>
+      </section>
+
+      <!-- ============================================================ 5 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 5</p>
+        <h2>How an assignment moves from handout to grade</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow">
+            <div class="flow">
+              <div class="step">Student presses <strong>Accept assignment</strong></div>
+              <div class="arrow">▼</div>
+              <div class="step">A repository is created from the template, with the student and every instructor on it</div>
+              <div class="arrow">▼</div>
+              <div class="step key">Student opens a pull request. That is the hand-in — nothing else is pressed.</div>
+              <div class="arrow">▼</div>
+              <div class="step">The instructor's tests run in an isolated sandbox</div>
+              <div class="arrow">▼</div>
+              <div class="step">A report is drafted against the rubric and the answer key</div>
+              <div class="arrow">▼</div>
+              <div class="step">The instructor reads it, edits it, <strong>approves</strong></div>
+              <div class="arrow">▼</div>
+              <div class="step key">Grade recorded · comment posted · student sees the feedback</div>
+            </div>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/05-accept.gif"
+                alt="The student's assignment panel with the Accept button"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The student's assignment panel, with&nbsp;Accept</b>
+                <code>screenshots/05-accept.png</code>
+              </span>
+              <figcaption>One instructor action, and everything downstream updates.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">5</div>
+        <aside class="notes">
+          <ul>
+            <li>A pull request is the ritual our students already follow — deliberately unchanged</li>
+            <li>Sandbox means isolated: no internet, no passwords present, student code reaches nothing</li>
+            <li>One press moves the grade, the comment, and what the student sees at the same moment</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 6 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 6</p>
+        <h2>Setting up a cohort, getting students in, and ending a term</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <ul>
+              <li><strong>Create a cohort, or copy last term's</strong> — assignments and modules come with the copy; students, groups, and grades do not</li>
+              <li><strong>The short name is permanent</strong> — it prefixes every repository the cohort generates, so creating one has a review step</li>
+              <li><strong>A join link, plus a list of who you expect.</strong> A student is admitted by a link <em>and</em> a list, never by either alone</li>
+              <li><strong>Regenerating the link</strong> locks out anyone who has not used it yet; everybody already in stays in</li>
+              <li><strong>A separate co-teaching link</strong> grants a cohort and never a role</li>
+              <li><strong>Groups</strong> split a cohort between two instructors and narrow every screen to your half</li>
+              <li><strong>Removing a student does not take their work back</strong> — they keep their feedback, and restore puts them back</li>
+              <li><strong>Archive at the end of term</strong>, reversibly. Grades stay readable</li>
+              <li><strong>Transfer ownership.</strong> Delete is the owner's alone, only on an archived cohort, and never touches the GitHub repositories</li>
+            </ul>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/06-roster.png"
+                alt="The roster: expected students and the join link"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The roster — expected students, the join link, and groups</b>
+                <code>screenshots/06-roster.png</code>
+              </span>
+              <figcaption>A student is admitted by a link and a list, never by either alone.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">6</div>
+        <aside class="notes">
+          <ul>
+            <li>The two-link design is what I most want tested: a link alone is forwardable, a list alone is thirty typed addresses</li>
+            <li>If the link gets out you can replace it — but that does nothing about anyone who already used it. Does that read as obvious or as a nasty surprise?</li>
+            <li>Nothing here loses a student's work: removal, archiving, and deletion all leave the record readable</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 7 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 7</p>
+        <h2>The four kinds of assignment, and how one is authored</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <table class="tight">
+              <thead>
+                <tr>
+                  <th>Kind</th>
+                  <th>What the student gets</th>
+                  <th>Hands in</th>
+                  <th>Graded by</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Code</strong></td>
+                  <td>A repository from your template</td>
+                  <td>A pull request</td>
+                  <td>The pipeline, then you</td>
+                </tr>
+                <tr>
+                  <td><strong>Google Drive</strong></td>
+                  <td>Google's own "make a copy" prompt</td>
+                  <td>A link to their copy</td>
+                  <td>You</td>
+                </tr>
+                <tr>
+                  <td><strong>File upload</strong></td>
+                  <td>Nothing — the instructions are all they read</td>
+                  <td>A file, in private storage</td>
+                  <td>You</td>
+                </tr>
+                <tr>
+                  <td><strong>Link</strong></td>
+                  <td>Nothing</td>
+                  <td>A link to work made elsewhere</td>
+                  <td>You</td>
+                </tr>
+              </tbody>
+            </table>
+            <ul class="dense" style="margin-top: 18px">
+              <li><strong>An assignment is a draft until you publish it.</strong> A module that is full to you reads as empty to a student</li>
+              <li><strong>The form checks the repositories before a student can hit the failure</strong> — the template must carry GitHub's template flag, a public answer-key repository is refused, and it lists which files it resolved</li>
+              <li><strong>Copy an assignment into another cohort you teach</strong>, matching the module by name</li>
+            </ul>
+          </div>
+          <div class="col narrow">
+            <figure class="shot">
+              <img
+                src="screenshots/07-authoring.png"
+                alt="The new assignment form"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The new-assignment form, with the repository checks</b>
+                <code>screenshots/07-authoring.png</code>
+              </span>
+              <figcaption>This is not only for coding work.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">7</div>
+        <aside class="notes">
+          <ul>
+            <li>All four are built and all four have been run</li>
+            <li>Drive: we hold no Google credentials and never touch a student's Drive — the copy is theirs from the moment Google makes it</li>
+            <li>For the two that hand out nothing, your submission instructions are all the student reads — a real authoring burden I want to watch you hit</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 8 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 8</p>
+        <h2>Modules, readings, notes, and videos</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow">
+            <ul>
+              <li><strong>Modules</strong> you name, order, and reorder yourself, per cohort</li>
+              <li>Under each one, beside its assignments: <strong>readings, Markdown notes that open in place, and video that plays without leaving the page</strong></li>
+              <li>Resources have <strong>no publish step</strong> — students see one as soon as you add it</li>
+              <li>Assignments order themselves by due date; modules you drag</li>
+            </ul>
+            <div class="punch">This is the fourth service from slide 2, and it is done.</div>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/08-module-resources.png"
+                alt="A module with its assignments and resources"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>A module with its assignments and its resources beneath them</b>
+                <code>screenshots/08-module-resources.png</code>
+              </span>
+              <figcaption>Readings live next to the work they belong to.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">8</div>
+        <aside class="notes">
+          <ul>
+            <li>The least exciting slide in the deck, kept because it is a quarter of what we lost</li>
+            <li>If readings do not live next to the work, people post links in Slack and the course only exists in Slack</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 9 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 9</p>
+        <h2>How a report is produced, and who has the last word</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <p class="eyebrow" style="margin-bottom: 6px">1 · Before the model sees anything</p>
+            <ul>
+              <li>Your tests, from the template, run against the student's code in a sandbox with <strong>no network access and no credentials</strong></li>
+              <li><strong>The template's tests always win</strong> — a student who edits them gets the real ones</li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">2 · Then one model call per rubric section</p>
+            <ul>
+              <li>Given the rubric, the answer key, the student's code, and the <em>verified</em> test results</li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">3 · Then a check that is not the model</p>
+            <ul>
+              <li>Ordinary code verifies the report's arithmetic and every claim it makes about the tests</li>
+              <li>Points that do not add up, a claim about a test that never ran, full marks next to failures — <strong>any contradiction holds the draft back</strong></li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">4 · Then you</p>
+            <ul>
+              <li><strong>Reports are always drafts. Nothing is ever posted automatically</strong></li>
+              <li>Your edit is kept beside the model's original, not over it</li>
+              <li><strong>Three things are refused outright at approval:</strong> approving twice, approving a draft describing a commit the student has pushed past, and approving a report whose text states a different score than the one recorded</li>
+            </ul>
+          </div>
+          <div class="col narrow">
+            <figure class="shot">
+              <img
+                src="screenshots/09-report-review.png"
+                alt="A draft report in the review pane"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>A draft report in the review pane, with an editable section</b>
+                <code>screenshots/09-report-review.png</code>
+              </span>
+              <figcaption>Nothing reaches a student until a person presses approve.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">9</div>
+        <aside class="notes">
+          <ul>
+            <li>The tests are not the model — they are your tests, run for real</li>
+            <li>The cross-check is not the model either — ordinary code, and it stops the draft rather than flagging it</li>
+            <li>Test results are an input to the rubric, not the score: nine of thirteen passing is not ninety per cent</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 10 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 10 · the slide that decides it</p>
+        <h2>The instructor's weekly screens: triage, the student record, the gradebook</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow">
+            <table class="tight">
+              <thead>
+                <tr>
+                  <th style="width: 42%">The pile</th>
+                  <th>What you do about it</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Needs a report</td><td>Press generate</td></tr>
+                <tr><td>Needs grading by hand</td><td>Read it and write the feedback</td></tr>
+                <tr><td>Draft ready</td><td>Read, edit, approve</td></tr>
+                <tr><td>Held for review</td><td>The cross-check found a contradiction; it says which</td></tr>
+                <tr><td>Failed</td><td>Broke before a report existed. <strong>Not a zero</strong></td></tr>
+                <tr><td>Comment did not send</td><td>Grade is recorded; the comment needs a retry</td></tr>
+                <tr><td>Generating</td><td>In flight right now</td></tr>
+              </tbody>
+            </table>
+            <ul class="dense" style="margin-top: 16px">
+              <li><strong>Generate every report in the pile with one press</strong></li>
+              <li><strong>One student's whole record</strong>, from their name anywhere</li>
+              <li><strong>The gradebook</strong>, totalled both ways, downloads as CSV</li>
+              <li><strong>Filter any of it to your own fifteen students</strong></li>
+            </ul>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/10-triage.png"
+                alt="The triage screen showing the seven piles"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>Triage — the seven piles, with counts</b>
+                <code>screenshots/10-triage.png</code>
+              </span>
+              <figcaption>One screen: what needs doing in this cohort.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">10</div>
+        <aside class="notes">
+          <ul>
+            <li>If one slide decides whether this is worth adopting, it is this one</li>
+            <li>The seven piles partition the work — every outstanding submission is in exactly one</li>
+            <li>I want to know whether the pile names mean anything before I explain them. If I have to explain one, the name is wrong</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 10b -->
+      <section class="slide">
+        <p class="eyebrow">Slide 10, continued</p>
+        <h2>The other two axes: one student's record, and the gradebook</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/10-student-record.png"
+                alt="One student's record across the cohort"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>One student's whole record in the cohort</b>
+                <code>screenshots/10-student-record.png</code>
+              </span>
+              <figcaption>Every assignment, including the ones they never started.</figcaption>
+            </figure>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/10-gradebook.png"
+                alt="The gradebook grid"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The gradebook — every assignment against every student</b>
+                <code>screenshots/10-gradebook.png</code>
+              </span>
+              <figcaption>Each cell coloured by what it needs. Downloads as CSV.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">10</div>
+        <aside class="notes">
+          <ul>
+            <li>Triage is "what needs doing"; the record is "how is this student doing"; the gradebook is "where is the whole cohort"</li>
+            <li>The record is the answer for a mentor meeting — read down it</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 11 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 11</p>
+        <h2>What a student sees</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow dense">
+            <ul>
+              <li><strong>One dashboard across every cohort:</strong> Overdue · Coming up · <strong>Feedback to read</strong> · Started but not handed in</li>
+              <li><strong>Nothing on it can be dismissed</strong> — handing in clears a deadline, marking feedback read clears a report</li>
+              <li><strong>Per course:</strong> a progress bar and a plain count — "seven of nine complete"</li>
+              <li><strong>Their feedback:</strong> every round, oldest first, kept forever. A resubmission is graded fresh, so both survive</li>
+              <li><strong>Asking for another look:</strong> push the work, then press the button. <strong>Pushing is not asking</strong></li>
+              <li><strong>Checking in:</strong> a four-digit code on the course's own <strong>Attendance</strong> screen, one click away in the sidebar &mdash; beside the calendar of their own record. Slide 12</li>
+              <li><strong>We can see whether they read it</strong> — and that gates nothing. Information for a mentor conversation</li>
+            </ul>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/11-student-dashboard.png"
+                alt="The student dashboard"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The student dashboard — four lists, nothing dismissible</b>
+                <code>screenshots/11-student-dashboard.png</code>
+              </span>
+              <figcaption>"Where is my feedback" cannot be a question they have to ask us.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">11</div>
+        <aside class="notes">
+          <ul>
+            <li>Nothing can be dismissed on purpose: an overdue assignment does not go away because you looked at it</li>
+            <li>Feedback gets its own list because of the competency on slide 4</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 12 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 12</p>
+        <h2>Attendance: the one thing here that is new rather than restored</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow dense">
+            <ul>
+              <li><strong>What it replaces:</strong> a Google Form where somebody edited a three-digit code by hand every morning, and a picklist that let anybody submit as anybody</li>
+              <li><strong>One press starts a session.</strong> A four-digit code goes on the projector or the shared Zoom window and <strong>changes every thirty seconds</strong>; the one before it keeps working, so nobody is punished for typing slowly</li>
+              <li><strong>The code proves presence; being signed in proves who.</strong> The form asked one short code to do both, which is why it did neither</li>
+              <li><strong>The board fills in live</strong>, and four buttons per row fix the ones that need it &mdash; phones die, people are in the bathroom</li>
+              <li><strong>It ends when you press End, or after ninety minutes.</strong> Extend buys thirty more. The backstop stops a session nobody closed leaving a working code alive until the next class</li>
+              <li><strong>The second tab is the whole term:</strong> who is drifting, a grid, and a CSV with a column saying whether each mark came from the fellow or from staff</li>
+            </ul>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/12-attendance-code.png"
+                alt="The projected check-in code"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The code as a class sees it, and the board as the instructor does</b>
+                <code>screenshots/12-attendance-code.png</code>
+              </span>
+              <figcaption>Nobody edits a form at 8:55 any more.</figcaption>
+            </figure>
+            <p class="note">
+              <strong>What it does not solve, and I will not claim otherwise:</strong> a fellow can
+              photograph the code and send it to somebody at home. That is collusion rather than
+              authentication, and the answers to it are worse than the problem. What rotation does
+              solve is the failure the form actually has &mdash; a code posted in the group chat at
+              9:00 that still works at 11:00 for somebody who never arrived.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">12</div>
+        <aside class="notes">
+          <ul>
+            <li>Lead with what it replaces, not with the cryptography. The win is that nobody edits a form at 8:55</li>
+            <li><strong>Do not oversell the anti-cheating half.</strong> The first curious person in the room will disprove it, and the honest version is on the slide</li>
+            <li>An excused absence still counts as missed &mdash; one denominator, one rate, nothing to interpret before quoting it. If that is not how the school counts, say so; it is one function</li>
+            <li>A morning nobody opened leaves no record and nothing catches it. Term dates would fix it and are deliberately not built: without them a warning fires on Saturdays</li>
+            <li>Per course, not per program. A fellow taking three courses checks into three sessions</li>
+            <li>This is the newest thing in the deck and the least used &mdash; built and tested, not yet run by a real cohort</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 13 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 13</p>
+        <h2>Admins, instructor invitations, and test students</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <ul>
+              <li><strong>A third role.</strong> Admins are instructors who can also decide who else is staff</li>
+              <li><strong>Instructor invitations are the only route to becoming staff</strong> — single use, expires in seven days, and you copy and send it yourself</li>
+              <li><strong>Admin can be granted and revoked</strong>, but the last admin cannot be revoked and a student cannot be promoted directly</li>
+              <li><strong>An admin reaches every cohort without being added to it</strong> — triage, gradebook, roster, settings, ownership</li>
+              <li><strong>Test students</strong> are real, working student accounts an admin adds to a cohort — needed because an admin <em>cannot</em> accept an assignment</li>
+              <li><strong>"View as"</strong> puts you inside the application as that test student, with an amber banner</li>
+            </ul>
+            <div class="punch amber">
+              This is the recovery path when an instructor leaves mid-term: an admin opens their
+              cohorts and hands them to somebody else.
+            </div>
+          </div>
+          <div class="col narrow">
+            <figure class="shot">
+              <img
+                src="screenshots/13-view-as.png"
+                alt="The View as banner over a test student's dashboard"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The "View as" banner over a test student's course</b>
+                <code>screenshots/13-view-as.png</code>
+              </span>
+              <figcaption>Walk your own course before students meet it.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slidenum">13</div>
+        <aside class="notes">
+          <ul>
+            <li>This is the answer to "what happens if an instructor disappears in week six", and it is a better answer than the one about the code</li>
+            <li>Test students are why session 3 works — you rehearse your own course from the student's side, on your real assignments</li>
+            <li>Invitations expire because one grants every student's grades in every cohort</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 14 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 14</p>
+        <h2>All four services, restored</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 32%">What we lost</th>
+                  <th>What does it now</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Handed out assignments</td>
+                  <td><strong>Accept</strong>, on the student's course page — a repository, a Drive copy, or nothing to hand out</td>
+                </tr>
+                <tr>
+                  <td>Collected the work</td>
+                  <td>The pull request, the uploaded file, or the submitted link — and <strong>triage</strong>, which says who has not</td>
+                </tr>
+                <tr>
+                  <td>Recorded a grade a student could read</td>
+                  <td><strong>Approve</strong>, which records the grade, comments on the work, and shows the student at the same moment</td>
+                </tr>
+                <tr>
+                  <td>Shared the rest of the course</td>
+                  <td><strong>Resources</strong>, under the module they belong to</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="punch">All four. Built, and run against real repositories.</div>
+            <p class="note">
+              <strong>And one that was never on the list: attendance.</strong> It was not lost with
+              the LMS &mdash; it was a Google Form somebody edited by hand every morning &mdash; so it
+              is the one thing here that is new rather than restored. Slide&nbsp;12.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">14</div>
+        <aside class="notes">
+          <ul>
+            <li>The frame from slide 2 is closed</li>
+            <li>Row three is now one press instead of four systems</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 15 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 15</p>
+        <h2>What it honestly does not do</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <ul>
+              <li><strong>Attendance knows nothing about a calendar.</strong> A session exists because somebody started one, so nothing notices a morning nobody opened &mdash; and without term dates nothing could</li>
+              <li><strong>It sends no email.</strong> Every link — join, co-teaching, invitation — is one you copy and send yourself</li>
+              <li><strong>Nothing notifies a student.</strong> Not a publish, not a deadline, not a grade. The only message that leaves is GitHub's own email about the comment</li>
+              <li><strong>Nothing syncs to Salesforce or the LMS yet.</strong> Grades are still re-entered by hand</li>
+            </ul>
+          </div>
+          <div class="col dense">
+            <ul>
+              <li><strong>Nothing grades itself when a student pushes.</strong> A person starts it</li>
+              <li><strong>No summary of one student across a term.</strong> You read down their record</li>
+              <li><strong>You cannot write your own rubrics yet.</strong> Four fixed kinds, all coding — which is why a resume gets no AI report</li>
+              <li><strong>The code is read on GitHub, in another tab.</strong> No diff next to the report. Top of the roadmap</li>
+            </ul>
+            <p class="note">
+              I would rather you heard this from me now than found it in an hour with me watching.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">15</div>
+        <aside class="notes">
+          <ul>
+            <li>This list is not modesty — it is read aloud at the start of every testing session, because an hour spent telling me about something I already know is missing is an hour I wasted for you</li>
+            <li><strong>Attendance moved off this slide.</strong> If somebody remembers it being here, that is the change: it is built, and slide 12 is it</li>
+            <li>Three are decisions, not gaps: no email, no notifications, no automatic grading</li>
+            <li>On notifications: ask me for them rather than let me build the wrong version. The cheapest useful answer is on the roadmap — a calendar feed, no vendor, no credentials</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ divider -->
+      <section class="slide divider">
+        <p class="eyebrow">Part three</p>
+        <h1>The concerns</h1>
+      </section>
+
+      <!-- ============================================================ 16 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 16</p>
+        <h2>What it costs to run</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <p class="note" style="margin: 0 0 14px">
+              Measured, one section per report, on the <strong>more expensive</strong> model tier.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 46%"></th>
+                  <th>Cost</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>One report</td>
+                  <td class="num">$0.09 – $0.15</td>
+                  <td class="num">27 – 40 seconds</td>
+                </tr>
+                <tr>
+                  <td><strong>A cohort of 25 — one assignment</strong></td>
+                  <td class="num"><strong>about $2 to $4</strong></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td>100 students, one frontend assignment</td>
+                  <td class="num">about $15</td>
+                  <td class="num">over 3 hours, run one after another</td>
+                </tr>
+              </tbody>
+            </table>
+            <ul class="dense" style="margin-top: 20px">
+              <li>These are from the expensive tier (Opus) and the default is the cheaper one (Sonnet) — the <em>shape</em> is what to trust, not the number</li>
+              <li>Re-measuring is the first item on the roadmap; a real cohort produces figures, and I have estimates</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">16</div>
+        <aside class="notes">
+          <ul>
+            <li>This goes before the concerns because it disarms the version of the worry that is about money</li>
+            <li>Three dollars a cohort is not the risk anybody here is actually worried about — the next two slides are</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 17 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 17</p>
+        <h2>The six services it depends on</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <table class="tight">
+              <thead>
+                <tr>
+                  <th style="width: 22%">What</th>
+                  <th style="width: 34%">What it does</th>
+                  <th>What happens if it changes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><strong>GitHub</strong></td><td>Repositories, pull requests, comments</td><td>We depend on this to teach at all</td></tr>
+                <tr><td><strong>Supabase</strong></td><td>Database, sign-in, file storage</td><td>Managed Postgres; the data is ours and exportable</td></tr>
+                <tr><td><strong>Vercel</strong></td><td>Hosting</td><td>Where the application runs</td></tr>
+                <tr><td><strong>E2B</strong></td><td>The isolated sandbox tests run in</td><td>All it does is run a test command, so another provider could</td></tr>
+                <tr><td><strong>Anthropic</strong></td><td>The grading reports</td><td>Behind an interface — see below</td></tr>
+                <tr><td><strong>The curriculum repo</strong></td><td>Rubrics and answer keys</td><td>Ours</td></tr>
+              </tbody>
+            </table>
+            <ul class="dense" style="margin-top: 16px">
+              <li><strong>Deliberately not here:</strong> no email vendor, no Google API, no Salesforce, no payment provider, no analytics, no error tracking</li>
+              <li><strong>The model sits behind an interface</strong> — changing provider costs one environment variable, and a second provider is already written</li>
+              <li><strong>Three of the six we already depend on</strong> to run the program as it is</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">17</div>
+        <aside class="notes">
+          <ul>
+            <li>Six vendors is not zero vendors, and I am not going to pretend otherwise</li>
+            <li>What I would push back on: four we already bet the program on, and the fastest-moving one is the one I made replaceable</li>
+            <li>The version of this concern I take seriously is the next slide</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 18 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 18 · the slide that carries the deck</p>
+        <h2>One author, and the exit path if we stop</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow dense">
+            <p class="note" style="margin: 0 0 12px">
+              <strong>One author. Nobody else has read the code.</strong> A real risk, and I would
+              rather name it than have somebody find it.
+            </p>
+            <ul>
+              <li><strong>1 · A record of how many checks each script passed</strong> — <code>BASELINE.md</code>, so a change either reproduces the number or it does not</li>
+              <li>Several <strong>found real defects</strong> rather than confirming their absence — including a student silently losing a completed assignment</li>
+              <li><strong>2 · A second reader — this is the ask on this slide.</strong> Someone who has walked the codebase once, so it is not all in one head</li>
+            </ul>
+            <table class="tight" style="margin-top: 10px">
+              <thead>
+                <tr><th>Enrolment</th><th>Authoring</th><th>Grading</th><th>Uploads</th><th>Approval</th></tr>
+              </thead>
+              <tbody>
+                <tr class="num"><td>209</td><td>156</td><td>101</td><td>88</td><td>53</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="col">
+            <p class="eyebrow" style="margin-bottom: 8px">3 · The exit path</p>
+            <div class="punch">
+              If we stopped using this tomorrow, no data would be lost and nothing would need
+              extracting.
+            </div>
+            <ul class="dense" style="margin-top: 18px">
+              <li>Every student repository still exists, in <strong>our own</strong> GitHub organization</li>
+              <li>Every grade and every piece of feedback is in a Postgres database <strong>we control</strong></li>
+              <li>The gradebook already exports to CSV</li>
+              <li>Nothing is held in a format only this application can read</li>
+            </ul>
+            <p class="note">
+              <strong>Adopting this is reversible. That is what makes trying it a small decision.</strong>
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">18</div>
+        <aside class="notes">
+          <ul>
+            <li>What makes a maintenance concern frightening is usually lock-in — that is not the situation here</li>
+            <li>Repositories are already ours; grades come out as a spreadsheet</li>
+            <li>So the question is not "do we commit forever", it is "is this worth one term of trying"</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 19 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 19</p>
+        <h2>What data we hold, and what we do not</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <p class="eyebrow" style="margin-bottom: 6px">What we do not hold</p>
+            <ul>
+              <li><strong>No passwords.</strong> Sign-in is GitHub only — no password form, no self-service signup, no password store to steal</li>
+              <li><strong>No email credentials.</strong> The application sends nothing</li>
+              <li><strong>No Google credentials and no access to any student's Drive</strong></li>
+              <li><strong>No credentials of any kind inside the sandbox.</strong> Verified by name for every key we hold, plus a decoy</li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">What we do hold</p>
+            <ul>
+              <li>Names, email addresses, GitHub usernames, scores, and feedback text. <strong>Grades are education records</strong></li>
+              <li><strong>No</strong> government identifiers, addresses, financial information, or demographic data</li>
+              <li>All of it is <strong>already held by GitHub, the LMS, and Salesforce.</strong> This adds no new category of data about a student</li>
+            </ul>
+          </div>
+          <div class="col dense">
+            <p class="eyebrow" style="margin-bottom: 6px">The controls in place</p>
+            <ul>
+              <li><strong>No table is reachable from client-side JavaScript</strong> — and one added later is closed the moment it is created</li>
+              <li><strong>Uploaded files sit in a private bucket</strong>, reachable only by a link that expires in five minutes. Unsigned and forged addresses are both refused</li>
+              <li><strong>Credentials, <code>.env</code> files, and dependency folders never reach the model</strong></li>
+              <li><strong>An append-only record of who did what</strong> — roles, invitations, roster changes, grades released, and every operation that spends money</li>
+              <li><strong>A ceiling on spending, per person per hour.</strong> It defends against a loop, not a stranger</li>
+              <li><strong>Accounts can only be made through GitHub</strong></li>
+              <li><strong>Every user can read what we store about them</strong> on their own Profile screen</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">19</div>
+        <aside class="notes">
+          <ul>
+            <li>SAY THIS OUT LOUD: I have to correct something I have said in this building — this system does hold personal information</li>
+            <li>The true version is stronger — all of it already sits in three systems we use, and this adds no new category</li>
+            <li>Never claim "no personally identifiable information"</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 20 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 20</p>
+        <h2>What is still open on security</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <ul>
+              <li>
+                <strong>1 · There is one line of defence, not two.</strong> The database connection is
+                full-privilege, so every check about who may do what is code in one place. That place
+                is built so the check cannot be left out — but <strong>a procedure written the wrong
+                way has nothing behind it</strong>, and that is what a second reader should look for
+              </li>
+              <li>
+                <strong>2 · Nothing watches the record.</strong> The audit log is written and readable,
+                but no alert fires. Reading it is deliberate
+              </li>
+              <li>
+                <strong>3 · Some settings live in a dashboard, not the repository</strong> — not
+                reviewable the way code is, and one is outstanding: <strong>the service role key needs
+                rotating</strong>
+              </li>
+            </ul>
+            <div class="punch amber">
+              Ashley is acquiring cybersecurity liability insurance, which is the right cover for what
+              code cannot prevent.
+            </div>
+            <p class="note">
+              An insurer asks what data is held and who can reach it — slide 19 and the security
+              section of <code>ARCHITECTURE.md</code> are that answer, already written.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">20</div>
+        <aside class="notes">
+          <ul>
+            <li>A security slide with nothing on it is not a security slide</li>
+            <li>Item 1 is the honest trade-off: one layer written so it cannot be forgotten, instead of two that can disagree — which is also why I want a second pair of eyes</li>
+            <li>The insurance is the correct move, because no amount of code covers the case where something goes wrong anyway</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 21 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 21</p>
+        <h2>Salesforce: the recommendation is to wait</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <p class="eyebrow" style="margin-bottom: 6px">Idlewild recommended we do not build this now</p>
+            <ul>
+              <li>Internal capacity to maintain a custom integration long-term</li>
+              <li>The team's inexperience with the Salesforce platform</li>
+              <li>An October target for building, testing, and integrating</li>
+              <li><strong>Their own scope excludes monitoring API versions over time</strong> — so that work is ours whoever builds it</li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">What they did answer removes real work</p>
+            <ul>
+              <li>The object exists and is called <strong>Assignment Submission</strong>; its fields are readable in Setup, so the mapping is a reading exercise</li>
+              <li>Sandboxes are not a constraint — up to 30</li>
+              <li>127,000 API calls per day. At one write per grade, <strong>not a limit worth designing around</strong></li>
+            </ul>
+          </div>
+          <div class="col narrow">
+            <div class="punch">My recommendation: leave Salesforce out of the first term.</div>
+            <ul class="dense" style="margin-top: 18px">
+              <li>The database <strong>already carries the columns</strong> a sync would use, so nothing gets rebuilt later</li>
+              <li>
+                Three decisions can be settled while we wait, and only we can make them: update or
+                first-write only, one-way or two-way, and <strong>when a grade is corrected here, may
+                it overwrite Salesforce?</strong>
+              </li>
+              <li>The cost of waiting is re-entering about 25 grades per assignment by hand, for one term</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">21</div>
+        <aside class="notes">
+          <ul>
+            <li>I am not pitching a Salesforce integration — the people we paid told us not to build it yet</li>
+            <li>Their reasoning is the same reasoning some of you brought me, which I take as a sign the concern is correct</li>
+            <li>Nothing about waiting makes it more expensive later</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ divider -->
+      <section class="slide divider">
+        <p class="eyebrow">Part four</p>
+        <h1>The ask</h1>
+      </section>
+
+      <!-- ============================================================ 22 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 22</p>
+        <h2>Seven testing sessions, one instructor at a time</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <table class="tight">
+              <thead>
+                <tr><th style="width: 8%">#</th><th>About</th><th style="width: 16%">Length</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="num">1</td><td>Joining, and setting up a cohort</td><td>45 min</td></tr>
+                <tr><td class="num">2</td><td>Authoring assignments — the densest form in the application</td><td>60 min</td></tr>
+                <tr><td class="num">3</td><td>Rehearsing your own course as one of your students</td><td>30 min</td></tr>
+                <tr><td class="num">4</td><td><strong>Grading</strong> — the one that decides whether this is worth adopting</td><td>75 min</td></tr>
+                <tr><td class="num">5</td><td>When things go wrong, and the end of a term</td><td>30 min</td></tr>
+                <tr><td class="num">6</td><td>The student's side</td><td>20 min</td></tr>
+                <tr><td class="num">7</td><td><strong>Attendance</strong> — needs a second screen and a phone</td><td>25 min</td></tr>
+              </tbody>
+            </table>
+            <p class="note"><strong>About four and a half hours total, in seven separate sittings.</strong> Nobody has to take all seven.</p>
+          </div>
+          <div class="col narrow dense">
+            <ul>
+              <li><strong>One person at a time, thinking aloud.</strong> Two people means one watches, and the quiet one would have gone somewhere different</li>
+              <li><strong>I will not help you for the first sixty seconds of being stuck.</strong> Where you expected it to be <em>is</em> the finding</li>
+              <li><strong>Bring an assignment you actually teach</strong> — template, answer keys, rubric. Careless authoring finds nothing</li>
+            </ul>
+            <p class="note">
+              <strong>If you only have one hour:</strong> take attendance and check in from a phone ·
+              author one real assignment · triage · generate a report · edit and approve it · grade a
+              pile at once · answer "how is this student doing" · read the gradebook.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">22</div>
+        <aside class="notes">
+          <ul>
+            <li>I am asking for the hour, not for agreement — what I need is watching you look in the wrong place</li>
+            <li>Session 4 is the one to protect; I build the practice cohort in advance because producing a submission in every broken state takes longer than grading it</li>
+            <li>If an hour is all anybody can give, the short list finds most of it</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 23 -->
+      <section class="slide">
+        <p class="eyebrow">Slide 23</p>
+        <h2>What a yes gets us</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <p class="note" style="margin: 0 0 14px">
+              <strong>Your words, on your own screens, deciding what gets fixed first.</strong> Every
+              observation sorts into one of three piles:
+            </p>
+            <ul>
+              <li><strong>Wrong words</strong> — the screen says something true in language nobody uses. Cheapest to fix, most common finding</li>
+              <li><strong>Wrong place</strong> — you looked somewhere reasonable and it was not there</li>
+              <li><strong>Wrong model</strong> — you believed something about how it works that is not so. <strong>Worth arguing about, because sometimes the instructor is right and the design is wrong</strong></li>
+            </ul>
+            <ul style="margin-top: 14px">
+              <li><strong>A real cohort's figures</strong> instead of my estimates, on cost and on time</li>
+              <li><strong>A go or no-go on next term made on evidence</strong> rather than on this deck</li>
+            </ul>
+          </div>
+        </div>
+        <div class="punch" style="margin-top: 4px">
+          And if the answer is no: the repositories are ours, the grades are ours, the gradebook is a
+          spreadsheet. What a term of trying costs is the trying.
+        </div>
+        <div class="slidenum">23</div>
+        <aside class="notes">
+          <ul>
+            <li>The third pile is the one I care most about</li>
+            <li>If several of you believe the same wrong thing, that is not six people making a mistake — it is me having built it wrong</li>
+            <li>I would rather find that from you in an hour than from a cohort of students in October</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ divider -->
+      <section class="slide divider">
+        <p class="eyebrow">Appendix</p>
+        <h1>Turned to when asked, not presented in order</h1>
+      </section>
+
+      <!-- ============================================================ A1 -->
+      <section class="slide">
+        <p class="eyebrow">Appendix 1</p>
+        <h2>What it is built with</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <ul>
+              <li>Next.js 16 on Vercel · Supabase PostgreSQL · Prisma 7 · tRPC v11 · Tailwind v4 with Base UI</li>
+              <li>Supabase Auth with GitHub sign-in · a GitHub App via Octokit · E2B for sandboxed test execution</li>
+              <li>Claude <code>claude-sonnet-5</code>, behind a provider interface</li>
+              <li><strong>Every read and write goes through one server layer into the database. Nothing queries the database from the browser</strong></li>
+              <li>Scale: 11 server routers, 25 screens, 25 assignment templates, and the verification scripts in A3</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">A1</div>
+      </section>
+
+      <!-- ============================================================ A2 -->
+      <section class="slide">
+        <p class="eyebrow">Appendix 2</p>
+        <h2>Where each control lives</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <table class="tight">
+              <thead>
+                <tr><th style="width: 38%">Control</th><th>Enforced by</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Who may sign in</td><td>Supabase (GitHub provider only)</td></tr>
+                <tr><td>Who may join a cohort</td><td>Per-cohort roster, checked in <code>enrollments.join</code></td></tr>
+                <tr><td>Who may read a course</td><td><code>assertCourseMember</code> / <code>assertActiveStudent</code></td></tr>
+                <tr><td>Who may act in a course</td><td>Procedure builders, not call-site checks</td></tr>
+                <tr><td>Which cohort an instructor may touch</td><td><code>courseProcedure</code>, <code>lib/courses/scope.ts</code></td></tr>
+                <tr><td>What client-side JavaScript may read</td><td>Table privileges — nothing</td></tr>
+                <tr><td>What happened, and who did it</td><td>Append-only <code>audit_events</code></td></tr>
+                <tr><td>Spending on models and sandboxes</td><td>Counted out of the audit log</td></tr>
+                <tr><td>Who may mark themselves present</td><td>A rotating code, plus <code>assertActiveStudent</code></td></tr>
+                <tr><td>Guessing at that code</td><td>Two ceilings, both counted out of the audit log</td></tr>
+              </tbody>
+            </table>
+            <p class="note">
+              <strong>This caveat travels with the table and must not be shown without it:</strong> the
+              database connection is not restricted by row level security, so every guard above is
+              procedure code. Deliberate rather than an oversight — but a procedure written without a
+              guard has no second line of defence.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">A2</div>
+      </section>
+
+      <!-- ============================================================ A3 -->
+      <section class="slide">
+        <p class="eyebrow">Appendix 3</p>
+        <h2>What has been verified, and how</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col">
+            <p class="note" style="margin: 0 0 14px">
+              <strong>Every claim was checked against real repositories in a test GitHub organization,
+              not asserted from reading the code.</strong> Destructive and authorization paths run
+              inside transactions that are then rolled back, against live data.
+            </p>
+            <table class="tight">
+              <thead>
+                <tr><th>Script</th><th class="num">Checks</th><th>Script</th><th class="num">Checks</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>verify:enrollment</code></td><td class="num">209</td><td>sandbox suite</td><td class="num">41</td></tr>
+                <tr><td><code>verify:authoring</code></td><td class="num">156</td><td><code>verify:modules</code></td><td class="num">35</td></tr>
+                <tr><td>grading suites</td><td class="num">101</td><td><code>verify:dashboard</code></td><td class="num">27</td></tr>
+                <tr><td><code>verify:uploads</code></td><td class="num">88</td><td><code>verify:app</code></td><td class="num">16</td></tr>
+                <tr><td><code>verify:resources</code></td><td class="num">64</td><td><code>verify:e2b</code></td><td class="num">8</td></tr>
+                <tr><td><code>verify:approve</code></td><td class="num">53</td><td><code>verify:staff</code></td><td class="num">50</td></tr>
+              </tbody>
+            </table>
+            <p class="note">
+              <strong>Known gaps:</strong> no Python template exists yet, so the Python test runner is
+              unverified; one dependency-installation setting has no assignment that exercises it.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">A3</div>
+      </section>
+
+      <!-- ============================================================ A4 -->
+      <section class="slide">
+        <p class="eyebrow">Appendix 4</p>
+        <h2>Calibration, honestly</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow">
+            <p class="note" style="margin: 0 0 14px">
+              The same submission graded by an instructor and by the pipeline, three times. The
+              instructor's own score was <strong>12/15</strong>.
+            </p>
+            <table class="tight">
+              <thead>
+                <tr><th></th><th class="num">Run 1</th><th class="num">Run 2</th><th class="num">Run 3</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Already in the prompt as an example</td><td class="num">12/15</td><td class="num">12/15</td><td class="num">12/15</td></tr>
+                <tr><td><strong>Held back — the real test</strong></td><td class="num">12/15</td><td class="num">13/15</td><td class="num">13/15</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="col dense">
+            <ul>
+              <li><strong>Where the disagreement is:</strong> one question, worth one point. The instructor deducted for a stray closing sentence; the model deducted for it once in three runs</li>
+              <li><strong>A judgment a rubric cannot fully specify</strong> — and exactly why a draft is reviewed rather than published</li>
+              <li><strong>A single calibration run is not a measurement.</strong> Same submission, same prompt, same model produced 12 and 13 on different days. <strong>Quote a range, not a number</strong></li>
+              <li><strong>What is steady:</strong> the example reproduced exactly all three runs, and the cross-check passed all three. The pipeline is stable; the variation is in the judgment</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slidenum">A4</div>
+        <aside class="notes">
+          <ul>
+            <li>Exit interview question 5: would you trust a grade this generated in front of a student who challenged it, and what would you need to show them?</li>
+            <li>An instructor who would not defend a generated grade will not use the feature, whatever they say about liking it</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ A5 -->
+      <section class="slide">
+        <p class="eyebrow">Appendix 5</p>
+        <h2>The roadmap, in order</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <ul>
+              <li><strong>1 · Token management</strong> — what a report really costs, on the tier in use. Needs a real cohort</li>
+              <li><strong>2 · The diff next to the report</strong> — the only item that makes the hour an instructor already spends a shorter hour</li>
+              <li><strong>3 · Notes a student keeps on their own work</strong></li>
+              <li><strong>4 · Working a pile by what it is</strong> — grading every resubmission at one sitting</li>
+              <li><strong>5 · Subscribing a calendar to due dates</strong></li>
+            </ul>
+          </div>
+          <div class="col dense">
+            <ul>
+              <li><strong>6 · Salesforce synchronization</strong> — see slide 21</li>
+              <li><strong>7 · Targeted assignments, and excusing a student</strong></li>
+              <li><strong>8 · AI grading for non-coding work</strong> — begins with instructor-authored rubrics</li>
+              <li><strong>9 · An evaluation of one student's growth across a term</strong></li>
+              <li><strong>10 · A chat scoped to a student's own course context</strong></li>
+            </ul>
+            <p class="note">
+              <strong>Deferred deliberately, with the database left ready:</strong> running SQL against
+              a real database to check queries automatically, group submissions, an early-intervention
+              dashboard, a per-student record that accumulates over a term, and term dates &mdash;
+              which is what would let a morning nobody took attendance on be noticed.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">A5</div>
+      </section>
+
+   </div>
+
+    <div id="notespanel"><h4>Speaker notes</h4><div id="notesbody"></div></div>
+
+    <script>
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const stage = document.getElementById("stage");
+      const notesBody = document.getElementById("notesbody");
+      let i = 0;
+
+      function fit() {
+        const pad = 0.94;
+        const s = Math.min((innerWidth * pad) / 1280, (innerHeight * pad) / 720);
+        stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+      }
+
+      function show(n) {
+        i = Math.max(0, Math.min(slides.length - 1, n));
+        slides.forEach((s, k) => s.classList.toggle("active", k === i));
+        const notes = slides[i].querySelector("aside.notes");
+        notesBody.innerHTML = notes ? notes.innerHTML : "<p style='opacity:.5'>— none —</p>";
+        location.hash = i + 1;
+      }
+
+      addEventListener("resize", fit);
+      addEventListener("keydown", (e) => {
+        if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) {
+          e.preventDefault();
+          show(i + 1);
+        } else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) {
+          e.preventDefault();
+          show(i - 1);
+        } else if (e.key === "Home") show(0);
+        else if (e.key === "End") show(slides.length - 1);
+        else if (e.key.toLowerCase() === "s") document.body.classList.toggle("shownotes");
+        else if (e.key.toLowerCase() === "f") {
+          if (document.fullscreenElement) document.exitFullscreen();
+          else document.documentElement.requestFullscreen();
+        }
+      });
+      addEventListener("click", (e) => {
+        if (e.target.closest("#notespanel")) return;
+        show(i + (e.clientX < innerWidth * 0.25 ? -1 : 1));
+      });
+
+      fit();
+      show(parseInt(location.hash.slice(1), 10) - 1 || 0);
+    </script>
+  </body>
+</html>

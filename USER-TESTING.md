@@ -1,6 +1,8 @@
 # User testing with instructors
 
-Tasks for a moderated session with a real Marcy instructor. How the system works is in [README.md](README.md); what is not built yet is in [ROADMAP.md](ROADMAP.md).
+Tasks for a moderated session with a real Marcy instructor. What the application does, role by role, is in [FEATURES.md](FEATURES.md); why it is built that way is in [ARCHITECTURE.md](ARCHITECTURE.md); what is not built yet is in [ROADMAP.md](ROADMAP.md).
+
+**Do not give a participant `FEATURES.md` before a session.** Where somebody expects a thing to be is the finding, and a participant who has read the manual can no longer produce it. Hand it over afterwards, to somebody who is going on to teach with the application.
 
 Each task is written as a goal rather than as steps, because the thing being measured is whether an instructor can find the screen and understand what it says. Reading the steps out loud tests nothing. Under each task is what to watch for — the specific confusion that task exists to detect.
 
@@ -45,6 +47,7 @@ Before any session:
 - [ ] An unredeemed instructor invitation link, sent to them for task 1. Send it the way you would really send it.
 - [ ] Their GitHub account known to you, so you can confirm what the roster ought to say.
 - [ ] For sessions 3 and 5, admin on their account — those tasks are marked **(admin)**.
+- [ ] **For session 7, a second screen and a phone**, both signed in — the instructor's laptop plus whatever a class would actually look at, and a phone signed in as a test student. That session is about a room of people reading a code off a wall, and one browser tab cannot rehearse it.
 
 For session 4, a cohort with at least one submission in every one of these states, so that no bucket is tested by talking about it:
 
@@ -69,6 +72,7 @@ Told at the start, so they do not spend the session reporting things you already
 
 - Grading is started by a person. Nothing grades itself when a student pushes.
 - The application sends no email. Every link is one you copy and send yourself.
+- Nothing notifies a student — not about a new assignment, a deadline, or a grade coming back. The only message that leaves the application is GitHub's own email about the comment on their pull request.
 - Nothing reaches Salesforce or Google Classroom yet.
 - The student's code is read on GitHub, in another tab. There is no diff on the review screen.
 - Rubrics are fixed at four kinds and instructors cannot yet write their own, which is why only coding work gets an AI report.
@@ -234,9 +238,46 @@ Worth twenty minutes with an instructor looking through a test student, and wort
 
 ---
 
+## Session 7: taking attendance
+
+**Bring a second screen and a phone.** This is the one feature that cannot be tested on a single laptop: it is a code on a projector or in a shared Zoom window, read by somebody looking at a phone. Testing it in one browser tab tells you almost nothing, because the whole question is whether a room of people can act on it in ninety seconds. Twenty-five minutes with an instructor, and worth repeating once with real fellows in a real first meeting.
+
+Run it at whatever time of day you are actually sitting down, not at 9am. Nothing in the feature cares what time it is, and waiting until morning is how this session never happens.
+
+41. **It is the start of class. Take attendance.**
+    Watch for: how long it takes them to find it, and whether they hesitate before pressing Start. Say nothing about the second window — see whether they find "Show the code" on their own, and what they do with it once it opens. An instructor who does not discover that window will read the code aloud, which works and is not what it is for.
+
+42. **Put the code where a class would see it.** Ask them to share it into Zoom, or drag it to the projector.
+    Watch for: whether the window is the right shape for what they actually do. This is the task most likely to find something I got wrong, because I have never seen it on a projector. Is the code big enough from the back? Does the countdown mean anything to them, or is it decoration?
+
+43. **Now be a fellow.** On the phone, signed in as the test student, check in. **Say nothing about where it is.**
+    Watch for: this is the task the whole session exists for. Check-in is on the course's own Attendance screen, not on the dashboard a fellow lands on — so the honest question is whether somebody who has just been told "check in" finds it, and how long it takes. Time it. If they go to the dashboard first and stall, write that down verbatim: it is the strongest argument for putting a pointer back on the landing screen, and it is the reason this task is worded to give them no help.
+
+44. **Let the code change while you are typing it, on purpose.** Type three digits, wait for the rollover, finish, and submit.
+    Watch for: it should still be accepted. If it is refused, that is a bug and I want the exact seconds. Then type a genuinely wrong code and read the refusal aloud — does it send them back to the screen, or does it leave them wondering whether they are in the right course?
+
+45. **Somebody's phone is dead. Mark them in by hand.**
+    Watch for: whether they find the four buttons, and whether the row afterwards makes clear that *they* marked it rather than the fellow. That distinction is the whole compliance argument and it is written in words, not colour — ask them to read the row back to you and see whether they notice.
+
+46. **End the session, then discover you ended it too early.** End it, then put it back.
+    Watch for: whether they expect Reopen to lose the check-ins already recorded. It does not, and their hesitation before pressing it is the thing to note. Ask what they thought would happen.
+
+47. **A fellow arrives forty minutes late, after check-in has closed.** Work out what to do about them.
+    Watch for: there is no request flow — the fellow's screen tells them to speak to their instructor, and the instructor marks them in. Is that acceptable, or do they expect the fellow to be able to file something? This is a design decision I would revisit if two instructors push on it.
+
+48. **Look at your own record as the fellow.** Open the calendar and page back a month.
+    Watch for: whether the colours need explaining. The legend is there, but read their face before they read it — green for present, amber for excused, red for absent, grey for a session nobody recorded. Ask what the corner mark on a green square means before telling them; if "late" is not the first guess, that mark needs to be something else. Then ask whether a calendar or the old list would serve them better, and note that they cannot see the list to compare.
+
+49. **It is the end of the month and somebody needs an attendance report.** Get one.
+    Watch for: whether they find the second tab, whether the drift list reads as useful or as an accusation, and whether the CSV is the shape their reporting actually needs. Ask specifically: **does an excused absence counting as a missed session match how the school counts it?** If it does not, say so now — it is one function and one sentence, and it is quoted to funders.
+
+---
+
 ## If you only get one hour
 
-The subset that finds the most, in order: tasks 9 (author a real repository assignment), 19 through 21 (triage, generate a report, edit and approve), 23 (grade a pile at once), 29 (how is this student doing), 30 (read the code while grading), and 31 (the gradebook). Everything in that list is something an instructor does weekly; setting up a cohort is something they do twice a year and can be tested later.
+The subset that finds the most, in order: tasks 41 through 44 (take attendance, get the code onto a screen, find check-in and use it from a phone), 9 (author a real repository assignment), 19 through 21 (triage, generate a report, edit and approve), 23 (grade a pile at once), 29 (how is this student doing), 30 (read the code while grading), and 31 (the gradebook).
+
+Attendance leads despite being the newest thing here, and for the reason the rest of the list is ordered: everything on it is something an instructor does weekly, and attendance is the only one they do **daily**, in front of the whole cohort, where a failure is twenty-five people watching. Setting up a cohort is something they do twice a year and can be tested later.
 
 ---
 
