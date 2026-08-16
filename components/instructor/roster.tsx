@@ -167,10 +167,10 @@ export function CourseRoster({ data }: { data: Data }) {
       {isAdmin && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border px-4 py-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-medium">Check this course as a student meets it</span>
+            <span className="text-sm font-medium">View this course as a test student</span>
             <span className="text-xs text-muted-foreground">
-              A test student you can look through — accept the work, push to the repository, and
-              grade it back here. Left out of the cohort&apos;s student count.
+              As a test student you can accept work, push to the repository, and submit assignments. Then, you can
+              grade them here. Test student data is left out of the cohort&apos;s student count.
             </span>
           </div>
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
