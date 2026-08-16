@@ -176,6 +176,25 @@ export async function teachableEnrollment<S extends Prisma.EnrollmentSelect>(
   return row ?? refuse(ctx.db.enrollment, enrollmentId, "Enrollment");
 }
 
+/** An attendance session, if the caller teaches the course it belongs to. */
+export async function teachableAttendanceSession<S extends Prisma.AttendanceSessionSelect>(
+  ctx: AuthedCtx,
+  sessionId: string,
+  select: S,
+): Promise<Prisma.AttendanceSessionGetPayload<{ select: S }>> {
+  const row = await ctx.db.attendanceSession.findFirst({
+    where: {
+      id: sessionId,
+      ...(teachesEverything(ctx)
+        ? {}
+        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+    },
+    select,
+  });
+
+  return row ?? refuse(ctx.db.attendanceSession, sessionId, "Attendance session");
+}
+
 /** An assignment, if the caller teaches the course it is in. */
 export async function teachableAssignment<S extends Prisma.AssignmentSelect>(
   ctx: AuthedCtx,

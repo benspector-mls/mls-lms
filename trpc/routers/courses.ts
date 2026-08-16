@@ -348,6 +348,7 @@ export const coursesRouter = createTRPCRouter({
         cohortSlug: true,
         archivedAt: true,
         createdAt: true,
+        attendanceLateAfterMinutes: true,
         /*
             Same guard as the join link above, and a sharper edge: this one admits somebody to
             authoring and to every student's grades in this cohort. It is behind
@@ -797,6 +798,31 @@ export const coursesRouter = createTRPCRouter({
         select: { id: true, name: true, archivedAt: true },
       });
     }),
+
+  /**
+   * How long after check-in opens a fellow still counts as on time.
+   *
+   * A cohort's own norm rather than an application-wide constant, because it is one: a course
+   * that starts with fifteen minutes of standup and one that starts with a quiz disagree about
+   * when the door closes, and neither is wrong.
+   *
+   * **It applies to sessions started from now on and rewrites nothing.** Each session copies this
+   * number when it starts, so a term of recorded lateness cannot be changed by moving a setting —
+   * see the comment on `AttendanceSession.lateAfterMinutes`. Correcting one morning that was
+   * recorded wrongly is `attendance.updateSession`, which is a different act and says so.
+   *
+   * Teach-gated rather than owner-only, unlike archiving. It changes what a future session
+   * records, not what any student can already see.
+   */
+  setAttendanceLateAfter: courseProcedure
+    .input(z.object({ minutes: z.number().int().min(0).max(120) }))
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.course.update({
+        where: { id: input.courseId },
+        data: { attendanceLateAfterMinutes: input.minutes },
+        select: { id: true, attendanceLateAfterMinutes: true },
+      }),
+    ),
 
   /**
    * What deleting this cohort would destroy. Read-only.

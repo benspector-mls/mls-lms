@@ -27,9 +27,10 @@ export default function DashboardPage() {
 async function Dashboard() {
   const queryClient = getQueryClient();
 
-  const [profile, assignments] = await Promise.all([
+  const [profile, assignments, checkIns] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.assignments.listMine.queryOptions()),
+    queryClient.fetchQuery(trpc.attendance.today.queryOptions()),
   ]);
 
   /*
@@ -49,5 +50,5 @@ async function Dashboard() {
     different "now" in the server's render and the browser's, which React reports as a hydration
     mismatch — and it is the reason `dashboardSections` takes it as an argument.
   */
-  return <StudentDashboard assignments={assignments} now={new Date()} />;
+  return <StudentDashboard assignments={assignments} checkIns={checkIns} now={new Date()} />;
 }

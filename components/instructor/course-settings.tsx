@@ -75,6 +75,7 @@ export function CourseSettings({ data }: { data: Data }) {
       )}
 
       <RepositoryNamingCard data={data} />
+      <AttendanceCard data={data} />
       <CoTeachingCard data={data} />
       <ArchiveCard
         courseId={data.course.id}
@@ -100,6 +101,85 @@ function ownerNameIn(data: Data): string {
   const owner = data.course.instructors.find((row) => row.user.id === data.ownerId);
   if (!owner) return "its owner";
   return owner.user.displayName ?? owner.user.githubUsername ?? owner.user.email ?? "its owner";
+}
+
+/**
+ * How long after check-in opens a fellow still counts as on time.
+ *
+ * A cohort's own number, because it is one: a course that starts with fifteen minutes of standup
+ * and one that starts with a quiz disagree about when the door closes, and neither is wrong.
+ *
+ * **It applies to sessions started from now on and rewrites nothing.** Each session copies this
+ * when it starts, which is what makes the setting editable at all — read live, changing it in
+ * November would silently convert a term of recorded lateness and no report would agree with any
+ * report printed before it. The sentence below says so, because somebody about to change it is
+ * exactly the person who needs to know.
+ */
+function AttendanceCard({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const [minutes, setMinutes] = React.useState(String(data.course.attendanceLateAfterMinutes));
+
+  const save = useMutation(
+    trpc.courses.setAttendanceLateAfter.mutationOptions(
+      settled({
+        onSuccess: (result) =>
+          toast.success(
+            result.attendanceLateAfterMinutes === 0
+              ? "Arriving after check-in opens now counts as late."
+              : `The first ${result.attendanceLateAfterMinutes} minutes now count as on time.`,
+          ),
+      }),
+    ),
+  );
+
+  const parsed = Number(minutes);
+  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 120;
+  const changed = parsed !== data.course.attendanceLateAfterMinutes;
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Attendance</h2>
+        <p className="text-xs text-muted-foreground">
+          A check-in session runs until you end it, or for ninety minutes — whichever comes first,
+          and you can extend it while it is open.
+        </p>
+      </div>
+
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid) save.mutate({ courseId: data.course.id, minutes: parsed });
+        }}
+      >
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium">Minutes that still count as on time</span>
+          <Input
+            value={minutes}
+            onChange={(event) => setMinutes(event.target.value.replace(/\D/g, "").slice(0, 3))}
+            inputMode="numeric"
+            className="w-24"
+          />
+        </label>
+        <Button
+          type="submit"
+          size="sm"
+          variant="outline"
+          disabled={!valid || !changed || save.isPending}
+        >
+          Save
+        </Button>
+      </form>
+
+      <p className="text-xs text-muted-foreground">
+        Applies to sessions started from now on. Nothing already recorded changes — to correct a
+        morning that was taken with the wrong number, open that day from the attendance screen.
+      </p>
+    </section>
+  );
 }
 
 /**

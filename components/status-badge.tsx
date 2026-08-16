@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   AssignmentKind,
+  AttendanceStatus,
   GradingDraftStatus,
   ResourceKind,
   SubmissionStatus,
@@ -25,6 +26,7 @@ import type {
 import { RESOURCE_KIND_LABEL } from "@/lib/resources/spec";
 import {
   ASSIGNMENT_KIND_META,
+  ATTENDANCE_STATUS_META,
   CONFIDENCE_META,
   DRAFT_STATUS_META,
   flagMeta,
@@ -127,6 +129,16 @@ export function SubmissionStatusBadge({
   const meta =
     audience === "student" ? STUDENT_STATUS_META[status] : SUBMISSION_STATUS_META[status];
   return <BadgeShell meta={meta} className={className} />;
+}
+
+export function AttendanceStatusBadge({
+  status,
+  className,
+}: {
+  status: AttendanceStatus;
+  className?: string;
+}) {
+  return <BadgeShell meta={ATTENDANCE_STATUS_META[status]} className={className} />;
 }
 
 export function DraftStatusBadge({

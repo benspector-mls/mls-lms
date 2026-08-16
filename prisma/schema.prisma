@@ -96,6 +96,8 @@ model Profile {
   invitesRedeemed   InstructorInvite[]    @relation("InvitesRedeemed")
   rosterEntriesClaimed RosterEntry[]      @relation("RosterClaimed")
   rosterEntriesAdded   RosterEntry[]      @relation("RosterAdded")
+  attendanceStarted    AttendanceSession[] @relation("AttendanceStarted")
+  attendanceRecorded   AttendanceRecord[]  @relation("AttendanceRecorded")
 
   @@map("profiles")
   @@schema("public")
@@ -208,6 +210,15 @@ model Course {
   /// the people who were in it; nothing new can be submitted. Reversible, because a tidying
   /// action that cannot be undone gets avoided instead of used.
   archivedAt   DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  /// How long after an attendance session starts a fellow may still arrive and count as on time.
+  ///
+  /// A cohort's own norm, because it is one: a course that starts with fifteen minutes of standup
+  /// and one that starts with a quiz disagree about when the door closes, and neither is wrong.
+  /// Copied onto each session when it starts rather than read at grading time — see
+  /// `AttendanceSession.lateAfterMinutes` for why editing this must never rewrite a past morning.
+  attendanceLateAfterMinutes Int @default(5) @map("attendance_late_after_minutes")
+
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -217,6 +228,7 @@ model Course {
   assignments Assignment[]
   modules     Module[]
   groups      CourseGroup[]
+  attendanceSessions AttendanceSession[]
 
   @@map("courses")
   @@schema("public")
@@ -341,11 +353,17 @@ model Enrollment {
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course           Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  student          Profile           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course           Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student          Profile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
   groupMemberships GroupMembership[]
+  attendance       AttendanceRecord[]
 
   @@unique([courseId, studentId])
+  /// Redundant on its own — `id` is already the primary key — and bought for one thing:
+  /// `AttendanceRecord` points at `(enrollmentId, courseId)` together, which is what makes a
+  /// record against another cohort's student unrepresentable rather than merely refused by the
+  /// procedure that writes it. A composite foreign key needs a unique index to reference.
+  @@unique([id, courseId])
   @@map("enrollments")
   @@schema("public")
 }
@@ -1075,6 +1093,28 @@ enum AuditAction {
   TEST_STUDENT_CREATED
   TEST_STUDENT_DELETED
 
+  /// Attendance, which is the second thing in this log — after a released grade — that somebody
+  /// outside the school is eventually shown. A stipend is defended on these rows, so the question
+  /// they have to answer is not "who was here" but "who said so, and when".
+  ATTENDANCE_SESSION_STARTED
+  ATTENDANCE_SESSION_UPDATED
+  /// Its own value rather than an UPDATED carrying a flag. Putting a closed session back into
+  /// check-in is the act somebody asks about afterwards, and it should be findable without
+  /// reading the detail of every edit.
+  ATTENDANCE_SESSION_REOPENED
+  ATTENDANCE_SESSION_ENDED
+  ATTENDANCE_SESSION_DELETED
+  ATTENDANCE_CODE_ROTATED
+  /// One per fellow per session. "Prove this fellow checked themselves in on 14 September" is the
+  /// question a funder asks, and the record row alone stops being able to answer it the moment an
+  /// instructor is allowed to edit one.
+  ATTENDANCE_CHECKED_IN
+  ATTENDANCE_STATUS_SET
+  /// A wrong code. Here rather than in a counter of its own for the reason `DRAFT_GENERATED` is —
+  /// see `lib/audit/rate-limit.ts` — and because "somebody tried four hundred codes" is a question
+  /// worth being able to answer at all.
+  ATTENDANCE_CHECK_IN_FAILED
+
   @@schema("public")
 }
 
@@ -1201,5 +1241,189 @@ model RosterEntry {
   @@unique([courseId, email])
   @@index([courseId])
   @@map("roster_entries")
+  @@schema("public")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  /// An absence with a reason. **It still counts as missed** — the note explains the miss rather
+  /// than removing it, which keeps one denominator and one rate that nobody has to interpret
+  /// before quoting it to a funder.
+  EXCUSED
+
+  @@schema("public")
+}
+
+/// How a record came to exist, which is a different question from what it says.
+///
+/// The three are told apart because the sentence a fellow is owed differs at each: "you checked
+/// yourself in at 9:04", "your instructor marked you excused", and "nobody checked you in and the
+/// session ended". Collapsing the third into the second turns an absence into an accusation, and
+/// it is also the distinction a compliance reader needs — a stipend day defended on a fellow's own
+/// check-in is a different claim from one defended on a staff correction.
+enum AttendanceSource {
+  SELF_CHECK_IN
+  INSTRUCTOR
+  /// Written when a session ends, never by a person, and always ABSENT.
+  FINALIZED
+
+  @@schema("public")
+}
+
+/// One meeting of one course, on one civil day.
+///
+/// **The first thing in this schema that models a calendar, and deliberately the smallest one that
+/// works.** There is no term, no timetable, and no notion of which days a cohort is supposed to
+/// meet. A session exists because an instructor pressed start. That is the same trade `CourseGroup`
+/// makes — a set and nothing else — and it has the same consequence, worth writing down rather
+/// than discovering: **a morning nobody opened is indistinguishable from a morning the cohort did
+/// not meet.** Nothing here can detect a forgotten Tuesday, and nothing tries: without term dates
+/// a warning would fire on Saturdays and over winter break, and a warning wrong twice a week is
+/// one people stop seeing. The denominator is sessions that happened, which is also the more
+/// honest figure — a forgotten morning should not read as a cohort-wide absence.
+///
+/// **Attendance belongs to a course, not to the program above it.** A fellow belongs to a program
+/// and a cohort and takes several courses inside one, but `Course` is the only cohort-shaped thing
+/// that exists here, so a fellow in three courses has three sessions to check into on a Tuesday.
+/// That is the honest version of what is modelled rather than a limitation being worked around.
+///
+/// **`date` is a civil date and not an instant**, and it is the only `@db.Date` in this schema.
+/// The unique constraint below is the whole reason: two instructors pressing start at 9:00 and
+/// 9:01 must collide, and they only collide if the key is the *day* rather than a timestamp that
+/// happens to fall inside it. A timestamptz holding "midnight in New York" is unique only if every
+/// writer computes that instant identically, and a caller who used UTC midnight, a caller who used
+/// the current time, and a daylight-saving boundary each produce a second row for the same day
+/// while the constraint sits there satisfied. See `lib/school-time.ts` for the conversion — and
+/// never send this column to a browser as a `Date`, because Prisma hands it back as UTC midnight
+/// and a reader in Brooklyn renders it as the day before.
+model AttendanceSession {
+  id       String   @id @default(uuid()) @db.Uuid
+  courseId String   @map("course_id") @db.Uuid
+  date     DateTime @db.Date
+
+  /// When check-in opened. Also the anchor the rotating code counts its slots from, which is why
+  /// editing it after the fact recomputes every self check-in's lateness.
+  startedAt   DateTime @map("started_at") @db.Timestamptz(6)
+  startedById String?  @map("started_by_id") @db.Uuid
+
+  /// When the code stops working on its own. `startedAt + 90 minutes` at first, pushed forward
+  /// half an hour at a time by Extend.
+  ///
+  /// **Two columns for ending, because they answer different questions.** This one is when the
+  /// code dies; `endedAt` is when a person said the class was over. A session is open while
+  /// `endedAt` is null *and* now is before this — so the backstop needs nothing to run at the
+  /// ninety-minute mark, which matters because there is no scheduler in this project and no
+  /// prospect of one. It is a comparison, like every other time rule here.
+  ///
+  /// Without it, a session nobody ended keeps a working code alive until the next class, and a
+  /// fellow could mark themselves present at eight in the evening for a nine o'clock morning. The
+  /// sweep in `start` closes the books eventually; this is what stops the code before it does.
+  endsAt DateTime @map("ends_at") @db.Timestamptz(6)
+
+  /// Set when a person ended the session. Null until then, including after the backstop has
+  /// lapsed — collapsing the two would mean either the backstop overwrote a person's decision or
+  /// a person's decision looked like a timeout, and the log could no longer tell them apart.
+  endedAt DateTime? @map("ended_at") @db.Timestamptz(6)
+
+  /// Copied from `Course.attendanceLateAfterMinutes` when the session starts.
+  ///
+  /// **Copied rather than read through**, and that is the point of the column existing twice. A
+  /// stored status decided against a live setting would let an instructor loosen the rule in
+  /// November and silently convert a term of LATEs into PRESENTs, so no report would agree with
+  /// any report printed before it. Copying is what makes the course setting editable at all.
+  lateAfterMinutes Int @map("late_after_minutes")
+
+  /// The HMAC key the rotating code derives from. 64 hex characters, 256 bits, random per session.
+  ///
+  /// **On the row rather than in the environment**, for reasons that are all operational: it
+  /// survives a deploy, so a restart at 9:03 does not lock a cohort out; two instructor screens
+  /// derive the same code because neither holds state; a code that leaks is worthless tomorrow
+  /// without anybody doing anything; and rotating after a leak is a button rather than a deploy.
+  ///
+  /// **Never selected into a payload.** The same rule as `Course.joinToken` and sharper — that one
+  /// admits somebody to a cohort, this one lets them mark themselves present from bed. Only
+  /// `lib/attendance/code.ts` reads it.
+  codeSecret String @map("code_secret")
+
+  /// Free text about the meeting — "guest speaker", "half day". Not matched on.
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course    Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  startedBy Profile?           @relation("AttendanceStarted", fields: [startedById], references: [id], onDelete: SetNull)
+  records   AttendanceRecord[]
+
+  /// **What makes starting a session idempotent.** Two instructors pressing the button in the same
+  /// minute produce one session, and the loser of the race is handed the one that exists rather
+  /// than a second one with a different code. A course that ever meets twice in a day needs a
+  /// third column here; nothing else in the design changes.
+  @@unique([courseId, date])
+  @@index([courseId, date(sort: Desc)])
+  @@map("attendance_sessions")
+  @@schema("public")
+}
+
+/// What one fellow did at one session.
+///
+/// **Keyed on the enrollment, following `GroupMembership`**, because the enrollment is what says
+/// "a student *of this course*" — the thing attendance is actually about. And because removal is a
+/// status rather than a deleted row, a fellow who leaves in week 4 and is restored in week 7 keeps
+/// one enrollment and therefore one continuous history.
+///
+/// **The enrollment relation is composite on purpose.** `setStatus` takes an enrollment id from
+/// input, and pointing at `(enrollmentId, courseId)` together is what makes an instructor of one
+/// cohort writing a record against another cohort's student unrepresentable rather than merely
+/// refused by the procedure. `courseId` is copied from the session the server just loaded, never
+/// taken from input, and it pays for itself twice — the compliance export reads one table instead
+/// of joining through the session to ask which cohort a row belongs to.
+///
+/// **`@@unique([sessionId, enrollmentId])` is what makes checking in twice harmless.** A fellow who
+/// types the code, sees nothing happen, and types it again gets the record they already have:
+/// `checkIn` returns it rather than refusing, and writes no second audit event. It is the same
+/// constraint that makes ending a session idempotent, since the insert skips duplicates and this
+/// decides who already had a row.
+///
+/// **A self check-in only ever creates, never updates.** That is the rule that stops a fellow
+/// overwriting an EXCUSED their instructor set for them by typing a code they overheard.
+///
+/// `checkedInAt` survives an override, so an instructor calling a 9:07 arrival PRESENT leaves a row
+/// saying both the time they arrived and the decision made about it. That is what turns correcting
+/// a session somebody started five minutes early into a recomputation rather than a guess.
+model AttendanceRecord {
+  id           String @id @default(uuid()) @db.Uuid
+  sessionId    String @map("session_id") @db.Uuid
+  courseId     String @map("course_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+
+  status AttendanceStatus
+  source AttendanceSource
+
+  /// When the fellow submitted a valid code. Null on a row no fellow created.
+  checkedInAt DateTime? @map("checked_in_at") @db.Timestamptz(6)
+
+  /// The instructor who set or overrode this. Null on a self check-in and on a finalized absence.
+  /// SetNull rather than Cascade, for the reason `InstructorInvite.redeemedBy` is: deleting the
+  /// person must not delete the record of what they decided.
+  recordedById String? @map("recorded_by_id") @db.Uuid
+
+  /// Why, in words. The whole of what EXCUSED means is in here, and it is also where a fellow's
+  /// own account of a missed morning ends up once an instructor acts on it.
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  session    AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  enrollment Enrollment        @relation(fields: [enrollmentId, courseId], references: [id, courseId], onDelete: Cascade)
+  recordedBy Profile?          @relation("AttendanceRecorded", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, enrollmentId])
+  @@index([enrollmentId])
+  @@index([courseId, status])
+  @@map("attendance_records")
   @@schema("public")
 }

@@ -7,6 +7,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   BookOpen,
+  CalendarCheck,
   ChevronsUpDown,
   ClipboardList,
   GraduationCap,
@@ -32,6 +33,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
   SidebarSeparator,
@@ -63,15 +67,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { formatSchoolDay } from "@/lib/school-time";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import {
+  attendanceHref,
   courseAssignmentsHref,
   courseResourcesHref,
   courseSettingsHref,
   gradebookHref,
   gradingQueueHref,
   modulesHref,
+  myAttendanceHref,
   rosterHref,
   sameViewInCourse,
   triageHref,
@@ -174,7 +181,17 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
     const crumbs: Crumb[] = [{ label: courseLabel(courseId) }];
 
     if (rest[0] === "triage") crumbs.push({ label: "Grading triage" });
-    else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
+    else if (rest[0] === "attendance") {
+      crumbs.push({
+        label: "Attendance",
+        href: rest.length > 1 ? attendanceHref(courseId) : undefined,
+      });
+
+      // The two tabs are one address and get no crumb of their own. A day does, and the date is
+      // already the label a reader wants — "Friday, Aug 14" rather than the id of a session
+      // nobody has seen. `formatSchoolDay` takes the segment as it stands in the URL.
+      if (rest[1] === "day" && rest[2]) crumbs.push({ label: formatSchoolDay(rest[2]) });
+    } else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
     else if (rest[0] === "roster") crumbs.push({ label: "Roster" });
     else if (rest[0] === "modules") crumbs.push({ label: "Modules" });
     else if (rest[0] === "resources") crumbs.push({ label: "Resources" });
@@ -212,7 +229,17 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
   if (segments[0] === "dashboard") return [{ label: "Dashboard" }];
 
   if (segments[0] === "courses" && segments[1]) {
-    return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }];
+    const crumbs: Crumb[] = [
+      { label: "Courses", href: "/courses" },
+      {
+        label: courseLabel(segments[1]),
+        href: segments[2] ? `/courses/${segments[1]}` : undefined,
+      },
+    ];
+    // A fellow's own attendance is the first screen under a course on this side, so the trail
+    // gains a step rather than repeating the course page's.
+    if (segments[2] === "attendance") crumbs.push({ label: "Attendance" });
+    return crumbs;
   }
   return [{ label: "Courses" }];
 }
@@ -224,10 +251,13 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
 /**
  * Which cohort an instructor is working in, and the way into another one.
  *
- * **Instructors only.** A student used to get a read-only card here naming their current course,
- * which said what the screen they were looking at already said and disappeared on the course list
- * — the one place a name would have added something. Their sidebar names every course they are in
- * instead, so the current one is a highlighted row rather than a second copy of the heading.
+ * **Instructors only**, and the asymmetry is deliberate rather than unfinished. An instructor
+ * teaches a handful of cohorts whose screens are identical, so a switcher trades one click for a
+ * sidebar that stays the same height however many terms they accumulate. A fellow is in three
+ * courses at once and lands on `/dashboard`, which names no course — a switcher in the header
+ * would greet them every morning with a control pointing at a course the screen is not about, and
+ * the alternative of guessing one is what the note on `useActiveCourseId` records going wrong.
+ * Their courses are listed instead, and the one they are reading expands. See `StudentCourses`.
  */
 function CourseSwitcher({
   courses,
@@ -314,7 +344,7 @@ function CourseSwitcher({
 }
 
 /**
- * The six views a cohort has, in the order they are offered.
+ * The eight views a cohort has, in the order they are offered.
  *
  * They were tabs on one course page until the page had a header, a triage button, a tab bar,
  * and a row of counts competing for the same band of screen. As sidebar items each one is an
@@ -322,10 +352,12 @@ function CourseSwitcher({
  * lets a link name a screen rather than a page-plus-a-tab nobody can bookmark.
  *
  * Triage leads, because "what is waiting on me" is the question an instructor opens this
- * application to ask.
+ * application to ask. Attendance is second, and it is the only item here touched at a fixed time
+ * every single morning — being findable without thinking is most of what it needs.
  */
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
+  { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
   { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
   { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },
   {
@@ -477,6 +509,16 @@ function StudentWork({ pathname }: { pathname: string }) {
  * a reader who they were and then made reaching a course two clicks: one to a list, one to the
  * course.
  *
+ * **The course being read expands to show its screens.** A flat list could say which course but
+ * had no way to say which screen within it, which is why attendance arrived reachable only from a
+ * button on the course page. Nesting rather than a header switcher keeps the two properties that
+ * matter here: every course a fellow is in stays one click away, and the sidebar says nothing at
+ * all about courses on the screens that span them.
+ *
+ * Only the active one expands. Three courses each showing every screen they have would be a dozen
+ * rows to hold three destinations, and nobody is choosing among all of them at once — they are in
+ * one course, looking for one of its parts.
+ *
  * `/courses` is not offered as an item of its own. It is still a real screen — the breadcrumb
  * links to it — but with every course named here it would be a row pointing at a list of the rows
  * above it. The exception is a student with no enrollment yet, where it is the only thing there is
@@ -516,11 +558,18 @@ function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathn
         ) : (
           ordered.map((course) => {
             const note = courseNote(course);
+            const base = `/courses/${course.id}`;
+            const inThisCourse = pathname === base || pathname.startsWith(`${base}/`);
 
             return (
               <SidebarMenuItem key={course.id}>
                 <SidebarMenuButton
-                  isActive={pathname === `/courses/${course.id}`}
+                  /*
+                    Prefix, not equality. A fellow reading their own attendance is at
+                    `/courses/<id>/attendance` and is still inside that course — an exact match
+                    would leave every row in the sidebar dark and the reader nowhere.
+                  */
+                  isActive={inThisCourse}
                   /*
                     The full name and the term, because the label below truncates and the
                     collapsed sidebar shows nothing else. Two cohorts of one program share a name,
@@ -529,7 +578,7 @@ function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathn
                   tooltip={`${course.name} · ${course.cohortTerm}`}
                   // `h-auto` because this row is two lines where every other one is one.
                   className="h-auto py-1.5"
-                  render={<Link href={`/courses/${course.id}`} />}
+                  render={<Link href={base} />}
                 >
                   <BookOpen />
                   <span className="flex min-w-0 flex-col">
@@ -539,6 +588,38 @@ function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathn
                     </span>
                   </span>
                 </SidebarMenuButton>
+
+                {/*
+                  Only the course being read expands. Every course a fellow is in showing every
+                  screen it has would be a dozen rows to hold three destinations, and the reader
+                  is never choosing among all of them at once — they are in one course, looking
+                  for one of its parts.
+
+                  Nothing renders here at all on the dashboard or the course list, where the
+                  address names no course. That is the property a switcher in the header would
+                  have cost: signing in lands on `/dashboard`, so the first thing a fellow sees
+                  every day would have been a control naming a course the screen is not about.
+                */}
+                {inThisCourse && (
+                  <SidebarMenuSub>
+                    <SidebarMenuSubItem>
+                      <SidebarMenuSubButton
+                        isActive={pathname === base}
+                        render={<Link href={base} />}
+                      >
+                        <span>Coursework</span>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                    <SidebarMenuSubItem>
+                      <SidebarMenuSubButton
+                        isActive={pathname === `${base}/attendance`}
+                        render={<Link href={myAttendanceHref(course.id)} />}
+                      >
+                        <span>Attendance</span>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  </SidebarMenuSub>
+                )}
               </SidebarMenuItem>
             );
           })

@@ -1,9 +1,12 @@
 import type {
   AssignmentKind,
+  AttendanceSource,
+  AttendanceStatus,
   GradingDraftStatus,
   SubmissionStatus,
 } from "@/lib/generated/prisma/enums";
 
+import { SCHOOL_TIME_ZONE } from "@/lib/school-time";
 import { isSectionType, SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 
 /**
@@ -58,6 +61,41 @@ export const SUBMISSION_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
     description: "No confident draft could be produced.",
   },
 };
+
+/**
+ * Attendance, in the same vocabulary as everything else.
+ *
+ * Here rather than in `lib/attendance/` on purpose: this file is where the application decides
+ * what a status is *called*, and a second map living beside the attendance logic is how two
+ * screens come to use different words for the same row.
+ *
+ * **Excused is amber rather than green.** It still counts as a missed session — the note explains
+ * the absence rather than undoing it — and a green pill would say the opposite of what the number
+ * beneath it says.
+ */
+export const ATTENDANCE_STATUS_META: Record<AttendanceStatus, StatusMeta> = {
+  PRESENT: { label: "Present", tone: "success", description: "Here, within the on-time window." },
+  LATE: { label: "Late", tone: "pending", description: "Here, after the on-time window closed." },
+  ABSENT: { label: "Absent", tone: "danger", description: "No check-in, and no reason recorded." },
+  EXCUSED: {
+    label: "Excused",
+    tone: "review",
+    description: "Missed the session for a reason an instructor accepted. Still counts as missed.",
+  },
+};
+
+/**
+ * How a record came to exist, said in the words a fellow is owed.
+ *
+ * Words rather than a colour or an icon, for the reason the gradebook writes "Not graded" instead
+ * of adding a fourth dot to its legend: this distinction is what a compliance reader is checking,
+ * and it has to survive being read quickly.
+ */
+export function attendanceSourceLabel(source: AttendanceSource, recordedBy: string | null): string {
+  if (source === "SELF_CHECK_IN") return "checked in";
+  if (source === "INSTRUCTOR") return recordedBy ? `marked by ${recordedBy}` : "marked by staff";
+  return "not recorded";
+}
 
 /**
  * What a student is allowed to see.
@@ -572,11 +610,14 @@ export function sectionLabel(sectionType: string): string {
  * Dates.
  *
  * Formatted in the school's timezone rather than the reader's. A due date means the
- * deadline in Brooklyn wherever the student happens to be reading from, and pinning the
+ * deadline in Brooklyn wherever the student happens to be reading from, and fixing the
  * zone also keeps a server rendering in UTC from disagreeing with a browser about which
  * day a late-evening deadline falls on — which React reports as a hydration mismatch.
+ *
+ * The constant itself moved to `lib/school-time.ts` when attendance made it decide what gets
+ * stored rather than only how something is printed. It is imported rather than re-declared so
+ * there is one answer to "which day is it here".
  */
-const SCHOOL_TIME_ZONE = "America/New_York";
 
 export function formatDate(d: Date | null | undefined): string {
   if (!d) return "—";
