@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
+import { formatSchoolTime } from "@/lib/school-time";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -15,59 +16,41 @@ import type { RouterOutputs } from "@/trpc/types";
  * people's courses being broadcast to a class. One window with one thing in it is also the only
  * shape Zoom's "share a window" can select cleanly.
  *
- * **Three details here are the difference between working and appearing broken:**
+ * **This window is now one of two ways to give the code out, and no longer the necessary one.** The
+ * code is fixed for the session, so an instructor teaching from a single shared window can copy it
+ * off the attendance screen and paste it into the chat instead of ever opening this. What this is
+ * still the best answer for is a room with a projector, where four digits at 16vw are readable from
+ * the back and can simply stay there.
  *
- * The countdown renders only after mount, in the manner of `theme-toggle.tsx`. A bar whose width
- * is computed during render is a guaranteed hydration mismatch, because the server and the browser
- * do not read the clock at the same instant.
+ * There is no countdown, because there is nothing to count down to: the code lasts as long as
+ * check-in does. What the screen says instead is when check-in closes, which is the only deadline
+ * left and the one an instructor has to be able to see coming.
  *
  * The address is built from `window.location.origin` in an effect, as `JoinLinkCard` does, because
  * the server rendering this has no reliable idea which host the instructor is looking at.
- *
- * And a code that has gone stale is replaced rather than left on screen. A projected code that no
- * longer works is not one person's confusion — it is the whole room failing to check in at once,
- * and then concluding the application is broken.
  */
 
-type CodeView = RouterOutputs["attendance"]["currentCode"];
+type CodeView = RouterOutputs["attendance"]["sessionCode"];
 
 export function AttendanceDisplay({ initial }: { initial: CodeView }) {
   const trpc = useTRPC();
 
   const query = useQuery({
-    ...trpc.attendance.currentCode.queryOptions({ sessionId: initial.session.id }),
+    ...trpc.attendance.sessionCode.queryOptions({ sessionId: initial.session.id }),
     initialData: initial,
     /*
-      Re-read as the slot turns over rather than on a fixed interval, so the screen changes when
-      the code does. A second of slack absorbs the round trip; the server accepts the previous
-      slot's code anyway, so nobody is punished by arriving a moment late.
+      A slow fixed interval, where this used to re-read on every rotation. The code will not change
+      underneath the room, so the only things worth noticing are the session closing and the
+      checked-in count climbing — and fifteen seconds is well inside how long either takes to
+      matter to somebody watching from the back.
     */
-    refetchInterval: (q) => {
-      const rotatesAt = q.state.data?.rotatesAt;
-      if (!rotatesAt) return false;
-      return Math.max(1000, rotatesAt.getTime() - Date.now() + 250);
-    },
-    staleTime: 0,
+    refetchInterval: 15_000,
   });
 
   const view = query.data;
 
   const [origin, setOrigin] = React.useState("");
   React.useEffect(() => setOrigin(window.location.origin), []);
-
-  const [now, setNow] = React.useState<number | null>(null);
-  React.useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const rotatesAt = view.rotatesAt?.getTime() ?? null;
-  // Five seconds past the rotation with no fresh code means the poll is not landing. Better to say
-  // so than to leave four digits nobody can use standing at the front of the room.
-  const stale = now !== null && rotatesAt !== null && now > rotatesAt + 5000;
-  const remaining = now !== null && rotatesAt !== null ? Math.max(0, rotatesAt - now) : 0;
-  const fraction = Math.min(1, remaining / 30000);
 
   if (view.session.state !== "open") {
     return (
@@ -82,14 +65,7 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
 
   return (
     <Shell courseName={view.courseName} day={view.session.day}>
-      {stale || !view.code ? (
-        <>
-          <p className="font-mono text-[16vw] leading-none font-bold tracking-[0.1em] tabular-nums text-muted-foreground">
-            — — — —
-          </p>
-          <p className="text-[1.6vw] text-muted-foreground">Reconnecting…</p>
-        </>
-      ) : (
+      {view.code ? (
         <>
           <p className="font-mono text-[16vw] leading-none font-bold tracking-[0.1em] tabular-nums">
             {view.code.slice(0, 2)}
@@ -97,15 +73,21 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
             {view.code.slice(2)}
           </p>
 
-          <div
-            aria-hidden="true"
-            className="h-[1vh] w-[40vw] overflow-hidden rounded-full bg-muted"
-          >
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-200 ease-linear"
-              style={{ width: `${fraction * 100}%` }}
-            />
-          </div>
+          {/*
+            The one deadline left, said in words rather than drawn as a bar. A bar counting down to
+            a rotation was worth animating because the number above it was about to be wrong; this
+            is ninety minutes away and a projector is not the place to watch it drain.
+          */}
+          <p className="text-[1.6vw] text-muted-foreground">
+            This code works until {formatSchoolTime(view.session.endsAt)}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="font-mono text-[16vw] leading-none font-bold tracking-[0.1em] tabular-nums text-muted-foreground">
+            — — — —
+          </p>
+          <p className="text-[1.6vw] text-muted-foreground">Reconnecting…</p>
         </>
       )}
 

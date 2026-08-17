@@ -140,7 +140,11 @@ If a link goes astray, **regenerate** it. Everybody already in stays in, and the
 
 ### Attendance
 
-**One press at the start of class, and a code on the screen.** Press **Start check-in** and the application puts a four-digit code on a page you can project or share into Zoom. Fellows type it on that course's attendance screen, already signed in as themselves. The code changes every thirty seconds, and the previous one keeps working for another thirty so nobody is punished for typing slowly.
+**One press at the start of class, and one code to give out.** Press **Start check-in** and a four-digit code appears on the attendance screen with a **Copy** button beside it. Give it out however costs you least: read it aloud, paste it into the Zoom chat, put it on your first slide, or press **Project the code** for a full-screen page to put on a projector or share into Zoom. Fellows type it on their dashboard or on that course's attendance screen, already signed in as themselves.
+
+**The code does not change, and that is what makes a late arrival somebody else's problem rather than yours.** It works until check-in closes, so a fellow who sits down at twenty past reads it out of the chat or asks the person next to them. You never have to stop the lesson to put a code back on screen, and you never have to give the shared screen over to it in the first place.
+
+If a code reaches somebody who is not in class, press **Has this code got out?** and replace it. The old code stops working immediately, and you give the new one out the same way you gave out the first.
 
 Two things prove two different facts, and separating them is the point: the code proves somebody was in the room or on the call at that moment, and being signed in proves who they are. It replaces a Google Form where one short code did both jobs and a picklist meant anybody could submit as anybody.
 
@@ -245,7 +249,7 @@ Then the work, in five lists:
 
 Graded work never appears as a deadline, including work that came back below the threshold. Resubmitting is a second go at work you already handed in, and calling it overdue would say you missed a deadline you met.
 
-**Checking in** is on your dashboard, in your week's row for that course, and on the course's own **Attendance** screen. Either works and both want the same thing: the four-digit code from the front of the room or the shared Zoom window. It changes every thirty seconds; the one before it still works, so there is no rush. Neither says anything at all on a day nobody has started a session.
+**Checking in** is on your dashboard, in your week's row for that course, and on the course's own **Attendance** screen. Either works and both want the same thing: the four-digit code your instructor gave out for today. The code does not change during the session, so if you arrive late you can get it from the chat or from the person next to you rather than asking your instructor to stop. Neither screen says anything at all on a day nobody has started a session.
 
 Once you are in, it says so for the rest of the day. If it says **Late** and you were here on time, tell your instructor — they can change it. If check-in has closed and you missed it, the Attendance screen says that too, and the answer is the same: tell your instructor, because they are the only ones who can record it.
 
@@ -329,7 +333,7 @@ Said plainly, because an hour spent looking for one of these is an hour wasted.
 Also absent today:
 
 - **Attendance knows nothing about a calendar.** There are no term dates and no timetable, so a session exists because somebody started one. Nothing notices a morning nobody opened, and nothing can — without knowing which days are school days, a warning would fire on Saturdays and over winter break, and a warning wrong twice a week is one people stop seeing. What this buys is that snow days, field trips and a schedule that changes in March need no maintenance at all.
-- **A rotating code does not stop a fellow texting it to somebody at home.** Nothing does; that is collusion rather than authentication, and the alternatives are worse than the problem. What it does stop is the failure a static code actually has — one posted in a group chat at 9:00 that still works at 11:00 for somebody who never arrived.
+- **The code does not stop a fellow texting it to somebody at home.** Nothing does; that is collusion rather than authentication, and every technical answer is worse than the problem. A code that changed every thirty seconds did not stop it either — it only narrowed the window, at the cost of holding the shared screen hostage for the first five minutes of every class. What the application does instead is keep the record answerable: every check-in stores the minute it happened, so a fellow marked in at 10:25 for a class that started at 9:00 reads as exactly that, and you can ask. If a code has got out, replace it.
 - **Attendance is per course, not per program.** A fellow taking three courses checks into three sessions, which is three rows on the dashboard and three codes to type.
 - **There is no weekly attendance percentage.** The week is shown as days, and the figure beside it is for the term. A weekly rate would divide by "mornings somebody remembered to start a session", so a forgotten Tuesday would read as a perfect week — a number that confident should not be one nobody can check.
 

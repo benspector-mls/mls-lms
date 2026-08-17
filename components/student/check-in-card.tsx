@@ -106,7 +106,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
             Check in — {entry.courseName}
           </span>
           <span className="text-xs text-muted-foreground">
-            Type the code on the screen. It changes every 30 seconds.
+            Type the code your instructor gave out for today.
           </span>
         </div>
 

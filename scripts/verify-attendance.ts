@@ -13,9 +13,10 @@
  * check passes against a guard that refuses everybody — and the counting checks assert the record
  * count *and* the audit count, because a broken implementation passes either one alone.
  *
- * **The code is derived directly here**, with `codeForSlot`, rather than read back from a
- * procedure. That is the only way to ask the question that matters about the grace window: the
- * previous slot's code is accepted and the one before it is not.
+ * **The code is derived directly here**, with `codeFor`, rather than read back from a procedure.
+ * That is what lets this ask the question the procedure cannot be trusted to answer about itself:
+ * that the code a fellow is refused is genuinely a different code, and that replacing the session
+ * secret invalidates the one twenty-five people were already given.
  */
 import { createChecker, inOwnTransaction, loadEnvironment, refusal } from "./verify/harness";
 
@@ -36,7 +37,7 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
-  const { codeForSlot, CODE_DIGITS } = await import("../lib/attendance/code");
+  const { codeFor, CODE_DIGITS } = await import("../lib/attendance/code");
   const { DEFAULT_SESSION_MINUTES } = await import("../lib/attendance/window");
   const { schoolDayOf, dateColumnFor } = await import("../lib/school-time");
   const { ownerOf } = await import("../lib/courses/ownership");
@@ -175,12 +176,12 @@ async function main() {
         });
 
         check(
-          "a student cannot read the current code",
-          await refusal(() => asStudent.attendance.currentCode({ sessionId: session.id })),
+          "a student cannot read the session code",
+          await refusal(() => asStudent.attendance.sessionCode({ sessionId: session.id })),
           "FORBIDDEN",
         );
 
-        const codeView = await asInstructor.attendance.currentCode({ sessionId: session.id });
+        const codeView = await asInstructor.attendance.sessionCode({ sessionId: session.id });
         checkThat(
           "the instructor's code view carries no secret either",
           !containsKey(codeView, "codeSecret"),
@@ -189,26 +190,39 @@ async function main() {
 
         // ---- Checking in ---------------------------------------------------------
 
-        /*
-          The session is backdated by two slots before any code is derived.
+        const rightNow = codeFor(session);
+        const wrong = String((Number(rightNow) + 5000) % 10_000).padStart(CODE_DIGITS, "0");
 
-          Otherwise the grace-window check depends on when in the minute the script happened to
-          run: started in the current slot, there is no previous slot to try, and the group would
-          skip — every time on a fast machine. A check whose coverage varies with the clock is one
-          that eventually stops covering anything.
+        check("the procedure and this script derive the same code", codeView.code, rightNow);
+
+        /*
+          The session's start time is moved, the code is asked for again, and the start time is then
+          put back.
+
+          This is the property that made a fixed code worth having, and it is the one a reader is
+          most likely to doubt: the code is a fact about which session this is, not about how long it
+          has been running, so an instructor correcting a session that began five minutes late does
+          not change the digits twenty-five people have already been given.
+
+          **Restored immediately, because everything below depends on it.** Left backdated, the
+          check-in two lines down lands outside the on-time window and reads LATE, and the recompute
+          check further on then has nothing to change — two failures whose cause is this block rather
+          than the behaviour either one is about.
         */
-        const backdated = await tx.attendanceSession.update({
+        await tx.attendanceSession.update({
           where: { id: started.id },
-          data: { startedAt: new Date(Date.now() - 75_000) },
-          select: { startedAt: true },
+          data: { startedAt: new Date(Date.now() - 600_000) },
+          select: { id: true },
         });
 
-        const now = new Date();
-        const slot = Math.floor((now.getTime() - backdated.startedAt.getTime()) / 30_000);
-        const rightNow = codeForSlot(session.codeSecret, session.id, slot);
-        const previous = codeForSlot(session.codeSecret, session.id, Math.max(0, slot - 1));
-        const older = codeForSlot(session.codeSecret, session.id, Math.max(0, slot - 2));
-        const wrong = String((Number(rightNow) + 5000) % 10_000).padStart(CODE_DIGITS, "0");
+        const afterBackdate = await asInstructor.attendance.sessionCode({ sessionId: session.id });
+        check("moving the session's start leaves the code alone", afterBackdate.code, rightNow);
+
+        await tx.attendanceSession.update({
+          where: { id: started.id },
+          data: { startedAt: session.startedAt },
+          select: { id: true },
+        });
 
         check(
           "a wrong code is refused",
@@ -216,14 +230,8 @@ async function main() {
           "UNAUTHORIZED",
         );
 
-        check(
-          "a code from two slots ago is refused",
-          await refusal(() => asStudent.attendance.checkIn({ courseId: course.id, code: older })),
-          "UNAUTHORIZED",
-        );
-
-        const grace = await asOther.attendance.checkIn({ courseId: course.id, code: previous });
-        check("the previous slot's code is accepted", grace.alreadyCheckedIn, false);
+        const later = await asOther.attendance.checkIn({ courseId: course.id, code: rightNow });
+        check("the code the instructor gave out is accepted", later.alreadyCheckedIn, false);
 
         const checkedIn = await asStudent.attendance.checkIn({
           courseId: course.id,
@@ -338,6 +346,10 @@ async function main() {
 
         // ---- Editing the window recomputes one kind of row and not the other --------
 
+        // One instant for the three window edits below, so each is a statement about the data
+        // rather than about how long the script took to reach this line.
+        const now = new Date();
+
         // Backwards, so the check-in that was on time is now well past the threshold.
         const shifted = await asInstructor.attendance.updateSession({
           sessionId: session.id,
@@ -373,13 +385,19 @@ async function main() {
 
         const lapsed = await tx.attendanceSession.findUniqueOrThrow({
           where: { id: session.id },
-          select: { codeSecret: true, startedAt: true },
+          select: { id: true, codeSecret: true },
         });
-        const lapsedSlot = Math.floor((Date.now() - lapsed.startedAt.getTime()) / 30_000);
-        const lapsedCode = codeForSlot(lapsed.codeSecret, session.id, lapsedSlot);
+        const lapsedCode = codeFor(lapsed);
 
-        const lapsedView = await asInstructor.attendance.currentCode({ sessionId: session.id });
+        const lapsedView = await asInstructor.attendance.sessionCode({ sessionId: session.id });
         check("a lapsed session shows no code", lapsedView.code, null);
+
+        /*
+          The code is still derivable — the secret has not changed — and is refused anyway. That
+          pairing is the whole of what "valid for as long as check-in is open" means, and it is why
+          `codeMatches` no longer takes a clock: the session decides, not the code.
+        */
+        checkThat("the code itself is unchanged by lapsing", lapsedCode === rightNow);
 
         // A third fellow would be needed to check the refusal without a record in the way, so
         // this asks the one whose record was cleared below instead.
@@ -399,24 +417,56 @@ async function main() {
 
         const afterExtend = await tx.attendanceSession.findUniqueOrThrow({
           where: { id: session.id },
-          select: { codeSecret: true, startedAt: true },
+          select: { id: true, codeSecret: true },
         });
-        const liveSlot = Math.floor((Date.now() - afterExtend.startedAt.getTime()) / 30_000);
-        const liveCode = codeForSlot(afterExtend.codeSecret, session.id, liveSlot);
+        const liveCode = codeFor(afterExtend);
+        // The same digits as before it lapsed, which is what an instructor pressing Extend expects:
+        // class ran long, and the code they gave out at nine still works.
+        check("extending brings back the same code", liveCode, rightNow);
+
         const afterExtendCheckIn = await asStudent.attendance.checkIn({
           courseId: course.id,
           code: liveCode,
         });
-        check("and a code works again", afterExtendCheckIn.alreadyCheckedIn, false);
+        check("and that code works again", afterExtendCheckIn.alreadyCheckedIn, false);
 
-        // ---- Rotating -----------------------------------------------------------------
+        // ---- Replacing a code that got out --------------------------------------------
 
+        /*
+          The only remedy for a leaked code now that nothing rotates on a clock, so these three
+          checks stand where the grace-window checks used to. The pairing is the point: the old code
+          stops working *and* a new one works, because a broken implementation passes either alone —
+          one by refusing everything, the other by changing nothing.
+        */
         await asInstructor.attendance.rotateCode({ sessionId: session.id });
         const rotated = await tx.attendanceSession.findUniqueOrThrow({
           where: { id: session.id },
-          select: { codeSecret: true },
+          select: { id: true, codeSecret: true },
         });
-        checkThat("rotating replaces the secret", rotated.codeSecret !== afterExtend.codeSecret);
+        checkThat(
+          "replacing the code replaces the secret",
+          rotated.codeSecret !== afterExtend.codeSecret,
+        );
+
+        const replacement = codeFor(rotated);
+        checkThat("and derives different digits", replacement !== rightNow);
+
+        await tx.attendanceRecord.deleteMany({
+          where: { sessionId: session.id, enrollmentId: first.id },
+        });
+        check(
+          "the code fellows were already given no longer works",
+          await refusal(() =>
+            asStudent.attendance.checkIn({ courseId: course.id, code: rightNow }),
+          ),
+          "UNAUTHORIZED",
+        );
+
+        const afterReplace = await asStudent.attendance.checkIn({
+          courseId: course.id,
+          code: replacement,
+        });
+        check("and the replacement does", afterReplace.alreadyCheckedIn, false);
 
         // ---- Ending, and what ending writes ---------------------------------------------
 

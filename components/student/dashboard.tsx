@@ -68,9 +68,10 @@ export function StudentDashboard({
       />
 
       {/*
-        Above the work, because it is the thing with a deadline measured in minutes. A code that
-        rotates every thirty seconds cannot wait behind a list of assignments, and the rest of the
-        row is a week's worth of squares that costs one line to read.
+        Above the work, because check-in is the only thing on this screen with a deadline measured
+        in minutes: it stops accepting codes when the session closes, and being marked absent is not
+        recoverable by the fellow. The rest of the row is a week's worth of squares that costs one
+        line to read.
       */}
       <AttendanceStrip initial={week} />
 

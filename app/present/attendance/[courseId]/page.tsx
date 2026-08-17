@@ -14,8 +14,12 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * Leaving the shell costs no authorization. `lib/supabase/proxy.ts` redirects every path except
  * `/`, `/login`, and `/auth`, so an unauthenticated visitor never arrives here — and
- * `attendance.currentCode` is instructor-gated behind that, so a signed-in student who guesses the
+ * `attendance.sessionCode` is instructor-gated behind that, so a signed-in student who guesses the
  * address is refused by the procedure rather than by the route.
+ *
+ * **Opening this is optional.** The code is fixed for the session, so an instructor who is sharing a
+ * single application window can copy it off the attendance screen instead. This route is for the
+ * case where a room has a projector and the digits can simply stay up.
  */
 export default function PresentAttendancePage({
   params,
@@ -47,7 +51,7 @@ async function Present({ params }: { params: Promise<{ courseId: string }> }) {
   }
 
   const initial = await queryClient.fetchQuery(
-    trpc.attendance.currentCode.queryOptions({ sessionId: grid.session.id }),
+    trpc.attendance.sessionCode.queryOptions({ sessionId: grid.session.id }),
   );
 
   return <AttendanceDisplay initial={initial} />;

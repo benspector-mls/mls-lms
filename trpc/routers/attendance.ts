@@ -4,13 +4,7 @@ import { z } from "zod";
 import { auditActor } from "@/lib/audit/record";
 import { recordEvent } from "@/lib/audit/record";
 import { assertWithinRate, type RateLimit } from "@/lib/audit/rate-limit";
-import {
-  codeMatches,
-  currentCode,
-  newSessionSecret,
-  wasRecentlyValid,
-  type CodeSession,
-} from "@/lib/attendance/code";
+import { codeFor, codeMatches, newSessionSecret, type CodeSession } from "@/lib/attendance/code";
 import { weekColumns, weekRange } from "@/lib/attendance/calendar";
 import { gridCounts, gridRows, type GridEnrollment, type GridRecord } from "@/lib/attendance/grid";
 import { summarize, type SummaryFellow, type SummaryRecord } from "@/lib/attendance/summary";
@@ -59,7 +53,7 @@ import { personSelect, personNameSelect } from "../selects";
 /**
  * How many wrong codes one person may try in ten minutes.
  *
- * Ten is far above an honest morning — a mistype, a retry, the code rotating mid-typing, another
+ * Ten is far above an honest morning — a mistype, a retry, a digit misheard across a room, another
  * retry — and it exists to stop a script rather than a fellow. Counted out of `audit_events` for
  * the reason `lib/audit/rate-limit.ts` gives, over the index that is already there.
  */
@@ -68,11 +62,16 @@ const CHECK_IN_ATTEMPT_LIMIT: RateLimit = { max: 10, windowMinutes: 10 };
 /**
  * How many wrong codes one person may try within one session, however long it runs.
  *
- * **This is the ceiling four digits makes necessary.** Ten thousand codes with two live slots
- * means one guess in five thousand lands, and the ten-minute limit alone would allow ninety
- * attempts across a ninety-minute session — close to a two percent chance, which is small but not
- * nothing when what it buys is a paid day. Twenty caps the whole session at roughly two in a
- * thousand, and it costs one more count over rows the other limit already reads.
+ * **This is the ceiling four digits makes necessary, and it is the only thing bounding a guess.**
+ * Ten thousand codes with one live code means one guess in ten thousand lands, and the ten-minute
+ * limit alone would allow ninety attempts across a ninety-minute session — close to one percent,
+ * which is small but not nothing when what it buys is a paid day. Twenty caps the whole session at
+ * two in a thousand, and it costs one more count over rows the other limit already reads.
+ *
+ * Worth being exact about, because it is the claim a fixed code is most likely to be doubted on:
+ * rotation never contributed to this. It bounded how long a code could be *passed on*, not how many
+ * times one could be *tried*, and by accepting the previous code as well it doubled the live surface
+ * that this ceiling is measured against.
  */
 const CHECK_IN_SESSION_ATTEMPTS = 20;
 
@@ -305,13 +304,21 @@ export const attendanceRouter = createTRPCRouter({
     }),
 
   /**
-   * The code on the screen at the front of the room, and when it changes.
+   * This session's code, for the instructor to give out.
    *
    * The only procedure besides `checkIn` that reads `codeSecret`, and the only one that returns
    * anything derived from it. Instructor-only through the loader — a student reaching this would
    * make every other guard in the file pointless.
+   *
+   * **Read by two screens and for two different purposes.** The projector window puts it in front of
+   * a room; the attendance screen puts it beside a Copy button, which is what an instructor sharing
+   * a single application window into Zoom actually needs — the code has to be *distributable*, and
+   * only sometimes needs to be *displayed*.
+   *
+   * Null while the session is closed rather than absent from the payload, so both callers can say
+   * "check-in is closed" from the same shape.
    */
-  currentCode: instructorProcedure
+  sessionCode: instructorProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const now = new Date();
@@ -320,8 +327,7 @@ export const attendanceRouter = createTRPCRouter({
         course: { select: { id: true, name: true } },
       });
 
-      const state = sessionStateOf(session, now);
-      const derived = state === "open" ? currentCode(session as CodeSession, now) : null;
+      const open = sessionStateOf(session, now) === "open";
 
       const [checkedIn, expected] = await Promise.all([
         ctx.db.attendanceRecord.count({
@@ -333,8 +339,7 @@ export const attendanceRouter = createTRPCRouter({
       return {
         session: publicSession(session, now),
         courseName: session.course.name,
-        code: derived?.code ?? null,
-        rotatesAt: derived?.rotatesAt ?? null,
+        code: open ? codeFor(session as CodeSession) : null,
         checkedIn,
         expected,
       };
@@ -760,9 +765,15 @@ export const attendanceRouter = createTRPCRouter({
   /**
    * Replace the code, for when one reaches a group chat.
    *
-   * A new secret, so every code derived from the old one — including the grace slot — stops
-   * working at once. That is the point, and it is also why the refusal a fellow mid-typing then
-   * meets should mention that the code may have just changed.
+   * **The whole remedy for a leak, now that the code does not rotate on a clock.** A new secret, so
+   * the old code stops working at once and the instructor gives out the new one the same way they
+   * gave out the first. That is a deliberate response to something an instructor noticed, which is
+   * the shape a remedy should have — churning the code every thirty seconds whether or not anything
+   * was wrong is what cost the shared screen.
+   *
+   * A fellow who was mid-typing when this ran is refused, and the refusal names the possibility
+   * that the code was replaced, because the old secret is gone and the server cannot tell that
+   * fellow apart from somebody guessing.
    */
   rotateCode: instructorProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
@@ -793,7 +804,7 @@ export const attendanceRouter = createTRPCRouter({
           subject: { id: session.id, label: schoolDayFromColumn(session.date) },
           course: { id: session.courseId, label: session.course.name },
           // Never the code and never the secret. The log is readable by anyone who can read the
-          // table, and a code in it is a code that outlives its rotation.
+          // table, and a code written into it outlives the session it belonged to.
           detail: { day: schoolDayFromColumn(session.date) },
         });
 
@@ -1105,24 +1116,31 @@ export const attendanceRouter = createTRPCRouter({
         });
       }
 
-      if (!codeMatches(session as CodeSession, input.code, now)) {
-        const expired = wasRecentlyValid(session as CodeSession, input.code, now);
-
+      if (!codeMatches(session as CodeSession, input.code)) {
         await inTransaction(ctx.db, (tx) =>
           recordEvent(tx, {
             action: "ATTENDANCE_CHECK_IN_FAILED",
             actor,
             subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a student") },
             course: { id: course.id, label: course.name },
-            detail: { day, reason: expired ? "expired-code" : "wrong-code" },
+            detail: { day, reason: "wrong-code" },
           }),
         );
 
+        /*
+          One refusal, because there is only one way to be wrong now: the session is open, so the
+          code either is this session's or is not. There is no expiry to distinguish.
+
+          The second sentence covers the case the server cannot detect. If the instructor replaced
+          the code because the old one reached a group chat, the old secret is gone and a fellow
+          typing the old code is indistinguishable from one guessing — so the refusal names the
+          possibility rather than pretending to know.
+        */
         throw new TRPCError({
           code: "UNAUTHORIZED",
-          message: expired
-            ? "That code has expired. It changes every 30 seconds — read the current one off the screen."
-            : "That is not the code. It changes every 30 seconds, so read the current one off the screen and try again.",
+          message:
+            `That is not the code for today's ${course.name} session. If your instructor replaced ` +
+            `the code, ask them for the new one.`,
         });
       }
 

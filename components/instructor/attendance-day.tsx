@@ -2,12 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
   Clock,
+  Copy,
   ExternalLink,
   Flag,
   MessageSquarePlus,
   MonitorPlay,
   Play,
+  RefreshCw,
   RotateCcw,
   Square,
   Trash2,
@@ -315,7 +318,7 @@ function SessionHeader({
                 }
               >
                 <MonitorPlay data-icon="inline-start" />
-                Show the code
+                Project the code
                 <ExternalLink className="ml-1 size-3" />
               </Button>
               <Button size="sm" variant="outline" disabled={busy} onClick={onExtend}>
@@ -336,6 +339,8 @@ function SessionHeader({
           )}
         </div>
       </div>
+
+      {open && <CodeCard sessionId={session.id} endsAt={session.endsAt} />}
 
       {/*
         Inline rather than a dialog, in the manner of the join link's replace confirmation, and it
@@ -372,6 +377,125 @@ function SessionHeader({
         >
           <Trash2 className="mr-1 inline size-3" />
           Started this by mistake?
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The code, where an instructor can take it without giving up their screen.
+ *
+ * **This is what a fixed code buys, and the reason it is worth its cost.** The code has to reach the
+ * class; it does not have to be *displayed* to the class. An instructor teaching from a shared VS
+ * Code window or a slide deck copies four digits from here into the Zoom chat, and the shared screen
+ * is never involved — where a rotating code could only be handed over by putting it on screen and
+ * leaving it there. A fellow arriving at twenty past reads it out of the chat, and nobody's lesson
+ * stops.
+ *
+ * **Replace is beside it rather than buried**, because a fixed code makes an instructor's judgment
+ * the only remedy for a leak. It is worded as what it does and confirmed inline, in the manner of the
+ * delete control below: pressing it invalidates the code twenty-five people already have, so it must
+ * not be a thing anybody does while aiming for Copy.
+ *
+ * Reads `attendance.sessionCode` rather than taking the code off the grid payload, so `codeSecret`
+ * stays inside the one procedure that already derives from it and `verify:attendance` keeps having
+ * one payload to walk.
+ */
+function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date }) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const [confirmingReplace, setConfirmingReplace] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+
+  const code = useQuery({
+    ...trpc.attendance.sessionCode.queryOptions({ sessionId }),
+    // No interval. The code cannot change on its own now, so the only thing that changes it is the
+    // mutation below, which invalidates this itself.
+    staleTime: Infinity,
+  });
+
+  const replace = useMutation(
+    trpc.attendance.rotateCode.mutationOptions({
+      onSuccess: () => {
+        setConfirmingReplace(false);
+        setCopied(false);
+        void queryClient.invalidateQueries({
+          queryKey: trpc.attendance.sessionCode.queryKey({ sessionId }),
+        });
+        toast.success("The code is replaced. Give the new one out — the old one no longer works.");
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  const digits = code.data?.code ?? null;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-mono text-2xl leading-none font-bold tracking-[0.25em] tabular-nums">
+            {digits ?? "————"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Give this out once — it works until {formatSchoolTime(endsAt)}
+          </span>
+        </div>
+
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!digits}
+            onClick={() => {
+              if (!digits) return;
+              /*
+                No await and no error branch on the clipboard itself. It can be refused by the
+                browser, and the useful fallback when it is refused is the digits already on screen
+                beside this button — a toast explaining a permissions model would be worse than the
+                code the instructor can read.
+              */
+              void navigator.clipboard?.writeText(digits);
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 2000);
+            }}
+          >
+            {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+      </div>
+
+      {confirmingReplace ? (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
+          <span className="text-xs text-amber-700 dark:text-amber-300">
+            Replacing the code stops the current one working for everybody, including fellows who
+            are typing it now. Use this if the code has reached somebody who is not in class, and
+            give the new one out afterwards.
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={replace.isPending}
+              onClick={() => replace.mutate({ sessionId })}
+            >
+              {replace.isPending ? "Replacing…" : "Replace the code"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmingReplace(false)}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="self-start text-xs text-muted-foreground underline-offset-4 hover:underline"
+          onClick={() => setConfirmingReplace(true)}
+        >
+          <RefreshCw className="mr-1 inline size-3" />
+          Has this code got out?
         </button>
       )}
     </div>
