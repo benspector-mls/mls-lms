@@ -257,8 +257,180 @@ describe("a row appearing in two lists", () => {
   });
 });
 
+/**
+ * Coming up is a week deep, and what falls outside it is counted rather than listed.
+ *
+ * The count is the whole point of the window being safe. Rows that are neither drawn nor counted
+ * are rows the screen has quietly forgotten, and the empty state would then congratulate a student
+ * with a fortnight of work ahead of them.
+ */
+describe("the upcoming window", () => {
+  const IN_SIX_DAYS = new Date("2026-10-15T12:00:00Z");
+  const EXACTLY_SEVEN_DAYS = new Date("2026-10-16T12:00:00Z");
+  const IN_EIGHT_DAYS = new Date("2026-10-17T12:00:00Z");
+  const IN_A_MONTH = new Date("2026-11-09T12:00:00Z");
+
+  it("lists work due inside the window", () => {
+    const sections = dashboardSections([row({ dueAt: IN_SIX_DAYS })], NOW);
+
+    expect(sections.upcoming).toHaveLength(1);
+    expect(sections.laterCount).toBe(0);
+  });
+
+  // Somebody has to decide where a boundary falls, and deciding in the student's favour is the
+  // version that never needs defending to them. `statusForCheckIn` makes the same call.
+  it("counts the far edge as inside", () => {
+    const sections = dashboardSections([row({ dueAt: EXACTLY_SEVEN_DAYS })], NOW);
+
+    expect(sections.upcoming).toHaveLength(1);
+    expect(sections.laterCount).toBe(0);
+  });
+
+  it("counts work due past the window without listing it", () => {
+    const sections = dashboardSections(
+      [row({ dueAt: IN_EIGHT_DAYS }), row({ dueAt: IN_A_MONTH })],
+      NOW,
+    );
+
+    expect(sections.upcoming).toHaveLength(0);
+    expect(sections.laterCount).toBe(2);
+  });
+
+  // The window is a statement about deadlines a student can still meet. One they missed in
+  // September is still theirs to do, however long ago it was.
+  it("does not window overdue work", () => {
+    const longAgo = new Date("2026-08-01T12:00:00Z");
+    const sections = dashboardSections([row({ dueAt: longAgo })], NOW);
+
+    expect(sections.overdue).toHaveLength(1);
+    expect(sections.laterCount).toBe(0);
+  });
+
+  it("does not count work that has been handed in", () => {
+    const sections = dashboardSections([row({ dueAt: IN_A_MONTH, status: "SUBMITTED" })], NOW);
+    expect(sections.laterCount).toBe(0);
+  });
+
+  it("does not count work with no due date", () => {
+    const sections = dashboardSections([row({ dueAt: null, status: "ACCEPTED" })], NOW);
+    expect(sections.laterCount).toBe(0);
+  });
+
+  /*
+    The state the count exists for: no rows to draw, and a fortnight of work outstanding. The
+    screen is empty and the student is not up to date, and those are different sentences.
+  */
+  it("leaves the screen empty while still reporting the work", () => {
+    const sections = dashboardSections([row({ dueAt: IN_A_MONTH })], NOW);
+
+    expect(dashboardIsEmpty(sections)).toBe(true);
+    expect(sections.laterCount).toBe(1);
+  });
+});
+
+/**
+ * Work that came back below the threshold is a second attempt outstanding.
+ *
+ * Reading the report is not doing the work, which is the distinction this list draws against
+ * unread feedback. Marking a 9/15 as read used to take it off this screen entirely, leaving a
+ * student who had read every report and revised none of them being told they were up to date.
+ */
+describe("needs another attempt", () => {
+  it("lists graded work below the threshold", () => {
+    const sections = dashboardSections(
+      [row({ status: "GRADED", isComplete: false, gradedAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt).toHaveLength(1);
+  });
+
+  it("keeps it after the report has been marked read", () => {
+    const sections = dashboardSections(
+      [row({ status: "GRADED", isComplete: false, gradedAt: YESTERDAY, feedbackReviewedAt: NOW })],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt).toHaveLength(1);
+    expect(dashboardIsEmpty(sections)).toBe(false);
+  });
+
+  // The two graded lists partition. Incomplete work is a thing to do, not a thing to read, and a
+  // row in both would be counted twice by a student reading down the screen.
+  it("keeps it out of unread feedback", () => {
+    const sections = dashboardSections(
+      [row({ status: "GRADED", isComplete: false, gradedAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.unreadFeedback).toHaveLength(0);
+  });
+
+  it("leaves work that met the threshold to the feedback list", () => {
+    const sections = dashboardSections(
+      [row({ status: "GRADED", isComplete: true, gradedAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt).toHaveLength(0);
+    expect(sections.unreadFeedback).toHaveLength(1);
+  });
+
+  /*
+    Approval writes the status and the verdict in one transaction, so this row should not exist.
+    If one does, it reads as feedback rather than falling out of every list — of the two ways to
+    be wrong, showing something stale beats silently dropping it.
+  */
+  it("treats a graded row with no verdict as feedback", () => {
+    const sections = dashboardSections(
+      [row({ status: "GRADED", isComplete: null, gradedAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt).toHaveLength(0);
+    expect(sections.unreadFeedback).toHaveLength(1);
+  });
+
+  // Handing it in again is what clears it, which is the only thing that can.
+  it.each(["RESUBMITTED", "SUBMITTED"] as const)("clears once it goes back as %s", (status) => {
+    const sections = dashboardSections(
+      [row({ status, isComplete: false, gradedAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt).toHaveLength(0);
+  });
+
+  it("puts the longest-outstanding at the top", () => {
+    const older = new Date("2026-09-20T09:00:00Z");
+    const sections = dashboardSections(
+      [
+        row({ status: "GRADED", isComplete: false, gradedAt: YESTERDAY }),
+        row({ status: "GRADED", isComplete: false, gradedAt: older }),
+      ],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt.map((r) => r.submission?.gradedAt)).toEqual([
+      older,
+      YESTERDAY,
+    ]);
+  });
+
+  // A cap here would hide work. The feedback list is capped because it is news; this is a to-do.
+  it("is not capped", () => {
+    const rows = Array.from({ length: UNREAD_FEEDBACK_LIMIT + 5 }, (_, i) =>
+      row({ status: "GRADED", isComplete: false, gradedAt: new Date(2026, 9, i + 1) }),
+    );
+
+    expect(dashboardSections(rows, NOW).needsAnotherAttempt).toHaveLength(
+      UNREAD_FEEDBACK_LIMIT + 5,
+    );
+  });
+});
+
 describe("dashboardIsEmpty", () => {
-  // One empty state rather than four, which is what makes a first week read as calm.
+  // One empty state rather than five, which is what makes a first week read as calm.
   it("is true when there is nothing at all to show", () => {
     expect(dashboardIsEmpty(dashboardSections([], NOW))).toBe(true);
     expect(dashboardIsEmpty(dashboardSections([row({ status: "SUBMITTED" })], NOW))).toBe(true);

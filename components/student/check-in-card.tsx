@@ -1,38 +1,28 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, CircleSlash, Clock } from "lucide-react";
 import * as React from "react";
 
 import { AttendanceStatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { CheckInForm } from "@/components/student/check-in-form";
 import { formatSchoolTime } from "@/lib/school-time";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Check in, on the attendance screen of the course it belongs to.
+ * Check in, at the top of the course's own attendance screen.
  *
- * **It sits here rather than on the dashboard**, which costs a click at nine in the morning and
- * buys one place where a fellow's attendance lives. Three courses meant three cards stacked above
- * the work on the one screen that is supposed to answer "what is due", and typing a code for
- * Technical Interview Prep is not a thing anybody does from a list of overdue assignments. The
- * sidebar puts this one click away from anywhere inside the course.
+ * **The full card, where a fellow's record lives.** The dashboard's week strip offers the same
+ * four digits in a single row; this is the version with room to say what happened — who marked
+ * you, at what time, and what to do if it is wrong. Both read `attendance.today` and both hand
+ * the code to `CheckInForm`, which is what keeps them one answer rather than two.
  *
  * **It renders nothing at all when no session is open**, rather than saying "no check-in today".
  * That distinction matters more than it looks: a card that announced its own absence would be a
  * false alarm every Saturday, over winter break, and on every morning an instructor is running
  * fifteen minutes behind. Silence is the correct thing to show when there is nothing to do.
- *
- * Three details that sound small and are not:
- *
- * **No autofocus.** On a phone it throws the keyboard up and scrolls the dashboard out from under
- * somebody who came here to read their overdue list.
- *
- * **A wrong code is answered inline, never in a toast.** A toast about what you just typed
- * disappears while you are still typing the next attempt.
  *
  * **The checked-in state persists all day.** A fellow who reloads at two in the afternoon should be
  * reassured, not asked again.
@@ -65,25 +55,6 @@ export function CheckInCard({ courseId, initial }: { courseId: string; initial: 
 }
 
 function CourseCheckIn({ entry }: { entry: Today[number] }) {
-  const trpc = useTRPC();
-  const [code, setCode] = React.useState("");
-  const [problem, setProblem] = React.useState<string | null>(null);
-
-  const queryClient = useQueryClient();
-
-  const checkIn = useMutation(
-    trpc.attendance.checkIn.mutationOptions({
-      onSuccess: () => {
-        setCode("");
-        setProblem(null);
-        // Flips this card to its checked-in state. `useServerMutation` is the wrong tool here —
-        // the dashboard around this card has not changed and does not need re-rendering.
-        void queryClient.invalidateQueries({ queryKey: trpc.attendance.today.queryKey() });
-      },
-      onError: (error) => setProblem(error.message),
-    }),
-  );
-
   const record = entry.record;
   const open = entry.session.state === "open";
 
@@ -139,32 +110,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
           </span>
         </div>
 
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            checkIn.mutate({ courseId: entry.courseId, code });
-          }}
-        >
-          <Input
-            value={code}
-            onChange={(event) => {
-              setCode(event.target.value.replace(/\D/g, "").slice(0, 4));
-              setProblem(null);
-            }}
-            // Numeric on a phone, and no autofocus — see the note at the top of this file.
-            inputMode="numeric"
-            autoComplete="off"
-            aria-label={`Check-in code for ${entry.courseName}`}
-            placeholder="0000"
-            className="w-28 text-center font-mono text-lg tracking-[0.3em] tabular-nums"
-          />
-          <Button type="submit" disabled={code.length !== 4 || checkIn.isPending}>
-            Check in
-          </Button>
-        </form>
-
-        {problem && <p className="text-xs text-destructive-foreground">{problem}</p>}
+        <CheckInForm courseId={entry.courseId} courseName={entry.courseName} />
       </div>
     </Shell>
   );

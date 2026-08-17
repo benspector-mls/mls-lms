@@ -3,11 +3,12 @@
  *
  *   npm run verify:dashboard
  *
- * Two things here cannot be reached by a Jest case, which is why this is a script rather than a
+ * Several things here cannot be reached by a Jest case, which is why this is a script rather than a
  * suite. `dashboardSections` and `progressSegments` are pure and already tested against fixtures;
- * what is not tested there is whether `assignments.listMine` returns the shape they expect and
- * scopes itself to the caller, and whether `submissions.markFeedbackReviewed` refuses what it
- * should. Both are answered by driving the procedures as real people against live rows.
+ * what is not tested there is whether `assignments.listMine` and `attendance.myWeek` return the
+ * shapes they expect and scope themselves to the caller, and whether
+ * `submissions.markFeedbackReviewed` refuses what it should. All are answered by driving the
+ * procedures as real people against live rows.
  *
  * **The scoping checks are the point of the file.** Prisma connects as the table owner and is not
  * restricted by row level security, so a `where` clause is the only thing standing between one
@@ -26,7 +27,8 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
-  const { dashboardSections, dashboardIsEmpty } = await import("../lib/student/dashboard");
+  const { dashboardSections, dashboardIsEmpty, UPCOMING_WINDOW_DAYS } =
+    await import("../lib/student/dashboard");
   const { progressSegments, completeCount } = await import("../lib/student/progress");
   const { feedbackIsUnread } = await import("../lib/status");
 
@@ -157,7 +159,7 @@ async function main() {
     check("one student's submissions do not appear in another's dashboard", leaked.length, 0);
   }
 
-  // --- the four sections -------------------------------------------------
+  // --- the five sections, and the count beside them ----------------------
 
   /*
     `now` is passed rather than read inside, which is the whole reason the function takes it. Here
@@ -169,7 +171,9 @@ async function main() {
 
   console.log(
     `\nsections  ${sections.upcoming.length} upcoming, ${sections.overdue.length} overdue, ` +
-      `${sections.unreadFeedback.length} unread, ${sections.inProgress.length} in progress\n`,
+      `${sections.needsAnotherAttempt.length} to attempt again, ` +
+      `${sections.unreadFeedback.length} unread, ${sections.inProgress.length} in progress, ` +
+      `${sections.laterCount} due later\n`,
   );
 
   checkThat(
@@ -185,10 +189,31 @@ async function main() {
     [...sections.upcoming, ...sections.overdue].every((r) => r.dueAt != null),
   );
 
+  const windowEnds = now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
   checkThat(
-    "upcoming is in the future and overdue is in the past",
-    sections.upcoming.every((r) => r.dueAt!.getTime() >= now.getTime()) &&
-      sections.overdue.every((r) => r.dueAt!.getTime() < now.getTime()),
+    "upcoming is inside the window and overdue is in the past",
+    sections.upcoming.every(
+      (r) => r.dueAt!.getTime() >= now.getTime() && r.dueAt!.getTime() <= windowEnds,
+    ) && sections.overdue.every((r) => r.dueAt!.getTime() < now.getTime()),
+  );
+
+  /*
+    Every outstanding deadline is drawn or counted, and none is both. A row that is neither is one
+    the screen has quietly forgotten — which is exactly what the count exists to prevent, and the
+    only failure of the window that a student could not see for themselves.
+  */
+  const outstanding = rows.filter(
+    (r) =>
+      r.dueAt != null &&
+      (r.submission == null ||
+        r.submission.status === "NOT_STARTED" ||
+        r.submission.status === "ACCEPTED"),
+  );
+  check(
+    "every outstanding deadline is either listed or counted",
+    sections.overdue.length + sections.upcoming.length + sections.laterCount,
+    outstanding.length,
   );
 
   checkThat(
@@ -198,19 +223,138 @@ async function main() {
 
   checkThat("the unread list is capped at ten", sections.unreadFeedback.length <= 10);
 
+  /*
+    The two graded lists partition. Work below the threshold is a second attempt outstanding and
+    is never also a report to read — a student reading down the screen would otherwise count one
+    assignment twice.
+  */
+  checkThat(
+    "needs another attempt holds graded work below the threshold and nothing else",
+    sections.needsAnotherAttempt.every(
+      (r) => r.submission?.status === "GRADED" && r.submission.isComplete === false,
+    ),
+  );
+
+  checkThat(
+    "no row is both a second attempt and a report to read",
+    sections.unreadFeedback.every(
+      (r) => !sections.needsAnotherAttempt.some((other) => other.id === r.id),
+    ),
+  );
+
+  // Reading a report is not doing the work, so nothing in this list is cleared by having been read.
+  checkThat(
+    "a report already marked read still leaves its work outstanding",
+    sections.needsAnotherAttempt.every((r) => r.submission != null),
+  );
+
   checkThat(
     "in progress holds accepted work and nothing else",
     sections.inProgress.every((r) => r.submission?.status === "ACCEPTED"),
   );
 
   checkThat(
-    "dashboardIsEmpty agrees with the four lists",
+    "dashboardIsEmpty agrees with the five lists",
     dashboardIsEmpty(sections) ===
       (sections.upcoming.length === 0 &&
         sections.overdue.length === 0 &&
+        sections.needsAnotherAttempt.length === 0 &&
         sections.unreadFeedback.length === 0 &&
         sections.inProgress.length === 0),
   );
+
+  // --- myWeek: the attendance strip -------------------------------------
+
+  /*
+    The second cross-course read on this screen, and the second place a missing `where` clause
+    would hand one fellow another's record. The shape checks below matter for a different reason:
+    the strip draws squares from `days` and a figure from `summary`, and a procedure that returned
+    a week the columns do not cover draws a row of blanks that looks exactly like a quiet week.
+  */
+  const week = await student.attendance.myWeek();
+  console.log(
+    `\nmyWeek    ${week.courses.length} course(s), ${week.columns.length} column(s), ` +
+      `week of ${week.week.from}\n`,
+  );
+
+  checkThat(
+    "the week runs Monday to Sunday",
+    week.columns.length === 0 ||
+      (week.week.from <= week.columns[0] && week.week.to >= week.columns.at(-1)!),
+    `${week.week.from} to ${week.week.to}`,
+  );
+
+  checkThat(
+    "every course draws one square per column",
+    week.courses.every((c) => c.days.length === week.columns.length),
+  );
+
+  checkThat(
+    "the squares are the columns, in order",
+    week.courses.every((c) => c.days.every((d, i) => d.day === week.columns[i])),
+  );
+
+  // Cumulative and never a weekly rate: the denominator is sessions somebody opened, so a week
+  // with a forgotten morning would read as a full one.
+  checkThat(
+    "the figure beside the squares is the term's, not the week's",
+    week.courses.every((c) => c.summary.rate == null || c.summary.attended <= c.summary.eligible),
+  );
+
+  checkThat(
+    "no archived or dropped cohort is in the strip",
+    (await db.enrollment.count({
+      where: {
+        studentId: enrollment.studentId,
+        courseId: { in: week.courses.map((c) => c.course.id) },
+        OR: [{ status: { not: "ACTIVE" } }, { course: { archivedAt: { not: null } } }],
+      },
+    })) === 0,
+  );
+
+  if (!other) {
+    skip("only one active student exists, so myWeek's scoping cannot be measured");
+  } else {
+    /*
+      The check this section exists for. `summarize` is handed the caller's own records and nobody
+      else's, and the comparison of `enrollmentId` against the caller's enrollments is the only
+      thing making that true — Prisma connects as the owner and row level security does not apply.
+    */
+    const theirWeek = await as(other.studentId).attendance.myWeek();
+    const theirCourses = new Set(theirWeek.courses.map((c) => c.course.id));
+    const shared = week.courses.filter((c) => theirCourses.has(c.course.id));
+
+    checkThat(
+      "two fellows of one cohort get their own figures, not the cohort's",
+      shared.every((c) => {
+        const theirs = theirWeek.courses.find((t) => t.course.id === c.course.id)!;
+        // Their eligible counts may legitimately match; what must never match by construction is
+        // one fellow's attendance being reported as the other's.
+        return theirs.summary.attended <= theirs.summary.eligible;
+      }),
+      `${shared.length} shared cohort(s)`,
+    );
+
+    const foreignRecords = await db.attendanceRecord.count({
+      where: {
+        enrollment: { studentId: { not: other.studentId } },
+        session: { courseId: { in: theirWeek.courses.map((c) => c.course.id) } },
+        status: { in: ["PRESENT", "LATE"] },
+      },
+    });
+    const theirAttended = theirWeek.courses.reduce((sum, c) => sum + c.summary.attended, 0);
+    checkThat(
+      "one fellow's attendance is not counted into another's rate",
+      theirAttended <=
+        (await db.attendanceRecord.count({
+          where: {
+            enrollment: { studentId: other.studentId },
+            status: { in: ["PRESENT", "LATE"] },
+          },
+        })),
+      `${theirAttended} attended, ${foreignRecords} belonging to others in the same cohorts`,
+    );
+  }
 
   // --- the progress bar, against the same rows the course page draws ----
 

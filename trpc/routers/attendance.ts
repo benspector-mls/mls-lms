@@ -11,6 +11,7 @@ import {
   wasRecentlyValid,
   type CodeSession,
 } from "@/lib/attendance/code";
+import { weekColumns, weekRange } from "@/lib/attendance/calendar";
 import { gridCounts, gridRows, type GridEnrollment, type GridRecord } from "@/lib/attendance/grid";
 import { summarize, type SummaryFellow, type SummaryRecord } from "@/lib/attendance/summary";
 import {
@@ -1155,6 +1156,152 @@ export const attendanceRouter = createTRPCRouter({
         return { ...record, alreadyCheckedIn: false };
       });
     }),
+
+  /**
+   * A fellow's own week, across every cohort they are in.
+   *
+   * The second cross-course read here after `today`, and it takes that one's scoping rather than
+   * `myHistory`'s: active enrollments in cohorts that are still running. A fellow removed from a
+   * cohort keeps *reading* their record, which is why `myHistory` lets them through — but they
+   * have no week in it, and a row on the dashboard would be telling them to turn up.
+   *
+   * **The week is reported as days and the rate as a term.** A weekly percentage would be a
+   * confident wrong number: a session exists only because an instructor pressed start, so a
+   * morning nobody opened is indistinguishable from a morning the cohort did not meet, and a
+   * forgotten Tuesday would read as a full week. Squares say what happened on each day and invent
+   * nothing for the days with no session. The figure beside them is cumulative, where the
+   * denominator is a real one.
+   *
+   * **`summarize` computes that figure, the same function the course's own attendance screen
+   * reads.** It costs this procedure the term's sessions per course rather than the week's. That
+   * is the price of the two screens being unable to disagree about a fellow's rate, and it is
+   * worth paying — the progress bar learnt this the expensive way, and the note on
+   * `verify-student-dashboard` records how.
+   */
+  myWeek: profileProcedure.query(async ({ ctx }) => {
+    const now = new Date();
+    const today = schoolDayOf(now);
+    const week = weekRange(today);
+
+    const enrollments = await ctx.db.enrollment.findMany({
+      where: { studentId: ctx.profile.id, status: "ACTIVE", course: { archivedAt: null } },
+      select: {
+        id: true,
+        createdAt: true,
+        course: { select: { id: true, name: true } },
+      },
+      orderBy: { course: { name: "asc" } },
+    });
+
+    if (enrollments.length === 0) return { week, columns: [], courses: [] };
+
+    const courseIds = enrollments.map((enrollment) => enrollment.course.id);
+    const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+
+    const [sessions, records] = await Promise.all([
+      ctx.db.attendanceSession.findMany({
+        where: { courseId: { in: courseIds } },
+        orderBy: { date: "asc" },
+        select: sessionSelect,
+      }),
+      /*
+        Scoped to this fellow's own enrollments, which is the only thing stopping one fellow
+        reading another's attendance — Prisma bypasses row level security, as every other
+        caller-scoped read in this file says.
+      */
+      ctx.db.attendanceRecord.findMany({
+        where: { enrollmentId: { in: enrollmentIds } },
+        select: { sessionId: true, enrollmentId: true, status: true, checkedInAt: true },
+      }),
+    ]);
+
+    const summarySessions = sessions.map((session) => ({
+      id: session.id,
+      courseId: session.courseId,
+      day: schoolDayFromColumn(session.date),
+      open: sessionStateOf(session, now) === "open",
+    }));
+
+    /*
+      One column set for every course, so three rows of squares line up under one row of headings.
+      A Saturday session in any cohort widens all of them, which is right: the columns are days of
+      the week, not days of a course.
+    */
+    const columns = weekColumns(
+      week,
+      summarySessions
+        .filter((session) => session.day >= week.from && session.day <= week.to)
+        .map((session) => session.day),
+    );
+
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+
+    const courses = enrollments.map((enrollment) => {
+      const enrolledFrom = schoolDayOf(enrollment.createdAt);
+      const mine = summarySessions.filter((session) => session.courseId === enrollment.course.id);
+      const myRecords = records.filter((record) => record.enrollmentId === enrollment.id);
+
+      const [summary] = summarize(
+        mine,
+        [
+          {
+            enrollmentId: enrollment.id,
+            studentId: ctx.profile.id,
+            displayName: ctx.profile.displayName,
+            email: ctx.profile.email,
+            githubUsername: ctx.profile.githubUsername,
+            testStudentNumber: ctx.profile.testStudentNumber,
+            enrolledFrom,
+          },
+        ],
+        myRecords.map((record) => ({
+          enrollmentId: enrollment.id,
+          sessionId: record.sessionId,
+          status: record.status,
+        })),
+      );
+
+      const statusBySession = new Map(myRecords.map((record) => [record.sessionId, record.status]));
+      const inWeek = new Map(
+        mine
+          .filter((session) => columns.includes(session.day))
+          .map((session) => [session.day, session]),
+      );
+
+      // The session a fellow could still check into right now, and nothing else. `today` answers
+      // the same question for the check-in card; this row is a way in rather than a second answer.
+      const openToday = mine.find((session) => session.day === today && session.open) ?? null;
+      const openRecord = openToday ? (statusBySession.get(openToday.id) ?? null) : null;
+
+      return {
+        course: enrollment.course,
+        enrolledFrom,
+        summary: {
+          eligible: summary.eligible,
+          attended: summary.present + summary.late,
+          rate: summary.rate,
+        },
+        days: columns.map((day) => {
+          const session = inWeek.get(day);
+          return {
+            day,
+            session: session
+              ? { status: statusBySession.get(session.id) ?? null, open: session.open }
+              : undefined,
+          };
+        }),
+        open: openToday
+          ? {
+              session: publicSession(byId.get(openToday.id)!, now),
+              checkedIn: openRecord !== null,
+              status: openRecord,
+            }
+          : null,
+      };
+    });
+
+    return { week, columns, courses };
+  }),
 
   /**
    * A fellow's own attendance in one course.

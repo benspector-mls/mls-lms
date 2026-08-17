@@ -13,8 +13,14 @@
  *
  * **Nothing here is dismissible, and that is the design rather than a missing feature.** Every
  * list is derived from real submission state, so the only way to clear a deadline is to hand the
- * work in. A dismiss button would let this screen say a student was finished when they were not,
- * which is the one thing it must never do.
+ * work in, and the only way to clear a second attempt is to hand it in again. A dismiss button
+ * would let this screen say a student was finished when they were not, which is the one thing it
+ * must never do.
+ *
+ * **Reading a report is not doing the work, and the two graded lists are that distinction.**
+ * Marking feedback read clears the report from Feedback to read, because a report that has been
+ * read is not news. It clears nothing from Needs another attempt, because work that came back
+ * below the threshold is still outstanding after the student has read why.
  */
 
 import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
@@ -43,14 +49,25 @@ export type DashboardRow = {
 };
 
 export interface DashboardSections<Row> {
-  /** Due, not handed in, deadline still ahead. Soonest first. */
+  /** Due within the window, not handed in. Soonest first. */
   upcoming: Row[];
   /** Due, not handed in, deadline gone. Oldest first. */
   overdue: Row[];
-  /** Graded, with a report the student has not said they read. Newest first, at most ten. */
+  /** Graded below the threshold. Longest outstanding first. */
+  needsAnotherAttempt: Row[];
+  /** Graded, passed, with a report the student has not said they read. Newest first, at most ten. */
   unreadFeedback: Row[];
   /** Taken up and not handed in. */
   inProgress: Row[];
+  /**
+   * How much outstanding work is due past the window.
+   *
+   * A number and never a list, which is the whole of why it exists. The screen draws no rows for
+   * this work, so without a count the empty state would tell a student with a fortnight of
+   * assignments ahead of them that they were up to date — the same lie a dismiss button would let
+   * this screen tell.
+   */
+  laterCount: number;
 }
 
 /**
@@ -59,11 +76,27 @@ export interface DashboardSections<Row> {
  * A cap rather than a scroll: this section exists to say "there is something new to read", and a
  * list of thirty says the opposite by being one more thing to work through. Ten is enough to cover
  * a fortnight of a heavy module.
+ *
+ * Nothing else here is capped, and the difference is what each list is for. Unread feedback is
+ * news; the deadline lists and Needs another attempt are work, and a cap on a list of work hides
+ * some of it.
  */
 export const UNREAD_FEEDBACK_LIMIT = 10;
 
 /**
- * The four lists, from one pass over the rows.
+ * How far ahead Coming up looks.
+ *
+ * A week rather than everything, because published work runs to most of a nine-month course and a
+ * student in week two would otherwise scroll past forty assignments they have no reason to start.
+ * A week is also the horizon somebody plans against: nothing can be done about work due in twelve
+ * days that cannot be done about it in five.
+ */
+export const UPCOMING_WINDOW_DAYS = 7;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * The five lists and the count, from one pass over the rows.
  *
  * Read the rules together, because what they leave out is deliberate:
  *
@@ -73,11 +106,20 @@ export const UNREAD_FEEDBACK_LIMIT = 10;
  * - **Graded work is never a deadline**, including work that came back below the threshold. That is
  *   `handedIn` doing the deciding, and its comment says why: resubmitting is a second attempt at
  *   work already handed in, and listing it as an outstanding deadline would tell a student they
- *   had missed something they in fact did.
+ *   had missed something they in fact did. What that work gets instead is `needsAnotherAttempt`,
+ *   which is a list of what to do rather than a list of what was missed.
  * - **In progress is `ACCEPTED` and nothing else.** Published work a student has not accepted is
  *   not in progress by any reading, and over a nine-month program it is most of the course — a
  *   student in week two would find forty rows of work they had not started. Where it belongs is
  *   the deadline lists, which is where its due date puts it.
+ * - **Work due past the window is counted, not listed.** Coming up is a week deep; see
+ *   `UPCOMING_WINDOW_DAYS`.
+ *
+ * The two graded lists partition rather than overlap. Work that came back below the threshold is
+ * in `needsAnotherAttempt` whether or not its report has been read, and nowhere else; everything
+ * else that is graded and unread is feedback. A student who has read the report on a 9/15 has
+ * finished reading and has not finished the work, and only one of those is what this screen is
+ * counting.
  */
 export function dashboardSections<Row extends DashboardRow>(
   rows: readonly Row[],
@@ -85,13 +127,37 @@ export function dashboardSections<Row extends DashboardRow>(
 ): DashboardSections<Row> {
   const upcoming: Row[] = [];
   const overdue: Row[] = [];
+  const needsAnotherAttempt: Row[] = [];
   const unreadFeedback: Row[] = [];
   const inProgress: Row[] = [];
+  let laterCount = 0;
+
+  // Inclusive at the far edge, following `statusForCheckIn`: where a boundary has to fall one way,
+  // the version decided in the student's favour is the one that never needs defending to them.
+  const windowEnds = now.getTime() + UPCOMING_WINDOW_DAYS * MS_PER_DAY;
 
   for (const row of rows) {
     const submission = row.submission;
 
-    if (submission != null && feedbackIsUnread(submission)) {
+    /*
+      Below the threshold is a second attempt outstanding, and reading the report does not make it
+      one fewer. `isComplete === false` rather than a comparison of the score against the
+      assignment's threshold, which `lib/student/progress.ts` explains at more length: that
+      judgment is made once, in `approveDraft`, and a second one in the browser is how a screen
+      comes to disagree with the gradebook about who passed. The column is not even sent here.
+    */
+    const incomplete = submission?.status === "GRADED" && submission.isComplete === false;
+
+    if (incomplete) {
+      needsAnotherAttempt.push(row);
+    } else if (submission != null && feedbackIsUnread(submission)) {
+      /*
+        `else` on `incomplete` rather than on `isComplete === true`, so a graded row carrying no
+        verdict at all is read as feedback rather than falling out of both lists. Approval writes
+        the status and the verdict in one transaction and cannot produce that row, but `handedIn`
+        makes the same argument for the same reason: of the two ways to be wrong about a list like
+        this, showing a student something they can see is stale beats silently dropping it.
+      */
       unreadFeedback.push(row);
     }
 
@@ -100,8 +166,9 @@ export function dashboardSections<Row extends DashboardRow>(
     }
 
     if (row.dueAt != null && !handedIn(submission?.status)) {
-      if (row.dueAt.getTime() >= now.getTime()) upcoming.push(row);
-      else overdue.push(row);
+      if (row.dueAt.getTime() < now.getTime()) overdue.push(row);
+      else if (row.dueAt.getTime() <= windowEnds) upcoming.push(row);
+      else laterCount += 1;
     }
   }
 
@@ -109,6 +176,12 @@ export function dashboardSections<Row extends DashboardRow>(
   // the next thing due is at the top of one, and the longest-neglected at the top of the other.
   upcoming.sort(byDueAtAscending);
   overdue.sort(byDueAtAscending);
+
+  // Oldest grade first, which is the overdue list's reasoning applied to revision: the work that
+  // has been waiting longest to be gone back to is the work to go back to.
+  needsAnotherAttempt.sort(
+    (a, b) => (a.submission?.gradedAt?.getTime() ?? 0) - (b.submission?.gradedAt?.getTime() ?? 0),
+  );
 
   // Newest first, so the report from this morning is above the one from last week.
   unreadFeedback.sort(
@@ -121,8 +194,10 @@ export function dashboardSections<Row extends DashboardRow>(
   return {
     upcoming,
     overdue,
+    needsAnotherAttempt,
     unreadFeedback: unreadFeedback.slice(0, UNREAD_FEEDBACK_LIMIT),
     inProgress,
+    laterCount,
   };
 }
 
@@ -134,11 +209,18 @@ function byDueAtAscending(a: DashboardRow, b: DashboardRow): number {
   return a.dueAt.getTime() - b.dueAt.getTime();
 }
 
-/** Whether there is anything at all to show, so the screen can offer one empty state, not four. */
+/**
+ * Whether there are any rows to draw, so the screen can offer one empty state, not five.
+ *
+ * `laterCount` is deliberately not part of this. Work due in a fortnight draws no rows and so
+ * leaves the screen empty, but it is not nothing — which is why the empty state reads the count to
+ * choose its words rather than assuming the student is finished.
+ */
 export function dashboardIsEmpty(sections: DashboardSections<DashboardRow>): boolean {
   return (
     sections.upcoming.length === 0 &&
     sections.overdue.length === 0 &&
+    sections.needsAnotherAttempt.length === 0 &&
     sections.unreadFeedback.length === 0 &&
     sections.inProgress.length === 0
   );

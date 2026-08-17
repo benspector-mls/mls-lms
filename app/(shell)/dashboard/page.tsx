@@ -21,15 +21,17 @@ export default function DashboardPage() {
 }
 
 /**
- * A server component calling the procedures in this process rather than over HTTP, so drawing the
- * whole screen costs no client JavaScript — only the links are interactive.
+ * A server component calling the procedures in this process rather than over HTTP. The lists cost
+ * no client JavaScript at all; the attendance strip is the one interactive piece, and it is handed
+ * its first answer here so it draws with the page rather than after it.
  */
 async function Dashboard() {
   const queryClient = getQueryClient();
 
-  const [profile, assignments] = await Promise.all([
+  const [profile, assignments, week] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.assignments.listMine.queryOptions()),
+    queryClient.fetchQuery(trpc.attendance.myWeek.queryOptions()),
   ]);
 
   /*
@@ -49,5 +51,5 @@ async function Dashboard() {
     different "now" in the server's render and the browser's, which React reports as a hydration
     mismatch — and it is the reason `dashboardSections` takes it as an argument.
   */
-  return <StudentDashboard assignments={assignments} now={new Date()} />;
+  return <StudentDashboard assignments={assignments} week={week} now={new Date()} />;
 }

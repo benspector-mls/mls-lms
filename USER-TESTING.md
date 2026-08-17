@@ -251,7 +251,9 @@ Run it at whatever time of day you are actually sitting down, not at 9am. Nothin
     Watch for: whether the window is the right shape for what they actually do. This is the task most likely to find something I got wrong, because I have never seen it on a projector. Is the code big enough from the back? Does the countdown mean anything to them, or is it decoration?
 
 43. **Now be a fellow.** On the phone, signed in as the test student, check in. **Say nothing about where it is.**
-    Watch for: this is the task the whole session exists for. Check-in is on the course's own Attendance screen, not on the dashboard a fellow lands on — so the honest question is whether somebody who has just been told "check in" finds it, and how long it takes. Time it. If they go to the dashboard first and stall, write that down verbatim: it is the strongest argument for putting a pointer back on the landing screen, and it is the reason this task is worded to give them no help.
+    Watch for: this is the task the whole session exists for. The box is in that course's row of the week strip on the dashboard they land on, and again on the course's own Attendance screen — so the question is whether the row reads as somewhere to type at all on a phone, where it has wrapped. Time it. If they scroll past their own week looking for something that announces itself more loudly, write down what they expected to see, and whether the squares beside the box were read as decoration.
+
+    Then ask them what the squares say about their week, before you explain them. If they cannot tell a dashed outline from a red one at arm's length, the colours are doing work the shapes should be.
 
 44. **Let the code change while you are typing it, on purpose.** Type three digits, wait for the rollover, finish, and submit.
     Watch for: it should still be accepted. If it is refused, that is a bug and I want the exact seconds. Then type a genuinely wrong code and read the refusal aloud — does it send them back to the screen, or does it leave them wondering whether they are in the right course?

@@ -84,6 +84,61 @@ export function monthGrid(month: SchoolMonth): CalendarCell[][] {
   return weeks;
 }
 
+/**
+ * The week a school day falls in, Monday through Sunday.
+ *
+ * **Monday first, unlike `monthGrid` above.** A month is a calendar and calendars here start on
+ * Sunday; a school week is the block of mornings a cohort meets, and it starts when they do.
+ *
+ * The whole seven days rather than the five, so that a session held on a Saturday is inside the
+ * range and can be found. What gets *drawn* is `weekColumns`, which is a narrower question.
+ */
+export function weekRange(day: SchoolDay): { from: SchoolDay; to: SchoolDay } {
+  const cursor = dateColumnFor(day);
+  // `getUTCDay` is 0 for Sunday, so Sunday backs up six days rather than none — it is the end of
+  // its week here, not the start of the next one.
+  const weekday = cursor.getUTCDay();
+  cursor.setUTCDate(cursor.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+
+  const from = schoolDayFromColumn(cursor);
+  cursor.setUTCDate(cursor.getUTCDate() + 6);
+
+  return { from, to: schoolDayFromColumn(cursor) };
+}
+
+/**
+ * The days a week is drawn as: Monday to Friday, plus any weekend day that has a session.
+ *
+ * **Five columns is the ordinary week and the reason for the rule.** Two permanently empty
+ * squares every day, to cover the Saturday a cohort meets twice a year, is a worse trade than
+ * widening the row on the rare week that needs it — and dropping the weekend outright would hide
+ * a morning a fellow actually attended, which the rate would then disagree with.
+ *
+ * `sessionDays` is every day with a session in the week, across every course, so that a fellow
+ * reading three rows reads them against one set of columns. Days outside the week are ignored
+ * rather than rejected: the caller has a range already and this is not the place to check it
+ * twice.
+ */
+export function weekColumns(week: { from: SchoolDay; to: SchoolDay }, sessionDays: SchoolDay[]) {
+  const columns: SchoolDay[] = [];
+  const cursor = dateColumnFor(week.from);
+  const weekend = new Set(sessionDays);
+
+  for (let offset = 0; offset < 7; offset += 1) {
+    const day = schoolDayFromColumn(cursor);
+    // Monday is offset 0, so Saturday and Sunday are the last two.
+    if (offset < 5 || weekend.has(day)) columns.push(day);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return columns;
+}
+
+/** The initial to head a week column with. "M" for a Monday. */
+export function weekdayInitial(day: SchoolDay): string {
+  return WEEKDAY_INITIALS[dateColumnFor(day).getUTCDay()];
+}
+
 /** The months a calendar may page between, oldest first. Empty when there is nothing to show. */
 export function monthRange(days: SchoolDay[], today: SchoolDay): SchoolMonth[] {
   if (days.length === 0) return [];

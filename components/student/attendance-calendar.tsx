@@ -13,6 +13,7 @@ import {
   WEEKDAY_INITIALS,
   type SchoolMonth,
 } from "@/lib/attendance/calendar";
+import { CELL, isMarked, kindOf, LATE_WEDGE_CLASS } from "@/lib/attendance/cells";
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
 import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
 import { cn } from "@/lib/utils";
@@ -60,46 +61,6 @@ export type CalendarDay = {
   /** Why, in an instructor's words or the fellow's own. Rare, and the reason the tooltip exists. */
   note: string | null;
 };
-
-type CellKind = AttendanceStatus | "unrecorded" | "open" | "no-session" | "not-enrolled";
-
-const CELL: Record<CellKind, { className: string; label: string }> = {
-  PRESENT: {
-    className: "bg-emerald-500/85 text-white",
-    label: "Present",
-  },
-  LATE: {
-    className: "bg-emerald-500/85 text-white",
-    label: "Late — here, after the on-time window",
-  },
-  ABSENT: {
-    className: "bg-destructive/85 text-white",
-    label: "Absent",
-  },
-  EXCUSED: {
-    className: "bg-amber-400/90 text-amber-950",
-    label: "Excused — still counts as a session you missed",
-  },
-  unrecorded: {
-    className: "bg-muted-foreground/30 text-foreground",
-    label: "Nothing was recorded for you",
-  },
-  open: {
-    className: "border border-primary/50 bg-primary/10 text-foreground",
-    label: "Check-in is open",
-  },
-  // No session that day, and no session before you joined. Both are blank rather than grey:
-  // a coloured square for a morning the cohort never met is the calendar inventing an absence.
-  "no-session": { className: "text-muted-foreground/50", label: "" },
-  "not-enrolled": { className: "text-muted-foreground/50", label: "" },
-};
-
-function kindOf(entry: CalendarDay | undefined, day: SchoolDay, enrolledFrom: SchoolDay): CellKind {
-  if (!entry) return "no-session";
-  if (day < enrolledFrom) return "not-enrolled";
-  if (entry.open) return "open";
-  return entry.status ?? "unrecorded";
-}
 
 export function AttendanceCalendar({
   days,
@@ -187,7 +148,7 @@ export function AttendanceCalendar({
               const entry = byDay.get(cell.day);
               const kind = kindOf(entry, cell.day, enrolledFrom);
               const meta = CELL[kind];
-              const marked = kind !== "no-session" && kind !== "not-enrolled";
+              const marked = isMarked(kind);
 
               return (
                 <div
@@ -202,17 +163,9 @@ export function AttendanceCalendar({
                   )}
                 >
                   <span className={cn(marked && "font-semibold")}>{Number(cell.day.slice(8))}</span>
-                  {/*
-                    Late is green, because it counts as attended; this wedge is what says it was
-                    not on time. A shape rather than a shade, so it survives being read by somebody
-                    who cannot tell two greens apart.
-                  */}
-                  {kind === "LATE" && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute top-0 right-0 size-0 border-t-[0.45rem] border-l-[0.45rem] border-t-amber-300 border-l-transparent"
-                    />
-                  )}
+                  {/* Late is green, because it counts as attended; the wedge is what says it was
+                      not on time. See `LATE_WEDGE_CLASS`. */}
+                  {kind === "LATE" && <span aria-hidden="true" className={LATE_WEDGE_CLASS} />}
                   {/*
                     The letter left the square when the square got smaller — two glyphs in 34
                     pixels is unreadable, and the date is the one a reader is scanning for. It

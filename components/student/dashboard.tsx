@@ -6,6 +6,7 @@ import {
   CircleSlash,
   MessageSquare,
   PenLine,
+  RotateCcw,
   Sparkles,
 } from "lucide-react";
 
@@ -21,7 +22,9 @@ import {
 } from "@/lib/status";
 import { dashboardIsEmpty, dashboardSections } from "@/lib/student/dashboard";
 import { cn } from "@/lib/utils";
+import type { RouterOutputs } from "@/trpc/types";
 
+import { AttendanceStrip } from "./attendance-strip";
 import type { DashboardAssignment } from "./types";
 
 /**
@@ -31,19 +34,27 @@ import type { DashboardAssignment } from "./types";
  * application could give: what is due, and what have I not done. That question spans cohorts, and
  * a course page can only answer it one cohort at a time.
  *
- * A server component with no `"use client"`. Every row is a link, and `dashboardSections` is a
- * pure function, so the whole screen costs no client JavaScript.
+ * A server component with no `"use client"`. Every row is a link and `dashboardSections` is a pure
+ * function, so the lists cost no client JavaScript; the attendance strip is the only interactive
+ * piece, and it is its own client component rather than a reason to make this one.
  *
  * Every list is derived from real submission state and nothing is dismissible. Handing the work in
- * is what clears a deadline, and reading the feedback is what clears a report — see the comment at
- * the top of `lib/student/dashboard.ts` for why a dismiss button would be the one mistake this
- * screen must not make.
+ * is what clears a deadline, handing it in again is what clears a second attempt, and reading the
+ * feedback is what clears a report — see the comment at the top of `lib/student/dashboard.ts` for
+ * why a dismiss button would be the one mistake this screen must not make.
+ *
+ * **Coming up is a week deep, and the empty state is what keeps that honest.** Work due further
+ * out draws no rows, so `laterCount` exists to stop the screen congratulating somebody who has a
+ * fortnight of assignments ahead of them.
  */
 export function StudentDashboard({
   assignments,
+  week,
   now,
 }: {
   assignments: DashboardAssignment[];
+  /** This week's attendance, in every cohort. The strip decides whether there is anything to draw. */
+  week: RouterOutputs["attendance"]["myWeek"];
   /** Passed in rather than read here, so the server and the browser agree. */
   now: Date;
 }) {
@@ -56,19 +67,33 @@ export function StudentDashboard({
         description="Everything waiting on you, across all of your courses."
       />
 
+      {/*
+        Above the work, because it is the thing with a deadline measured in minutes. A code that
+        rotates every thirty seconds cannot wait behind a list of assignments, and the rest of the
+        row is a week's worth of squares that costs one line to read.
+      */}
+      <AttendanceStrip initial={week} />
+
       {dashboardIsEmpty(sections) ? (
         /*
-          One empty state rather than four, which is what makes a quiet week read as calm instead
-          of as four things having failed to load. It is also the honest message: nothing waiting
+          One empty state rather than five, which is what makes a quiet week read as calm instead
+          of as five things having failed to load. It is also the honest message: nothing waiting
           is a real and good state, not an absence of data.
+
+          Three messages, because there are three ways to draw no rows and they are not the same
+          news. The middle one is what the week-deep window costs: work due a fortnight out is
+          real, and a screen that said "you are up to date" over the top of it would be telling a
+          student the thing this file exists to never tell them.
         */
         <EmptyState
           icon={<Sparkles />}
-          title="Nothing waiting on you"
+          title={sections.laterCount > 0 ? "Nothing due this week" : "Nothing waiting on you"}
           description={
             assignments.length === 0
               ? "When your instructor hands out work, it will appear here."
-              : "You are up to date. Everything handed out has been handed in and read."
+              : sections.laterCount > 0
+                ? `${sections.laterCount} ${sections.laterCount === 1 ? "assignment is" : "assignments are"} due later on. Your courses have the full list.`
+                : "You are up to date. Everything handed out has been handed in and read."
           }
         />
       ) : (
@@ -87,6 +112,25 @@ export function StudentDashboard({
             >
               {sections.overdue.map((row) => (
                 <DeadlineRow key={row.id} row={row} now={now} overdue />
+              ))}
+            </Section>
+          )}
+
+          {/*
+            Above the deadlines a student can still meet, below the ones they have missed. Work
+            that came back below the threshold is outstanding, which is why it sits with the work
+            rather than with the reports — but it was handed in on time, so it does not outrank a
+            deadline that was not met.
+          */}
+          {sections.needsAnotherAttempt.length > 0 && (
+            <Section
+              icon={<RotateCcw className="size-4" />}
+              title="Needs another attempt"
+              count={sections.needsAnotherAttempt.length}
+              tone="danger"
+            >
+              {sections.needsAnotherAttempt.map((row) => (
+                <FeedbackRow key={row.id} row={row} now={now} />
               ))}
             </Section>
           )}

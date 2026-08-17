@@ -229,20 +229,27 @@ If it refuses, the message says which of these happened:
 
 ### Your dashboard
 
-Signing in lands you here, and it is the one screen that spans every course you are in. Four lists, and **nothing on it can be dismissed** — handing the work in is what clears a deadline, and marking feedback read is what clears a report.
+Signing in lands you here, and it is the one screen that spans every course you are in. **Nothing on it can be dismissed** — handing the work in is what clears a deadline, handing it in again is what clears a second attempt, and marking feedback read is what clears a report.
+
+At the top, **your week**: one row for each cohort, with this week's mornings as squares and your attendance for the term beside them. Green is present, green with a corner mark is late, amber is excused, red is absent, and a dashed outline is a day that cohort did not meet. On a morning your instructor has started a session, the row also carries the box to type the code into.
+
+Then the work, in five lists:
 
 - **Overdue**, first, because burying a missed deadline under a week of upcoming work is how it stays missed.
+- **Needs another attempt** — work that came back below the completion threshold, the one you have been sitting on longest at the top. Reading the feedback does not clear this; handing the work in again does.
 - **Coming up**, soonest first, with both the date and how far off it is.
-- **Feedback to read** — graded work whose feedback you have not marked read, newest first. This is the only place the application tells you something new has arrived.
+- **Feedback to read** — work that passed and whose feedback you have not marked read, newest first. This is the only place the application tells you something new has arrived.
 - **Started, not handed in**, quieter than the rest, because work you have taken up is work you already know about.
+
+**Coming up looks a week ahead**, not further. Everything else your instructor has handed out is on the course page, and on a quiet week the dashboard tells you how much of it is waiting rather than telling you that you are finished.
 
 Graded work never appears as a deadline, including work that came back below the threshold. Resubmitting is a second go at work you already handed in, and calling it overdue would say you missed a deadline you met.
 
-**Checking in** is on the course's **Attendance** screen, one click from anywhere inside that course in the sidebar. It appears when your instructor has started a session and nowhere at all when they have not, so on most days the screen is just your record. Type the four-digit code from the front of the room or the shared Zoom window. It changes every thirty seconds; the one before it still works, so there is no rush.
+**Checking in** is on your dashboard, in your week's row for that course, and on the course's own **Attendance** screen. Either works and both want the same thing: the four-digit code from the front of the room or the shared Zoom window. It changes every thirty seconds; the one before it still works, so there is no rush. Neither says anything at all on a day nobody has started a session.
 
-Once you are in, the card says so for the rest of the day. If it says **Late** and you were here on time, tell your instructor — they can change it. If check-in has closed and you missed it, the card says that too, and the answer is the same: tell your instructor, because they are the only ones who can record it.
+Once you are in, it says so for the rest of the day. If it says **Late** and you were here on time, tell your instructor — they can change it. If check-in has closed and you missed it, the Attendance screen says that too, and the answer is the same: tell your instructor, because they are the only ones who can record it.
 
-**Your attendance** is the same screen: in the sidebar, under whichever course you are reading — the course you are in expands to show Coursework and Attendance. It says how many sessions you have been to since you joined, lists the ones you missed, and shows the whole term as a **calendar you can page through month by month**. Green is present, green with a corner mark is late, amber is excused, red is absent, and grey is a session where nothing was recorded for you. An excused absence still counts as missed, which the screen says rather than leaving you to work it out.
+**Your full attendance record** is on that Attendance screen: in the sidebar, under whichever course you are reading — the course you are in expands to show Coursework and Attendance. It says how many sessions you have been to since you joined and shows the whole term as a **calendar you can page through month by month**, in the same colours as the week on your dashboard. Grey is a session where nothing was recorded for you. An excused absence still counts as missed, which the screen says rather than leaving you to work it out.
 
 ### Your course
 
@@ -293,11 +300,15 @@ When your instructor approves your grade, the feedback appears immediately — t
 
 The **Feedback** tab shows every round, oldest first, each with its score and its report broken down by section. A resubmission is graded fresh rather than as an edit, so you keep both and can read what changed.
 
-**Mark as read** clears the row from your dashboard. It does nothing else — it does not tell your instructor anything you need to worry about, it does not gate resubmitting, and nothing waits on it.
+**Mark as read** clears the row from **Feedback to read**. It does nothing else — it does not tell your instructor anything you need to worry about, it does not gate resubmitting, and nothing waits on it.
+
+**It does not clear work that came back incomplete.** That stays under **Needs another attempt** until you hand it in again, because reading why something fell short is not the same as having fixed it.
 
 ### Asking for another look
 
 For a **code** assignment, push your improved work to the same pull request. The panel then says you have pushed changes since your feedback, with an **Ask for another review** button. **Pushing is not asking** — the button is what tells your instructor you are ready, and until you press it they see a student still working. If your pull request was closed and you reopen it, that counts as asking.
+
+Before you have pushed anything, the panel on work that came back incomplete says so and tells you that pushing is the next step. The button appears once there is a commit to review.
 
 For every other kind, hand in again.
 
@@ -319,7 +330,8 @@ Also absent today:
 
 - **Attendance knows nothing about a calendar.** There are no term dates and no timetable, so a session exists because somebody started one. Nothing notices a morning nobody opened, and nothing can — without knowing which days are school days, a warning would fire on Saturdays and over winter break, and a warning wrong twice a week is one people stop seeing. What this buys is that snow days, field trips and a schedule that changes in March need no maintenance at all.
 - **A rotating code does not stop a fellow texting it to somebody at home.** Nothing does; that is collusion rather than authentication, and the alternatives are worse than the problem. What it does stop is the failure a static code actually has — one posted in a group chat at 9:00 that still works at 11:00 for somebody who never arrived.
-- **Attendance is per course, not per program.** A fellow taking three courses checks into three sessions.
+- **Attendance is per course, not per program.** A fellow taking three courses checks into three sessions, which is three rows on the dashboard and three codes to type.
+- **There is no weekly attendance percentage.** The week is shown as days, and the figure beside it is for the term. A weekly rate would divide by "mornings somebody remembered to start a session", so a forgotten Tuesday would read as a perfect week — a number that confident should not be one nobody can check.
 
 - **No running average or grade summary for a student.** Scores are per assignment. Instructors read down a student's record; students read their own progress bar.
 - **No notes.** Neither a student's own notes on their work nor a private note an instructor keeps on a student.

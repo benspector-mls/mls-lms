@@ -321,6 +321,14 @@ function SubmissionTab({
     submission.headSha != null &&
     submission.headSha !== submission.gradedHeadSha;
 
+  /*
+    Graded below the threshold, which is a second attempt outstanding rather than a finished
+    assignment. `isComplete` and never a comparison of the score against the threshold — that
+    judgment is made once, in `approveDraft`, and the threshold is not sent to a student at all.
+  */
+  const needsAnotherAttempt =
+    assignment.kind === "REPO" && status === "GRADED" && submission?.isComplete === false;
+
   const inQueue =
     status === "SUBMITTED" ||
     status === "DRAFT_READY" ||
@@ -505,6 +513,31 @@ function SubmissionTab({
               review — say so when you are finished.
             </p>
             <RequestReviewButton submissionId={submission.id} />
+          </AlertDescription>
+        </Alert>
+      ) : needsAnotherAttempt ? (
+        /*
+          Below the threshold, on a repository, with nothing pushed since. Without this the panel
+          says nothing at all in the one state where the student has the most to do — the score is
+          red on the row behind it and the report is on the tab beside it, and neither says what
+          to do next.
+
+          No button, because there is nothing yet to ask a review of: `declareResubmission` refuses
+          while `headSha` still equals `gradedHeadSha`, so offering it here would hand the student
+          an error instead of a second attempt. It appears in the branch above, the moment there is
+          a commit to review.
+
+          Only REPO. The other kinds carry their own hand-in form directly above this, and
+          `handInMode` already labels it "Submit your revised work" — an alert repeating that would
+          be a second instruction for one act.
+        */
+        <Alert>
+          <RotateCcw className="size-4" />
+          <AlertTitle>This came back incomplete</AlertTitle>
+          <AlertDescription>
+            Your feedback is on the tab beside this one. Push your improved work to the same pull
+            request, and an <strong>Ask for another review</strong> button will appear here — your
+            instructor sees a student still working until you press it.
           </AlertDescription>
         </Alert>
       ) : null}

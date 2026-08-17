@@ -1,4 +1,13 @@
-import { addMonths, formatMonth, monthGrid, monthOf, monthRange } from "@/lib/attendance/calendar";
+import {
+  addMonths,
+  formatMonth,
+  monthGrid,
+  monthOf,
+  monthRange,
+  weekColumns,
+  weekdayInitial,
+  weekRange,
+} from "@/lib/attendance/calendar";
 
 /**
  * The month grid a fellow pages through.
@@ -142,5 +151,97 @@ describe("formatMonth", () => {
   it("names the month and the year, from the civil date rather than a zone", () => {
     expect(formatMonth("2026-09")).toBe("September 2026");
     expect(formatMonth("2026-01")).toBe("January 2026");
+  });
+});
+
+/**
+ * The school week, which is what the dashboard's strip is drawn from.
+ *
+ * Monday first, unlike the month grid above. A month is a calendar and calendars here start on
+ * Sunday; a week is the block of mornings a cohort meets.
+ */
+describe("weekRange", () => {
+  // 2026-10-14 is a Wednesday.
+  it("runs Monday to Sunday around a midweek day", () => {
+    expect(weekRange("2026-10-14")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
+  });
+
+  it("leaves a Monday where it is", () => {
+    expect(weekRange("2026-10-12")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
+  });
+
+  /*
+    The case a naive `getUTCDay()` subtraction gets wrong. Sunday is 0, so backing up that many
+    days leaves it as the *start* of a week it is really the end of.
+  */
+  it("puts a Sunday at the end of its own week, not the start of the next", () => {
+    expect(weekRange("2026-10-18")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
+  });
+
+  it("crosses the end of a month", () => {
+    expect(weekRange("2026-11-01")).toEqual({ from: "2026-10-26", to: "2026-11-01" });
+  });
+
+  it("crosses the end of a year", () => {
+    expect(weekRange("2027-01-01")).toEqual({ from: "2026-12-28", to: "2027-01-03" });
+  });
+
+  /*
+    The week the clocks go back in New York, 2026-11-01. Arithmetic on UTC has no opinion about
+    it, which is the point — a local `Date` would produce a 25-hour day and land a day short.
+  */
+  it("is unmoved by the daylight saving change", () => {
+    expect(weekRange("2026-10-30")).toEqual({ from: "2026-10-26", to: "2026-11-01" });
+    expect(weekRange("2026-03-09")).toEqual({ from: "2026-03-09", to: "2026-03-15" });
+  });
+});
+
+describe("weekColumns", () => {
+  const WEEK = { from: "2026-10-12", to: "2026-10-18" };
+
+  it("is Monday to Friday when nothing met at the weekend", () => {
+    expect(weekColumns(WEEK, ["2026-10-13", "2026-10-15"])).toEqual([
+      "2026-10-12",
+      "2026-10-13",
+      "2026-10-14",
+      "2026-10-15",
+      "2026-10-16",
+    ]);
+  });
+
+  it("is Monday to Friday when nothing met at all", () => {
+    expect(weekColumns(WEEK, [])).toHaveLength(5);
+  });
+
+  // A cohort meeting on a Saturday twice a year widens the row rather than losing the morning.
+  it("gains a weekend column for a session held on one", () => {
+    expect(weekColumns(WEEK, ["2026-10-17"])).toEqual([
+      "2026-10-12",
+      "2026-10-13",
+      "2026-10-14",
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+    ]);
+  });
+
+  it("keeps the weekend in order when both days met", () => {
+    expect(weekColumns(WEEK, ["2026-10-18", "2026-10-17"]).slice(-2)).toEqual([
+      "2026-10-17",
+      "2026-10-18",
+    ]);
+  });
+
+  // The caller has a range already; checking it twice here would be a second place to be wrong.
+  it("ignores days outside the week", () => {
+    expect(weekColumns(WEEK, ["2026-10-25"])).toHaveLength(5);
+  });
+});
+
+describe("weekdayInitial", () => {
+  it("names the day the column stands for", () => {
+    expect(weekdayInitial("2026-10-12")).toBe("M");
+    expect(weekdayInitial("2026-10-16")).toBe("F");
+    expect(weekdayInitial("2026-10-18")).toBe("S");
   });
 });
