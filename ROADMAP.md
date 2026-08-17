@@ -2,37 +2,50 @@
 
 How the built system works is in [ARCHITECTURE.md](ARCHITECTURE.md); what it does, role by role, is in [FEATURES.md](FEATURES.md). This file is only what is left to do.
 
+It is grouped by the kind of work an item is: measurement, the instructor's grading hour, the student's side of the application, authoring assignments, the grading pipeline, running a cohort, and Salesforce. Each group ends with a **Deferred** list — items in that area that are deliberately not scheduled, several of which the database schema already leaves room for. [The order of work](#the-order-of-work) reads the same items in the order they should be built, which cuts across the groups.
+
 - [The order of work](#the-order-of-work)
-- [Outstanding verification](#outstanding-verification)
-- [Token management](#token-management)
-- [What the review pass left open](#what-the-review-pass-left-open)
-- [Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)
-- [An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)
-- [Notes a student keeps on their own work](#notes-a-student-keeps-on-their-own-work)
-- [Subscribing a calendar to due dates](#subscribing-a-calendar-to-due-dates)
-- [A chat scoped to a student's own course context](#a-chat-scoped-to-a-students-own-course-context)
-- [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
+- [Measurement, and the state of what is built](#measurement-and-the-state-of-what-is-built)
+  - [Outstanding verification](#outstanding-verification)
+  - [Token management](#token-management)
+  - [What the review pass left open](#what-the-review-pass-left-open)
+  - [Scaling: what a hundred students costs, and where it breaks](#scaling-what-a-hundred-students-costs-and-where-it-breaks)
+- [The instructor's grading hour](#the-instructors-grading-hour)
+  - [Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)
+  - [Working a pile by what it is, not only by what it needs](#working-a-pile-by-what-it-is-not-only-by-what-it-needs)
+  - [An evaluation of one student's growth across a term](#an-evaluation-of-one-students-growth-across-a-term)
+  - [Deferred: the grading hour](#deferred-the-grading-hour)
+- [What a student sees and does](#what-a-student-sees-and-does)
+  - [Notes a student keeps on their own work](#notes-a-student-keeps-on-their-own-work)
+  - [Subscribing a calendar to due dates](#subscribing-a-calendar-to-due-dates)
+  - [A chat scoped to a student's own course context](#a-chat-scoped-to-a-students-own-course-context)
+  - [Deferred: what a student sees](#deferred-what-a-student-sees)
+- [Authoring assignments and handing them out](#authoring-assignments-and-handing-them-out)
+  - [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
+  - [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
+    - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
+  - [Deferred: authoring and handing out](#deferred-authoring-and-handing-out)
+- [The grading pipeline](#the-grading-pipeline)
+  - [Triggering and orchestration](#triggering-and-orchestration)
+    - [The grading session is built; automatic grading is the part still open](#the-grading-session-is-built-automatic-grading-is-the-part-still-open)
+    - [If it does become automatic](#if-it-does-become-automatic)
+    - [The problem this must solve](#the-problem-this-must-solve)
+    - [Candidate design A: job table with a worker process](#candidate-design-a-job-table-with-a-worker-process)
+    - [Candidate design B: Vercel Workflow](#candidate-design-b-vercel-workflow)
+    - [E2B does not remove the need to choose](#e2b-does-not-remove-the-need-to-choose)
+    - [Comparison](#comparison)
+    - [What to know about Workflow before choosing Design B](#what-to-know-about-workflow-before-choosing-design-b)
+  - [Where rubrics, answer keys, and sample reports live](#where-rubrics-answer-keys-and-sample-reports-live)
+  - [Deferred: the grading pipeline](#deferred-the-grading-pipeline)
+- [Running a cohort: enrollment and attendance](#running-a-cohort-enrollment-and-attendance)
+  - [Deferred: running a cohort](#deferred-running-a-cohort)
 - [Salesforce synchronization](#salesforce-synchronization)
   - [What came back from Idlewild](#what-came-back-from-idlewild)
   - [Questions I need answered](#questions-i-need-answered)
   - [What may need to be built on the Salesforce end](#what-may-need-to-be-built-on-the-salesforce-end)
   - [The shape of the work here, once those are answered](#the-shape-of-the-work-here-once-those-are-answered)
-- [Targeted assignments, and excusing a student](#targeted-assignments-and-excusing-a-student)
-- [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments)
-  - [Instructor-authored rubrics are a prerequisite, not a companion](#instructor-authored-rubrics-are-a-prerequisite-not-a-companion)
-- [Triggering and orchestration](#triggering-and-orchestration)
-  - [The grading session is built; automatic grading is the part still open](#the-grading-session-is-built-automatic-grading-is-the-part-still-open)
-  - [If it does become automatic](#if-it-does-become-automatic)
-  - [The problem this must solve](#the-problem-this-must-solve)
-  - [Candidate design A: job table with a worker process](#candidate-design-a-job-table-with-a-worker-process)
-  - [Candidate design B: Vercel Workflow](#candidate-design-b-vercel-workflow)
-  - [E2B does not remove the need to choose](#e2b-does-not-remove-the-need-to-choose)
-  - [Comparison](#comparison)
-  - [What to know about Workflow before choosing Design B](#what-to-know-about-workflow-before-choosing-design-b)
-- [Where rubrics, answer keys, and sample reports live](#where-rubrics-answer-keys-and-sample-reports-live)
-- [Scaling: what a hundred students costs, and where it breaks](#scaling-what-a-hundred-students-costs-and-where-it-breaks)
-- [Deferred, with the schema left open](#deferred-with-the-schema-left-open)
-- [Open items](#open-items)
+  - [Deferred: Salesforce](#deferred-salesforce)
+- [Settled decisions and standing limits](#settled-decisions-and-standing-limits)
 
 ---
 
@@ -40,9 +53,9 @@ How the built system works is in [ARCHITECTURE.md](ARCHITECTURE.md); what it doe
 
 **Nothing about running a cohort needs manual entry in the database any more.** A course can be created, copied from a previous one, filled from a join link, co-taught, split into groups, retired, found again afterwards, and finally deleted. Assignments of all four kinds can be authored, published, handed out, handed in, graded by the pipeline or by hand, and released, and readings, notes, and videos sit under a module beside its work. Somebody can be made staff by an admin and added to a cohort by whoever runs it. The first admin of a deployment is still a hand-edited row, necessarily, because there is nobody to grant it — `npm run grant:admin` is that base case as a tool.
 
-What is left divides into two kinds of thing: measurement, and features that add real surface area. The review of code that already works has happened — what it left open is [its own section](#what-the-review-pass-left-open) — which is why the features below can be read as work rather than as work plus a cleanup nobody scheduled.
+What is left divides into two kinds of thing: measurement, and features that add real surface area. The review of code that already works has happened — what it left open is [its own section](#what-the-review-pass-left-open) — which is why the features in the list below can be read as work rather than as work plus a cleanup nobody scheduled.
 
-The sequence is most immediate first. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail. The ordering principle is: the cheap things, then measurement, then the features that add real surface area. Measurement first because a real cohort produces figures rather than estimates.
+The sequence is most immediate first, and it cuts across the categories the rest of this file is grouped into. A feature's own section says what is known and what is still undecided about it; several are a heading and a paragraph because the thinking has not been done yet, and saying so is more useful than inventing detail. The ordering principle is: the cheap things, then measurement, then the features that add real surface area. Measurement first because a real cohort produces figures rather than estimates.
 
 1. **[Token management](#token-management)** — what a report costs and where the cost actually is. The disclosure half is already built: [nothing a student commits that git was told to ignore reaches the model](ARCHITECTURE.md#what-a-student-commits-and-what-reaches-the-model). Better after a real cohort has run, which gives measurements rather than estimates.
 2. **[Reading the changed files without leaving the review](#reading-the-changed-files-without-leaving-the-review)** — the diff beside the report instead of in another tab. High on this list because it is the only item that makes the hour an instructor already spends grading a shorter hour, and because the data is already fetched and discarded.
@@ -61,28 +74,28 @@ The sequence is most immediate first. A feature's own section says what is known
 
 ---
 
-## Outstanding verification
+## Measurement, and the state of what is built
+
+Figures a real cohort produces, and the parts of the working system a review deliberately left alone. None of it adds surface area, and all of it changes what the rest of this file should say.
+
+### Outstanding verification
 
 Everything in the README's [what is verified](ARCHITECTURE.md#what-is-verified-and-how) section has been checked against real repositories. These are the gaps in it.
 
 1. **A Python assignment on `python-pytest`**, for results shaped identically to the Jest ones. No Python template exists in `assignment-templates/` yet.
 2. **`allowStudentDependencies: true`** against an assignment that genuinely asks students to add a dependency to the repository's **root** `package.json`. No current assignment does — `swe-1-3-node-modules` looked like the candidate and turned out not to be, since its dependency lives in a nested package. Note that the default presets install with `--ignore-scripts`, so a dependency needing an install script to fetch a platform binary needs an override.
 
----
-
-## Token management
+### Token management
 
 Three concerns come down to what ends up in a prompt: what it costs, how much of the context window it consumes, and what it discloses. **The third is closed** — a filter withholds committed dependency trees, environment files, credentials, and build output, described in [what a student commits and what reaches the model](ARCHITECTURE.md#what-a-student-commits-and-what-reaches-the-model). What is left is measurement.
 
-**Where the cost actually is, measured rather than assumed.** Some of this is already answered and recorded in [what a report costs](ARCHITECTURE.md#what-a-report-costs): output is roughly 60 percent of the bill, because thinking is billed as output, and the frontend prompt's uncached input is the next largest share. What is not measured is the breakdown *within* input — the answer keys against the student's files against the rubric and agent rules — which is what would say whether [moving the answer keys into the cacheable prefix](#deferred-with-the-schema-left-open) is worth more than the 6 percent currently estimated.
+**Where the cost actually is, measured rather than assumed.** Some of this is already answered and recorded in [what a report costs](ARCHITECTURE.md#what-a-report-costs): output is roughly 60 percent of the bill, because thinking is billed as output, and the frontend prompt's uncached input is the next largest share. What is not measured is the breakdown *within* input — the answer keys against the student's files against the rubric and agent rules — which is what would say whether [moving the answer keys into the cacheable prefix](#deferred-the-grading-pipeline) is worth more than the 6 percent currently estimated.
 
 **The cost table wants re-measuring on the model in use.** Its four rows were taken on `claude-opus-5` and the default is `claude-sonnet-5`, so the dollar figures are the more expensive tier's. The proportions are what the table is actually for and they hold either way — output dominates because thinking is billed as output — but "a cohort of 25 costs roughly $2.20" is a number somebody will quote, so it should be the number the deployment would actually produce. Four runs of `npm run grade` at each effort level is the whole of it.
 
 **Changing model tier is a calibration question, not a cost question.** The model is a constant with an `ANTHROPIC_MODEL` override and the provider interface already exists, so trying another is an environment variable and adding a vendor is a file in `lib/grade/providers/` — the work is not the integration. The work is proving the other model still agrees with an instructor, and `npm run calibrate` against the held-out pair is the only tool that answers it. **Calibration on the current default has now been run, and what it produced is a caveat rather than a number**: three runs of the same submission against the same prompt returned 12/15 twice and 13/15 once, so [a single run is not a measurement](ARCHITECTURE.md#what-is-verified-and-how). Any comparison of tiers therefore has to run each candidate several times, and the thing being compared is a range. The exemplar pair reproduced exactly on every run, which is what says the pipeline itself is steady. Two constraints learned from Groq apply to any candidate: the model must guarantee schema-conformant structured output, and its context and rate limits have to fit a frontend prompt, which is the largest at roughly 12,000 tokens of uncached input. A model that cannot do both is not a cheaper option, it is a different failure.
 
----
-
-## What the review pass left open
+### What the review pass left open
 
 The pass ran, and [what it produced is in the README](ARCHITECTURE.md#one-way-to-ask-each-question) — one authorization mechanism, named shapes at the boundaries, a shared registry for section types, and a Jest suite carrying the pure logic that used to live inside the check scripts. Three things it deliberately did not settle are below, plus one it settled by deciding not to act.
 
@@ -102,9 +115,31 @@ A real column would mean a `Section` table with `assignmentId`, `position`, and 
 
 Two lessons from writing the `verify:` scripts carried into the Jest suite, because both are silent failures rather than loud ones. **A script that selects its fixtures by a proxy for the property it needs will eventually select the wrong one** — "an instructor who is not the one this script acts as" is not "an instructor who does not teach this course", and the wrong one passes by luck rather than failing. And **a check that could not run must not report a pass**: a skip is reported and exits non-zero, because a run that checked nothing is not a run that succeeded.
 
+### Scaling: what a hundred students costs, and where it breaks
+
+**Questions to hold rather than work to schedule.** Nothing here is a known problem — the largest thing this has run against is one cohort — and most of what would answer it is measurement [token management](#token-management) produces anyway. It is written down because the answers change what [triggering and orchestration](#triggering-and-orchestration) should be, and that decision is already waiting.
+
+**What is already measured**, from [what a report costs](ARCHITECTURE.md#what-a-report-costs) and the sandbox durations in `test_runs.duration_ms`: a report is roughly $0.09 to $0.15 at `high` effort, output is about 60 percent of it because thinking is billed as output, a sandbox run is 30 to 40 seconds, and a single submission end to end is about two minutes at the worst measured case. So a hundred students on one frontend assignment is on the order of $15 and, if run one after another, over three hours of wall clock. Neither figure is alarming; both are worth knowing before a batch button exists.
+
+**Concurrency is the question triggering and orchestration already frames.** Its requirement 4 — that a batch must not be bound by one function invocation's limit — is answered by fanning out one invocation per submission, because two minutes sits comfortably inside 300 seconds. What a hundred students changes is not that arithmetic but what happens when a hundred of those invocations run at once, which is where every vendor limit below actually bites.
+
+**Anthropic.** Rate limits are per organization and counted in requests and tokens per minute, so the ceiling on a batch is not the money, it is how many reports can be in flight before requests start being refused. Two things follow: whatever runs the batch needs to handle a rate-limit response by waiting rather than by failing a submission, and [prompt caching's five-minute window](ARCHITECTURE.md#what-a-report-costs) means a burst is meaningfully cheaper than the same work spread across an evening — which argues for the grading-session model rather than against it. Worth separating from developer tooling: the grading spend is the Anthropic API, and Claude Code is a different line item that scales with how much is built rather than with how many students there are.
+
+**E2B.** Concurrent sandbox count is the limit that matters, not total minutes, and a sandbox bills until its own timeout expires — which is why `sandbox.kill()` is in a `finally` block. A hundred concurrent runs is the first time a leak would be expensive rather than merely untidy. The other thing a hundred students changes is that 6 to 17 seconds of dependency installation per run stops being a detail: [building custom templates with dependencies already present](ARCHITECTURE.md#the-sandbox-run) is the largest speed improvement available and it gets more valuable linearly.
+
+**Supabase.** The application connects through the pooled `DATABASE_URL` and migrations use `DIRECT_URL`, which is the arrangement that survives many concurrent functions — a serverless fan-out against a direct connection is how a connection pool gets exhausted. Two other limits to know: the storage bucket for uploaded submissions grows without bound, since a re-upload writes a new object and [the previous one is deliberately left in place](ARCHITECTURE.md#handing-in-a-file), and a hundred students' resumes at up to 25MB is a real number. Nothing prunes it today.
+
+**Vercel.** The 300-second function limit is the one already reasoned about. Beyond it: a fan-out of a hundred invocations is a hundred invocations' worth of Active CPU billing, and the webhook path is unaffected because it does one database write.
+
+**The one that is not a vendor limit.** A hundred students produce a hundred drafts an instructor has to read, and no amount of concurrency helps with that. Triage, [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), and [student groups](ARCHITECTURE.md#groups-and-grading-a-portion-of-a-cohort) are the parts of this application that actually address a cohort of a hundred, which is worth noticing given how cheap they are.
+
 ---
 
-## Reading the changed files without leaving the review
+## The instructor's grading hour
+
+What an instructor does while grading: what is on screen while a report is read, how a pile of outstanding work is ordered, and the one output here that is about a student rather than about a submission.
+
+### Reading the changed files without leaving the review
 
 **Grading a submission means reading the code, and the code is not here.** The review pane shows the report, the test results, and the rubric; the work itself is a link out to GitHub. So the actual act — read the diff, decide whether the model's account of it is fair, adjust the score — is done across two tabs, and the one holding the score is the one you have to come back to.
 
@@ -119,9 +154,20 @@ What this touches, so the size is not a surprise:
 
 Undecided, and worth deciding before building: whether this is a file tree with a diff pane, or the diff of every changed file in one scrolling column. The second is less to build and probably better for the actual task — an assignment's diff is small, and a tree is navigation for a problem that does not exist at three files.
 
----
+### Working a pile by what it is, not only by what it needs
 
-## An evaluation of one student's growth across a term
+"Grade all the resubmissions at one sitting" is a real way to work, and triage cannot express it — **for a reason worth knowing before building anything.** `triageBucket` is a vocabulary of *what action is outstanding*: no report yet, to grade by hand, draft ready, held for review, failed, never delivered. It is deliberately not a vocabulary of what a submission *is*. A resubmission with no report and a first submission with no report are both `needs_report`, because the action is identical, and that is what makes the buckets exhaustive and the counts trustworthy.
+
+So this is a **second axis over the same pile**, not a seventh bucket. Adding `resubmission` to the enum would break the property every count on three screens rests on — that the buckets partition the outstanding work — because a submission would then belong to two.
+
+What the axis is made of is already on the row: `submission.status` distinguishes `SUBMITTED` from `RESUBMITTED`, `isLate` is computed at submission, and "revised since grading" is `headSha !== gradedHeadSha` and needs no query. So the filter is presentation over data that exists, which is what makes this small.
+
+Two things it needs beyond a filter control:
+
+- **It has to work across assignments**, which is the whole point — triage is already cohort-wide, so this belongs there rather than on one assignment's queue, and the queue's own filter should probably learn the same axis for consistency.
+- **A way to work the filtered set in order.** Grading twenty resubmissions means opening one, approving it, and wanting the next one without going back to a list. The review surface has no next-and-previous today, and a filter that hands somebody twenty items and no way to walk them is half the feature. This is the part [student groups](ARCHITECTURE.md#groups-and-grading-a-portion-of-a-cohort) does not supply: a group narrows the four screens that already exist and needs nothing new to move between submissions, where working one pile of twenty at a sitting does.
+
+### An evaluation of one student's growth across a term
 
 **Every report is about one submission, and nobody has read them together.** A student finishes a term with a dozen approved drafts, each one a careful account of a single piece of work at a single moment. The question an instructor actually has at the end — is this person getting better, at what, and what should they work on next — is answered by all of them at once and by none of them individually. That is a real gap and it is the thing the accumulated feedback is uniquely able to answer.
 
@@ -140,9 +186,20 @@ What this touches:
 - **Which course, and whether a student has more than one.** `submissions.listForStudent` already returns the other cohorts a student is in, because somebody repeating a module has two sets of work. A growth evaluation that silently covered one of them would be answering a narrower question than it appeared to.
 - **It needs a term to have happened.** With three graded assignments there is no growth to describe, and a confident paragraph saying otherwise is worse than no feature. This is the item on this list most improved by waiting for real data, which is also what makes it a natural companion to [token management](#token-management).
 
+### Deferred: the grading hour
+
+- **Bulk grading** beyond the basic gradebook table, and a single action that generates reports for every submission still waiting on one.
+- **Rendering a Jupyter notebook in the review screen.** `previewKindOf` answers `pdf` or `image` and everything else downloads. A notebook is the most-read of the uploaded types and the one where the download-and-open-elsewhere loop that [embedding a PDF exists to remove](ARCHITECTURE.md#handing-in-a-file) costs the most. Rendering one is a real dependency and its own decision, which is why a check records that not previewing it is deliberate.
+- **A per-student record that accumulates over time and informs grading.** Requires deciding what is tracked and deserves its own design discussion.
+- **A grading assistant mode** that identifies patterns across a student's assignments relative to a rubric. Depends on the previous item existing first.
+
 ---
 
-## Notes a student keeps on their own work
+## What a student sees and does
+
+The student's side of the application, beyond the course page and the [cross-cohort dashboard](ARCHITECTURE.md#what-is-due-across-every-cohort) that exist today.
+
+### Notes a student keeps on their own work
 
 **The third tab of the assignment panel, which is why the panel has tabs before it has three of them.** A student reading feedback has nowhere in this application to write down what they took from it, so what happens is nothing, or it happens in a document this application will never see beside the work it is about. The whole value is proximity: the note sits with the assignment and the report rather than in a second system that has to be kept in sync with the first.
 
@@ -160,9 +217,7 @@ What to know before building it:
 - **The note editor wants to appear before grading, not only after.** A student takes notes while working, and an assignment that is `ACCEPTED` or handed in has as much to write about as one that has come back. `NOT_STARTED` is the one state where the tab is not worth offering.
 - **`/notes` is a cross-course read**, so it is the second procedure with no course in its input after `assignments.listMine`, and it wants that one's scoping rules: the notes themselves are the student's own, but which of them to *show* is a question about enrollments.
 
----
-
-## Subscribing a calendar to due dates
+### Subscribing a calendar to due dates
 
 A URL a student adds to Google Calendar once, which their calendar polls on its own. **No OAuth, no Google API, no credentials held here** — the whole feature is a route that renders text, and that is the reason to do this version rather than the integration: due dates and newly published assignments reach a subscriber without anybody pressing anything.
 
@@ -177,9 +232,7 @@ One event per assignment with a `dueAt`, across active enrollments in cohorts th
 
 Known limits, both worth stating before somebody reports them as bugs. **A feed is polled roughly daily**, so a due date moved the night before will not reach a subscriber in time; if instructors move deadlines close to the wire in practice, that is the finding that argues for the API integration and nothing else is. And Google Calendar's web interface handles `https://calendar.google.com/calendar/r?cid=<encoded>` more reliably than a bare `webcal://` link, which depends on an operating system handler being registered — so offer the address to copy as well as the button.
 
----
-
-## A chat scoped to a student's own course context
+### A chat scoped to a student's own course context
 
 Blocked, and not on a technical dependency: **the capability worth having is patterns across a term of feedback, and there is nothing to read until a term has been graded.** Building it against three assignments would be building it against the one case where it has nothing true to say.
 
@@ -191,24 +244,246 @@ The writing-support case is the one with a real design in it. A student pastes t
 
 Cheaper things worth noticing before the chat is the answer. "Explain what my instructor meant by this" is a per-report question with the report already on screen. "What should I do next" is what `/dashboard` answers today with no model at all. The chat earns its place on the questions neither of those can reach, and scoping it to those is what keeps it from being a worse version of a screen that already exists.
 
+### Deferred: what a student sees
+
+- **Students seeing their groups and who else is in them.** Nothing about splitting the grading needs it, and it starts to matter only when students are working together — so it arrives with group assignments rather than before them. It would be the first student-visible read of anybody else in the cohort, which is why it wants deciding per group rather than for all of them: a project team is meant to be seen, and a group that exists only to split the marking is not.
+
 ---
 
-## Working a pile by what it is, not only by what it needs
+## Authoring assignments and handing them out
 
-"Grade all the resubmissions at one sitting" is a real way to work, and triage cannot express it — **for a reason worth knowing before building anything.** `triageBucket` is a vocabulary of *what action is outstanding*: no report yet, to grade by hand, draft ready, held for review, failed, never delivered. It is deliberately not a vocabulary of what a submission *is*. A resubmission with no report and a first submission with no report are both `needs_report`, because the action is identical, and that is what makes the buckets exhaustive and the counts trustworthy.
+What an instructor decides when an assignment is created: who it is for, what it is graded against, and how it comes back.
 
-So this is a **second axis over the same pile**, not a seventh bucket. Adding `resubmission` to the enum would break the property every count on three screens rests on — that the buckets partition the outstanding work — because a submission would then belong to two.
+### Targeted assignments, and excusing a student
 
-What the axis is made of is already on the row: `submission.status` distinguishes `SUBMITTED` from `RESUBMITTED`, `isLate` is computed at submission, and "revised since grading" is `headSha !== gradedHeadSha` and needs no query. So the filter is presentation over data that exists, which is what makes this small.
+A new capability rather than a screen. Today an assignment implicitly applies to every active enrollment in its course — a submission row appears when a student accepts, and the gradebook treats a missing row as not started. Neither "this assignment is only for these students" nor "this student is excused from this one" can be expressed.
 
-Two things it needs beyond a filter control:
+**Half of the data-model decision is made.** Naming a subset of students was the missing piece and [a group](ARCHITECTURE.md#groups-and-grading-a-portion-of-a-cohort) is it — a named set of students inside one cohort, carrying no instructor relation and no permission, which is exactly the shape targeting wants. So a targeted assignment is an assignment pointing at a group, with All Students — no group — the default it already behaves as.
 
-- **It has to work across assignments**, which is the whole point — triage is already cohort-wide, so this belongs there rather than on one assignment's queue, and the queue's own filter should probably learn the same axis for consistency.
-- **A way to work the filtered set in order.** Grading twenty resubmissions means opening one, approving it, and wanting the next one without going back to a list. The review surface has no next-and-previous today, and a filter that hands somebody twenty items and no way to walk them is half the feature. This is the part [student groups](ARCHITECTURE.md#groups-and-grading-a-portion-of-a-cohort) does not supply: a group narrows the four screens that already exist and needs nothing new to move between submissions, where working one pile of twenty at a sitting does.
+What is still open is **excusing**, which is the other direction and needs its own row: a per-student exclusion against one assignment. The distinction matters for the gradebook, because an excused student must read as excused rather than as missing work, or it is worthless.
+
+Three readers have to learn about both, and they are the same three a group filter already touches: the gradebook, which must draw a cell that is neither a grade nor a gap; triage and the per-assignment counts, which must not count work nobody was asked to do; and the student's own course page, which must not offer an Accept for something they were not given.
+
+### AI grading for non-coding assignments
+
+Short response is already graded and calibrated against an instructor's own marking, so this means the work that has no repository: a Google Doc, an uploaded PDF, a presentation. Creating, handing in, and hand-grading all of those is built, and an uploaded file has somewhere to be read *from*. What is not built is reading a Google Doc's contents or an uploaded file's, and generating a report from it — which needs Drive access, and which needs rubrics that describe the work.
+
+The pipeline's inputs change shape here, which is the size of it: there is no pull request diff, no changed-file list, and no test evidence, so "the student's work" has to be fetched from Drive or from storage instead of read out of a diff.
+
+#### Instructor-authored rubrics are a prerequisite, not a companion
+
+Confirmed rather than assumed: this feature requires them. The taxonomy is fixed at the four sections that exist in `rubric.md`, and a resume, a reflection, or a presentation matches none of them — so there is no version of this feature that ships against the current four. It is the first thing built when this item comes up.
+
+What that touches, so the size is not a surprise:
+
+- **`Rubric` rows are real database rows already**, with a `RubricScaleType`, so storing an authored one is not the hard part.
+- **`SECTION_TYPE_REGISTRY` in `lib/section-types.ts` is the hard part.** Each of the four section types maps to a heading in `rubric.md` and a sample report file, both read from the grading-guides repository. An instructor-authored rubric has neither, so the rubric text and the sample have to come from the database instead — which means the asset loader stops being "read the file at this path" and becomes "read the file, or read the row." The registry is where a type is added and is deliberately one entry per type, so the shape of the work is turning that entry from a literal into something that can also be a row.
+- **The prompt is built from those assets**, so an authored rubric has to produce the same three things the file-backed ones do: a scale with a written description per band, a heading's worth of criteria, and an example of a good report. The third is the one instructors will not think to provide and the model most needs — worth deciding whether an authored rubric can borrow the closest existing sample rather than requiring a new one.
+- **Whole numbers and the flags vocabulary** are properties of the rubric, not of the pipeline. An authored scale still has to be bands with descriptions, or the "no 1.5, put the hesitation in `instructorNotes`" rule has nothing to anchor to.
+
+This is also what makes the section types no longer a closed set, which the classifier currently assumes — `classifySections` matches file paths against the types in the registry. An authored rubric attached to a Google Drive assignment has no file paths to classify, so the two land together: classification only runs for kinds where "which files did the student change" is a meaningful question.
+
+### Deferred: authoring and handing out
+
+- **One submission on behalf of a group.** A submission belongs to a student today: `studentId` is non-null, its pair with the assignment is unique, the repository is created against one GitHub login, and approving writes the grade onto that one row. The version that keeps all of those is one student's submission being the real one, with approval copying the grade and the feedback onto their groupmates' rows. Each student then still has their own record, which is what the gradebook, the student's own feedback page, and [Salesforce](#salesforce-synchronization) all want anyway. `CourseGroup` is the table it wants, and it carries no instructor relation for this reason.
+- **A manifest in the assignment repository.** A file in each template — `assignment.json` rather than a block in `package.json`, since `package.json` is a protected path the sandbox merges under its own rules and Python and SQL assignments have none — declaring section types, point values, and answer keys. It would let the seed's one remaining assignment definition go, make the repository the author of what an assignment *is* rather than an instructor retyping it, and support a drift check when a cohort's copy no longer matches the curriculum. Deferred because the recurring cost it removes is already covered by `duplicate`, and because designing it after a real cohort has been set up beats designing it against a guess. Any version of it must read from the template and never a student's copy, and be read server-side rather than trusted from the browser.
+- **A catalogue for `GOOGLE_DRIVE` assignments.** An instructor types the title and pastes the template link, so nothing forces internal organization and "what Drive assignments exist" has no single answer to check a new one against. The shape most likely to work, not yet designed in detail: a shared Drive folder per module that an instructor picks a document from rather than pasting an arbitrary link. That is one authentication story with [reading a student's document for grading](#ai-grading-for-non-coding-assignments), which is the argument for doing them together rather than now. `FILE_UPLOAD` likely needs no catalogue at all: an instructor is describing a submission format rather than selecting among curriculum content.
+
+---
+
+## The grading pipeline
+
+What happens between a student's commit and a draft report: what starts a run, and where the rubrics, answer keys, and samples the prompt is built from are read from.
+
+### Triggering and orchestration
+
+Half of this is built and half is open, and the open half is smaller than it was. An instructor can now grade a screen's worth of outstanding work with one press; what nothing does yet is grade without being asked, or keep going once the tab is closed.
+
+#### The grading session is built; automatic grading is the part still open
+
+**Grading is not automatic, and the alternative to it now exists.** The original design had the webhook start a run on every `opened`, `reopened`, and `synchronize`, and that was reconsidered before being built, because each run costs real money and most would be wasted: a student who opens a pull request, closes it, opens another, and pushes six more commits generates a report per event, none of the intermediate ones read by anybody. At roughly $0.15 a report and a cohort of twenty-five, a week of ordinary student behavior is a meaningful bill for drafts nobody looks at.
+
+So instead an instructor sits down, presses one button, and the application grades every submission whose current commit has no report — [generating every pending report at a sitting](ARCHITECTURE.md#generating-every-pending-report-at-a-sitting), on an assignment's queue and on a student's record. One report per submission per state of the code, generated when somebody is about to read it. Cost tracks the work an instructor does rather than the commits a student makes, and there is nothing to prune.
+
+The five requirements that shaped it, and where each landed:
+
+1. **The intent to grade is recorded durably before work begins.** Met by the `GENERATING` draft row, which already existed and is already a triage bucket.
+2. **Work that fails partway through can be retried without repeating what succeeded.** Met: the batch covers `needs_report`, so a second press finds only what is still outstanding, and the failures are offered back as a retry of themselves.
+3. **The same submission is never graded twice concurrently.** This was the one that was *not* met and had to be built — the draft was created unconditionally, so two instructors on one queue graded everything twice. Now claimed in a single `INSERT … WHERE NOT EXISTS`.
+4. **A batch is not bound by one invocation's time limit.** Met by fanning out one invocation per submission: a single submission takes about two minutes at the worst measured case against a 300-second limit.
+5. **Progress is readable from PostgreSQL while the batch runs.** Met by the same `GENERATING` rows, which is why a second tab sees a batch in flight rather than offering to start it again.
+
+**What is left is durability across a closed tab.** The fan-out is driven from the browser, so closing it stops what has not started — fine for a student's four assignments, a real limit for a whole cohort. That is the remaining argument for a job table, and it is a smaller one than it was: four of the five requirements are already satisfied by rows that exist, so what a durable design would add is the ability to walk away, not correctness.
+
+#### If it does become automatic
+
+The designs below were written for the automatic version and are kept because the durability question above is the same one.
+
+The webhook starts a run on `opened`, `reopened`, and `synchronize`, and marks any existing draft `SUPERSEDED` on `synchronize`. Everything before this phase is callable as a plain function taking a submission id, so this phase adds a caller and changes nothing else.
+
+This is where the asynchronous job design is chosen. It is deliberately not decided yet, because nothing built so far needs it: the webhook's work is one database update, and test execution and report generation keep a human waiting for the slow part on purpose.
+
+#### The problem this must solve
+
+GitHub waits roughly 10 seconds for a webhook to return a response. If the response takes longer, GitHub marks the delivery as failed and sends the event again, which would cause the same pull request to be graded repeatedly and receive duplicate comments. Grading takes minutes: fetching files, installing dependencies, running the suite, and calling a language model.
+
+So the webhook must respond immediately and the work must happen afterward. Doing the work without recording the intent first is not acceptable, because if the process stops partway through, that submission is never graded and no record exists showing that it should have been.
+
+Requirements:
+
+1. The webhook responds to GitHub within a few seconds.
+2. The intent to grade is recorded durably before any work begins, so it survives a restart or a deployment.
+3. Work that fails partway through can be retried without repeating what already succeeded.
+4. The same submission is never graded twice concurrently.
+5. Total elapsed grading time may exceed the time limit of a single Vercel function invocation.
+6. Grading status is readable from PostgreSQL, because the instructor interface displays it.
+
+#### Candidate design A: job table with a worker process
+
+What the predecessor application does. The webhook inserts a row into `grading_jobs` with status `queued`. A separate always-running Node process loops: claim a queued row, grade it, mark it complete, repeat.
+
+The claim query uses `SELECT ... FOR UPDATE SKIP LOCKED`, meaning: return one queued row, lock it so no other worker can take it, and if a row is already locked, skip past it rather than waiting. That satisfies requirement 4 even with several workers running.
+
+Requirement 5 is satisfied because the worker runs continuously with no invocation limit. The cost is that same property: a worker needs a host that runs continuously, and Vercel does not provide one, because Vercel runs functions that start when a request arrives and stop when it returns. This means a second host such as Fly.io or Railway.
+
+#### Candidate design B: Vercel Workflow
+
+The webhook calls `start(gradeSubmissionWorkflow, [...])`, which returns immediately. The grading program is one function calling several smaller functions, each marked `"use step"`. Vercel runs each step as its own invocation and records the step's result to storage before continuing.
+
+Because each step is a separate invocation, total elapsed time is not limited by any single invocation's limit, satisfying requirement 5 with no continuously running host. Recorded step results satisfy requirement 2 and per-step retry satisfies requirement 3.
+
+Under this design `grading_jobs` is not needed. `grading_drafts.status` already carries the values the instructor interface reads, and would gain a `workflowRunId` column.
+
+#### E2B does not remove the need to choose
+
+E2B runs student code on E2B's own infrastructure, which removes the requirement for a host that can run Docker. It does not remove requirement 5: the code still waits for the sandbox result and then for the language model, so total elapsed time can still exceed a single invocation's limit.
+
+Test execution measures the first half of that time for real. Once a few dozen runs are recorded, `test_runs.duration_ms` answers the question this decision actually turns on: whether test execution alone already approaches the limit, or whether it is the model call that pushes the total past it.
+
+#### Comparison
+
+|                                          | Design A: job table and worker               | Design B: Vercel Workflow                        |
+| ---------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| Where the durable record lives           | A row in PostgreSQL                          | Recorded step results, plus a status column      |
+| Requires an always-running host          | Yes                                          | No                                               |
+| Job may exceed one function's time limit | Not applicable; the worker runs continuously | Yes; work is divided across invocations          |
+| Retry logic                              | You write it                                 | Provided per step                                |
+| Portable to other hosting                | Yes                                          | The step functions are; the orchestration is not |
+| Debugging method                         | Standard Node debugging                      | Framework-specific inspection tools              |
+| Maturity                                 | Established since PostgreSQL 9.5 in 2016     | Recent                                           |
+| Places to check when a job fails         | One                                          | Two                                              |
+
+If the debugging and maturity rows matter more than running one small additional host, Design A is a reasonable choice and this plan does not argue against it.
+
+#### What to know about Workflow before choosing Design B
+
+Three properties follow from a single mechanism, and they are where mistakes are most likely.
+
+**The mechanism is replay.** When a workflow resumes after an interruption, the runtime does not restore a paused program. It executes the orchestrating function again from its first line. Step calls that already completed return their recorded results instead of running a second time.
+
+If the orchestrator calls four steps and step 3 fails:
+
+| Execution | Step 1                  | Step 2                  | Step 3 | Step 4      |
+| --------- | ----------------------- | ----------------------- | ------ | ----------- |
+| First run | runs                    | runs                    | fails  | not reached |
+| Retry     | returns recorded result | returns recorded result | runs   | runs        |
+
+The orchestrator body executed twice; steps 1 and 2 executed once each.
+
+**Consequence 1: the orchestrator runs in a restricted environment.** Because its body runs repeatedly, any side effect written directly inside it would repeat too. The runtime therefore removes the ability to perform side effects there:
+
+| Not available inside `"use workflow"`           | Replacement                                |
+| ----------------------------------------------- | ------------------------------------------ |
+| The global `fetch` function                     | `import { fetch } from "workflow"`         |
+| `setTimeout`, `setInterval`                     | `sleep("5s")` from `"workflow"`            |
+| Node built-in modules such as `fs` and `crypto` | Move the code into a `"use step"` function |
+
+Step functions run in a normal Node environment without these restrictions. In practice this means database access must be inside a step. Prisma requires both Node modules and network access, so a Prisma query placed in the orchestrator fails.
+
+```ts
+// Incorrect: database access in the orchestrator
+export async function gradeSubmission(id: string) {
+  "use workflow"
+  const submission = await db.submission.findUnique({ where: { id } })  // fails
+}
+
+// Correct: database access inside a step
+async function loadSubmission(id: string) {
+  "use step"
+  return db.submission.findUnique({ where: { id } })
+}
+
+export async function gradeSubmission(id: string) {
+  "use workflow"
+  const submission = await loadSubmission(id)
+}
+```
+
+The rule: the orchestrator chooses the order of operations, and steps perform operations.
+
+**Consequence 2: the orchestrator must be deterministic.** Each execution must call the same steps in the same order given the same inputs, because the runtime matches recorded results to step calls by their position in the sequence. A value that differs between executions must not affect which steps are called:
+
+```ts
+export async function gradeSubmission(id: string) {
+  "use workflow"
+  const startedAt = Date.now()           // a different value on every replay
+  const result = await runTests(id)
+
+  if (Date.now() - startedAt > 60_000) {  // may be true on one execution, false on another
+    await recordSlowRun(id)               // so this step may or may not be called
+  }
+}
+```
+
+The same applies to `Math.random()`. Generate such values inside a step, where the result is recorded once and returned unchanged on replay, or pass them in as arguments to the workflow.
+
+**Consequence 3: values crossing a step boundary must be serializable**, because they are written to storage and read back. Plain objects, arrays, strings, numbers, and `Date` are supported; functions and class instances are not. Prisma query results are plain objects, so this is normally satisfied without effort.
+
+### Where rubrics, answer keys, and sample reports live
+
+**Not decided, and deliberately not being implemented.** Written down because it changes the shape of `lib/grade/assets.ts`, and knowing it is coming affects how much is invested there in the meantime.
+
+The idea: move **rubrics** out of the grading-guides repository into a shared Google Drive folder, so that a non-technical instructor can write and upload one without touching git. Answer keys for technical assignments stay in GitHub, where they belong next to the code; answer keys for non-technical assignments live in Drive. Sample feedback reports possibly move too. The grading-guides repository simplifies to a collection of answer keys, and `agent-rules.md` moves into this application's own file structure.
+
+**The strongest part of this is `agent-rules.md` moving into the repository.** It is not reference material, it is prompt code: it sets tone, formatting, the two-beat summary, the half-credit nesting rule, and the prohibition on flag text reaching a student. A change to it changes every grade the application produces. That belongs in a pull request with a diff and a deploy, not in a documents folder — and `modelMetadata` already records a prompt version, which would then be a version of something in this repository.
+
+**The strongest argument for Drive is the one that motivated it**: a rubric written by an instructor who does not use git is a rubric that never gets written otherwise. That is the whole reason instructor-authored rubrics matter, so this is not a minor convenience.
+
+Three things to work out before it is worth doing, each of which is a real cost rather than a detail:
+
+- **Reproducibility is currently a commit SHA.** Assets are read at a resolved commit, cached under `sha:path` with no expiry — safe because content at a commit cannot change — and that SHA is stamped into `modelMetadata` so any report traces back to the exact rubric that produced it. Drive has no equivalent single identifier for a set of files. It does have a revision id per file, so the property is recoverable, but the shape changes: one SHA becomes a set of per-file revision ids, and every place that treats the asset commit as one value has to stop doing that.
+- **Sample reports argue against moving.** They steer the model's output format as directly as `agent-rules.md` does, so the same reasoning that says agent rules belong in the repository says samples do too. This is the one part of the idea that cuts against itself, and worth resolving deliberately rather than by whichever is more convenient to move.
+- **It is a second Drive integration, and that is an argument for timing rather than against.** Reading a student's Google Doc submission needs Drive access anyway. Doing both at once — assets from Drive, submissions from Drive — costs one authentication story instead of two, which suggests this belongs with [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments) rather than as its own project.
+
+Also unresolved, and cheap to note now: an instructor uploading a rubric to a folder is not the same as an instructor *authoring* one in the application. The first is a file whose structure nothing validates; the second is rows with bands and descriptions the prompt can be built from. A rubric the model has to be handed as an opaque document is a weaker input than one with a scale it can be told to score against, so "instructors upload rubrics to Drive" and "instructors author rubrics in the application" are different features that happen to serve the same person.
+
+### Deferred: the grading pipeline
+
+- **SQL sandbox execution.** The design is settled: boot an ephemeral PostgreSQL, run `setup.sql`, and compare each numbered query's result set — rows, columns, and order — against `queries-solution.sql` programmatically, which makes SQL correctness fully deterministic with no model judgment involved. It needs an E2B template with PostgreSQL installed, and is the largest gap in what can be graded deterministically.
+- **Frontend execution scoring.** Matches today's manual process, which is a README checklist and a code-reading judgment. Lint and build only, to catch hard errors.
+- **The GitBook resource link index.** Pre-build a heading-to-URL index for `marcy-curriculum-docs` per module — the URL scheme is fixed at `.../{module}/{lesson}#{subheading}` — and pass candidate links in context for the model to select from rather than construct. Until this exists, prompts omit a recommended resources section entirely rather than risk invented URLs.
+- **Answer keys in the cacheable prefix.** They are identical for every student of a given assignment but sit in the user content, so they are billed at full input price on every run. Moving them into the system block would give each assignment its own cache entry. Worth roughly 6 percent of the cost of a report, which is why it waits behind the `effort` question.
+
+Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 assignments, route to `needs_manual_review` rather than expanding the rubric now.
+
+---
+
+## Running a cohort: enrollment and attendance
+
+Getting people into a course and recording who arrived. The built versions of both are described in [getting students into a course](ARCHITECTURE.md#getting-students-into-a-course) and the attendance screen; everything below is what neither does yet, and none of it is scheduled.
+
+### Deferred: running a cohort
+
+- **An early-intervention dashboard.** `lastActivityAt`, `isLate`, and `status` already support it, and attendance now supplies the other half of the signal — the drift list on the attendance screen is a first version of it scoped to one cohort's mornings. What is left is joining the two, so that a fellow who has stopped handing work in *and* stopped arriving surfaces once rather than on two screens.
+- **Term dates, and a meeting pattern on a course.** The one thing that would let a morning nobody took attendance on be noticed. A session exists because somebody started one, so a forgotten Tuesday is indistinguishable from a Tuesday the cohort did not meet — and no warning can tell them apart without knowing which days are school days, which is why none is shown. `startsOn`, `endsOn`, and the weekdays a cohort meets would make the absent session detectable and the denominator "days we should have met" rather than "days somebody opened". Deferred because every version of it is a settings screen that has to be kept true, and being wrong about it is worse than being silent.
+- **A second check-in later in the day**, and per-fellow modality — whether somebody dialled in on a day the cohort was in the building. Both are one column and neither is asked for yet; `@@unique([courseId, date])` is what a second session per day would have to become `[courseId, date, slot]`.
+- **Adding a student to a cohort directly, without the link.** It needs a way to find a person by email across the whole application, which is a search over `Profile` that nothing else needs and that exposes who else uses the system. The link and [the roster](ARCHITECTURE.md#getting-students-into-a-course) together cover the case that actually happens at the start of term: the instructor already writes down who is expected, and adding somebody mid-term is one more line in that box.
 
 ---
 
 ## Salesforce synchronization
+
+The whole of what this application owes a system of record outside itself.
 
 **The consultants have replied, and what they answered is in [its own section](#what-came-back-from-idlewild).** Enough is now known to stop guessing about the object and the environment; what remains is a Salesforce developer for the integration's shape, and three decisions that only Marcy can make. The field mapping is still not written down here because it is a reading exercise against a real org rather than something to invent.
 
@@ -291,252 +566,15 @@ A job that reads `PENDING` submissions, writes them, and records `SYNCED` with t
 
 **The student identifier should be stored, not matched on.** If the integration resolves a student by email at write time, it needs read access on Contact and it breaks when an address changes. Storing the Salesforce record Id against the profile once, at enrollment, means the running integration writes to an id it already holds — no lookup by personal information, and a narrower permission set for the integration user. That is worth proposing rather than asking about.
 
----
+### Deferred: Salesforce
 
-## Targeted assignments, and excusing a student
-
-A new capability rather than a screen. Today an assignment implicitly applies to every active enrollment in its course — a submission row appears when a student accepts, and the gradebook treats a missing row as not started. Neither "this assignment is only for these students" nor "this student is excused from this one" can be expressed.
-
-**Half of the data-model decision is made.** Naming a subset of students was the missing piece and [a group](ARCHITECTURE.md#groups-and-grading-a-portion-of-a-cohort) is it — a named set of students inside one cohort, carrying no instructor relation and no permission, which is exactly the shape targeting wants. So a targeted assignment is an assignment pointing at a group, with All Students — no group — the default it already behaves as.
-
-What is still open is **excusing**, which is the other direction and needs its own row: a per-student exclusion against one assignment. The distinction matters for the gradebook, because an excused student must read as excused rather than as missing work, or it is worthless.
-
-Three readers have to learn about both, and they are the same three a group filter already touches: the gradebook, which must draw a cell that is neither a grade nor a gap; triage and the per-assignment counts, which must not count work nobody was asked to do; and the student's own course page, which must not offer an Accept for something they were not given.
+- **Attendance in Salesforce.** `submissions` carries the three dormant columns; `attendance_sessions` and `attendance_records` carry none, deliberately. Adding them before there is a syncer would mean shipping a `PENDING` flag on roughly 1,800 rows a term with nothing to move them. It is the same one-migration change described above, and it wants doing at the same time as the assignment and course columns rather than before them.
 
 ---
 
-## AI grading for non-coding assignments
+## Settled decisions and standing limits
 
-Short response is already graded and calibrated against an instructor's own marking, so this means the work that has no repository: a Google Doc, an uploaded PDF, a presentation. Creating, handing in, and hand-grading all of those is built, and an uploaded file has somewhere to be read *from*. What is not built is reading a Google Doc's contents or an uploaded file's, and generating a report from it — which needs Drive access, and which needs rubrics that describe the work.
-
-The pipeline's inputs change shape here, which is the size of it: there is no pull request diff, no changed-file list, and no test evidence, so "the student's work" has to be fetched from Drive or from storage instead of read out of a diff.
-
-### Instructor-authored rubrics are a prerequisite, not a companion
-
-Confirmed rather than assumed: this feature requires them. The taxonomy is fixed at the four sections that exist in `rubric.md`, and a resume, a reflection, or a presentation matches none of them — so there is no version of this feature that ships against the current four. It is the first thing built when this item comes up.
-
-What that touches, so the size is not a surprise:
-
-- **`Rubric` rows are real database rows already**, with a `RubricScaleType`, so storing an authored one is not the hard part.
-- **`SECTION_TYPE_REGISTRY` in `lib/section-types.ts` is the hard part.** Each of the four section types maps to a heading in `rubric.md` and a sample report file, both read from the grading-guides repository. An instructor-authored rubric has neither, so the rubric text and the sample have to come from the database instead — which means the asset loader stops being "read the file at this path" and becomes "read the file, or read the row." The registry is where a type is added and is deliberately one entry per type, so the shape of the work is turning that entry from a literal into something that can also be a row.
-- **The prompt is built from those assets**, so an authored rubric has to produce the same three things the file-backed ones do: a scale with a written description per band, a heading's worth of criteria, and an example of a good report. The third is the one instructors will not think to provide and the model most needs — worth deciding whether an authored rubric can borrow the closest existing sample rather than requiring a new one.
-- **Whole numbers and the flags vocabulary** are properties of the rubric, not of the pipeline. An authored scale still has to be bands with descriptions, or the "no 1.5, put the hesitation in `instructorNotes`" rule has nothing to anchor to.
-
-This is also what makes the section types no longer a closed set, which the classifier currently assumes — `classifySections` matches file paths against the types in the registry. An authored rubric attached to a Google Drive assignment has no file paths to classify, so the two land together: classification only runs for kinds where "which files did the student change" is a meaningful question.
-
----
-
-## Triggering and orchestration
-
-Half of this is built and half is open, and the open half is smaller than it was. An instructor can now grade a screen's worth of outstanding work with one press; what nothing does yet is grade without being asked, or keep going once the tab is closed.
-
-### The grading session is built; automatic grading is the part still open
-
-**Grading is not automatic, and the alternative to it now exists.** The original design had the webhook start a run on every `opened`, `reopened`, and `synchronize`, and that was reconsidered before being built, because each run costs real money and most would be wasted: a student who opens a pull request, closes it, opens another, and pushes six more commits generates a report per event, none of the intermediate ones read by anybody. At roughly $0.15 a report and a cohort of twenty-five, a week of ordinary student behavior is a meaningful bill for drafts nobody looks at.
-
-So instead an instructor sits down, presses one button, and the application grades every submission whose current commit has no report — [generating every pending report at a sitting](ARCHITECTURE.md#generating-every-pending-report-at-a-sitting), on an assignment's queue and on a student's record. One report per submission per state of the code, generated when somebody is about to read it. Cost tracks the work an instructor does rather than the commits a student makes, and there is nothing to prune.
-
-The five requirements that shaped it, and where each landed:
-
-1. **The intent to grade is recorded durably before work begins.** Met by the `GENERATING` draft row, which already existed and is already a triage bucket.
-2. **Work that fails partway through can be retried without repeating what succeeded.** Met: the batch covers `needs_report`, so a second press finds only what is still outstanding, and the failures are offered back as a retry of themselves.
-3. **The same submission is never graded twice concurrently.** This was the one that was *not* met and had to be built — the draft was created unconditionally, so two instructors on one queue graded everything twice. Now claimed in a single `INSERT … WHERE NOT EXISTS`.
-4. **A batch is not bound by one invocation's time limit.** Met by fanning out one invocation per submission: a single submission takes about two minutes at the worst measured case against a 300-second limit.
-5. **Progress is readable from PostgreSQL while the batch runs.** Met by the same `GENERATING` rows, which is why a second tab sees a batch in flight rather than offering to start it again.
-
-**What is left is durability across a closed tab.** The fan-out is driven from the browser, so closing it stops what has not started — fine for a student's four assignments, a real limit for a whole cohort. That is the remaining argument for a job table, and it is a smaller one than it was: four of the five requirements are already satisfied by rows that exist, so what a durable design would add is the ability to walk away, not correctness.
-
-### If it does become automatic
-
-The designs below were written for the automatic version and are kept because the durability question above is the same one.
-
-The webhook starts a run on `opened`, `reopened`, and `synchronize`, and marks any existing draft `SUPERSEDED` on `synchronize`. Everything before this phase is callable as a plain function taking a submission id, so this phase adds a caller and changes nothing else.
-
-This is where the asynchronous job design is chosen. It is deliberately not decided yet, because nothing built so far needs it: the webhook's work is one database update, and test execution and report generation keep a human waiting for the slow part on purpose.
-
-### The problem this must solve
-
-GitHub waits roughly 10 seconds for a webhook to return a response. If the response takes longer, GitHub marks the delivery as failed and sends the event again, which would cause the same pull request to be graded repeatedly and receive duplicate comments. Grading takes minutes: fetching files, installing dependencies, running the suite, and calling a language model.
-
-So the webhook must respond immediately and the work must happen afterward. Doing the work without recording the intent first is not acceptable, because if the process stops partway through, that submission is never graded and no record exists showing that it should have been.
-
-Requirements:
-
-1. The webhook responds to GitHub within a few seconds.
-2. The intent to grade is recorded durably before any work begins, so it survives a restart or a deployment.
-3. Work that fails partway through can be retried without repeating what already succeeded.
-4. The same submission is never graded twice concurrently.
-5. Total elapsed grading time may exceed the time limit of a single Vercel function invocation.
-6. Grading status is readable from PostgreSQL, because the instructor interface displays it.
-
-### Candidate design A: job table with a worker process
-
-What the predecessor application does. The webhook inserts a row into `grading_jobs` with status `queued`. A separate always-running Node process loops: claim a queued row, grade it, mark it complete, repeat.
-
-The claim query uses `SELECT ... FOR UPDATE SKIP LOCKED`, meaning: return one queued row, lock it so no other worker can take it, and if a row is already locked, skip past it rather than waiting. That satisfies requirement 4 even with several workers running.
-
-Requirement 5 is satisfied because the worker runs continuously with no invocation limit. The cost is that same property: a worker needs a host that runs continuously, and Vercel does not provide one, because Vercel runs functions that start when a request arrives and stop when it returns. This means a second host such as Fly.io or Railway.
-
-### Candidate design B: Vercel Workflow
-
-The webhook calls `start(gradeSubmissionWorkflow, [...])`, which returns immediately. The grading program is one function calling several smaller functions, each marked `"use step"`. Vercel runs each step as its own invocation and records the step's result to storage before continuing.
-
-Because each step is a separate invocation, total elapsed time is not limited by any single invocation's limit, satisfying requirement 5 with no continuously running host. Recorded step results satisfy requirement 2 and per-step retry satisfies requirement 3.
-
-Under this design `grading_jobs` is not needed. `grading_drafts.status` already carries the values the instructor interface reads, and would gain a `workflowRunId` column.
-
-### E2B does not remove the need to choose
-
-E2B runs student code on E2B's own infrastructure, which removes the requirement for a host that can run Docker. It does not remove requirement 5: the code still waits for the sandbox result and then for the language model, so total elapsed time can still exceed a single invocation's limit.
-
-Test execution measures the first half of that time for real. Once a few dozen runs are recorded, `test_runs.duration_ms` answers the question this decision actually turns on: whether test execution alone already approaches the limit, or whether it is the model call that pushes the total past it.
-
-### Comparison
-
-|                                          | Design A: job table and worker               | Design B: Vercel Workflow                        |
-| ---------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
-| Where the durable record lives           | A row in PostgreSQL                          | Recorded step results, plus a status column      |
-| Requires an always-running host          | Yes                                          | No                                               |
-| Job may exceed one function's time limit | Not applicable; the worker runs continuously | Yes; work is divided across invocations          |
-| Retry logic                              | You write it                                 | Provided per step                                |
-| Portable to other hosting                | Yes                                          | The step functions are; the orchestration is not |
-| Debugging method                         | Standard Node debugging                      | Framework-specific inspection tools              |
-| Maturity                                 | Established since PostgreSQL 9.5 in 2016     | Recent                                           |
-| Places to check when a job fails         | One                                          | Two                                              |
-
-If the debugging and maturity rows matter more than running one small additional host, Design A is a reasonable choice and this plan does not argue against it.
-
-### What to know about Workflow before choosing Design B
-
-Three properties follow from a single mechanism, and they are where mistakes are most likely.
-
-**The mechanism is replay.** When a workflow resumes after an interruption, the runtime does not restore a paused program. It executes the orchestrating function again from its first line. Step calls that already completed return their recorded results instead of running a second time.
-
-If the orchestrator calls four steps and step 3 fails:
-
-| Execution | Step 1                  | Step 2                  | Step 3 | Step 4      |
-| --------- | ----------------------- | ----------------------- | ------ | ----------- |
-| First run | runs                    | runs                    | fails  | not reached |
-| Retry     | returns recorded result | returns recorded result | runs   | runs        |
-
-The orchestrator body executed twice; steps 1 and 2 executed once each.
-
-**Consequence 1: the orchestrator runs in a restricted environment.** Because its body runs repeatedly, any side effect written directly inside it would repeat too. The runtime therefore removes the ability to perform side effects there:
-
-| Not available inside `"use workflow"`           | Replacement                                |
-| ----------------------------------------------- | ------------------------------------------ |
-| The global `fetch` function                     | `import { fetch } from "workflow"`         |
-| `setTimeout`, `setInterval`                     | `sleep("5s")` from `"workflow"`            |
-| Node built-in modules such as `fs` and `crypto` | Move the code into a `"use step"` function |
-
-Step functions run in a normal Node environment without these restrictions. In practice this means database access must be inside a step. Prisma requires both Node modules and network access, so a Prisma query placed in the orchestrator fails.
-
-```ts
-// Incorrect: database access in the orchestrator
-export async function gradeSubmission(id: string) {
-  "use workflow"
-  const submission = await db.submission.findUnique({ where: { id } })  // fails
-}
-
-// Correct: database access inside a step
-async function loadSubmission(id: string) {
-  "use step"
-  return db.submission.findUnique({ where: { id } })
-}
-
-export async function gradeSubmission(id: string) {
-  "use workflow"
-  const submission = await loadSubmission(id)
-}
-```
-
-The rule: the orchestrator chooses the order of operations, and steps perform operations.
-
-**Consequence 2: the orchestrator must be deterministic.** Each execution must call the same steps in the same order given the same inputs, because the runtime matches recorded results to step calls by their position in the sequence. A value that differs between executions must not affect which steps are called:
-
-```ts
-export async function gradeSubmission(id: string) {
-  "use workflow"
-  const startedAt = Date.now()           // a different value on every replay
-  const result = await runTests(id)
-
-  if (Date.now() - startedAt > 60_000) {  // may be true on one execution, false on another
-    await recordSlowRun(id)               // so this step may or may not be called
-  }
-}
-```
-
-The same applies to `Math.random()`. Generate such values inside a step, where the result is recorded once and returned unchanged on replay, or pass them in as arguments to the workflow.
-
-**Consequence 3: values crossing a step boundary must be serializable**, because they are written to storage and read back. Plain objects, arrays, strings, numbers, and `Date` are supported; functions and class instances are not. Prisma query results are plain objects, so this is normally satisfied without effort.
-
----
-
-## Where rubrics, answer keys, and sample reports live
-
-**Not decided, and deliberately not being implemented.** Written down because it changes the shape of `lib/grade/assets.ts`, and knowing it is coming affects how much is invested there in the meantime.
-
-The idea: move **rubrics** out of the grading-guides repository into a shared Google Drive folder, so that a non-technical instructor can write and upload one without touching git. Answer keys for technical assignments stay in GitHub, where they belong next to the code; answer keys for non-technical assignments live in Drive. Sample feedback reports possibly move too. The grading-guides repository simplifies to a collection of answer keys, and `agent-rules.md` moves into this application's own file structure.
-
-**The strongest part of this is `agent-rules.md` moving into the repository.** It is not reference material, it is prompt code: it sets tone, formatting, the two-beat summary, the half-credit nesting rule, and the prohibition on flag text reaching a student. A change to it changes every grade the application produces. That belongs in a pull request with a diff and a deploy, not in a documents folder — and `modelMetadata` already records a prompt version, which would then be a version of something in this repository.
-
-**The strongest argument for Drive is the one that motivated it**: a rubric written by an instructor who does not use git is a rubric that never gets written otherwise. That is the whole reason instructor-authored rubrics matter, so this is not a minor convenience.
-
-Three things to work out before it is worth doing, each of which is a real cost rather than a detail:
-
-- **Reproducibility is currently a commit SHA.** Assets are read at a resolved commit, cached under `sha:path` with no expiry — safe because content at a commit cannot change — and that SHA is stamped into `modelMetadata` so any report traces back to the exact rubric that produced it. Drive has no equivalent single identifier for a set of files. It does have a revision id per file, so the property is recoverable, but the shape changes: one SHA becomes a set of per-file revision ids, and every place that treats the asset commit as one value has to stop doing that.
-- **Sample reports argue against moving.** They steer the model's output format as directly as `agent-rules.md` does, so the same reasoning that says agent rules belong in the repository says samples do too. This is the one part of the idea that cuts against itself, and worth resolving deliberately rather than by whichever is more convenient to move.
-- **It is a second Drive integration, and that is an argument for timing rather than against.** Reading a student's Google Doc submission needs Drive access anyway. Doing both at once — assets from Drive, submissions from Drive — costs one authentication story instead of two, which suggests this belongs with [AI grading for non-coding assignments](#ai-grading-for-non-coding-assignments) rather than as its own project.
-
-Also unresolved, and cheap to note now: an instructor uploading a rubric to a folder is not the same as an instructor *authoring* one in the application. The first is a file whose structure nothing validates; the second is rows with bands and descriptions the prompt can be built from. A rubric the model has to be handed as an opaque document is a weaker input than one with a scale it can be told to score against, so "instructors upload rubrics to Drive" and "instructors author rubrics in the application" are different features that happen to serve the same person.
-
----
-
-## Scaling: what a hundred students costs, and where it breaks
-
-**Questions to hold rather than work to schedule.** Nothing here is a known problem — the largest thing this has run against is one cohort — and most of what would answer it is measurement [token management](#token-management) produces anyway. It is written down because the answers change what [triggering and orchestration](#triggering-and-orchestration) should be, and that decision is already waiting.
-
-**What is already measured**, from [what a report costs](ARCHITECTURE.md#what-a-report-costs) and the sandbox durations in `test_runs.duration_ms`: a report is roughly $0.09 to $0.15 at `high` effort, output is about 60 percent of it because thinking is billed as output, a sandbox run is 30 to 40 seconds, and a single submission end to end is about two minutes at the worst measured case. So a hundred students on one frontend assignment is on the order of $15 and, if run one after another, over three hours of wall clock. Neither figure is alarming; both are worth knowing before a batch button exists.
-
-**Concurrency is the question triggering and orchestration already frames.** Its requirement 4 — that a batch must not be bound by one function invocation's limit — is answered by fanning out one invocation per submission, because two minutes sits comfortably inside 300 seconds. What a hundred students changes is not that arithmetic but what happens when a hundred of those invocations run at once, which is where every vendor limit below actually bites.
-
-**Anthropic.** Rate limits are per organization and counted in requests and tokens per minute, so the ceiling on a batch is not the money, it is how many reports can be in flight before requests start being refused. Two things follow: whatever runs the batch needs to handle a rate-limit response by waiting rather than by failing a submission, and [prompt caching's five-minute window](ARCHITECTURE.md#what-a-report-costs) means a burst is meaningfully cheaper than the same work spread across an evening — which argues for the grading-session model rather than against it. Worth separating from developer tooling: the grading spend is the Anthropic API, and Claude Code is a different line item that scales with how much is built rather than with how many students there are.
-
-**E2B.** Concurrent sandbox count is the limit that matters, not total minutes, and a sandbox bills until its own timeout expires — which is why `sandbox.kill()` is in a `finally` block. A hundred concurrent runs is the first time a leak would be expensive rather than merely untidy. The other thing a hundred students changes is that 6 to 17 seconds of dependency installation per run stops being a detail: [building custom templates with dependencies already present](ARCHITECTURE.md#the-sandbox-run) is the largest speed improvement available and it gets more valuable linearly.
-
-**Supabase.** The application connects through the pooled `DATABASE_URL` and migrations use `DIRECT_URL`, which is the arrangement that survives many concurrent functions — a serverless fan-out against a direct connection is how a connection pool gets exhausted. Two other limits to know: the storage bucket for uploaded submissions grows without bound, since a re-upload writes a new object and [the previous one is deliberately left in place](ARCHITECTURE.md#handing-in-a-file), and a hundred students' resumes at up to 25MB is a real number. Nothing prunes it today.
-
-**Vercel.** The 300-second function limit is the one already reasoned about. Beyond it: a fan-out of a hundred invocations is a hundred invocations' worth of Active CPU billing, and the webhook path is unaffected because it does one database write.
-
-**The one that is not a vendor limit.** A hundred students produce a hundred drafts an instructor has to read, and no amount of concurrency helps with that. Triage, [working a pile by what it is](#working-a-pile-by-what-it-is-not-only-by-what-it-needs), and [student groups](ARCHITECTURE.md#groups-and-grading-a-portion-of-a-cohort) are the parts of this application that actually address a cohort of a hundred, which is worth noticing given how cheap they are.
-
----
-
-## Deferred, with the schema left open
-
-- **SQL sandbox execution.** The design is settled: boot an ephemeral PostgreSQL, run `setup.sql`, and compare each numbered query's result set — rows, columns, and order — against `queries-solution.sql` programmatically, which makes SQL correctness fully deterministic with no model judgment involved. It needs an E2B template with PostgreSQL installed, and is the largest gap in what can be graded deterministically.
-- **Frontend execution scoring.** Matches today's manual process, which is a README checklist and a code-reading judgment. Lint and build only, to catch hard errors.
-- **The GitBook resource link index.** Pre-build a heading-to-URL index for `marcy-curriculum-docs` per module — the URL scheme is fixed at `.../{module}/{lesson}#{subheading}` — and pass candidate links in context for the model to select from rather than construct. Until this exists, prompts omit a recommended resources section entirely rather than risk invented URLs.
-- **Answer keys in the cacheable prefix.** They are identical for every student of a given assignment but sit in the user content, so they are billed at full input price on every run. Moving them into the system block would give each assignment its own cache entry. Worth roughly 6 percent of the cost of a report, which is why it waits behind the `effort` question.
-- **One submission on behalf of a group.** A submission belongs to a student today: `studentId` is non-null, its pair with the assignment is unique, the repository is created against one GitHub login, and approving writes the grade onto that one row. The version that keeps all of those is one student's submission being the real one, with approval copying the grade and the feedback onto their groupmates' rows. Each student then still has their own record, which is what the gradebook, the student's own feedback page, and [Salesforce](#salesforce-synchronization) all want anyway. `CourseGroup` is the table it wants, and it carries no instructor relation for this reason.
-- **Students seeing their groups and who else is in them.** Nothing about splitting the grading needs it, and it starts to matter only when students are working together — so it arrives with group assignments rather than before them. It would be the first student-visible read of anybody else in the cohort, which is why it wants deciding per group rather than for all of them: a project team is meant to be seen, and a group that exists only to split the marking is not.
-- **Rendering a Jupyter notebook in the review screen.** `previewKindOf` answers `pdf` or `image` and everything else downloads. A notebook is the most-read of the uploaded types and the one where the download-and-open-elsewhere loop that [embedding a PDF exists to remove](ARCHITECTURE.md#handing-in-a-file) costs the most. Rendering one is a real dependency and its own decision, which is why a check records that not previewing it is deliberate.
-- **A manifest in the assignment repository.** A file in each template — `assignment.json` rather than a block in `package.json`, since `package.json` is a protected path the sandbox merges under its own rules and Python and SQL assignments have none — declaring section types, point values, and answer keys. It would let the seed's one remaining assignment definition go, make the repository the author of what an assignment *is* rather than an instructor retyping it, and support a drift check when a cohort's copy no longer matches the curriculum. Deferred because the recurring cost it removes is already covered by `duplicate`, and because designing it after a real cohort has been set up beats designing it against a guess. Any version of it must read from the template and never a student's copy, and be read server-side rather than trusted from the browser.
-- **A catalogue for `GOOGLE_DRIVE` assignments.** An instructor types the title and pastes the template link, so nothing forces internal organization and "what Drive assignments exist" has no single answer to check a new one against. The shape most likely to work, not yet designed in detail: a shared Drive folder per module that an instructor picks a document from rather than pasting an arbitrary link. That is one authentication story with [reading a student's document for grading](#ai-grading-for-non-coding-assignments), which is the argument for doing them together rather than now. `FILE_UPLOAD` likely needs no catalogue at all: an instructor is describing a submission format rather than selecting among curriculum content.
-- **Bulk grading** beyond the basic gradebook table, and a single action that generates reports for every submission still waiting on one.
-- **An early-intervention dashboard.** `lastActivityAt`, `isLate`, and `status` already support it, and attendance now supplies the other half of the signal — the drift list on the attendance screen is a first version of it scoped to one cohort's mornings. What is left is joining the two, so that a fellow who has stopped handing work in *and* stopped arriving surfaces once rather than on two screens.
-- **Term dates, and a meeting pattern on a course.** The one thing that would let a morning nobody took attendance on be noticed. A session exists because somebody started one, so a forgotten Tuesday is indistinguishable from a Tuesday the cohort did not meet — and no warning can tell them apart without knowing which days are school days, which is why none is shown. `startsOn`, `endsOn`, and the weekdays a cohort meets would make the absent session detectable and the denominator "days we should have met" rather than "days somebody opened". Deferred because every version of it is a settings screen that has to be kept true, and being wrong about it is worse than being silent.
-- **Attendance in Salesforce.** `submissions` carries the three dormant columns; `attendance_sessions` and `attendance_records` carry none, deliberately. Adding them before there is a syncer would mean shipping a `PENDING` flag on roughly 1,800 rows a term with nothing to move them. It is the same one-migration change described in [Salesforce synchronization](#salesforce-synchronization), and it wants doing at the same time as the assignment and course columns rather than before them.
-- **A second check-in later in the day**, and per-fellow modality — whether somebody dialled in on a day the cohort was in the building. Both are one column and neither is asked for yet; `@@unique([courseId, date])` is what a second session per day would have to become `[courseId, date, slot]`.
-- **A per-student record that accumulates over time and informs grading.** Requires deciding what is tracked and deserves its own design discussion.
-- **A grading assistant mode** that identifies patterns across a student's assignments relative to a rubric. Depends on the previous item existing first.
-- **Adding a student to a cohort directly, without the link.** It needs a way to find a person by email across the whole application, which is a search over `Profile` that nothing else needs and that exposes who else uses the system. The link and [the roster](ARCHITECTURE.md#getting-students-into-a-course) together cover the case that actually happens at the start of term: the instructor already writes down who is expected, and adding somebody mid-term is one more line in that box.
-
-Assignment types with no `rubric.md` section yet, such as some mod-5 and mod-8 assignments, route to `needs_manual_review` rather than expanding the rubric now.
-
----
-
-## Open items
+Decisions that are made, and limits that are known and deliberate. None of it is scheduled work; it is written down so that a reader does not mistake any of it for an oversight.
 
 - **Which GitHub organization — settled.** A **new organization**, created for this, rather than `The-Marcy-Lab-School-Assignments`. That org holds the GitHub Classroom era's templates and will not be used at all. Everything verified so far used `marcy-lms-test`, and moving to the new one is a matter of `SEED_GITHUB_ORG`, an App installation, and each assignment's `githubOrg`.
 
