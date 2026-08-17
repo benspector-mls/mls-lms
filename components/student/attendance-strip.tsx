@@ -60,7 +60,7 @@ export function AttendanceStrip({ initial }: { initial: MyWeek }) {
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="flex items-center gap-2 text-sm font-semibold">Your week</h2>
+      <h2 className="flex items-center gap-2 text-sm font-semibold">Weekly Attendance</h2>
 
       <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
         {courses.map((course) => (
