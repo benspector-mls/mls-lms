@@ -31,7 +31,7 @@ import { TestStudentBadge } from "@/components/test-student-badge";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import {
   cellsFor,
-  verdictsByStudent,
+  published,
   type UnitVerdict,
   type UnitWithWork,
 } from "@/lib/gradebook/categories";
@@ -57,6 +57,7 @@ import {
   completionByAssignment,
   completionByStudent,
   completionLabel,
+  type Completion,
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
 import {
@@ -129,21 +130,34 @@ export function GradebookGrid({
 
   const at = React.useMemo(() => new Date(now), [now]);
 
-  /*
-    The bands the grid draws.
+  /**
+   * The units that hold any work at all, which is every band this grid can draw.
+   *
+   * **A unit with no assignments is omitted.** A band is a verdict column and the assignments it
+   * is a verdict on; with nothing in it there is no verdict to give and no column to give it
+   * beside, so it contributes a heading, an "Overall" that reads "Not finished" for the whole
+   * cohort, and nothing else — a column of grey dots claiming a term's students have not finished
+   * something that does not exist.
+   *
+   * This is where the gradebook parts company with the Curriculum screen, which keeps its empty
+   * units deliberately: there, an instructor who has just created a project needs to see it where
+   * they put it, or the act of creating it looks like it failed. That is a screen about what a
+   * course *contains*. This one is about what students have *done*, and there is nothing to have
+   * done yet.
+   */
+  const filled = React.useMemo(() => units.filter((entry) => entry.work.length > 0), [units]);
 
-    A unit whose work the filter emptied is dropped, since a band with a verdict and no columns
-    says nothing. With no filter in force every unit is kept, including an empty one — an
-    instructor who has just created a project should see it where they put it rather than have
-    the act of creating it look like it failed.
+  /*
+    The bands as the filter leaves them. A unit whose work the filter emptied drops out for the
+    same reason an empty one never appeared.
   */
   const visible = React.useMemo(() => {
-    if (!filterIsActive(filter)) return units;
+    if (!filterIsActive(filter)) return filled;
 
-    return units
+    return filled
       .map((entry) => ({ ...entry, work: filterAssignments(entry.work, filter, at) }))
       .filter((entry) => entry.work.length > 0);
-  }, [units, filter, at]);
+  }, [filled, filter, at]);
 
   const work = React.useMemo(() => visible.flatMap((entry) => entry.work), [visible]);
 
@@ -155,6 +169,19 @@ export function GradebookGrid({
     );
   }
 
+  /*
+    Units exist, and none of them holds anything. Said differently from "no modules yet", because
+    it is a different situation with a different thing to do about it: the units are there and the
+    work has still to be written.
+  */
+  if (filled.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No {meta.partPluralNoun} in any of this cohort&apos;s {meta.pluralNoun} yet.
+      </p>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <Controls
@@ -162,9 +189,9 @@ export function GradebookGrid({
         onQuery={setQuery}
         filter={filter}
         onFilter={setFilter}
-        units={units}
+        units={filled}
         columns={work.length}
-        totalColumns={units.reduce((sum, entry) => sum + entry.work.length, 0)}
+        totalColumns={filled.reduce((sum, entry) => sum + entry.work.length, 0)}
       />
 
       <CellLegend />
@@ -178,7 +205,7 @@ export function GradebookGrid({
           <Band
             courseId={courseId}
             units={visible}
-            allUnits={units}
+            allUnits={filled}
             students={searchStudents(active, query)}
             cells={cells}
             work={work}
@@ -206,7 +233,7 @@ export function GradebookGrid({
               <Band
                 courseId={courseId}
                 units={visible}
-                allUnits={units}
+                allUnits={filled}
                 students={searchStudents(removed, query)}
                 cells={removedCells}
                 work={work}
@@ -410,7 +437,12 @@ function Band({
   courseId: string;
   /** The units as filtered, which is what the columns are drawn from. */
   units: UnitWithWork<Assignment>[];
-  /** The same units unfiltered, which is what the verdicts are computed from. */
+  /**
+   * The same units before the column filter, which is what the verdicts are computed from.
+   *
+   * Units the filter emptied are still in here, so ticking one deliverable off in the menu
+   * narrows the columns without changing whether a student has completed the project.
+   */
   allUnits: UnitWithWork<Assignment>[];
   students: Student[];
   cells: Cell[];
@@ -443,19 +475,42 @@ function Band({
   */
   const awaiting = pending === "waiting" ? awaitingByStudent(shown) : null;
 
-  /*
-    A verdict is a claim about the whole unit, so it is computed from every assignment in it —
-    from `allUnits`, never from the filtered columns. Otherwise ticking one deliverable off in
-    the filter menu would change whether a student had completed the project, which is a
-    different fact from the one the reader narrowed.
-  */
-  const verdicts = React.useMemo(() => {
-    const map = new Map<string, Map<string, UnitVerdict>>();
+  /**
+   * How much of each unit each student has finished: "3/5", per unit, per student.
+   *
+   * **A fraction rather than a word.** The cell used to read "Complete", "Incomplete", or "Not
+   * finished", and the middle two were a distinction only the code knew — one meant every
+   * assignment had been marked and at least one fell short, the other that something was still
+   * with an instructor. Nobody reading a grid can be expected to hold that apart, and a red word
+   * for "marked and fell short" beside a grey one for "not marked yet" made the pair look like a
+   * judgment and a lesser judgment. A count says what is actually known: how many of the unit's
+   * assignments this student has finished, out of how many there are.
+   *
+   * **Published work only, on both halves of the fraction.** A student cannot finish what has not
+   * been handed out, so counting drafts would mean an instructor writing next week's assignment
+   * turning "5/5" into "5/6" for everyone who had finished the unit. It is the same rule the
+   * course roll-up and the student's own course page use, so all three agree.
+   *
+   * Computed from every assignment in the unit — from `allUnits`, never from the filtered columns.
+   * Otherwise ticking one deliverable off in the filter menu would change how much of the project
+   * a student had done, which is a different fact from the one the reader narrowed.
+   */
+  const unitProgress = React.useMemo(() => {
+    const map = new Map<string, Map<string, Completion>>();
+
     for (const entry of allUnits) {
-      map.set(entry.unit.id, verdictsByStudent(cellsFor(cells, entry.work), entry.work));
+      const live = published(entry.work);
+      map.set(entry.unit.id, completionByStudent(cellsFor(cells, live), live.length));
     }
+
     return map;
   }, [allUnits, cells]);
+
+  /** Whether a student has finished a whole unit, which is the only thing the colour says. */
+  const isUnitComplete = (unitId: string, studentId: string): boolean => {
+    const progress = unitProgress.get(unitId)?.get(studentId);
+    return progress != null && progress.possible > 0 && progress.complete === progress.possible;
+  };
 
   const rows = React.useMemo(
     () =>
@@ -633,9 +688,10 @@ function Band({
             <TableHead className="border-l border-border" />
             <TableHead />
             {units.map((entry) => {
-              const unitVerdicts = verdicts.get(entry.unit.id);
-              const complete = students.filter(
-                (student) => unitVerdicts?.get(student.id) === "complete",
+              // How many students have finished the whole unit, which is a different question
+              // from the fraction each student's own cell below shows.
+              const complete = students.filter((student) =>
+                isUnitComplete(entry.unit.id, student.id),
               ).length;
 
               return (
@@ -694,10 +750,24 @@ function Band({
 
               {units.map((entry) => (
                 <React.Fragment key={entry.unit.id}>
-                  <TableCell className="border-l border-border text-center">
-                    <VerdictMark
-                      verdict={verdicts.get(entry.unit.id)?.get(student.id) ?? "pending"}
-                    />
+                  {/*
+                    Green only when the whole unit is finished, and muted otherwise. One thing the
+                    colour says, so it can be read without a legend — a second colour for "marked
+                    and fell short" was the half of the old three-state mark that nobody could
+                    tell from "not marked yet".
+                  */}
+                  <TableCell
+                    className={cn(
+                      "border-l border-border text-center text-sm font-medium tabular-nums",
+                      isUnitComplete(entry.unit.id, student.id)
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {completionLabel(
+                      unitProgress.get(entry.unit.id)?.get(student.id),
+                      published(entry.work).length,
+                    )}
                   </TableCell>
                   {entry.work.map((assignment) => (
                     <ScoreCell
@@ -791,13 +861,14 @@ function SortIcon({ active, direction }: { active: boolean; direction: "asc" | "
 }
 
 /**
- * Where a student stands on a whole unit, in three states.
+ * Whether a student has finished the whole course: done, or not yet.
  *
- * **"Not finished" is not "incomplete"**, and keeping them apart is the point. A unit shown as
- * incomplete while two of its assignments are still with an instructor would be telling a student
- * they had failed something nobody has marked. Green means every published assignment in it is
- * complete, red means every one has a verdict and one of them fell short, and grey means the
- * answer is not in yet.
+ * **Two states on screen, not three.** The underlying verdict still distinguishes "incomplete" —
+ * every unit marked and one fell short — from "pending", something still with an instructor, and
+ * that distinction is real. It was not *legible*: a red word and a grey word sat side by side in
+ * a column with no legend, and the pair read as a judgment and a lesser judgment rather than as
+ * "finished badly" against "not finished yet". So the two share an appearance here, and the red
+ * is gone: this column answers one question, and the answer is yes or not yet.
  *
  * Green is the same green completion uses everywhere else in the interface, which is why nothing
  * else in this file is allowed to be.
@@ -808,8 +879,16 @@ const VERDICT_META: Record<UnitVerdict, { label: string; dot: string; text: stri
     dot: "bg-emerald-500",
     text: "text-emerald-600 dark:text-emerald-400",
   },
-  incomplete: { label: "Incomplete", dot: "bg-destructive", text: "text-destructive" },
-  pending: { label: "Not finished", dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
+  incomplete: {
+    label: "Not complete",
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+  },
+  pending: {
+    label: "Not complete",
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+  },
 };
 
 export function VerdictMark({ verdict }: { verdict: UnitVerdict }) {

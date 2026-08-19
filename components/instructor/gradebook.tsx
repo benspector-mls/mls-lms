@@ -18,6 +18,7 @@ import {
   courseVerdictByStudent,
   groupByUnit,
   unitCompletionByStudent,
+  workOf,
   type GroupedCourse,
 } from "@/lib/gradebook/categories";
 import { gradebookIsEmpty, sortGradebookAssignments } from "@/lib/gradebook/csv";
@@ -125,11 +126,21 @@ export function Gradebook({
     );
   }
 
+  /*
+    Assignments, not units. The count is there to say how much is on the other side of a tab, and
+    what a tab holds is columns — "18 modules" tells a reader nothing about whether opening it
+    means reading four columns or ninety. Counting units also made the Assignments tab and the
+    Projects tab measure different-sized things while looking like one scale.
+
+    Every assignment in the category, including the drafts, because the grid draws a column for
+    each. Units with nothing in them contribute nothing here, which is the same reason the grid
+    omits their bands.
+  */
   const counts: Record<GradebookTab, number | null> = {
     overview: null,
-    MODULE: grouped.MODULE.length,
-    PROJECT: grouped.PROJECT.length,
-    ASSESSMENT: grouped.ASSESSMENT.length,
+    MODULE: workOf(grouped.MODULE).length,
+    PROJECT: workOf(grouped.PROJECT).length,
+    ASSESSMENT: workOf(grouped.ASSESSMENT).length,
   };
 
   return (
@@ -168,8 +179,9 @@ export function Gradebook({
  * with the browser's own back button. The group filter is carried through every one of them,
  * because switching tab must never silently widen the grid back to the whole cohort.
  *
- * The count beside each label is what makes the shape of a course readable without opening all
- * four — "eighteen modules, one assessment, two projects" in a glance.
+ * The count beside each label is how many assignments are on the other side of it, which is what
+ * makes the shape of a course readable without opening all four — "forty assignments, three
+ * assessment parts, five deliverables" in a glance.
  */
 function TabStrip({
   courseId,
