@@ -51,6 +51,21 @@ export function myAttendanceHref(courseId: string): string {
 }
 
 /**
+ * A fellow's own General Coding Framework results.
+ *
+ * **The one student address that names no course**, and deliberately: the GCF is sat at
+ * CodeSignal on a fellow's own schedule, a result carries no cohort, and somebody who repeats a
+ * term should find one history rather than two halves of it. Scoping it to a course would mean
+ * choosing which of their enrollments a sitting belonged to, and there is no honest answer.
+ *
+ * A function taking nothing rather than a bare string, so it is reached the same way as every
+ * other address here and moving it is one edit.
+ */
+export function gcfHref(): string {
+  return "/gcf";
+}
+
+/**
  * The whole of the cohort's curriculum: its modules, projects, and assessments, and the
  * assignments and resources inside each.
  *

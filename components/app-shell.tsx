@@ -10,6 +10,7 @@ import {
   CalendarCheck,
   ChevronsUpDown,
   GraduationCap,
+  Gauge,
   Layers,
   LayoutDashboard,
   ListChecks,
@@ -74,6 +75,7 @@ import {
   courseSettingsHref,
   gradebookHref,
   gradingQueueHref,
+  gcfHref,
   myAttendanceHref,
   rosterHref,
   sameViewInCourse,
@@ -613,6 +615,28 @@ function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathn
             );
           })
         )}
+      </SidebarMenu>
+
+      {/*
+        The GCF, beneath the courses rather than inside one.
+
+        **A record that follows a person rather than a cohort.** CodeSignal has no idea what a
+        cohort is, a fellow sits the assessment on their own schedule, and somebody who repeats a
+        term should find one history rather than two halves of it. So it is addressed like
+        `/courses` is — outside every course — and sits under the same heading because it is still
+        part of what a fellow's own record is.
+      */}
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname === gcfHref()}
+            tooltip="My GCF results"
+            render={<Link href={gcfHref()} />}
+          >
+            <Gauge />
+            <span>My GCF</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
       </SidebarMenu>
     </SidebarGroup>
   );

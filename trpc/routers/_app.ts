@@ -4,6 +4,7 @@ import { displayNameSchema } from "@/lib/people";
 import { createTRPCRouter, protectedProcedure } from "../init";
 import { assignmentsRouter } from "./assignments";
 import { attendanceRouter } from "./attendance";
+import { gcfRouter } from "./gcf";
 import { coursesRouter } from "./courses";
 import { enrollmentsRouter } from "./enrollments";
 import { gradingDraftsRouter } from "./grading-drafts";
@@ -89,6 +90,7 @@ export const appRouter = createTRPCRouter({
   courses: coursesRouter,
   enrollments: enrollmentsRouter,
   attendance: attendanceRouter,
+  gcf: gcfRouter,
   courseUnits: courseUnitsRouter,
   groups: groupsRouter,
   resources: resourcesRouter,

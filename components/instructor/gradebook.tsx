@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BarChart3 } from "lucide-react";
 
+import { GcfTab } from "@/components/instructor/gcf-tab";
 import { GradebookGrid, VerdictMark } from "@/components/instructor/gradebook-grid";
 import { EmptyState } from "@/components/list-states";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -13,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/course-units";
+import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
 import {
   allUnits,
   courseVerdictByStudent,
@@ -29,7 +31,7 @@ import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Every student against every piece of work, in four tabs.
+ * Every student against every piece of work, in five tabs.
  *
  * **Modules, projects, and assessments are read separately**, which is what the tabs are for:
  * "how is this student doing" has three answers, and one undifferentiated grid gives an average of
@@ -50,9 +52,16 @@ import type { RouterOutputs } from "@/trpc/types";
  * The grid on each category tab *is* a client component, because searching and sorting it are
  * things a reader does dozens of times a minute and a round trip per keystroke is not a control.
  * It receives one category's work, so three tabs' worth stays on the server.
+ *
+ * **The fifth tab is not coursework.** The General Coding Framework is sat at CodeSignal, outside
+ * this application: there is no assignment behind a score and nothing was handed in. It is here
+ * because this is where a cohort is read, and nowhere else — it takes no part in the completion
+ * roll-up, since a course whose units are all finished is finished whether or not anybody has sat
+ * an external benchmark yet.
  */
 
 type Gradebook = RouterOutputs["courses"]["gradebook"];
+type Gcf = RouterOutputs["gcf"]["forCourse"];
 type Assignment = Gradebook["assignments"][number];
 type Cell = Gradebook["cells"][number];
 // From the active list rather than a whole-roster one, which this payload no longer carries.
@@ -60,15 +69,31 @@ type Cell = Gradebook["cells"][number];
 type Student = Gradebook["activeEnrollments"][number]["student"];
 
 /**
- * The four tabs, in the order they are offered.
+ * The five tabs, in the order they are offered.
  *
- * Overview first because it is the one that answers a question about the whole cohort; the other
- * three are the three categories in the order `UNIT_CATEGORIES` names them, so the tab strip and
- * every other list of the categories in the application read the same way round.
+ * Overview first because it is the one that answers a question about the whole cohort; then the
+ * three categories in the order `UNIT_CATEGORIES` names them, so the tab strip and every other
+ * list of the categories in the application read the same way round; and the GCF last, because it
+ * is the one thing here that is not this course's own work.
  */
-export const GRADEBOOK_TABS = ["overview", ...UNIT_CATEGORIES] as const;
+export const GRADEBOOK_TABS = ["overview", ...UNIT_CATEGORIES, "GCF"] as const;
 
 export type GradebookTab = (typeof GRADEBOOK_TABS)[number];
+
+/**
+ * What each tab is called.
+ *
+ * A map of its own rather than `CATEGORY_META[tab].tabLabel`, which is what this was and which
+ * only worked while every tab but the overview was a `CourseUnitCategory`. The GCF is not one —
+ * it is not coursework at all — so the lookup had to become something that covers all five.
+ */
+const TAB_LABEL: Record<GradebookTab, string> = {
+  overview: "Overview",
+  MODULE: CATEGORY_META.MODULE.tabLabel,
+  PROJECT: CATEGORY_META.PROJECT.tabLabel,
+  ASSESSMENT: CATEGORY_META.ASSESSMENT.tabLabel,
+  GCF: "GCF",
+};
 
 /**
  * Which tab an address names, defaulting to the overview.
@@ -86,10 +111,18 @@ export function parseGradebookTab(value: string | undefined): GradebookTab {
 
 export function Gradebook({
   data,
+  gcf,
   tab,
   group,
 }: {
   data: Gradebook;
+  /**
+   * The cohort's GCF results, or null on a tab that does not read them.
+   *
+   * Fetched by the page only for the two tabs that show them, so opening the Assignments tab does
+   * not also pull a term of CodeSignal results nobody asked for.
+   */
+  gcf: Gcf | null;
   tab: GradebookTab;
   group: string;
 }) {
@@ -141,6 +174,9 @@ export function Gradebook({
     MODULE: workOf(grouped.MODULE).length,
     PROJECT: workOf(grouped.PROJECT).length,
     ASSESSMENT: workOf(grouped.ASSESSMENT).length,
+    // Sittings rather than students, which is the same reading as the other three: how much is on
+    // the other side of the tab.
+    GCF: gcf?.attempts.length ?? null,
   };
 
   return (
@@ -155,7 +191,12 @@ export function Gradebook({
           removed={removed}
           cells={data.cells}
           removedCells={data.removedCells}
+          gcf={gcf}
         />
+      ) : tab === "GCF" ? (
+        gcf === null ? null : (
+          <GcfTab courseId={data.course.id} data={gcf} />
+        )
       ) : (
         <GradebookGrid
           courseId={data.course.id}
@@ -219,7 +260,7 @@ function TabStrip({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {tab === "overview" ? "Overview" : CATEGORY_META[tab].tabLabel}
+          {TAB_LABEL[tab]}
           {counts[tab] !== null && (
             <span className="text-xs tabular-nums opacity-70">{counts[tab]}</span>
           )}
@@ -249,6 +290,7 @@ function Overview({
   removed,
   cells,
   removedCells,
+  gcf,
 }: {
   courseId: string;
   grouped: GroupedCourse<Assignment>;
@@ -256,6 +298,7 @@ function Overview({
   removed: Student[];
   cells: Cell[];
   removedCells: Cell[];
+  gcf: Gcf | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -266,6 +309,7 @@ function Overview({
           students={active}
           cells={cells}
           countWaiting
+          gcf={gcf}
         />
       )}
 
@@ -283,6 +327,7 @@ function Overview({
             students={removed}
             cells={removedCells}
             countWaiting={false}
+            gcf={gcf}
           />
         </section>
       )}
@@ -296,11 +341,14 @@ function OverviewTable({
   students,
   cells,
   countWaiting,
+  gcf,
 }: {
   courseId: string;
   grouped: GroupedCourse<Assignment>;
   students: Student[];
   cells: Cell[];
+  /** The cohort's GCF results, for the one column here that is not this course's own work. */
+  gcf: Gcf | null;
   /**
    * Whether an ungraded submission counts as work outstanding.
    *
@@ -334,6 +382,20 @@ function OverviewTable({
 
   const awaiting = countWaiting ? awaitingByStudent(cells) : null;
 
+  /*
+    The one figure here that is not about this course's own work: a fellow's best proctored GCF.
+    Best rather than latest, and the same reading the GCF tab uses — a later, weaker sitting does
+    not take away a score somebody has already achieved.
+  */
+  const proctoredBest = new Map<string, number>();
+  for (const attempt of gcf?.attempts ?? []) {
+    if (attempt.kind !== "PROCTORED") continue;
+    const current = proctoredBest.get(attempt.studentId);
+    if (current === undefined || attempt.score > current) {
+      proctoredBest.set(attempt.studentId, attempt.score);
+    }
+  }
+
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <Table>
@@ -359,6 +421,22 @@ function OverviewTable({
             <TableHead className="text-center">
               <span className="mx-auto block max-w-28 text-xs leading-tight">Course</span>
             </TableHead>
+            {gcf !== null && (
+              <TableHead className="text-center">
+                {/*
+                  The scale and the target both said once in the heading, so the numbers beneath
+                  are bare — the same convention the GCF tab uses, since a reader moving between
+                  the two should not find one column of `512` and another of `512/600`.
+                */}
+                <span className="mx-auto block max-w-28 text-xs leading-tight">
+                  Best GCF
+                  <br />
+                  <span className="font-normal opacity-70">
+                    out of {PROCTORED_SCALE.max} · target {targetLabel("PROCTORED")}
+                  </span>
+                </span>
+              </TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -401,6 +479,19 @@ function OverviewTable({
               <TableCell className="text-center">
                 <VerdictMark verdict={courseVerdicts.get(student.id) ?? "pending"} />
               </TableCell>
+
+              {gcf !== null && (
+                <TableCell
+                  className={cn(
+                    "text-center text-sm font-medium tabular-nums",
+                    (proctoredBest.get(student.id) ?? 0) >= GCF_TARGET.PROCTORED
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {proctoredBest.get(student.id) ?? "—"}
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>

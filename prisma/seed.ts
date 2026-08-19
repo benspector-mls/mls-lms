@@ -17,10 +17,20 @@
  * - A removed student would have been **put back** into the cohort.
  * - An edited assignment would have had its title, points, and rubric **reverted**.
  *
- * So: existing rows are left alone. Modules are identified by position rather than name, because
- * position is what this script is actually asserting and a name is what an instructor changes.
- * Roles are raised and never lowered. The one exception is rubrics, which no router can author —
- * see the comment at the top of `main`.
+ * So: existing rows are left alone. Roles are raised and never lowered. The one exception is
+ * rubrics, which no router can author — see the comment at the top of `main`.
+ *
+ * **Modules are found by name, then by ordinal.** They were found by their `position` column,
+ * which broke once a project could sit in the same sequence: "the module at position 2" found a
+ * project there, concluded the module was missing, and created a second copy of one the course
+ * already had — at a slot another unit occupied, corrupting the ordering as well as duplicating
+ * the row. Matching on name alone is no better on its own, because the seeded names are
+ * placeholders most courses have renamed, and every one of them would get a duplicate.
+ *
+ * So both, in that order, against a list of the course's modules *only*. A course this script set
+ * up matches by name; a course that renamed its modules matches by ordinal; and a course with
+ * fewer modules than the seed expects gets a new one appended, never dropped into a slot
+ * something else holds.
  *
  * The cost, stated rather than discovered: a corrected spec does not reach a row that already
  * exists. Edit it in the application, or delete the row and run this again.
@@ -459,43 +469,78 @@ async function main() {
     "Mod 7 - React",
   ];
 
-  /** Module id by position, because position is what survives an instructor renaming one. */
+  /**
+   * The seed's modules, indexed by where they appear in `MODULE_NAMES`.
+   *
+   * **By name, not by the `position` column**, and the difference matters. `position` is the
+   * instructor's ordering: it is shared by all three categories, it is not unique, and `reorder`
+   * rewrites the whole sequence whenever somebody drags a unit. What this map means is "the module
+   * this seed calls index 1", which `MODULE_FOR_KEY_DIR` uses to route assignments — a stable
+   * property of the seed rather than of the course.
+   *
+   * Reading the column instead is a bug this script has already had. Looking up "the module at
+   * position 2" found a *project* sitting there, concluded there was no module, and created one —
+   * a second copy of a module the course already had, at a position another unit already occupied.
+   * Names are what identify these rows, so names are what this asks about.
+   */
   const moduleIdByPosition = new Map<number, string>();
-  for (const [position, name] of MODULE_NAMES.entries()) {
+
+  /*
+    Where a module the course does not have yet should go: after everything already in it. Never
+    at the seed's own index, which is what claimed an occupied slot before. An instructor moves it
+    afterwards if they want it elsewhere, and `reorder` renumbers the sequence when they do.
+  */
+  const last = await prisma.courseUnit.aggregate({
+    where: { courseId: course.id },
+    _max: { position: true },
+  });
+  let nextPosition = (last._max.position ?? -1) + 1;
+
+  /*
+    The course's modules in order, and **only its modules**. This is the list the seed's index
+    means: `MODULE_FOR_KEY_DIR` says an assignment belongs to "module 4", and the fourth module of
+    the course is what that names — whatever the `position` column happens to read, and whatever
+    projects or assessments sit among them in the shared sequence.
+
+    Reading the column directly is the bug this replaced. "The module at position 2" found a
+    project there, concluded no module existed, and created a second copy of one the course
+    already had.
+  */
+  const modulesInOrder = await prisma.courseUnit.findMany({
+    where: { courseId: course.id, category: "MODULE" },
+    orderBy: [{ position: "asc" }, { name: "asc" }],
+    select: { id: true, name: true },
+  });
+
+  for (const [index, name] of MODULE_NAMES.entries()) {
     /*
-      `findFirst` rather than a unique lookup: `position` is deliberately not unique, so that
-      `reorder` can rewrite the whole sequence in one statement. The name tie-break matches
-      `courseUnits.listForCourse`, so "the module at position 1" means the same row here as on screen.
+      By name first, then by ordinal.
+
+      Both, because either alone is wrong in a way that shows up on a real database. By name only
+      creates a duplicate in a course whose modules an instructor has renamed — which is most
+      courses, since the seeded names are placeholders. By ordinal only would attach the seed's
+      assignments to whatever module happens to be fourth in a course that has its own curriculum,
+      which is a guess about somebody else's course.
+
+      Together they degrade sensibly: a course this seed set up matches by name, a course that
+      renamed its modules matches by ordinal, and only a course with fewer modules than the seed
+      expects gets a new one — appended, never at a slot something else holds.
     */
-    const existing = await prisma.courseUnit.findFirst({
-      /*
-        Modules only. All three categories share one position sequence, so without this the
-        sample project below would eventually sit at a position the seed then treats as "the
-        module at position N" — and every assignment routed there would land in the project.
-      */
-      where: { courseId: course.id, category: "MODULE", position },
-      orderBy: { name: "asc" },
-      select: { id: true },
-    });
+    const existing =
+      modulesInOrder.find((unit) => unit.name === name) ?? modulesInOrder[index] ?? null;
 
     if (existing) {
-      moduleIdByPosition.set(position, existing.id);
+      moduleIdByPosition.set(index, existing.id);
       continue;
     }
 
-    /*
-      Nothing at this position, so create it — but by name, and tolerating one that already
-      exists. A module carrying this name somewhere else is this module after a reorder, and
-      claiming the name again would be refused by `@@unique([courseId, name])` anyway.
-    */
-    const row = await prisma.courseUnit.upsert({
-      where: { courseId_name: { courseId: course.id, name } },
-      create: { courseId: course.id, name, position, category: "MODULE" },
-      // Deliberately empty. A module an instructor moved stays where they put it.
-      update: {},
-      select: { id: true },
+    const row = await prisma.courseUnit.create({
+      data: { courseId: course.id, name, position: nextPosition, category: "MODULE" },
+      select: { id: true, name: true },
     });
-    moduleIdByPosition.set(position, row.id);
+    nextPosition += 1;
+    modulesInOrder.push(row);
+    moduleIdByPosition.set(index, row.id);
   }
   console.log(`Modules: ${MODULE_NAMES.length}`);
 
@@ -721,8 +766,9 @@ async function main() {
         category: sample.category,
         name: sample.name,
         overview: sample.overview,
-        // After every module, in the order they are declared here.
-        position: MODULE_NAMES.length + offset,
+        // At the end of whatever the course already holds, for the reason the modules above are:
+        // a position chosen from the seed's own numbering claims a slot another unit may occupy.
+        position: nextPosition + offset,
       },
       // Deliberately empty, for the reason the assignment upsert above gives: this seed creates,
       // it does not correct. A name an instructor has edited stays edited.
@@ -768,6 +814,98 @@ async function main() {
         `${sample.work.length} unpublished assignments`,
     );
   }
+
+  /*
+    A term's worth of GCF results for the seeded student, so every state the screens draw has
+    something real behind it: a proctored sitting above the target and one below, mocks that
+    improve over time, and a flagged attempt both with a note and without — the second being the
+    case the student's page has a sentence for.
+
+    Idempotent on the same triple the import upserts on: a fellow, a kind, and a day. Re-running
+    the seed leaves one of each rather than adding another, and an instructor who edited a note
+    keeps it, because the update below never touches one.
+  */
+  const GCF_ATTEMPTS = [
+    {
+      kind: "MOCK" as const,
+      score: 420,
+      scorePossible: 1200,
+      daysAgo: 84,
+      flagged: false,
+      note: null,
+    },
+    {
+      kind: "MOCK" as const,
+      score: 660,
+      scorePossible: 1200,
+      daysAgo: 56,
+      flagged: false,
+      note: null,
+    },
+    {
+      kind: "MOCK" as const,
+      score: 780,
+      scorePossible: 1200,
+      daysAgo: 28,
+      flagged: true,
+      note: "Flagged for a long paste. We talked it through — it was scaffolding from the lecture.",
+    },
+    // Flagged with no note, which is what a fellow's page has to handle without leaving them
+    // with a bare word and nobody to ask.
+    {
+      kind: "MOCK" as const,
+      score: 540,
+      scorePossible: 1200,
+      daysAgo: 14,
+      flagged: true,
+      note: null,
+    },
+    {
+      kind: "PROCTORED" as const,
+      score: 356,
+      scorePossible: null,
+      daysAgo: 70,
+      flagged: false,
+      note: null,
+    },
+    {
+      kind: "PROCTORED" as const,
+      score: 431,
+      scorePossible: null,
+      daysAgo: 21,
+      flagged: false,
+      note: null,
+    },
+  ];
+
+  for (const attempt of GCF_ATTEMPTS) {
+    const takenOn = new Date(Date.now() - attempt.daysAgo * 24 * 60 * 60 * 1000);
+    // Midnight UTC, which is how Prisma and Postgres represent a bare `@db.Date`.
+    const day = new Date(`${takenOn.toISOString().slice(0, 10)}T00:00:00Z`);
+
+    await prisma.gcfAttempt.upsert({
+      where: {
+        studentId_kind_takenOn: { studentId: student.id, kind: attempt.kind, takenOn: day },
+      },
+      create: {
+        studentId: student.id,
+        kind: attempt.kind,
+        score: attempt.score,
+        scorePossible: attempt.scorePossible,
+        takenOn: day,
+        integrityFlagged: attempt.flagged,
+        note: attempt.note,
+      },
+      // Deliberately empty, for the reason every other upsert here is: this seed creates, it does
+      // not correct. A note an instructor wrote stays written.
+      update: {},
+    });
+  }
+
+  console.log(
+    `GCF: ${GCF_ATTEMPTS.length} attempts for ${STUDENT_EMAIL} ` +
+      `(${GCF_ATTEMPTS.filter((a) => a.kind === "PROCTORED").length} proctored)`,
+  );
 
   console.log("\nSeed complete.");
 }

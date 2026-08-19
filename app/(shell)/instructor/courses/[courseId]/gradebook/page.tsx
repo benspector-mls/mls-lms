@@ -44,9 +44,23 @@ async function FullGradebook({
   // Anything unrecognised becomes the overview, so a stale link lands on the tab that
   // describes all three of the others rather than on an error.
   const tab = parseGradebookTab(query.tab);
-  const data = await getQueryClient().fetchQuery(
-    trpc.courses.gradebook.queryOptions({ courseId, group: groups.group }),
-  );
+  const queryClient = getQueryClient();
+
+  /*
+    The GCF is a second read, and only for the two tabs that show it.
+
+    Its rows live in their own tables — a GCF result is not coursework and carries no course — so
+    it cannot ride along on the gradebook query. Fetching it unconditionally would pull a term of
+    CodeSignal results every time somebody opened the Assignments tab, which never draws them.
+  */
+  const wantsGcf = tab === "overview" || tab === "GCF";
+
+  const [data, gcf] = await Promise.all([
+    queryClient.fetchQuery(trpc.courses.gradebook.queryOptions({ courseId, group: groups.group })),
+    wantsGcf
+      ? queryClient.fetchQuery(trpc.gcf.forCourse.queryOptions({ courseId, group: groups.group }))
+      : null,
+  ]);
 
   const selection = parseGroupSelection(groups.group);
 
@@ -97,7 +111,7 @@ async function FullGradebook({
         }
       />
 
-      <Gradebook data={data} tab={tab} group={groups.group} />
+      <Gradebook data={data} gcf={gcf} tab={tab} group={groups.group} />
     </div>
   );
 }

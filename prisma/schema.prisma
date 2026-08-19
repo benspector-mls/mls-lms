@@ -98,6 +98,9 @@ model Profile {
   rosterEntriesAdded   RosterEntry[]         @relation("RosterAdded")
   attendanceStarted    AttendanceSession[]   @relation("AttendanceStarted")
   attendanceRecorded   AttendanceRecord[]    @relation("AttendanceRecorded")
+  gcfAttempts          GcfAttempt[]          @relation("GcfAttempts")
+  gcfRecorded          GcfAttempt[]          @relation("GcfRecorded")
+  gcfIdentities        GcfIdentity[]         @relation("GcfIdentities")
 
   @@map("profiles")
   @@schema("public")
@@ -1468,5 +1471,137 @@ model AttendanceRecord {
   @@index([enrollmentId])
   @@index([courseId, status])
   @@map("attendance_records")
+  @@schema("public")
+}
+
+// =====================================================================================
+// The General Coding Framework
+//
+// An assessment CodeSignal administers, outside this application entirely. A fellow sits a
+// proctored one that produces a scaled score shared with employers, and practises against mocks
+// beforehand. It is deliberately **not** modelled as coursework: there is no assignment, no
+// submission, nothing handed in, and nothing to grade. A result is a number that arrives from
+// somewhere else, so what is stored is a record of an attempt rather than a piece of work.
+//
+// Both tables are keyed on the *person* rather than an enrollment, and carry no course. A GCF
+// result follows a fellow through the program — CodeSignal has no idea what a cohort is — which
+// is why a student reads their whole history on one page and the gradebook's tab finds attempts
+// by joining on the students enrolled in that course.
+// =====================================================================================
+
+/// Which assessment an attempt was, which is `Proctoring Status` in CodeSignal's export.
+///
+/// The discriminator is that column and only that column: it says `Proctoring verified` or
+/// `Not proctored` in words, which is readable in the export by eye and cannot be confused with
+/// a number that has to be interpreted. Which score column carries the result then follows —
+/// see `score` below.
+enum GcfKind {
+  /// The real thing, sat under proctoring. Its result is a scaled Assessment Score in the
+  /// 200–600 band: normalized and psychometrically calibrated, blending correctness, speed, and
+  /// question weight, and it is the figure shared with employers.
+  PROCTORED
+
+  /// A mock, sat for practice. Its result is raw test-case correctness — 300 points per task,
+  /// before any penalty or speed scaling — so it is a different quantity from the one above and
+  /// the two are never compared or averaged together.
+  MOCK
+
+  @@schema("public")
+}
+
+/// One attempt at the GCF by one fellow.
+model GcfAttempt {
+  id        String @id @default(uuid()) @db.Uuid
+  studentId String @map("student_id") @db.Uuid
+
+  kind GcfKind
+
+  /// The result, on the scale its `kind` implies.
+  ///
+  /// A proctored attempt reports CodeSignal's `Assessment Score` and no maximum; a mock reports
+  /// `Score` against a `Max Score`. The export never fills both, which is what makes reading the
+  /// wrong column a defect worth reporting rather than a case to handle.
+  score Int
+
+  /// What it was out of, from `Max Score`.
+  ///
+  /// Null on a proctored attempt, which reports no maximum — its scale is the 200–600 band, and
+  /// that is knowledge about the assessment rather than data in the file.
+  ///
+  /// On the row rather than derived from `kind`, because it is **not constant**: a mock is 300
+  /// points per task over one, three, four, or six tasks, so a real export carries 300, 900,
+  /// 1200, and 1800 in the same column.
+  scorePossible Int? @map("score_possible")
+
+  /// The day it was sat.
+  ///
+  /// A date rather than a timestamp, because the day is what identifies an attempt — see the
+  /// unique below — and because an attempt typed in by hand has no time of day to record.
+  takenOn DateTime @map("taken_on") @db.Date
+
+  /// CodeSignal's `Session ID`, so a row can be traced back to the export it came from.
+  ///
+  /// Null on an attempt typed in by hand. **Deliberately not the key**: an import has to merge
+  /// with a score somebody already entered for that day rather than sit beside it as a second
+  /// record of one attempt, and a key CodeSignal owns cannot do that.
+  externalId String? @map("external_id")
+
+  /// CodeSignal's own page for the result, for an instructor who wants the detail behind a score.
+  resultUrl String? @map("result_url")
+
+  /// CodeSignal's `Integrity Flagged`. Common enough to matter: 56 of 274 rows in a real export.
+  integrityFlagged Boolean @default(false) @map("integrity_flagged")
+
+  /// Why, in words — and the whole of what a flag means to the fellow reading it.
+  ///
+  /// Written by an instructor and **shown to the student**, which is the point of it existing. A
+  /// flag with no account of itself appearing on somebody's record, with nobody to ask, is worse
+  /// than not showing the flag at all; this is what turns it into something they can raise.
+  note String?
+
+  /// The instructor who entered or last edited this. Null on a row an import wrote untouched.
+  /// SetNull rather than Cascade, for the reason `AttendanceRecord.recordedById` is: deleting the
+  /// person must not delete the record of what they entered.
+  recordedById String? @map("recorded_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  student    Profile  @relation("GcfAttempts", fields: [studentId], references: [id], onDelete: Cascade)
+  recordedBy Profile? @relation("GcfRecorded", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  /// A fellow, a kind, and a day is what identifies an attempt.
+  ///
+  /// True of real data — the 74 GCF rows of a term's export produce 74 distinct triples — and it
+  /// is what makes an import idempotent *and* able to fill in a score somebody typed by hand for
+  /// the same day, which keying on CodeSignal's session id could not do.
+  @@unique([studentId, kind, takenOn])
+  @@index([studentId, takenOn])
+  @@map("gcf_attempts")
+  @@schema("public")
+}
+
+/// An address a fellow sits the GCF under, for the times it is not the one they log in with.
+///
+/// A fellow signs up to CodeSignal with the address they use for GitHub, so most rows in an
+/// export match a profile without help. This table is what the rest need: an instructor resolves
+/// an unmatched row once during an import, and the address is remembered so the next upload
+/// matches it without being asked.
+///
+/// Its own table rather than a column on `Profile`, because somebody can sit under more than one
+/// address over nine months and a single column would make the second overwrite the first.
+model GcfIdentity {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Lowercased on the way in, so matching is a lookup rather than a scan over every row.
+  email     String @unique
+  studentId String @map("student_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  student Profile @relation("GcfIdentities", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("gcf_identities")
   @@schema("public")
 }
