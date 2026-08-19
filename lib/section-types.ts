@@ -71,7 +71,7 @@ export type SectionTypeEntry = {
  */
 export const SECTION_TYPE_REGISTRY = {
   short_response: {
-    label: "Short response",
+    label: "Short Response",
     rubricName: "SHORT_RESPONSE",
     rubricHeading: "SHORT RESPONSE",
     /*
@@ -86,13 +86,13 @@ export const SECTION_TYPE_REGISTRY = {
     sampleFile: "sample-short-response-report-1.md",
   },
   coding_algorithm: {
-    label: "Algorithm fluency",
+    label: "Algorithm Fluency",
     rubricName: "CODING_ALGORITHM_FLUENCY",
     rubricHeading: "CODING — ALGORITHM FLUENCY",
     sampleFile: "sample-coding-fluency-report.md",
   },
   coding_sql: {
-    label: "SQL fluency",
+    label: "SQL Fluency",
     rubricName: "CODING_SQL_FLUENCY",
     rubricHeading: "CODING — SQL FLUENCY",
     /*

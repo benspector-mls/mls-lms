@@ -12,9 +12,10 @@ import {
   ExternalLink,
   EyeOff,
   FlaskConical,
-  GitCommitHorizontal,
+  FolderGit2,
   GitPullRequest,
   History,
+  ListChecks,
   Loader2,
   Pencil,
   PencilLine,
@@ -50,7 +51,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
@@ -86,10 +86,10 @@ import type { RouterOutputs } from "@/trpc/types";
 /**
  * Where the approve action renders.
  *
- * The score, the threshold badge, and the approve button belong beside the student's name
- * in the header, which does not scroll — an instructor at the bottom of a long report can
- * still see what they are about to release. But the state those three read is the unsaved
- * edits, which live in `DraftEditor` three levels down, and only one branch of
+ * The score and the approve button belong beside the student's name in the header, which
+ * does not scroll — an instructor at the bottom of a long report can still see what they
+ * are about to release. But the state those two read is the unsaved edits, which live in
+ * `DraftEditor` three levels down, and only one branch of
  * `DraftBody`'s state machine renders it at all: a generating, failed, approved, or
  * empty draft has nothing to approve. Deciding that a second time in the header is how
  * the two readings drift apart. So the header offers a slot and `DraftEditor` fills it.
@@ -184,6 +184,23 @@ export function GradingReview({
   // evidence about this commit, so it is not offered as if it were.
   const currentRun = testRuns.data?.runs.find((run) => run.headSha === submission.headSha) ?? null;
 
+  /*
+    Handed to `DraftBody` rather than placed here, because where the evidence belongs depends
+    on what is being reviewed: below the report and its rubric breakdown when there is a
+    report, and below the panel that offers to write one when there is not. The report is what
+    an instructor is here to read; the evidence is why it says what it says, and that is a
+    question asked second.
+  */
+  const testEvidence = canHaveTests ? (
+    <TestEvidence
+      submissionId={submission.id}
+      runs={testRuns.data}
+      currentRun={currentRun}
+      loading={testRuns.isPending}
+      now={now}
+    />
+  ) : null;
+
   return (
     <div className="flex h-full flex-col">
       <ReviewHeader
@@ -195,7 +212,7 @@ export function GradingReview({
 
       <HeaderActionsSlot.Provider value={actionsSlot}>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          <div className="mx-auto flex max-w-3xl flex-col gap-5">
+          <div className="mx-auto flex max-w-5xl flex-col gap-5">
             {/*
               Read first, because it is the answer to the only question that matters once
               a submission is already graded: what did this student get. Everything below
@@ -207,16 +224,6 @@ export function GradingReview({
             )}
 
             <CommentRecoveryNotice submission={submission} grade={data.grade} />
-
-            {canHaveTests && (
-              <TestEvidence
-                submissionId={submission.id}
-                runs={testRuns.data}
-                currentRun={currentRun}
-                loading={testRuns.isPending}
-                now={now}
-              />
-            )}
 
             {/*
               The analogue of test evidence for work with no suite: the thing the grade rests
@@ -262,6 +269,7 @@ export function GradingReview({
               completionThreshold={completionThreshold}
               draft={draft}
               data={data}
+              testEvidence={testEvidence}
             />
 
             {data.drafts.length > 1 && (
@@ -288,66 +296,66 @@ function ReviewHeader({
 }) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border bg-card px-5 py-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold">
-              {studentHref ? (
-                <Link href={studentHref} className="hover:underline">
-                  {submission.student.displayName ?? submission.student.email ?? "Unknown student"}
-                </Link>
-              ) : (
-                (submission.student.displayName ?? submission.student.email ?? "Unknown student")
-              )}
-            </h2>
-            {submission.student.githubUsername && (
-              <span className="text-sm text-muted-foreground">
-                @{submission.student.githubUsername}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <SubmissionStatusBadge status={submission.status} />
-            {draft && draftStatusAddsSomething(draft.status) && (
-              <DraftStatusBadge status={draft.status} />
-            )}
-            {submission.isLate && (
-              <Badge variant="outline" className="font-normal">
-                Late
-              </Badge>
-            )}
-          </div>
-        </div>
+      <div className="flex flex-col gap-1">
+        {/*
+          The name, the handle, and the way to the code on one row.
 
+          One link, never two. The pull request is where the work, the commits, and the graded
+          diff all are, and a closed pull request still opens, so nothing is lost when a student
+          closes theirs. The repository stands in only where there is no pull request to open
+          yet — a student who has accepted the assignment and not pushed anything — because that
+          is the one state in which an instructor otherwise has no way to the student's code.
+        */}
         <div className="flex flex-wrap items-center gap-2">
-          {submission.repoUrl && (
-            <a
-              href={submission.repoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-            >
-              Repository
-              <ExternalLink data-icon="inline-end" />
-            </a>
+          <h2 className="text-base font-semibold">
+            {studentHref ? (
+              <Link href={studentHref} className="hover:underline">
+                {submission.student.displayName ?? submission.student.email ?? "Unknown student"}
+              </Link>
+            ) : (
+              (submission.student.displayName ?? submission.student.email ?? "Unknown student")
+            )}
+          </h2>
+          {submission.student.githubUsername && (
+            <span className="text-sm text-muted-foreground">
+              @{submission.student.githubUsername}
+            </span>
           )}
-          {submission.prUrl && (
+          {submission.prUrl ? (
             <a
               href={submission.prUrl}
               target="_blank"
               rel="noreferrer"
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-1")}
             >
               <GitPullRequest data-icon="inline-start" />
               PR #{submission.prNumber}
               <ExternalLink data-icon="inline-end" />
             </a>
+          ) : (
+            submission.repoUrl && (
+              <a
+                href={submission.repoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-1")}
+              >
+                <FolderGit2 data-icon="inline-start" />
+                Repository
+                <ExternalLink data-icon="inline-end" />
+              </a>
+            )
           )}
-          {submission.headSha && (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1 font-mono text-xs text-muted-foreground">
-              <GitCommitHorizontal className="size-3.5" />
-              {shortSha(submission.headSha)}
-            </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SubmissionStatusBadge status={submission.status} />
+          {draft && draftStatusAddsSomething(draft.status) && (
+            <DraftStatusBadge status={draft.status} />
+          )}
+          {submission.isLate && (
+            <Badge variant="outline" className="font-normal">
+              Late
+            </Badge>
           )}
         </div>
       </div>
@@ -416,7 +424,10 @@ function CommentRecoveryNotice({
   );
 }
 
-/** Test evidence, shown in every state, because it is what the report's claims rest on. */
+/**
+ * Test evidence, shown in every state and below the report in each of them, because it is
+ * what the report's claims rest on rather than the thing being reviewed.
+ */
 function TestEvidence({
   submissionId,
   runs,
@@ -489,44 +500,58 @@ function DraftBody({
   completionThreshold,
   draft,
   data,
+  testEvidence,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
   completionThreshold: number;
   draft: Draft | null;
   data: DraftList;
+  /** The test evidence card, or null on an assignment that cannot have a suite. */
+  testEvidence: React.ReactNode;
 }) {
   if (!draft) {
     if (submission.status === "NOT_STARTED" || submission.status === "ACCEPTED") {
       return (
-        <StateCard
-          icon={GitPullRequest}
-          title="Nothing submitted yet"
-          description={
-            data.manualOnly
-              ? "This student has not submitted this assignment, so there is nothing to grade."
-              : "This student has a repository but has not opened a pull request, so there is nothing to grade."
-          }
-        />
+        <>
+          <StateCard
+            icon={GitPullRequest}
+            title="Nothing submitted yet"
+            description={
+              data.manualOnly
+                ? "This student has not submitted this assignment, so there is nothing to grade."
+                : "This student has a repository but has not opened a pull request, so there is nothing to grade."
+            }
+          />
+          {testEvidence}
+        </>
       );
     }
     // One of the two, never both. Which one is decided on the server, from the same reading
     // of the assignment that put this submission in its triage bucket.
-    return data.manualOnly ? (
-      <HandGradePanel submission={submission} data={data} />
-    ) : (
-      <GeneratePanel submission={submission} data={data} label="Generate report" />
+    return (
+      <>
+        {data.manualOnly ? (
+          <HandGradePanel submission={submission} data={data} />
+        ) : (
+          <GeneratePanel submission={submission} data={data} label="Generate report" />
+        )}
+        {testEvidence}
+      </>
     );
   }
 
   if (draft.status === "GENERATING") {
     return (
-      <StateCard
-        icon={Loader2}
-        spin
-        title="Generating the report"
-        description="A run is in progress. It reads the submission against the rubric and takes up to a couple of minutes."
-      />
+      <>
+        <StateCard
+          icon={Loader2}
+          spin
+          title="Generating the report"
+          description="A run is in progress. It reads the submission against the rubric and takes up to a couple of minutes."
+        />
+        {testEvidence}
+      </>
     );
   }
 
@@ -557,12 +582,15 @@ function DraftBody({
           </AlertDescription>
         </Alert>
         <GeneratePanel submission={submission} data={data} label="Try again" retry />
+        {testEvidence}
       </div>
     );
   }
 
   if (draft.status === "APPROVED" || draft.status === "SUPERSEDED") {
-    return <ReleasedBody submission={submission} draft={draft} data={data} />;
+    return (
+      <ReleasedBody submission={submission} draft={draft} data={data} testEvidence={testEvidence} />
+    );
   }
 
   return (
@@ -596,27 +624,31 @@ function DraftBody({
           draft={draft}
           approvalBlocked={stale}
           manualOnly={data.manualOnly}
+          testEvidence={testEvidence}
         />
       ) : (
-        <StateCard
-          icon={Pencil}
-          tone="warning"
-          title="No report to start from"
-          description="Open the pull request to read the work, then grade it directly."
-        >
-          {submission.prUrl && (
-            <a
-              href={submission.prUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(buttonVariants())}
-            >
-              <GitPullRequest data-icon="inline-start" />
-              Open the pull request
-              <ExternalLink data-icon="inline-end" />
-            </a>
-          )}
-        </StateCard>
+        <>
+          <StateCard
+            icon={Pencil}
+            tone="warning"
+            title="No report to start from"
+            description="Open the pull request to read the work, then grade it directly."
+          >
+            {submission.prUrl && (
+              <a
+                href={submission.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants())}
+              >
+                <GitPullRequest data-icon="inline-start" />
+                Open the pull request
+                <ExternalLink data-icon="inline-end" />
+              </a>
+            )}
+          </StateCard>
+          {testEvidence}
+        </>
       )}
 
       {stale && (
@@ -895,6 +927,7 @@ function DraftEditor({
   draft,
   approvalBlocked,
   manualOnly,
+  testEvidence,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
@@ -904,6 +937,8 @@ function DraftEditor({
   approvalBlocked: boolean;
   /** True when this assignment is graded by hand, so there is no report to generate again. */
   manualOnly: boolean;
+  /** Rendered below the sections: the reports come first, the evidence behind them second. */
+  testEvidence: React.ReactNode;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -1072,29 +1107,35 @@ function DraftEditor({
         ))}
       </div>
 
+      {/*
+        After the reports, because it is what their claims rest on rather than the thing being
+        reviewed. An instructor reads the feedback the student will read, then scrolls to the
+        rubric breakdown and the suite output to see whether it holds up.
+      */}
+      {testEvidence}
+
       {actionsSlot &&
         createPortal(
           <>
             <div className="flex items-center gap-3">
               <div className="flex flex-col">
                 <span className="text-xs text-muted-foreground">Total</span>
-                <span className="text-lg font-semibold tabular-nums">
+                {/*
+                  Whether the score clears the completion threshold is said in its colour
+                  rather than in a badge beside it: green at or above, red below. The classes
+                  come from `completionMeta`, so this pane, the queue, and the student's own
+                  page use the same green and the same red to mean the same thing.
+                */}
+                <span
+                  className={cn(
+                    "text-lg font-semibold tabular-nums",
+                    completionMeta(isComplete)?.className,
+                  )}
+                >
                   {totalEarned}
                   <span className="text-muted-foreground"> / {totalPossible}</span>
                 </span>
               </div>
-              <Separator orientation="vertical" className="h-8" />
-              <Badge
-                variant="outline"
-                className={cn(
-                  "font-normal",
-                  isComplete
-                    ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
-                    : "border-destructive/40 text-destructive",
-                )}
-              >
-                {isComplete ? "Meets the threshold" : "Below the threshold"}
-              </Badge>
               {/*
                 Said plainly, next to the number it affects. Approving saves first anyway,
                 but an instructor should never have to wonder whether what is on screen is
@@ -1341,55 +1382,132 @@ function SectionEditor({
   const rubricItems = readRubricItems(section.rubricItems);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-col gap-1.5">
-            <CardTitle className="text-base">{sectionLabel(section.sectionType)}</CardTitle>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {unsaved && (
-                <Badge
-                  variant="outline"
-                  className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-                >
-                  Unsaved
-                </Badge>
-              )}
-              {section.editedAt && !unsaved && (
-                <Badge variant="outline" className="font-normal text-muted-foreground">
-                  Edited by you
-                </Badge>
-              )}
-              {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
-              {section.flags.map((flag) => (
-                <FlagBadge key={flag} code={flag} />
-              ))}
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-1.5">
+              <CardTitle className="text-base">
+                Section Report — {sectionLabel(section.sectionType)}
+              </CardTitle>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {unsaved && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+                  >
+                    Unsaved
+                  </Badge>
+                )}
+                {section.editedAt && !unsaved && (
+                  <Badge variant="outline" className="font-normal text-muted-foreground">
+                    Edited by you
+                  </Badge>
+                )}
+                {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
+                {section.flags.map((flag) => (
+                  <FlagBadge key={flag} code={flag} />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="number"
+                min={0}
+                max={possible}
+                step="any"
+                value={score}
+                onChange={(event) => {
+                  const parsed = Number(event.target.value);
+                  if (Number.isNaN(parsed)) return;
+                  onScore(Math.max(0, Math.min(possible, parsed)));
+                }}
+                className="h-9 w-20 text-right tabular-nums"
+                aria-label={`${sectionLabel(section.sectionType)} score`}
+              />
+              <span className="text-sm text-muted-foreground">/ {possible}</span>
             </div>
           </div>
+        </CardHeader>
 
-          <div className="flex items-center gap-1.5">
-            <Input
-              type="number"
-              min={0}
-              max={possible}
-              step="any"
-              value={score}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (Number.isNaN(parsed)) return;
-                onScore(Math.max(0, Math.min(possible, parsed)));
-              }}
-              className="h-9 w-20 text-right tabular-nums"
-              aria-label={`${sectionLabel(section.sectionType)} score`}
-            />
-            <span className="text-sm text-muted-foreground">/ {possible}</span>
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="flex flex-col gap-4">
-        {rubricItems.length > 0 && (
+        <CardContent className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                What the student will read
+              </span>
+              <div className="flex items-center gap-1">
+                {unsaved && (
+                  <Button size="sm" variant="ghost" onClick={onReset}>
+                    <Undo2 data-icon="inline-start" />
+                    Undo
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setEditing((value) => !value)}>
+                  <Pencil data-icon="inline-start" />
+                  {editing ? "Preview" : "Edit"}
+                </Button>
+              </div>
+            </div>
+
+            {editing ? (
+              <Textarea
+                value={report}
+                onChange={(event) => onReport(event.target.value)}
+                rows={16}
+                className="font-mono text-xs"
+              />
+            ) : report.trim() ? (
+              <div className="rounded-md border border-border bg-muted/20 p-4">
+                <Markdown content={report} />
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
+                No report was written for this section.
+              </p>
+            )}
+          </div>
+
+          {section.instructorNotes.length > 0 && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+              <span className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
+                For you, never shown to the student
+              </span>
+              {section.instructorNotes.map((note, index) => (
+                <p key={index} className="text-xs text-amber-800 dark:text-amber-200">
+                  {note}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {section.submissionProcessNote && (
+            <p className="text-xs text-muted-foreground">{section.submissionProcessNote}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/*
+        The score, line by line, in a card of its own below the report.
+
+        These are two different things read in two different ways: the report is the feedback
+        the student receives and the instructor may rewrite, and this is the arithmetic behind
+        the number beside it. Nothing in this card is ever shown to the student.
+      */}
+      {rubricItems.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ListChecks className="size-4 text-muted-foreground" />
+              How this score was reached — {sectionLabel(section.sectionType)}
+            </CardTitle>
+            <CardDescription>
+              One row per rubric criterion, summing to the section score. For you, never shown to
+              the student.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
             {rubricItems.map((item, index) => (
               <div
                 key={index}
@@ -1410,64 +1528,10 @@ function SectionEditor({
                 </span>
               </div>
             ))}
-          </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              What the student will read
-            </span>
-            <div className="flex items-center gap-1">
-              {unsaved && (
-                <Button size="sm" variant="ghost" onClick={onReset}>
-                  <Undo2 data-icon="inline-start" />
-                  Undo
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" onClick={() => setEditing((value) => !value)}>
-                <Pencil data-icon="inline-start" />
-                {editing ? "Preview" : "Edit"}
-              </Button>
-            </div>
-          </div>
-
-          {editing ? (
-            <Textarea
-              value={report}
-              onChange={(event) => onReport(event.target.value)}
-              rows={16}
-              className="font-mono text-xs"
-            />
-          ) : report.trim() ? (
-            <div className="rounded-md border border-border bg-muted/20 p-4">
-              <Markdown content={report} />
-            </div>
-          ) : (
-            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
-              No report was written for this section.
-            </p>
-          )}
-        </div>
-
-        {section.instructorNotes.length > 0 && (
-          <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-            <span className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
-              For you, never shown to the student
-            </span>
-            {section.instructorNotes.map((note, index) => (
-              <p key={index} className="text-xs text-amber-800 dark:text-amber-200">
-                {note}
-              </p>
-            ))}
-          </div>
-        )}
-
-        {section.submissionProcessNote && (
-          <p className="text-xs text-muted-foreground">{section.submissionProcessNote}</p>
-        )}
-      </CardContent>
-    </Card>
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }
 
@@ -1535,10 +1599,13 @@ function ReleasedBody({
   submission,
   draft,
   data,
+  testEvidence,
 }: {
   submission: QueueSubmission;
   draft: Draft;
   data: DraftList;
+  /** Below what was sent, for the same reason it is below the report while one is being edited. */
+  testEvidence: React.ReactNode;
 }) {
   const superseded = draft.status === "SUPERSEDED";
 
@@ -1558,6 +1625,8 @@ function ReleasedBody({
       {draft.sections.map((section) => (
         <ReadOnlySection key={section.id} section={section} />
       ))}
+
+      {testEvidence}
     </div>
   );
 }
