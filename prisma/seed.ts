@@ -37,6 +37,7 @@ import { config as loadEnv } from "dotenv";
 import { AssignmentKind, parseAssignmentSpec } from "../lib/assignments/spec";
 import { slugifyCohort } from "../lib/courses/cohort-slug";
 import { newJoinToken } from "../lib/courses/join-token";
+import { END_OF_DAY, instantAtSchoolClock, schoolDayOf } from "../lib/school-time";
 import {
   PrismaClient,
   Prisma,
@@ -744,8 +745,16 @@ async function main() {
           title: item.title,
           pointValue: 10,
           completionThreshold: 0.75,
-          // Staggered, so the by-due-date ordering every screen applies has something to do.
-          dueAt: new Date(Date.now() + item.days * 24 * 60 * 60 * 1000),
+          /*
+            Staggered, so the by-due-date ordering every screen applies has something to do, and
+            at 11:59pm on each of those days rather than at whatever time the seed happened to
+            run. A sample assignment due at 4:04pm reads as a deliberate deadline somebody chose,
+            and it is really just the clock.
+          */
+          dueAt: instantAtSchoolClock(
+            schoolDayOf(new Date(Date.now() + item.days * 24 * 60 * 60 * 1000)),
+            END_OF_DAY,
+          ),
           // Unpublished: this is what keeps the sample out of every student's course page.
           distributedAt: null,
           acceptedFileTypes: item.kind === "FILE_UPLOAD" ? ["pdf"] : [],

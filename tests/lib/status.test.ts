@@ -8,6 +8,7 @@ import {
   FLAG_META,
   flagMeta,
   formatDueDate,
+  formatDueDateShort,
   formatDuration,
   formatPercent,
   formatRelative,
@@ -513,6 +514,32 @@ describe("formatDueDate", () => {
   it("has an em dash for no deadline", () => {
     expect(formatDueDate(null)).toBe("—");
     expect(formatDueDate(undefined)).toBe("—");
+  });
+});
+
+describe("formatDueDateShort", () => {
+  it("names the date and the time, and neither the weekday nor the year", () => {
+    // The same instant `formatDueDate` renders as "Friday, Oct 9 at 11:59 PM". This is the form
+    // that fits a column beside a title, a point value, and a status.
+    expect(formatDueDateShort(new Date("2026-10-10T03:59:00Z"))).toBe("Oct 9, 11:59 PM");
+  });
+
+  it("reads the same either side of the clocks changing", () => {
+    // Eastern Daylight Time, then Eastern Standard Time: a different offset from UTC, the same
+    // deadline in Brooklyn.
+    expect(formatDueDateShort(new Date("2026-10-02T03:59:00Z"))).toBe("Oct 1, 11:59 PM");
+    expect(formatDueDateShort(new Date("2026-12-04T04:59:00Z"))).toBe("Dec 3, 11:59 PM");
+  });
+
+  it("keeps a midnight deadline on the day it belongs to", () => {
+    // 04:00Z is exactly midnight in New York, which is the tenth rather than the ninth. A due date
+    // an hour either side of this is the case a wrongly-zoned formatter files under the wrong day.
+    expect(formatDueDateShort(new Date("2026-10-10T04:00:00Z"))).toBe("Oct 10, 12:00 AM");
+  });
+
+  it("has an em dash for no deadline", () => {
+    expect(formatDueDateShort(null)).toBe("—");
+    expect(formatDueDateShort(undefined)).toBe("—");
   });
 });
 

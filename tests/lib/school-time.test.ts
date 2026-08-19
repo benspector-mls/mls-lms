@@ -1,6 +1,9 @@
 import {
   dateColumnFor,
+  END_OF_DAY,
   formatSchoolDay,
+  instantAtSchoolClock,
+  schoolClockOf,
   schoolDayFromColumn,
   schoolDayOf,
   schoolDaySchema,
@@ -95,6 +98,85 @@ describe("schoolDaySchema", () => {
     // The regular expression is happy with this; the round-trip check is what catches it.
     expect(schoolDaySchema.safeParse("2026-02-31").success).toBe(false);
     expect(schoolDaySchema.safeParse("2026-13-01").success).toBe(false);
+  });
+});
+
+describe("schoolClockOf", () => {
+  it("reads the clock in Brooklyn rather than in UTC", () => {
+    // 03:59 UTC on the 26th is 23:59 on the 25th in New York, which is the case every due date
+    // set to the end of a day lands on.
+    expect(schoolClockOf(new Date("2026-08-26T03:59:00Z"))).toBe("23:59");
+  });
+
+  it("writes midnight as 00:00 rather than as 24:00", () => {
+    // A time input refuses "24:00", so this is not a matter of taste.
+    expect(schoolClockOf(new Date("2026-08-26T04:00:00Z"))).toBe("00:00");
+  });
+
+  it("pads a single-digit hour, because a time input requires two", () => {
+    expect(schoolClockOf(new Date("2026-08-25T13:05:00Z"))).toBe("09:05");
+  });
+});
+
+describe("instantAtSchoolClock", () => {
+  it("is four hours behind UTC in summer", () => {
+    expect(instantAtSchoolClock("2026-08-25", END_OF_DAY).toISOString()).toBe(
+      "2026-08-26T03:59:00.000Z",
+    );
+  });
+
+  it("is five hours behind UTC in winter", () => {
+    // The same wall clock, a different instant. A fixed offset would be wrong for half the year.
+    expect(instantAtSchoolClock("2026-01-15", END_OF_DAY).toISOString()).toBe(
+      "2026-01-16T04:59:00.000Z",
+    );
+  });
+
+  it("holds on the morning the clocks go forward", () => {
+    // 2026-03-08 moves to daylight time at 2am. Half past midnight is still standard time, so
+    // it is five hours behind; half past three has moved, so it is four.
+    expect(instantAtSchoolClock("2026-03-08", "00:30").toISOString()).toBe(
+      "2026-03-08T05:30:00.000Z",
+    );
+    expect(instantAtSchoolClock("2026-03-08", "03:30").toISOString()).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+  });
+
+  it("holds on the morning the clocks go back", () => {
+    // 2026-11-01 returns to standard time at 2am, so half past three is five hours behind.
+    expect(instantAtSchoolClock("2026-11-01", "03:30").toISOString()).toBe(
+      "2026-11-01T08:30:00.000Z",
+    );
+  });
+
+  it("round-trips every day of a year at the end of the day", () => {
+    // What the assignment form does on every keystroke: read the stored instant back into the two
+    // inputs, and build an instant from what they hold. A day where that loses an hour is a
+    // deadline that walks when an instructor opens the form and saves without touching it.
+    for (let offset = 0; offset < 365; offset += 1) {
+      const day = schoolDayFromColumn(new Date(Date.UTC(2026, 0, 1 + offset)));
+      const instant = instantAtSchoolClock(day, END_OF_DAY);
+
+      expect(schoolDayOf(instant)).toBe(day);
+      expect(schoolClockOf(instant)).toBe(END_OF_DAY);
+    }
+  });
+
+  it("round-trips every hour of both daylight-saving days", () => {
+    for (const day of ["2026-03-08", "2026-11-01"]) {
+      for (let hour = 0; hour < 24; hour += 1) {
+        const clock = `${String(hour).padStart(2, "0")}:30`;
+        const instant = instantAtSchoolClock(day, clock);
+
+        // 2:30am does not exist on the March morning — the clocks jump from 2 to 3 — so the one
+        // hour that cannot round-trip is excluded rather than asserted about.
+        if (day === "2026-03-08" && hour === 2) continue;
+
+        expect(schoolDayOf(instant)).toBe(day);
+        expect(schoolClockOf(instant)).toBe(clock);
+      }
+    }
   });
 });
 

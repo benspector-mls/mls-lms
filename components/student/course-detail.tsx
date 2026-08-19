@@ -28,10 +28,9 @@ import {
   CATEGORY_META,
   sortByDueDate,
   UNIT_CATEGORIES,
-  unitDueAt,
   type CourseUnitCategory,
 } from "@/lib/course-units";
-import { completionMeta, formatDate, formatPercent, scorePercent } from "@/lib/status";
+import { completionMeta, formatDueDateShort, formatPercent, scorePercent } from "@/lib/status";
 import { completeCount } from "@/lib/student/progress";
 import { cn } from "@/lib/utils";
 
@@ -335,7 +334,6 @@ function UnitSection({
     the order their instructor authored against.
   */
   const work = React.useMemo(() => sortByDueDate(assignments), [assignments]);
-  const dueAt = unitDueAt(work);
 
   return (
     <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
@@ -357,8 +355,7 @@ function UnitSection({
 
               A module is what most of a course is made of, so a badge on every one of eighteen
               would be a word repeated to distinguish nothing; the two that are not modules are
-              exactly where the word carries information. The whole due date sits beside it,
-              derived from the work rather than stored, so it disappears when nothing is dated.
+              exactly where the word carries information.
             */}
             {category !== "MODULE" && (
               <Badge variant="secondary" className="shrink-0 capitalize">
@@ -371,7 +368,7 @@ function UnitSection({
               work. A unit holding only readings says so instead of reading as 0 of 0.
             */}
             <span className="text-xs whitespace-nowrap text-muted-foreground">
-              {unitSummary(work.length, complete, resources.length, dueAt)}
+              {unitSummary(work.length, complete, resources.length)}
             </span>
           </CollapsibleTrigger>
         </h2>
@@ -383,19 +380,32 @@ function UnitSection({
             </p>
           ) : (
             <>
+              {/*
+                Named, the way the resources beneath are, and with the word the category uses —
+                "Assignments" in a module, "Deliverables" in a project, "Parts" in an assessment.
+                Without a heading only the second list said what it was, so the work read as "the
+                unit's contents" and the readings as an afterthought, when they are two kinds of
+                thing that happen to live in the same place. The instructor's curriculum screen
+                names both lists for the same reason, from this same one place.
+              */}
               {work.length > 0 && (
-                <ul className="divide-y divide-border border-t border-border">
-                  {work.map((assignment) => (
-                    <li key={assignment.id}>
-                      <AssignmentRow
-                        assignment={assignment}
-                        teaches={teaches}
-                        isOpen={assignment.id === openAssignmentId}
-                        onOpen={onOpen}
-                      />
-                    </li>
-                  ))}
-                </ul>
+                <section className="border-t border-border">
+                  <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    {meta.partPluralNoun}
+                  </h3>
+                  <ul className="divide-y divide-border">
+                    {work.map((assignment) => (
+                      <li key={assignment.id}>
+                        <AssignmentRow
+                          assignment={assignment}
+                          teaches={teaches}
+                          isOpen={assignment.id === openAssignmentId}
+                          onOpen={onOpen}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
 
               {/*
@@ -600,38 +610,38 @@ function RowSummary({
           )}
         </span>
 
-        <span className="w-24 text-right text-xs whitespace-nowrap text-muted-foreground">
-          {assignment.dueAt ? `Due ${formatDate(assignment.dueAt)}` : "No due date"}
+        {/*
+          The time as well as the date, and the same words the dashboard uses for the same
+          deadline. A row saying only "Due Oct 9" left a student to guess whether that meant the
+          start of the day or the end of it, and anything after the hour their instructor chose is
+          recorded as late.
+        */}
+        <span className="w-36 text-right text-xs whitespace-nowrap text-muted-foreground">
+          {assignment.dueAt ? `Due ${formatDueDateShort(assignment.dueAt)}` : "No due date"}
         </span>
       </span>
     </>
   );
 }
 /**
- * "2 of 5 complete · 3 resources · due 14 Mar", or what is true when a part of it is empty.
+ * "2 of 5 complete · 3 resources", or what is true when a part of it is empty.
  *
  * Separate counts rather than one figure, because they answer different questions and only one of
  * them is about work. Folding readings into the progress figure would make a unit read as
  * unfinished for holding a link.
  *
- * The due date is the unit's own, which is the latest among its assignments — derived rather than
- * stored, so it cannot come to contradict the rows beneath it.
+ * **No deadline.** A unit has no due date of its own; the closest thing is the latest among its
+ * assignments, and one date standing for several says less than the rows beneath it already say —
+ * each of those carries its own deadline to the minute.
  */
-function unitSummary(
-  assignments: number,
-  complete: number,
-  resources: number,
-  dueAt: Date | null,
-): string {
+function unitSummary(assignments: number, complete: number, resources: number): string {
   const work = assignments === 0 ? null : `${complete} of ${assignments} complete`;
   const reading =
     resources === 0 ? null : `${resources} ${resources === 1 ? "resource" : "resources"}`;
-  const due = dueAt === null ? null : `due ${formatDate(dueAt)}`;
 
   if (!work && !reading) return "Nothing yet";
-  return [work, reading, due].filter(Boolean).join(" · ");
+  return [work, reading].filter(Boolean).join(" · ");
 }
-
 
 /**
  * Where the course stands, as one bar per category of work.

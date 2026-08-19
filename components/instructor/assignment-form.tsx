@@ -31,6 +31,13 @@ import {
 } from "@/lib/assignments/repo-ref";
 import { CATEGORY_META, UNIT_CATEGORIES, compareByPosition } from "@/lib/course-units";
 import { curriculumHref } from "@/lib/links";
+import {
+  END_OF_DAY,
+  instantAtSchoolClock,
+  schoolClockOf,
+  schoolDayOf,
+  type SchoolClock,
+} from "@/lib/school-time";
 import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
@@ -317,6 +324,16 @@ function Editor({
     then. `Editor` renders only after that, so the initial value is a real starting draft
     rather than a null the form has to render around.
   */
+  /*
+    The time of day a due date was last set to, so that clearing the date and choosing another
+    does not quietly reset a deliberate 5pm deadline to 11:59pm. It is a ref rather than state
+    because nothing renders from it — the two due date inputs both read the stored instant, and
+    this is consulted only when there is no instant to read a time from.
+  */
+  const lastDueClock = React.useRef<SchoolClock>(
+    existing?.dueAt ? schoolClockOf(existing.dueAt) : END_OF_DAY,
+  );
+
   const [state, setState] = React.useState<FormState | null>(() =>
     existing
       ? fromDraft(existing)
@@ -793,23 +810,56 @@ function Editor({
               <CardTitle className="text-base">What students see</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {/*
+                Two inputs for one instant. Picking a date sets the time to 11:59pm, which is
+                what almost every deadline is, and the instructor changes it from there. Clearing
+                the date clears the whole due date: an assignment with no deadline is an ordinary
+                thing and this is how it is said.
+              */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
-                  label="Due"
+                  label="Due date"
                   findings={fieldFindings("dueAt")}
-                  hint="Optional. A late submission is recorded as late, never refused."
+                  hint="Optional. Leave it blank for no due date. A late submission is recorded as late, never refused."
                 >
                   <Input
                     type="date"
-                    value={state.dueAt ? toDateInput(state.dueAt) : ""}
+                    value={state.dueAt ? schoolDayOf(state.dueAt) : ""}
                     onChange={(event) =>
                       setState({
                         ...state,
                         dueAt: event.target.value
-                          ? new Date(`${event.target.value}T23:59:00`)
+                          ? instantAtSchoolClock(
+                              event.target.value,
+                              dueClockOf(state.dueAt, lastDueClock.current),
+                            )
                           : null,
                       })
                     }
+                  />
+                </Field>
+                <Field
+                  label="Due time"
+                  hint={
+                    state.dueAt
+                      ? "New York time, which is the timezone every date on every screen is shown in."
+                      : "Set a date first. The time then starts at 11:59pm."
+                  }
+                >
+                  <Input
+                    type="time"
+                    disabled={state.dueAt === null}
+                    value={state.dueAt ? schoolClockOf(state.dueAt) : ""}
+                    onChange={(event) => {
+                      const clock = event.target.value || END_OF_DAY;
+                      lastDueClock.current = clock;
+                      setState({
+                        ...state,
+                        dueAt: state.dueAt
+                          ? instantAtSchoolClock(schoolDayOf(state.dueAt), clock)
+                          : null,
+                      });
+                    }}
                   />
                 </Field>
               </div>
@@ -1394,8 +1444,14 @@ function fromDraft(draft: Draft): FormState {
   };
 }
 
-/** A date input wants yyyy-mm-dd in local time, which toISOString does not give. */
-function toDateInput(date: Date): string {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 10);
+/**
+ * The time of day to keep when the calendar date changes.
+ *
+ * The time the due date already holds where there is one, so moving a deadline from Friday to
+ * Monday moves the date and nothing else. Where there is none — a new assignment, or one whose
+ * date was just cleared — the last time the instructor chose, which is 11:59pm until they choose
+ * another.
+ */
+function dueClockOf(dueAt: Date | null, fallback: SchoolClock): SchoolClock {
+  return dueAt ? schoolClockOf(dueAt) : fallback;
 }

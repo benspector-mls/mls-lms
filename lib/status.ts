@@ -677,6 +677,29 @@ export function formatDueDate(d: Date | null | undefined): string {
 }
 
 /**
+ * The same deadline in a list column. "Oct 9, 11:59 PM".
+ *
+ * **The time is here because an instructor sets one.** A due date carries a time of day chosen in
+ * the authoring form, and a row that printed only the date told a student their work was due on a
+ * Thursday without saying when on Thursday — while recording anything after that hour as late.
+ *
+ * No weekday and no year, because this goes in a fixed-width column beside a title, a point value,
+ * and a status. The weekday is what `formatDueDate` is for, where a deadline is the whole point of
+ * the line and there is room to say it in words.
+ */
+export function formatDueDateShort(d: Date | null | undefined): string {
+  if (!d) return "—";
+
+  return d.toLocaleString("en-US", {
+    timeZone: SCHOOL_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
  * Relative time against a caller-supplied reference point rather than the clock.
  *
  * The caller passes `now` because reading the clock during render is what makes server

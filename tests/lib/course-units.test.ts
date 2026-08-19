@@ -5,7 +5,6 @@ import {
   compareByPosition,
   partCount,
   sortByDueDate,
-  unitDueAt,
   type SortableWork,
 } from "@/lib/course-units";
 
@@ -62,9 +61,9 @@ describe("compareByDueDate", () => {
   */
   it("breaks ties on title so the order is total", () => {
     const sameDay = "2026-09-15T00:00:00Z";
-    expect(sortByDueDate([work("Queries", sameDay), work("ERD", sameDay)]).map((w) => w.title)).toEqual(
-      ["ERD", "Queries"],
-    );
+    expect(
+      sortByDueDate([work("Queries", sameDay), work("ERD", sameDay)]).map((w) => w.title),
+    ).toEqual(["ERD", "Queries"]);
   });
 
   it("reads a date stored as a string the same as a Date", () => {
@@ -77,38 +76,12 @@ describe("compareByDueDate", () => {
   });
 
   it("does not sort the array it was given", () => {
-    const original = [work("Later", "2026-10-01T00:00:00Z"), work("Sooner", "2026-09-01T00:00:00Z")];
+    const original = [
+      work("Later", "2026-10-01T00:00:00Z"),
+      work("Sooner", "2026-09-01T00:00:00Z"),
+    ];
     sortByDueDate(original);
     expect(original.map((w) => w.title)).toEqual(["Later", "Sooner"]);
-  });
-});
-
-describe("unitDueAt", () => {
-  /*
-    A unit is finished when its last piece of work is in. A stored column would either repeat that
-    fact or contradict it, and contradicting it is what actually happens the first time a deadline
-    moves and only one of the two places is edited.
-  */
-  it("is the latest due date among the work", () => {
-    expect(
-      unitDueAt([
-        work("ERD", "2026-09-01T00:00:00Z"),
-        work("Demo", "2026-10-01T00:00:00Z"),
-        work("Queries", "2026-09-20T00:00:00Z"),
-      ]),
-    ).toEqual(new Date("2026-10-01T00:00:00Z"));
-  });
-
-  it("ignores work with no due date", () => {
-    expect(unitDueAt([work("ERD", "2026-09-01T00:00:00Z"), work("Draft", null)])).toEqual(
-      new Date("2026-09-01T00:00:00Z"),
-    );
-  });
-
-  // Both mean the same thing to every caller: there is no deadline to show.
-  it("is null when nothing has a due date, and when the unit is empty", () => {
-    expect(unitDueAt([work("Draft", null)])).toBeNull();
-    expect(unitDueAt([])).toBeNull();
   });
 });
 

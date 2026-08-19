@@ -158,29 +158,6 @@ export function sortByDueDate<T extends SortableWork>(work: readonly T[]): T[] {
 }
 
 /**
- * When a unit is due: the latest due date among its assignments, or null.
- *
- * Derived rather than stored, which is why the table has no `dueAt` column. A unit is finished
- * when its last piece of work is in, so a stored date would either repeat that fact or
- * contradict it — and contradicting it is what actually happens, the first time a deadline moves
- * and only one of the two places is edited.
- *
- * Null when no assignment has a due date, and null when the unit is empty. Both mean the same
- * thing to every caller: there is no deadline to show.
- */
-export function unitDueAt(work: readonly SortableWork[]): Date | null {
-  let latest: number | null = null;
-
-  for (const item of work) {
-    if (item.dueAt == null) continue;
-    const time = new Date(item.dueAt).getTime();
-    if (latest === null || time > latest) latest = time;
-  }
-
-  return latest === null ? null : new Date(latest);
-}
-
-/**
  * Units in the order an instructor put them, which is one sequence across all three categories.
  *
  * Name as the tie-break, so two units that somehow share a position still have a stable order

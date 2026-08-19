@@ -27,7 +27,7 @@ import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CATEGORY_META, UNIT_CATEGORIES, partCount } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { gradingQueueHref, newAssignmentHref } from "@/lib/links";
-import { formatDate } from "@/lib/status";
+import { formatDueDateShort } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -395,8 +395,13 @@ function UnitSection({
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                       {assignment.pointValue} pts
                     </span>
-                    <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
-                      {assignment.dueAt ? formatDate(assignment.dueAt) : "No due date"}
+                    {/*
+                      The time as well as the date, because the instructor set one and it decides
+                      which submissions are recorded as late. Wide enough for "Oct 9, 11:59 PM"
+                      without wrapping, so the column edge is read straight down the list.
+                    */}
+                    <span className="w-36 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
+                      {assignment.dueAt ? formatDueDateShort(assignment.dueAt) : "No due date"}
                     </span>
                     <AssignmentActions courseId={courseId} assignment={assignment} />
                   </li>

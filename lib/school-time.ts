@@ -54,6 +54,84 @@ export function schoolDayOf(now: Date): SchoolDay {
 }
 
 /**
+ * A clock time in the school's timezone, written `"23:59"` on the 24-hour clock.
+ *
+ * The companion to `SchoolDay`, and a string for the same reasons: it is what an
+ * `<input type="time">` reads and writes, and holding it as anything else means converting twice.
+ */
+export type SchoolClock = string;
+
+/** Eleven fifty-nine at night, which is when an assignment is due unless somebody says otherwise. */
+export const END_OF_DAY: SchoolClock = "23:59";
+
+/**
+ * What time it is in Brooklyn at a given instant, as `"23:59"`.
+ *
+ * `en-GB` with `hourCycle: "h23"` because that pair formats midnight as `"00:00"` rather than
+ * `"24:00"`, and because a time input refuses anything but two-digit 24-hour parts.
+ */
+export function schoolClockOf(at: Date): SchoolClock {
+  return at.toLocaleTimeString("en-GB", {
+    timeZone: SCHOOL_TIME_ZONE,
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * How far the school's clock stands from UTC at a given instant, in milliseconds.
+ *
+ * Negative all year — Brooklyn is four hours behind UTC in summer and five in winter — and it is
+ * measured rather than assumed, because which of the two applies depends on the instant.
+ */
+function schoolOffsetMs(at: Date): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SCHOOL_TIME_ZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(at);
+
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((candidate) => candidate.type === type)?.value);
+
+  const wallClockAsIfUtc = Date.UTC(
+    part("year"),
+    part("month") - 1,
+    part("day"),
+    part("hour"),
+    part("minute"),
+    part("second"),
+  );
+
+  return wallClockAsIfUtc - at.getTime();
+}
+
+/**
+ * The instant a wall clock in Brooklyn names. `"2026-08-25"` at `"23:59"` is `03:59Z` the next day.
+ *
+ * **This is what a due date is set with, and the reason it exists is that a due date is displayed
+ * in the school's timezone by `formatDueDate` but was previously *built* in the browser's.** For an
+ * instructor in Brooklyn the two agree; for one on a laptop still set to another zone they do not,
+ * and the deadline a student reads is then an hour or three from the one the instructor chose.
+ *
+ * The offset is measured twice: once against the wall clock read as though it were UTC, and again
+ * against the instant that first reading produces. One pass is wrong for the few hours either side
+ * of a daylight-saving change, because the offset that applies is the one at the instant rather
+ * than the one at the wall clock.
+ */
+export function instantAtSchoolClock(day: SchoolDay, clock: SchoolClock): Date {
+  const wallClockAsIfUtc = Date.parse(`${day}T${clock}:00Z`);
+  const approximation = wallClockAsIfUtc - schoolOffsetMs(new Date(wallClockAsIfUtc));
+  return new Date(wallClockAsIfUtc - schoolOffsetMs(new Date(approximation)));
+}
+
+/**
  * The value to hand Prisma for a `@db.Date` column.
  *
  * UTC midnight of that civil date, which is how Prisma and Postgres represent a bare date. It is
