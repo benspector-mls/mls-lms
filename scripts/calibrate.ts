@@ -24,16 +24,38 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
 
+const ANSWER_KEY_REPO = "The-Marcy-Lab-School/swe-assignment-grading-guides";
+
 /**
- * The reference solutions these samples were marked against.
+ * Every calibration pair, with the reference solutions its report was marked against.
  *
- * The three pairs are all drawn from `swe-checkpoint-summative-1-4`, so the key is that
- * assignment's, and named here rather than read from a database row because this script grades
- * files out of the toolkit and never loads an assignment.
+ * **The answer key belongs to the pair rather than to this script**, because the pairs are drawn
+ * from different assignments: pairs 1 to 3 from `swe-checkpoint-summative-1-4` and pair 4 from
+ * `swe-6-1-sql-basics-sr`. Production grades a section against the key its own assignment names,
+ * so one key shared across every pair would measure a configuration nobody runs. Adding a pair
+ * means adding a row here, and a pair with no row is refused rather than graded keyless.
+ *
+ * Named here rather than read from a database row because this script grades files out of the
+ * toolkit and never loads an assignment.
+ *
+ * Pair 1 is the exemplar embedded in the prompt, so grading it measures little beyond whether the
+ * pipeline is steady. **Pairs 2, 3, and 4 are held out.** Pair 4 is the one that tests the rubric
+ * most honestly: pairs 2 and 3 share their four questions with the exemplar, and the model has
+ * been observed anchoring to the exemplar's scores, while pair 4 is five different questions on a
+ * different topic.
  */
-const CALIBRATION_ANSWER_KEY_REPO = "The-Marcy-Lab-School/swe-assignment-grading-guides";
-const CALIBRATION_ANSWER_KEY_DIR =
-  "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/short-response-solution";
+const CALIBRATION_PAIRS: Record<string, { answerKeyDir: string }> = {
+  "1": {
+    answerKeyDir: "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/short-response-solution",
+  },
+  "2": {
+    answerKeyDir: "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/short-response-solution",
+  },
+  "3": {
+    answerKeyDir: "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/short-response-solution",
+  },
+  "4": { answerKeyDir: "answer-keys/mod-6-databases/swe-6-1-sql-basics-sr" },
+};
 
 /** What an instructor's hand-written report says, pulled out of its markdown. */
 type ExpectedScores = {
@@ -102,11 +124,24 @@ async function main() {
   // Read from the repository over the API, the same way grading reads its rubric — there
   // is no local-clone mode any more.
   const only = process.argv[2];
-  const pairs = (only ? [only] : ["1", "2", "3"]).map((n) => ({
-    n,
-    submissionFile: `sample-short-response-submission-${n}.md`,
-    reportFile: `sample-short-response-report-${n}.md`,
-  }));
+  const requested = only ? [only] : Object.keys(CALIBRATION_PAIRS);
+  const pairs = requested.map((n) => {
+    const configured = CALIBRATION_PAIRS[n];
+    if (!configured) {
+      console.error(
+        `Calibration pair ${JSON.stringify(n)} has no entry in CALIBRATION_PAIRS, so there is no ` +
+          `answer key to grade it against. Add one in scripts/calibrate.ts — the pairs on record ` +
+          `are ${Object.keys(CALIBRATION_PAIRS).join(", ")}.`,
+      );
+      process.exit(1);
+    }
+    return {
+      n,
+      answerKeyDir: configured.answerKeyDir,
+      submissionFile: `sample-short-response-submission-${n}.md`,
+      reportFile: `sample-short-response-report-${n}.md`,
+    };
+  });
 
   const generator = await getReportGenerator();
   console.log(`Provider  ${generator.name}\n`);
@@ -138,15 +173,15 @@ async function main() {
       were marked against it. Withholding it asked the model to infer a standard that was
       written down.
 
-      The directory is the short response solution specifically, not the assignment's whole
-      answer key folder — that folder also holds the frontend solution, and sending five
-      JavaScript and CSS files into a short response prompt is noise the section cannot use
-      and is billed for on every run.
+      Each pair names its own directory, and for the checkpoint pairs that is the short response
+      solution specifically rather than the assignment's whole answer key folder — that folder
+      also holds the frontend solution, and sending five JavaScript and CSS files into a short
+      response prompt is noise the section cannot use and is billed for on every run.
     */
     const assets = await loadGradingAssets({
       sectionType: "short_response",
-      answerKeyRepo: CALIBRATION_ANSWER_KEY_REPO,
-      answerKeyDir: CALIBRATION_ANSWER_KEY_DIR,
+      answerKeyRepo: ANSWER_KEY_REPO,
+      answerKeyDir: pair.answerKeyDir,
     });
 
     const response = await generator.generate({
