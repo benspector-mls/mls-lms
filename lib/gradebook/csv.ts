@@ -17,6 +17,7 @@
 
 import { slugifyCohort } from "@/lib/courses/cohort-slug";
 import { csvLine, csvPersonName } from "@/lib/csv";
+import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 
 /**
  * The parts of the gradebook payload a CSV reads, named structurally rather than taken from
@@ -30,7 +31,8 @@ export type GradebookCsvAssignment = {
   id: string;
   title: string;
   pointValue: number;
-  module: { position: number; name: string };
+  /** The unit this belongs to: a module, a project, or an assessment. */
+  courseUnit: { id: string; name: string; position: number; category: CourseUnitCategory };
 };
 
 export type GradebookCsvPerson = {
@@ -57,7 +59,8 @@ export type GradebookCsvData = {
 };
 
 /**
- * Course order: `module.position`, which is the sequence an instructor set.
+ * Course order: `courseUnit.position`, which is the sequence an instructor set — one sequence
+ * across modules, projects, and assessments alike.
  *
  * Shared with the grid rather than written twice, and that is the point of exporting it. The
  * columns of the file have to be the columns of the table in the same order — a CSV whose third
@@ -65,11 +68,12 @@ export type GradebookCsvData = {
  * correct, because both are plausible orderings of the same assignments.
  */
 export function sortGradebookAssignments<
-  T extends { title: string; module: { position: number; name: string } },
+  T extends { title: string; courseUnit: { position: number; name: string } },
 >(assignments: readonly T[]): T[] {
   return [...assignments].sort((a, b) => {
     const byModule =
-      a.module.position - b.module.position || a.module.name.localeCompare(b.module.name);
+      a.courseUnit.position - b.courseUnit.position ||
+      a.courseUnit.name.localeCompare(b.courseUnit.name);
     return byModule !== 0 ? byModule : a.title.localeCompare(b.title);
   });
 }
@@ -144,6 +148,16 @@ export function gradebookCsv(data: GradebookCsvData): string {
     ]);
   }
 
+  /*
+    Which unit each column belongs to, and what kind of unit it is.
+
+    **A header row rather than a reordering of the columns.** The grid is four tabs now, so there
+    is no single on-screen order for the file to match; keeping course order means the export
+    stays one complete, stable table, which is what makes it sortable and filterable in a
+    spreadsheet — the reason it is one table rather than two in the first place. A reader who
+    wants the three categories apart sorts or filters on this row, which is the tool they already
+    opened the file in.
+  */
   const lines = [
     csvLine([
       "Student",
@@ -151,6 +165,21 @@ export function gradebookCsv(data: GradebookCsvData): string {
       "GitHub username",
       "Enrollment",
       ...assignments.map((assignment) => assignment.title),
+    ]),
+    csvLine([
+      "Unit",
+      null,
+      null,
+      null,
+      /*
+        One row rather than a category row and a name row. "project: Mod 4 Project" carries both,
+        and every header row added here is a row a reader has to skip past before the data
+        starts. Never blank: every assignment belongs to exactly one unit.
+      */
+      ...assignments.map(
+        (assignment) =>
+          `${CATEGORY_META[assignment.courseUnit.category].noun}: ${assignment.courseUnit.name}`,
+      ),
     ]),
     csvLine([
       "Points possible",

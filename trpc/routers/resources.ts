@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { assertCourseMember } from "@/lib/courses/membership";
-import { teachableModule, teachableResource } from "@/lib/courses/scope";
+import { teachableCourseUnit, teachableResource } from "@/lib/courses/scope";
 import { resourceColumns, resourceSpecSchema, UnrecognisedVideoError } from "@/lib/resources/spec";
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
@@ -54,7 +54,7 @@ const resourceFields = {
   body: true,
   videoProvider: true,
   videoId: true,
-  moduleId: true,
+  courseUnitId: true,
 } as const;
 
 export const resourcesRouter = createTRPCRouter({
@@ -74,30 +74,42 @@ export const resourcesRouter = createTRPCRouter({
    * Ordered here rather than in the interface so the student page, the Modules screen, and the
    * Resources screen cannot each pick their own alphabet.
    */
+  /**
+   * One resource, in the shape the edit form wants.
+   *
+   * Its own procedure because the Curriculum screen's rows carry a title and a kind and nothing
+   * else — which is all a row draws. The body of a note and the id of a video are needed only
+   * once somebody opens the form, and shipping a term's markdown to render a list of titles
+   * would be a page of prose nobody asked for.
+   */
+  get: instructorProcedure
+    .input(z.object({ resourceId: z.string().uuid() }))
+    .query(({ ctx, input }) => teachableResource(ctx, input.resourceId, resourceFields)),
+
   listForCourse: profileProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await assertCourseMember(ctx, input.courseId);
 
       return ctx.db.resource.findMany({
-        where: { module: { courseId: input.courseId } },
+        where: { courseUnit: { courseId: input.courseId } },
         /*
           Module order first, then title. There is no `position` on a resource, deliberately:
           alphabetical is the only ordering that needs nothing maintained, and a manual one
           beside it would be a second sequence to keep in step with the first.
         */
-        orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
+        orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
         select: resourceFields,
       });
     }),
 
   create: instructorProcedure
-    .input(z.object({ moduleId: z.string().uuid(), spec: resourceSpecSchema }))
+    .input(z.object({ courseUnitId: z.string().uuid(), spec: resourceSpecSchema }))
     .mutation(async ({ ctx, input }) => {
-      await teachableModule(ctx, input.moduleId, { id: true });
+      await teachableCourseUnit(ctx, input.courseUnitId, { id: true });
 
       return ctx.db.resource.create({
-        data: { moduleId: input.moduleId, ...columnsOrRefuse(input.spec) },
+        data: { courseUnitId: input.courseUnitId, ...columnsOrRefuse(input.spec) },
         select: resourceFields,
       });
     }),
@@ -114,14 +126,14 @@ export const resourcesRouter = createTRPCRouter({
       z.object({
         resourceId: z.string().uuid(),
         /** Omitted leaves it where it is. Given, it must be a module of the same course. */
-        moduleId: z.string().uuid().optional(),
+        courseUnitId: z.string().uuid().optional(),
         spec: resourceSpecSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const existing = await teachableResource(ctx, input.resourceId, {
         id: true,
-        module: { select: { id: true, courseId: true } },
+        courseUnit: { select: { id: true, courseId: true } },
       });
 
       /*
@@ -130,9 +142,9 @@ export const resourcesRouter = createTRPCRouter({
         course it belongs to and appears on one it does not — and nothing on either screen would
         explain it.
       */
-      if (input.moduleId && input.moduleId !== existing.module.id) {
-        const target = await ctx.db.module.findFirst({
-          where: { id: input.moduleId, courseId: existing.module.courseId },
+      if (input.courseUnitId && input.courseUnitId !== existing.courseUnit.id) {
+        const target = await ctx.db.courseUnit.findFirst({
+          where: { id: input.courseUnitId, courseId: existing.courseUnit.courseId },
           select: { id: true },
         });
 
@@ -147,7 +159,7 @@ export const resourcesRouter = createTRPCRouter({
       return ctx.db.resource.update({
         where: { id: input.resourceId },
         data: {
-          ...(input.moduleId ? { moduleId: input.moduleId } : {}),
+          ...(input.courseUnitId ? { courseUnitId: input.courseUnitId } : {}),
           ...columnsOrRefuse(input.spec),
         },
         select: resourceFields,

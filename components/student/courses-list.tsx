@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Archive, ArrowRight, BookOpen, UserMinus } from "lucide-react";
+import { Archive, ArrowRight, BookOpen, CircleCheck, UserMinus } from "lucide-react";
 
 import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
 import { EmptyState } from "@/components/list-states";
@@ -37,6 +37,15 @@ type Course = {
    * they are still in would be telling them something false.
    */
   enrolledAs: "ACTIVE" | "REMOVED" | null;
+  /**
+   * Where the caller stands on the whole course, or null when they are not a student of it.
+   *
+   * The top of one rule applied at three levels: an assignment is complete when it is marked so,
+   * a unit when every published assignment in it is, a course when every unit that has a verdict
+   * is. Computed in `courses.listMine` by the same function the gradebook reads, so a student and
+   * their instructor are never shown different answers.
+   */
+  completion: "complete" | "incomplete" | "pending" | null;
   _count: { assignments: number; enrollments: number };
 };
 
@@ -149,6 +158,24 @@ function CourseCard({ course }: { course: Course }) {
                 <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   <Archive className="size-3" />
                   Archived
+                </span>
+              )}
+              {/*
+                Whether the caller has finished this course.
+
+                **Only the "complete" state is shown.** A course is complete when every unit that
+                has anything published in it is complete, so the other two verdicts are the
+                ordinary condition of a term in progress — a badge reading "Not finished" on every
+                card of a running cohort would be a label on the normal case, which is noise. The
+                green is the same green completion uses everywhere else in the interface.
+
+                Absent entirely for an instructor's own cohorts, because they are not doing the
+                work: `completion` is null unless the caller is enrolled.
+              */}
+              {course.completion === "complete" && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                  <CircleCheck className="size-3" />
+                  Complete
                 </span>
               )}
               {/*

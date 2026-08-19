@@ -464,10 +464,15 @@ async function main() {
     /*
       `findFirst` rather than a unique lookup: `position` is deliberately not unique, so that
       `reorder` can rewrite the whole sequence in one statement. The name tie-break matches
-      `modules.listForCourse`, so "the module at position 1" means the same row here as on screen.
+      `courseUnits.listForCourse`, so "the module at position 1" means the same row here as on screen.
     */
-    const existing = await prisma.module.findFirst({
-      where: { courseId: course.id, position },
+    const existing = await prisma.courseUnit.findFirst({
+      /*
+        Modules only. All three categories share one position sequence, so without this the
+        sample project below would eventually sit at a position the seed then treats as "the
+        module at position N" — and every assignment routed there would land in the project.
+      */
+      where: { courseId: course.id, category: "MODULE", position },
       orderBy: { name: "asc" },
       select: { id: true },
     });
@@ -482,9 +487,9 @@ async function main() {
       exists. A module carrying this name somewhere else is this module after a reorder, and
       claiming the name again would be refused by `@@unique([courseId, name])` anyway.
     */
-    const row = await prisma.module.upsert({
+    const row = await prisma.courseUnit.upsert({
       where: { courseId_name: { courseId: course.id, name } },
-      create: { courseId: course.id, name, position },
+      create: { courseId: course.id, name, position, category: "MODULE" },
       // Deliberately empty. A module an instructor moved stays where they put it.
       update: {},
       select: { id: true },
@@ -592,7 +597,7 @@ async function main() {
     // `title` stays a separate column because a Google Doc or upload assignment
     // still needs a human-readable name and has no repository to borrow one from.
     title: ASSIGNMENT_REPO_NAME,
-    moduleId: moduleIdFor(ANSWER_KEY_DIR),
+    courseUnitId: moduleIdFor(ANSWER_KEY_DIR),
     completionThreshold: 0.75,
     templateRepo: TEMPLATE_REPO,
     answerKeyRepo: ANSWER_KEY_REPO,
@@ -618,7 +623,7 @@ async function main() {
       courseId: course.id,
       kind: spec.kind,
       title: spec.title,
-      moduleId: spec.moduleId,
+      courseUnitId: spec.courseUnitId,
       pointValue: spec.pointValue,
       completionThreshold: spec.completionThreshold,
       templateRepo: spec.templateRepo,
@@ -659,6 +664,101 @@ async function main() {
   // left in place. Changing SEED_TEMPLATE_REPO therefore adds an assignment
   // rather than replacing one, and the course can end up listing more than one.
   // Remove any you do not want by hand — this script does not delete assignments.
+
+  /*
+    One project and one assessment, so the three gradebook tabs and a student's course list all
+    have something real to render.
+
+    **Course units of their own, sitting after the modules in the same sequence.** A project is
+    not a thing inside a module: it is a peer of one, with its own deliverables and its own place
+    in the term. That is what makes the gradebook's tabs a property of the unit rather than a join
+    through something else.
+
+    **Every assignment is left unpublished.** `distributedAt` stays null, so no student sees any
+    of this and nobody's progress bar moves — an instructor opening the Projects tab sees the
+    shape of the feature, and the cohort's own screens are untouched. Publish one from the
+    authoring form to try the student side.
+
+    **Not repository-backed.** These are `EXTERNAL_URL` and `FILE_UPLOAD`, so nothing here implies
+    a GitHub template that does not exist, and every section is graded by hand — which is what
+    `noRepository` in `lib/assignments/spec.ts` requires of those kinds anyway.
+
+    Idempotent by name within the course, the same rule `@@unique([courseId, name])` enforces:
+    running the seed twice leaves one of each rather than adding another.
+  */
+  const SAMPLE_UNITS = [
+    {
+      category: "PROJECT" as const,
+      name: "Sample Project",
+      overview:
+        "A worked example of a project, seeded so the Projects tab has something in it. Its " +
+        "deliverables are unpublished, so no student can see them.",
+      work: [
+        { title: "Sample Project — wireframes", kind: "EXTERNAL_URL" as const, days: 7 },
+        { title: "Sample Project — deployed site", kind: "EXTERNAL_URL" as const, days: 21 },
+      ],
+    },
+    {
+      category: "ASSESSMENT" as const,
+      name: "Sample Assessment",
+      overview:
+        "A worked example of an assessment: several parts, each handed in separately and in its " +
+        "own format. Unpublished, so no student can see them.",
+      work: [
+        { title: "Sample Assessment — short response", kind: "FILE_UPLOAD" as const, days: 3 },
+        { title: "Sample Assessment — ERD", kind: "EXTERNAL_URL" as const, days: 3 },
+        { title: "Sample Assessment — queries", kind: "EXTERNAL_URL" as const, days: 5 },
+      ],
+    },
+  ];
+
+  for (const [offset, sample] of SAMPLE_UNITS.entries()) {
+    const unit = await prisma.courseUnit.upsert({
+      where: { courseId_name: { courseId: course.id, name: sample.name } },
+      create: {
+        courseId: course.id,
+        category: sample.category,
+        name: sample.name,
+        overview: sample.overview,
+        // After every module, in the order they are declared here.
+        position: MODULE_NAMES.length + offset,
+      },
+      // Deliberately empty, for the reason the assignment upsert above gives: this seed creates,
+      // it does not correct. A name an instructor has edited stays edited.
+      update: {},
+      select: { id: true, name: true },
+    });
+
+    for (const item of sample.work) {
+      const existing = await prisma.assignment.findFirst({
+        where: { courseId: course.id, title: item.title },
+        select: { id: true },
+      });
+      if (existing) continue;
+
+      await prisma.assignment.create({
+        data: {
+          courseId: course.id,
+          courseUnitId: unit.id,
+          kind: item.kind,
+          title: item.title,
+          pointValue: 10,
+          completionThreshold: 0.75,
+          // Staggered, so the by-due-date ordering every screen applies has something to do.
+          dueAt: new Date(Date.now() + item.days * 24 * 60 * 60 * 1000),
+          // Unpublished: this is what keeps the sample out of every student's course page.
+          distributedAt: null,
+          acceptedFileTypes: item.kind === "FILE_UPLOAD" ? ["pdf"] : [],
+          sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+        },
+      });
+    }
+
+    console.log(
+      `${sample.category === "PROJECT" ? "Project" : "Assessment"}: ${unit.name} — ` +
+        `${sample.work.length} unpublished assignments`,
+    );
+  }
 
   console.log("\nSeed complete.");
 }

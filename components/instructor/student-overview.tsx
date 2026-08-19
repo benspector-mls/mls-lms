@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { BatchState } from "@/hooks/use-batch-generate";
+import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { courseHref, studentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { initials } from "@/lib/people";
@@ -175,7 +176,12 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       key={row.assignment.id}
                       row={row.submission}
                       primary={row.assignment.title}
-                      secondary={row.assignment.module.name}
+                      /*
+                        The module, and the project or assessment where there is one. Reading a
+                        student's record down the page, a deliverable named on its own is missing
+                        what explains it — that it is one part of a larger piece of work.
+                      */
+                      secondary={secondaryLine(row.assignment)}
                       active={selected?.assignment.id === row.assignment.id}
                       onSelect={() => select(row.submission!.id)}
                       now={now}
@@ -351,7 +357,7 @@ function NotStartedRow({ row }: { row: Row }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-sm">{row.assignment.title}</span>
           <span className="truncate text-xs text-muted-foreground">
-            {row.assignment.module.name}
+            {secondaryLine(row.assignment)}
           </span>
         </div>
         <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
@@ -360,4 +366,27 @@ function NotStartedRow({ row }: { row: Row }) {
       </div>
     </li>
   );
+}
+
+
+/**
+ * What sits under an assignment's title in one student's record: the unit it belongs to, and what
+ * kind of unit that is.
+ *
+ * The category is named only for a project or an assessment. A module is what most of a course is
+ * made of, so saying so on every row would be a word repeated forty times to distinguish nothing;
+ * the two that are *not* modules are exactly the rows where the word carries information —
+ * reading a student's record down the page, a deliverable named on its own is missing what
+ * explains it, that it is one part of a larger piece of work.
+ *
+ * Here rather than inline so the two rows this list draws — a submission and a not-started
+ * assignment — cannot come to describe the same assignment differently.
+ */
+export function secondaryLine(assignment: {
+  courseUnit: { name: string; category: CourseUnitCategory };
+}): string {
+  const { name, category } = assignment.courseUnit;
+  if (category === "MODULE") return name;
+
+  return `${name} · ${CATEGORY_META[category].noun}`;
 }

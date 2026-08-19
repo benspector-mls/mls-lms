@@ -42,7 +42,6 @@ describe("planBatch", () => {
 
     it("a report that already exists", () => {
       expect(planBatch([candidate("draft_ready")]).subjects).toEqual([]);
-      expect(planBatch([candidate("needs_manual_review")]).subjects).toEqual([]);
     });
 
     // A failed run is deliberately not picked up. It failed for a reason an instructor should
@@ -84,7 +83,7 @@ describe("planBatch", () => {
     it("accounts for every row", () => {
       const rows = [
         candidate("needs_report"),
-        candidate("needs_manual_review"),
+        candidate("draft_ready"),
         candidate("grading_failed"),
         candidate("generating"),
         candidate("needs_manual_grade"),

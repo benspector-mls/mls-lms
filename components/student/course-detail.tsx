@@ -20,9 +20,17 @@ import { PageHeader } from "@/components/page-header";
 import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { hasAcceptStep } from "@/lib/assignments/spec";
 import { gradingQueueHref } from "@/lib/links";
+import {
+  CATEGORY_META,
+  sortByDueDate,
+  UNIT_CATEGORIES,
+  unitDueAt,
+  type CourseUnitCategory,
+} from "@/lib/course-units";
 import { completionMeta, formatDate, formatPercent, scorePercent } from "@/lib/status";
 import { completeCount } from "@/lib/student/progress";
 import { cn } from "@/lib/utils";
@@ -69,7 +77,7 @@ export function StudentCourseDetail({
   resources: Resource[];
   githubLinked: boolean;
 }) {
-  const modules = groupByModule(course, assignments, resources);
+  const units = groupByCourseUnit(course, assignments, resources);
 
   /*
     Which assignment is open is React state, and the address is kept in step with it.
@@ -172,7 +180,7 @@ export function StudentCourseDetail({
         Where the course stands, in one line. Below the header because it is about the work
         rather than about the cohort, and above the modules because it is the summary of them.
       */}
-      {assignments.length > 0 && <CourseProgressBar assignments={assignments} />}
+      {assignments.length > 0 && <CourseProgress assignments={assignments} />}
 
       {/*
         Accepting an assignment creates a repository named after the GitHub username, so
@@ -192,7 +200,7 @@ export function StudentCourseDetail({
         </Card>
       )}
 
-      {modules.length === 0 ? (
+      {units.length === 0 ? (
         <EmptyState
           icon={<ListChecks />}
           title="Nothing here yet"
@@ -200,12 +208,13 @@ export function StudentCourseDetail({
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {modules.map(({ id, name, rows, resources: moduleResources }) => (
-            <ModuleSection
+          {units.map(({ id, name, category, rows, resources: unitResources }) => (
+            <UnitSection
               key={id}
               name={name}
+              category={category}
               assignments={rows}
-              resources={moduleResources}
+              resources={unitResources}
               teaches={course.teaches}
               openAssignmentId={openId}
               onOpen={show}
@@ -230,41 +239,57 @@ export function StudentCourseDetail({
 }
 
 /**
- * Every module of the course, in the order the instructor set, with what is in it underneath.
+ * Every unit of the course, in the order the instructor set, with what is in it underneath.
  *
- * **Built from the course's modules rather than from the assignments**, so a module a student
- * has nothing in yet still appears. That is the point: the module list is the shape of the
- * course, and a student should be able to see what is coming rather than only what has been
- * handed out. A module whose assignments are all still drafts looks empty to them and full to
- * the instructor, which is what `distributedAt` is for.
+ * **A module, a project, and an assessment are peer sections in one list.** All three are course
+ * units, so a project is not a block nested inside the module it happens to fall near — it sits
+ * in the sequence where the instructor put it, with its own deliverables under it, exactly as a
+ * module sits with its assignments.
  *
- * An assignment whose module is somehow not in the list is still shown, under that module, so
- * nothing can go missing from a student's page because of a data problem they cannot see. A
- * *resource* in an unknown module is dropped instead, and the difference is deliberate: an
- * assignment is work somebody is graded on and must never disappear silently, where a reading
- * filed under nothing has nowhere to be shown and no consequence for going unseen.
+ * **Built from the course's units rather than from the assignments**, so a unit a student has
+ * nothing in yet still appears. That is the point: the list is the shape of the course, and a
+ * student should be able to see what is coming rather than only what has been handed out. A unit
+ * whose assignments are all still drafts looks empty to them and full to the instructor, which is
+ * what `distributedAt` is for.
+ *
+ * An assignment whose unit is somehow not in the list is still shown, under that unit, so nothing
+ * can go missing from a student's page because of a data problem they cannot see. A *resource* in
+ * an unknown unit is dropped instead, and the difference is deliberate: an assignment is work
+ * somebody is graded on and must never disappear silently, where a reading filed under nothing has
+ * nowhere to be shown and no consequence for going unseen.
  */
-function groupByModule(course: Course, assignments: Assignment[], resources: Resource[]) {
+function groupByCourseUnit(course: Course, assignments: Assignment[], resources: Resource[]) {
   const groups = new Map<
     string,
-    { id: string; name: string; position: number; rows: Assignment[]; resources: Resource[] }
+    {
+      id: string;
+      name: string;
+      position: number;
+      category: CourseUnitCategory;
+      rows: Assignment[];
+      resources: Resource[];
+    }
   >();
 
-  for (const row of course.modules) {
+  for (const row of course.courseUnits) {
     groups.set(row.id, { ...row, rows: [], resources: [] });
   }
 
   for (const assignment of assignments) {
-    const existing = groups.get(assignment.module.id);
+    const existing = groups.get(assignment.courseUnit.id);
     if (existing) existing.rows.push(assignment);
     else
-      groups.set(assignment.module.id, { ...assignment.module, rows: [assignment], resources: [] });
+      groups.set(assignment.courseUnit.id, {
+        ...assignment.courseUnit,
+        rows: [assignment],
+        resources: [],
+      });
   }
 
   // Already in title order from the procedure, so pushing preserves it. Ordering resources
   // here would be a second alphabet beside the one the server applied.
   for (const resource of resources) {
-    groups.get(resource.moduleId)?.resources.push(resource);
+    groups.get(resource.courseUnitId)?.resources.push(resource);
   }
 
   return [...groups.values()].sort(
@@ -272,8 +297,9 @@ function groupByModule(course: Course, assignments: Assignment[], resources: Res
   );
 }
 
-function ModuleSection({
+function UnitSection({
   name,
+  category,
   assignments,
   resources,
   teaches,
@@ -281,6 +307,7 @@ function ModuleSection({
   onOpen,
 }: {
   name: string;
+  category: CourseUnitCategory;
   assignments: Assignment[];
   resources: Resource[];
   teaches: boolean;
@@ -288,19 +315,27 @@ function ModuleSection({
   onOpen: (assignmentId: string | null) => void;
 }) {
   /*
-    Collapsed when there is nothing in it at all — resources count, so a module holding only
-    readings opens rather than reading as empty. A module with nothing yet is worth seeing in the
+    Collapsed when there is nothing in it at all — resources count, so a unit holding only
+    readings opens rather than reading as empty. A unit with nothing yet is worth seeing in the
     list and not worth taking up space open.
 
     Forced open when it holds the assignment the address names, which is what makes a link from
     the dashboard land somewhere a student can see. Without it, following one would open the panel
-    over a module still collapsed underneath, and closing the panel would leave them looking at a
+    over a unit still collapsed underneath, and closing the panel would leave them looking at a
     course page that had apparently ignored the link.
   */
   const holdsOpenAssignment =
     openAssignmentId != null && assignments.some((a) => a.id === openAssignmentId);
   const [open, setOpen] = React.useState(assignments.length > 0 || resources.length > 0);
   const complete = completeCount(assignments);
+  const meta = CATEGORY_META[category];
+
+  /*
+    By due date, through the same comparator every other screen uses, so what a student sees is
+    the order their instructor authored against.
+  */
+  const work = React.useMemo(() => sortByDueDate(assignments), [assignments]);
+  const dueAt = unitDueAt(work);
 
   return (
     <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
@@ -318,26 +353,39 @@ function ModuleSection({
             />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">{name}</span>
             {/*
+              What kind of unit this is, on everything but a module.
+
+              A module is what most of a course is made of, so a badge on every one of eighteen
+              would be a word repeated to distinguish nothing; the two that are not modules are
+              exactly where the word carries information. The whole due date sits beside it,
+              derived from the work rather than stored, so it disappears when nothing is dated.
+            */}
+            {category !== "MODULE" && (
+              <Badge variant="secondary" className="shrink-0 capitalize">
+                {meta.noun}
+              </Badge>
+            )}
+            {/*
               The assignment progress is the summary, and resources are counted beside it rather
               than folded into it: "2 of 5 complete" is a claim about work, and a reading is not
-              work. A module holding only readings says so instead of reading as 0 of 0.
+              work. A unit holding only readings says so instead of reading as 0 of 0.
             */}
             <span className="text-xs whitespace-nowrap text-muted-foreground">
-              {moduleSummary(assignments.length, complete, resources.length)}
+              {unitSummary(work.length, complete, resources.length, dueAt)}
             </span>
           </CollapsibleTrigger>
         </h2>
 
         <CollapsibleContent>
-          {assignments.length === 0 && resources.length === 0 ? (
+          {work.length === 0 && resources.length === 0 ? (
             <p className="border-t border-border px-3 py-3 text-sm text-muted-foreground">
-              Nothing has been handed out for this module yet.
+              Nothing has been handed out for this {meta.noun} yet.
             </p>
           ) : (
             <>
-              {assignments.length > 0 && (
+              {work.length > 0 && (
                 <ul className="divide-y divide-border border-t border-border">
-                  {assignments.map((assignment) => (
+                  {work.map((assignment) => (
                     <li key={assignment.id}>
                       <AssignmentRow
                         assignment={assignment}
@@ -560,17 +608,72 @@ function RowSummary({
   );
 }
 /**
- * "2 of 5 complete · 3 resources", or what is true when one half is empty.
+ * "2 of 5 complete · 3 resources · due 14 Mar", or what is true when a part of it is empty.
  *
- * Two counts rather than one, because they answer different questions and only one of them is
- * about work. Folding readings into the progress figure would make a module read as unfinished
- * for holding a link.
+ * Separate counts rather than one figure, because they answer different questions and only one of
+ * them is about work. Folding readings into the progress figure would make a unit read as
+ * unfinished for holding a link.
+ *
+ * The due date is the unit's own, which is the latest among its assignments — derived rather than
+ * stored, so it cannot come to contradict the rows beneath it.
  */
-function moduleSummary(assignments: number, complete: number, resources: number): string {
+function unitSummary(
+  assignments: number,
+  complete: number,
+  resources: number,
+  dueAt: Date | null,
+): string {
   const work = assignments === 0 ? null : `${complete} of ${assignments} complete`;
   const reading =
     resources === 0 ? null : `${resources} ${resources === 1 ? "resource" : "resources"}`;
+  const due = dueAt === null ? null : `due ${formatDate(dueAt)}`;
 
   if (!work && !reading) return "Nothing yet";
-  return [work, reading].filter(Boolean).join(" · ");
+  return [work, reading, due].filter(Boolean).join(" · ");
+}
+
+
+/**
+ * Where the course stands, as one bar per category of work.
+ *
+ * **Three bars rather than one**, because "how am I doing" has three answers and one bar over
+ * everything gives an average of them that describes none — a student who has finished every
+ * assignment and no deliverable of the project reads as three quarters of the way through a
+ * course they are behind in.
+ *
+ * A category with nothing in it gets no bar. Most courses have only assignments, and two empty
+ * bars beneath the real one would imply work that has not been set.
+ *
+ * **The denominator is deliverables, not projects.** The instructor's overview counts whole
+ * projects completed, which is the right figure for "how many has this student finished"; a
+ * student is asking how far through the work they are, and the work is the deliverables. The two
+ * are different questions rather than two answers to one, which is why they are allowed to
+ * differ.
+ */
+function CourseProgress({ assignments }: { assignments: Assignment[] }) {
+  const byCategory: Record<CourseUnitCategory, Assignment[]> = {
+    MODULE: assignments.filter((a) => a.courseUnit.category === "MODULE"),
+    PROJECT: assignments.filter((a) => a.courseUnit.category === "PROJECT"),
+    ASSESSMENT: assignments.filter((a) => a.courseUnit.category === "ASSESSMENT"),
+  };
+
+  // Only where there is more than one bar. A course with modules alone should read exactly as it
+  // did before, with no heading over a single bar explaining which of one thing it is.
+  const shown = UNIT_CATEGORIES.filter((category) => byCategory[category].length > 0);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {shown.map((category) => (
+        <CourseProgressBar
+          key={category}
+          assignments={byCategory[category]}
+          label={shown.length > 1 ? CATEGORY_META[category].tabLabel : undefined}
+          nouns={{
+            one: CATEGORY_META[category].partNoun,
+            many: CATEGORY_META[category].partPluralNoun,
+          }}
+        />
+      ))}
+    </div>
+  );
 }

@@ -99,7 +99,7 @@ const manualSection = { grading: "manual", label: "Reflection", pointValue: 10 }
 const repoSpec = {
   kind: AssignmentKind.REPO,
   title: "swe-1-4-loops",
-  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+  courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
   answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
   answerKeyDir: "answer-keys/mod-1-js-fundamentals/swe-1-4-loops",
   templateRepo: "marcy-lms-test/swe-1-4-loops",
@@ -146,7 +146,7 @@ check(
   rejects({
     kind: AssignmentKind.GOOGLE_DRIVE,
     title: "Story Prep Worksheet",
-    moduleId: repoSpec.moduleId,
+    courseUnitId: repoSpec.courseUnitId,
     templateDriveUrl: "https://docs.google.com/document/d/abc123/view",
     answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
     sections: [manualSection],
@@ -196,7 +196,7 @@ check(
   rejects({
     kind: AssignmentKind.GOOGLE_DRIVE,
     title: "Story Prep Worksheet",
-    moduleId: repoSpec.moduleId,
+    courseUnitId: repoSpec.courseUnitId,
     templateDriveUrl: "https://docs.google.com/document/d/abc123/view",
     answerKeyDir: "answer-keys/whatever",
     sections: [manualSection],
@@ -473,7 +473,7 @@ const DOC_URL = "https://docs.google.com/document/d/1AbC_dEF-123/view";
 const docSpec = {
   kind: AssignmentKind.GOOGLE_DRIVE,
   title: "Reflection: what I learned in mod 1",
-  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+  courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
   templateDriveUrl: DOC_URL,
   sections: [manualSection],
 };
@@ -626,7 +626,7 @@ check(
     {
       kind: AssignmentKind.FILE_UPLOAD,
       title: "Resume, first draft",
-      moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+      courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
       sections: [codingSection],
     },
     "sections.0.grading",
@@ -638,7 +638,7 @@ check(
   rejects({
     kind: AssignmentKind.FILE_UPLOAD,
     title: "Resume, first draft",
-    moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+    courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
     sections: [manualSection],
     acceptedFileTypes: ["pdf"],
   }),
@@ -653,7 +653,7 @@ check(
 const uploadSpec = {
   kind: AssignmentKind.FILE_UPLOAD,
   title: "Resume, first draft",
-  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+  courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
   sections: [manualSection],
   acceptedFileTypes: ["pdf"],
 };
@@ -704,7 +704,7 @@ check(
 const linkSpec = {
   kind: AssignmentKind.EXTERNAL_URL,
   title: "Personal site (Canva)",
-  moduleId: "e7c1a1d0-0000-4000-8000-000000000001",
+  courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
   sections: [manualSection],
 };
 
@@ -900,7 +900,7 @@ async function procedures() {
       courseId: true,
       kind: true,
       title: true,
-      moduleId: true,
+      courseUnitId: true,
       answerKeyRepo: true,
       answerKeyDir: true,
       pointValue: true,
@@ -952,7 +952,7 @@ async function procedures() {
   const draftFromSeed = {
     kind: seeded.kind,
     title: seeded.title,
-    moduleId: seeded.moduleId,
+    courseUnitId: seeded.courseUnitId,
     answerKeyRepo: seeded.answerKeyRepo,
     answerKeyDir: seeded.answerKeyDir,
     completionThreshold: seeded.completionThreshold,
@@ -1001,11 +1001,11 @@ async function procedures() {
   const noModule = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
-    draft: { ...draftFromSeed, moduleId: "e7c1a1d0-0000-4000-8000-0000000000ff" },
+    draft: { ...draftFromSeed, courseUnitId: "e7c1a1d0-0000-4000-8000-0000000000ff" },
   });
   check(
     "a module that does not exist is refused",
-    noModule.findings.some((f) => f.path === "moduleId" && f.severity === "error"),
+    noModule.findings.some((f) => f.path === "courseUnitId" && f.severity === "error"),
     true,
   );
 
@@ -1036,7 +1036,7 @@ async function procedures() {
     update: {},
     select: { id: true },
   });
-  const foreignModule = await db.module.upsert({
+  const foreignModule = await db.courseUnit.upsert({
     where: { courseId_name: { courseId: elsewhereCourse.id, name: "Mod 1 - Somewhere Else" } },
     create: { courseId: elsewhereCourse.id, name: "Mod 1 - Somewhere Else", position: 0 },
     update: {},
@@ -1045,11 +1045,11 @@ async function procedures() {
   const crossCourse = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
-    draft: { ...draftFromSeed, moduleId: foreignModule.id },
+    draft: { ...draftFromSeed, courseUnitId: foreignModule.id },
   });
   check(
     "a module belonging to another course is refused",
-    crossCourse.findings.some((f) => f.path === "moduleId" && f.severity === "error"),
+    crossCourse.findings.some((f) => f.path === "courseUnitId" && f.severity === "error"),
     true,
   );
 
@@ -1215,7 +1215,7 @@ async function procedures() {
   const roundTrip = {
     kind: loaded.kind,
     title: loaded.title,
-    moduleId: loaded.moduleId,
+    courseUnitId: loaded.courseUnitId,
     answerKeyRepo: loaded.answerKeyRepo,
     answerKeyDir: loaded.answerKeyDir,
     completionThreshold: loaded.completionThreshold,
@@ -1570,8 +1570,8 @@ async function procedures() {
           name: "Verify Copy Target",
           cohortTerm: "Cohort Copy A",
         });
-        const seededModuleName = (await tx.module.findUnique({
-          where: { id: seeded.moduleId },
+        const seededModuleName = (await tx.courseUnit.findUnique({
+          where: { id: seeded.courseUnitId },
           select: { name: true },
         }))!.name;
 
@@ -1596,18 +1596,19 @@ async function procedures() {
         module sequences have diverged. Without it, copying into such a cohort fails on every
         assignment and the only way through is renaming a module to match.
       */
-        const differentlyNamed = await inTx.modules.create({
+        const differentlyNamed = await inTx.courseUnits.create({
+          category: "MODULE",
           courseId: targetCourse.course.id,
           name: "Week One",
         });
         const named = await inTx.assignments.duplicate({
           assignmentId: seeded.id,
           targetCourseId: targetCourse.course.id,
-          targetModuleId: differentlyNamed.id,
+          targetCourseUnitId: differentlyNamed.id,
         });
         check(
           "naming the module copies it into a cohort whose modules are named differently",
-          named.assignment.moduleId,
+          named.assignment.courseUnitId,
           differentlyNamed.id,
         );
         /*
@@ -1627,7 +1628,7 @@ async function procedures() {
         /*
         A module id is a parameter anybody can pass, so it is checked against the target course
         rather than merely looked up. Without that, a copy could be filed under a third cohort's
-        module — which no screen would show and no constraint would catch, since `moduleId` is a
+        module — which no screen would show and no constraint would catch, since `courseUnitId` is a
         foreign key to modules rather than to modules *of this course*.
       */
         check(
@@ -1636,7 +1637,7 @@ async function procedures() {
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
               targetCourseId: targetCourse.course.id,
-              targetModuleId: seeded.moduleId,
+              targetCourseUnitId: seeded.courseUnitId,
             }),
           ),
           "BAD_REQUEST",
@@ -1653,7 +1654,7 @@ async function procedures() {
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
               targetCourseId: targetCourse.course.id,
-              targetModuleId: differentlyNamed.id,
+              targetCourseUnitId: differentlyNamed.id,
             }),
           ),
           "BAD_REQUEST",
@@ -1667,7 +1668,8 @@ async function procedures() {
           name: "Verify Copy Target Two",
           cohortTerm: "Cohort Copy B",
         });
-        const sameName = await inTx.modules.create({
+        const sameName = await inTx.courseUnits.create({
+          category: "MODULE",
           courseId: secondTarget.course.id,
           name: seededModuleName,
         });
@@ -1677,7 +1679,7 @@ async function procedures() {
         });
         check(
           "a module of the same name is matched without being asked for",
-          matched.assignment.moduleId,
+          matched.assignment.courseUnitId,
           sameName.id,
         );
 
@@ -1691,7 +1693,7 @@ async function procedures() {
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
               targetCourseId: targetCourse.course.id,
-              targetModuleId: differentlyNamed.id,
+              targetCourseUnitId: differentlyNamed.id,
             }),
           ),
           "PRECONDITION_FAILED",

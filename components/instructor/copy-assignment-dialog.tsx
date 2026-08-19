@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CATEGORY_META } from "@/lib/course-units";
 import { useTRPC } from "@/trpc/client";
 
 /**
@@ -48,7 +49,7 @@ import { useTRPC } from "@/trpc/client";
 export function CopyAssignmentDialog({
   assignmentId,
   title,
-  moduleName,
+  unitName,
   courseId,
   open,
   onOpenChange,
@@ -56,7 +57,8 @@ export function CopyAssignmentDialog({
   assignmentId: string;
   title: string;
   /** The source's module, which is what the name match on the other side looks for. */
-  moduleName: string;
+  /** The unit it is being copied out of, named so a reader knows what they are copying. */
+  unitName?: string;
   /** The course it is being copied *from*, which is also the default target. */
   courseId: string;
   open: boolean;
@@ -66,14 +68,14 @@ export function CopyAssignmentDialog({
   const settled = useServerMutation();
 
   const [targetCourseId, setTargetCourseId] = React.useState(courseId);
-  const [targetModuleId, setTargetModuleId] = React.useState<string | null>(null);
+  const [targetCourseUnitId, setTargetCourseUnitId] = React.useState<string | null>(null);
 
   const courses = useQuery({ ...trpc.courses.listMine.queryOptions(), enabled: open });
 
   /*
     The target's modules, which is also the only reason this is a query rather than a prop.
 
-    `courses.get` rather than `modules.listForCourse`: this needs names and ids, and that one
+    `courses.get` rather than `courseUnits.listForCourse`: this needs names and ids, and that one
     carries every assignment in every module with it.
   */
   const target = useQuery({
@@ -92,8 +94,8 @@ export function CopyAssignmentDialog({
     (course) => course.teaches && course.archivedAt == null,
   );
 
-  const modules = target.data?.modules ?? [];
-  const nameMatch = modules.find((module) => module.name === moduleName) ?? null;
+  const units = target.data?.courseUnits ?? [];
+  const nameMatch = units.find((unit) => unit.name === unitName) ?? null;
 
   /*
     The name match, preselected whenever the target changes.
@@ -103,7 +105,7 @@ export function CopyAssignmentDialog({
     target is not a choice about this one.
   */
   React.useEffect(() => {
-    setTargetModuleId(nameMatch?.id ?? null);
+    setTargetCourseUnitId(nameMatch?.id ?? null);
   }, [nameMatch?.id, targetCourseId]);
 
   const copy = useMutation(
@@ -128,7 +130,7 @@ export function CopyAssignmentDialog({
   );
 
   const sameCourse = targetCourseId === courseId;
-  const ready = targetModuleId !== null && !target.isPending;
+  const ready = targetCourseUnitId !== null && !target.isPending;
 
   return (
     <Dialog
@@ -213,24 +215,24 @@ export function CopyAssignmentDialog({
               <Label htmlFor="copy-target-module">Into which module</Label>
               {target.isPending ? (
                 <Skeleton className="h-9 w-full" />
-              ) : modules.length === 0 ? (
+              ) : units.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   That cohort has no modules yet, so there is nowhere for the copy to go. Create one
                   there first.
                 </p>
               ) : (
                 <Select
-                  value={targetModuleId}
-                  onValueChange={(value) => setTargetModuleId(value)}
-                  items={Object.fromEntries(modules.map((module) => [module.id, module.name]))}
+                  value={targetCourseUnitId}
+                  onValueChange={(value) => setTargetCourseUnitId(value)}
+                  items={Object.fromEntries(units.map((unit) => [unit.id, `${CATEGORY_META[unit.category].noun}: ${unit.name}`]))}
                 >
                   <SelectTrigger id="copy-target-module" className="w-full min-w-0">
-                    <SelectValue placeholder="Choose a module" />
+                    <SelectValue placeholder="Choose a unit" />
                   </SelectTrigger>
                   <SelectContent>
-                    {modules.map((module) => (
-                      <SelectItem key={module.id} value={module.id}>
-                        {module.name}
+                    {units.map((unit) => (
+                      <SelectItem key={unit.id} value={unit.id}>
+                        {CATEGORY_META[unit.category].noun}: {unit.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -241,11 +243,11 @@ export function CopyAssignmentDialog({
                 silent fallback to the first module look identical on screen, and one of them is
                 a decision somebody should be making.
               */}
-              {modules.length > 0 && (
+              {units.length > 0 && (
                 <p className="text-xs text-muted-foreground">
                   {nameMatch
-                    ? `${moduleName} exists there, so that is where it goes unless you say otherwise.`
-                    : `That cohort has no module called ${moduleName}, so pick where this belongs.`}
+                    ? `${unitName} exists there, so that is where it goes unless you say otherwise.`
+                    : `That cohort has no module called ${unitName}, so pick where this belongs.`}
                 </p>
               )}
             </div>
@@ -266,7 +268,7 @@ export function CopyAssignmentDialog({
               copy.mutate({
                 assignmentId,
                 targetCourseId,
-                targetModuleId: targetModuleId ?? undefined,
+                targetCourseUnitId: targetCourseUnitId ?? undefined,
               })
             }
           >

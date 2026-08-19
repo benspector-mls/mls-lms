@@ -19,6 +19,7 @@ import {
 } from "@/lib/assignments/validate";
 import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/courses/membership";
 import { teachableAssignment } from "@/lib/courses/scope";
+import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { effectiveSection } from "@/lib/grade/approve";
 import { listAnswerKeyEntries, listAnswerKeys, MAX_ANSWER_KEYS } from "@/lib/grade/assets";
 
@@ -29,7 +30,7 @@ import {
   profileProcedure,
   studentProcedure,
 } from "../init";
-import { moduleSummarySelect } from "../selects";
+import { courseUnitSummarySelect } from "../selects";
 
 /** Columns of an assignment that are safe to send to any enrolled member. */
 const assignmentFields = {
@@ -37,12 +38,15 @@ const assignmentFields = {
   kind: true,
   title: true,
   /*
-    The module as a row. `answerKeyRepo` is deliberately absent: it names a private
-    repository of reference solutions, which is nothing a course page needs and the last
-    thing a student should be told.
+    The unit as a row — a module, a project, or an assessment. `answerKeyRepo` is deliberately
+    absent: it names a private repository of reference solutions, which is nothing a course page
+    needs and the last thing a student should be told.
+
+    Student-facing, because a student's course page groups their work by unit and needs the
+    name to head each section and the category to say what kind of thing it is.
   */
-  moduleId: true,
-  module: { select: moduleSummarySelect },
+  courseUnitId: true,
+  courseUnit: { select: courseUnitSummarySelect },
   pointValue: true,
   completionThreshold: true,
   dueAt: true,
@@ -78,7 +82,7 @@ function writableFields(
   return {
     kind: spec.kind,
     title: spec.title,
-    moduleId: spec.moduleId,
+    courseUnitId: spec.courseUnitId,
     pointValue,
     completionThreshold: spec.completionThreshold,
     dueAt: spec.dueAt,
@@ -165,7 +169,7 @@ export const assignmentsRouter = createTRPCRouter({
         kind: true,
         dueAt: true,
         pointValue: true,
-        module: { select: moduleSummarySelect },
+        courseUnit: { select: courseUnitSummarySelect },
         course: { select: { id: true, name: true } },
         submissions: {
           // Scoped to the caller, which is the only thing preventing one student from reading
@@ -337,7 +341,7 @@ export const assignmentsRouter = createTRPCRouter({
           only REPO assignments have one, so a course mixing kinds sorted the rest arbitrarily.)
         */
         orderBy: [
-          { module: { position: "asc" } },
+          { courseUnit: { position: "asc" } },
           { dueAt: { sort: "asc", nulls: "last" } },
           { title: "asc" },
         ],
@@ -463,18 +467,18 @@ export const assignmentsRouter = createTRPCRouter({
    * list, and a form that appears one field at a time as three requests land reads as broken.
    */
   authoringContext: courseProcedure.query(async ({ ctx, input }) => {
-    const [course, modules, rubrics, siblings] = await Promise.all([
+    const [course, courseUnits, rubrics, siblings] = await Promise.all([
       ctx.db.course.findUnique({
         where: { id: input.courseId },
         select: { id: true, name: true, cohortTerm: true },
       }),
-      // The course's own modules, which are the only ones an assignment may be filed
-      // under. Empty is a real state and the form has to say so rather than offering an
-      // empty select: a course with no modules cannot hold an assignment yet.
-      ctx.db.module.findMany({
+      // The course's own units, which are the only ones an assignment may be filed under.
+      // Empty is a real state and the form has to say so rather than offering an empty select:
+      // a course with no units cannot hold an assignment yet.
+      ctx.db.courseUnit.findMany({
         where: { courseId: input.courseId },
         orderBy: [{ position: "asc" }, { name: "asc" }],
-        select: moduleSummarySelect,
+        select: courseUnitSummarySelect,
       }),
       ctx.db.rubric.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
       ctx.db.assignment.findMany({
@@ -512,7 +516,7 @@ export const assignmentsRouter = createTRPCRouter({
         id: course.id,
         name: course.name,
         cohortTerm: course.cohortTerm,
-        modules,
+        courseUnits,
       },
       rubrics,
       defaultGithubOrg,
@@ -536,7 +540,7 @@ export const assignmentsRouter = createTRPCRouter({
         courseId: true,
         kind: true,
         title: true,
-        moduleId: true,
+        courseUnitId: true,
         pointValue: true,
         completionThreshold: true,
         dueAt: true,
@@ -770,7 +774,7 @@ export const assignmentsRouter = createTRPCRouter({
          * share a module sequence and useless when they have diverged. Naming it is what the
          * copy dialog does, so the case the matching cannot serve stops being a refusal.
          */
-        targetModuleId: z.string().uuid().optional(),
+        targetCourseUnitId: z.string().uuid().optional(),
         assignmentRepoName: z.string().min(1).optional(),
         dueAt: z.date().nullable().optional(),
       }),
@@ -804,7 +808,7 @@ export const assignmentsRouter = createTRPCRouter({
       return copyAssignmentInto(ctx.db, {
         source,
         targetCourseId: input.targetCourseId,
-        targetModuleId: input.targetModuleId,
+        targetCourseUnitId: input.targetCourseUnitId,
         assignmentRepoName: input.assignmentRepoName,
         dueAt: input.dueAt ?? null,
       });
@@ -923,8 +927,8 @@ type CopyableAssignment = {
   acceptedFileTypes: string[];
   submissionInstructions: string | null;
   sections: unknown;
-  moduleId: string;
-  module: { name: string };
+  courseUnitId: string;
+  courseUnit: { name: string; category: CourseUnitCategory };
 };
 
 /** The columns `copyAssignmentInto` needs, as a Prisma select. Shared so the two callers agree. */
@@ -945,8 +949,8 @@ export const copyableAssignmentSelect = {
   acceptedFileTypes: true,
   submissionInstructions: true,
   sections: true,
-  moduleId: true,
-  module: { select: { name: true } },
+  courseUnitId: true,
+  courseUnit: { select: { name: true, category: true } },
 } as const;
 
 /**
@@ -967,7 +971,7 @@ export async function copyAssignmentInto(
   params: {
     source: CopyableAssignment;
     targetCourseId: string;
-    targetModuleId?: string;
+    targetCourseUnitId?: string;
     assignmentRepoName?: string;
     dueAt: Date | null;
   },
@@ -989,25 +993,37 @@ export async function copyAssignmentInto(
         one. Naming the module is how the copy dialog serves two cohorts whose module sequences
         have diverged, which is exactly the case that matching cannot.
       */
-  const targetModule = params.targetModuleId
-    ? await db.module.findFirst({
-        where: { id: params.targetModuleId, courseId: targetCourseId },
+  const targetUnit = params.targetCourseUnitId
+    ? await db.courseUnit.findFirst({
+        where: { id: params.targetCourseUnitId, courseId: targetCourseId },
         select: { id: true },
       })
     : targetCourseId === source.courseId
-      ? { id: source.moduleId }
-      : await db.module.findFirst({
-          where: { courseId: targetCourseId, name: source.module.name },
+      ? { id: source.courseUnitId }
+      : await db.courseUnit.findFirst({
+          /*
+            **Matched on the category as well as the name.** Names are unique per course across
+            every category now, so a name alone is unambiguous — but it could resolve a project's
+            deliverable into a *module* that happens to share the name, which is a wrong answer
+            that looks like a right one. Requiring the category means the copy either lands in
+            the same kind of unit it came from or is refused.
+          */
+          where: {
+            courseId: targetCourseId,
+            name: source.courseUnit.name,
+            category: source.courseUnit.category,
+          },
           select: { id: true },
         });
 
-  if (!targetModule) {
+  if (!targetUnit) {
+    const meta = CATEGORY_META[source.courseUnit.category];
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: params.targetModuleId
-        ? "That module is not in the course you are copying into."
-        : `The target course has no module called "${source.module.name}". Create it ` +
-          `there first, or say which module the copy should go in.`,
+      message: params.targetCourseUnitId
+        ? "That unit is not in the course you are copying into."
+        : `The target course has no ${meta.noun} called "${source.courseUnit.name}". Create it ` +
+          `there first, or say which unit the copy should go in.`,
     });
   }
 
@@ -1030,7 +1046,7 @@ export async function copyAssignmentInto(
   const draft = {
     kind: source.kind,
     title: source.title,
-    moduleId: targetModule.id,
+    courseUnitId: targetUnit.id,
     completionThreshold: source.completionThreshold,
     dueAt: params.dueAt,
     templateRepo: source.templateRepo,

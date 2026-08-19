@@ -383,15 +383,15 @@ async function handGradedLifecycle(db: Db) {
   // A module row rather than a tag off the course. An assignment belongs to a module and the
   // foreign key says so, so a course with none cannot hold one — which is a skip, not a failure.
   const firstModule = course
-    ? await db.module.findFirst({
+    ? await db.courseUnit.findFirst({
         where: { courseId: course.id },
         orderBy: { position: "asc" },
         select: { id: true },
       })
     : null;
-  const moduleId = firstModule?.id;
+  const courseUnitId = firstModule?.id;
 
-  if (!course || !instructor || !student || !moduleId) {
+  if (!course || !instructor || !student || !courseUnitId) {
     skip(
       "the hand-graded lifecycle — no seeded course with an instructor, a student, and a module",
     );
@@ -418,7 +418,7 @@ async function handGradedLifecycle(db: Db) {
           draft: {
             kind: "GOOGLE_DRIVE",
             title: "Reflection (verify:approve)",
-            moduleId,
+            courseUnitId,
             dueAt: null,
             templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123/view",
             submissionInstructions: "Take a copy, write your reflection, submit the link.",

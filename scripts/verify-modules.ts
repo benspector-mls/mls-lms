@@ -63,14 +63,16 @@ async function main() {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
 
-      const before = await asInstructor.modules.listForCourse({ courseId: course.id });
+      const before = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
 
       // --- creating ---------------------------------------------------------
-      const first = await asInstructor.modules.create({
+      const first = await asInstructor.courseUnits.create({
+        category: "MODULE",
         courseId: course.id,
         name: "Mod 98 - Verify One",
       });
-      const second = await asInstructor.modules.create({
+      const second = await asInstructor.courseUnits.create({
+        category: "MODULE",
         courseId: course.id,
         name: "Mod 99 - Verify Two",
       });
@@ -90,7 +92,8 @@ async function main() {
 
       // Trimmed, because " Mod 98" and "Mod 98" are the same module to everyone but the
       // database, and a leading space is invisible in the interface it would collide in.
-      const trimmed = await asInstructor.modules.create({
+      const trimmed = await asInstructor.courseUnits.create({
+        category: "MODULE",
         courseId: course.id,
         name: "   Mod 97 - Padded   ",
       });
@@ -98,7 +101,7 @@ async function main() {
 
       check(
         "a blank name is refused",
-        await refusal(() => asInstructor.modules.create({ courseId: course.id, name: "   " })),
+        await refusal(() => asInstructor.courseUnits.create({ category: "MODULE", courseId: course.id, name: "   " })),
         "BAD_REQUEST",
       );
 
@@ -106,19 +109,19 @@ async function main() {
       //
       // The operation the tag-based design could not offer at all: with the name as the
       // identity, renaming meant rewriting every assignment that used it.
-      const renamed = await asInstructor.modules.rename({
-        moduleId: first.id,
+      const renamed = await asInstructor.courseUnits.update({
+        courseUnitId: first.id,
         name: "Mod 98 - Renamed",
       });
       check("renaming changes the name", renamed.name, "Mod 98 - Renamed");
       check("...and not the position", renamed.position, first.position);
 
       // --- reordering -------------------------------------------------------
-      const listed = await asInstructor.modules.listForCourse({ courseId: course.id });
+      const listed = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
       const reversed = [...listed].reverse().map((row) => row.id);
-      await asInstructor.modules.reorder({ courseId: course.id, moduleIds: reversed });
+      await asInstructor.courseUnits.reorder({ courseId: course.id, courseUnitIds: reversed });
 
-      const afterReorder = await asInstructor.modules.listForCourse({ courseId: course.id });
+      const afterReorder = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
       check(
         "reordering rewrites every position from the list",
         afterReorder.map((row) => row.id),
@@ -138,16 +141,16 @@ async function main() {
       check(
         "a partial order is refused",
         await refusal(() =>
-          asInstructor.modules.reorder({ courseId: course.id, moduleIds: [first.id] }),
+          asInstructor.courseUnits.reorder({ courseId: course.id, courseUnitIds: [first.id] }),
         ),
         "BAD_REQUEST",
       );
       check(
         "an order listing a module twice is refused",
         await refusal(() =>
-          asInstructor.modules.reorder({
+          asInstructor.courseUnits.reorder({
             courseId: course.id,
-            moduleIds: [...reversed, first.id],
+            courseUnitIds: [...reversed, first.id],
           }),
         ),
         "BAD_REQUEST",
@@ -156,20 +159,20 @@ async function main() {
       // --- removing ---------------------------------------------------------
       check(
         "an empty module can be removed",
-        (await asInstructor.modules.remove({ moduleId: trimmed.id })).name,
+        (await asInstructor.courseUnits.remove({ courseUnitId: trimmed.id })).name,
         "Mod 97 - Padded",
       );
 
       // The case this whole guard exists for. The seeded course has assignments in a module,
       // and removing it would leave them belonging to nothing.
-      const withWork = (await asInstructor.modules.listForCourse({ courseId: course.id })).find(
+      const withWork = (await asInstructor.courseUnits.listForCourse({ courseId: course.id })).find(
         (row) => row._count.assignments > 0,
       );
 
       if (withWork) {
         check(
           "a module holding assignments cannot be removed",
-          await refusal(() => asInstructor.modules.remove({ moduleId: withWork.id })),
+          await refusal(() => asInstructor.courseUnits.remove({ courseUnitId: withWork.id })),
           "CONFLICT",
         );
 
@@ -181,31 +184,31 @@ async function main() {
       // --- who may do any of this ------------------------------------------
       check(
         "a student cannot create a module",
-        await refusal(() => asStudent.modules.create({ courseId: course.id, name: "Nope" })),
+        await refusal(() => asStudent.courseUnits.create({ category: "MODULE", courseId: course.id, name: "Nope" })),
         "FORBIDDEN",
       );
       check(
         "a student cannot rename one",
-        await refusal(() => asStudent.modules.rename({ moduleId: second.id, name: "Nope" })),
+        await refusal(() => asStudent.courseUnits.update({ courseUnitId: second.id, name: "Nope" })),
         "FORBIDDEN",
       );
       check(
         "a student cannot reorder them",
         await refusal(() =>
-          asStudent.modules.reorder({ courseId: course.id, moduleIds: reversed }),
+          asStudent.courseUnits.reorder({ courseId: course.id, courseUnitIds: reversed }),
         ),
         "FORBIDDEN",
       );
       check(
         "a student cannot remove one",
-        await refusal(() => asStudent.modules.remove({ moduleId: second.id })),
+        await refusal(() => asStudent.courseUnits.remove({ courseUnitId: second.id })),
         "FORBIDDEN",
       );
 
       // A student may *read* them, because their own course page groups assignments by module.
       check(
         "a student can read the list",
-        (await asStudent.modules.listForCourse({ courseId: course.id })).length > 0,
+        (await asStudent.courseUnits.listForCourse({ courseId: course.id })).length > 0,
         true,
       );
 
@@ -218,7 +221,8 @@ async function main() {
         their instructor is still writing — a leak no screen would reveal, because a student's
         own course page is built from a different procedure.
       */
-      const draftHome = await asInstructor.modules.create({
+      const draftHome = await asInstructor.courseUnits.create({
+        category: "MODULE",
         courseId: course.id,
         name: "Mod 93 - Ordering",
       });
@@ -230,7 +234,7 @@ async function main() {
         tx.assignment.create({
           data: {
             courseId: course.id,
-            moduleId: draftHome.id,
+            courseUnitId: draftHome.id,
             title: "B - due later",
             kind: "EXTERNAL_URL",
             pointValue: 10,
@@ -244,7 +248,7 @@ async function main() {
         tx.assignment.create({
           data: {
             courseId: course.id,
-            moduleId: draftHome.id,
+            courseUnitId: draftHome.id,
             title: "C - due first",
             kind: "EXTERNAL_URL",
             pointValue: 10,
@@ -258,7 +262,7 @@ async function main() {
         tx.assignment.create({
           data: {
             courseId: course.id,
-            moduleId: draftHome.id,
+            courseUnitId: draftHome.id,
             title: "A - no due date",
             kind: "EXTERNAL_URL",
             pointValue: 10,
@@ -272,7 +276,7 @@ async function main() {
       ]);
 
       const orderingModule = (
-        await asInstructor.modules.listForCourse({ courseId: course.id })
+        await asInstructor.courseUnits.listForCourse({ courseId: course.id })
       ).find((row) => row.id === draftHome.id)!;
 
       /*
@@ -291,7 +295,7 @@ async function main() {
       const draftAssignment = await tx.assignment.create({
         data: {
           courseId: course.id,
-          moduleId: draftHome.id,
+          courseUnitId: draftHome.id,
           title: "D - unpublished",
           kind: "EXTERNAL_URL",
           pointValue: 10,
@@ -304,9 +308,9 @@ async function main() {
       });
 
       const asInstructorSees = (
-        await asInstructor.modules.listForCourse({ courseId: course.id })
+        await asInstructor.courseUnits.listForCourse({ courseId: course.id })
       ).find((row) => row.id === draftHome.id)!;
-      const asStudentSees = (await asStudent.modules.listForCourse({ courseId: course.id })).find(
+      const asStudentSees = (await asStudent.courseUnits.listForCourse({ courseId: course.id })).find(
         (row) => row.id === draftHome.id,
       )!;
 
@@ -344,14 +348,15 @@ async function main() {
         the shape of the course ahead of them — which means `courses.get` has to return every
         module, not only the ones with assignments in.
       */
-      const emptyOne = await asInstructor.modules.create({
+      const emptyOne = await asInstructor.courseUnits.create({
+        category: "MODULE",
         courseId: course.id,
         name: "Mod 94 - Nothing In It",
       });
       const asSeenByStudent = await asStudent.courses.get({ courseId: course.id });
       check(
         "an empty module still reaches the student's course page",
-        asSeenByStudent.modules.some((row) => row.id === emptyOne.id),
+        asSeenByStudent.courseUnits.some((row) => row.id === emptyOne.id),
         true,
       );
 
@@ -393,7 +398,7 @@ async function main() {
         check(
           "an instructor who does not teach the course cannot rename its modules",
           await refusal(() =>
-            asOutsider.modules.rename({ moduleId: second.id, name: "Not yours" }),
+            asOutsider.courseUnits.update({ courseUnitId: second.id, name: "Not yours" }),
           ),
           "FORBIDDEN",
         );
@@ -403,16 +408,16 @@ async function main() {
 
       // A module of another course is not this course's to reorder, which `reorder` catches as
       // a list that is not exactly this course's modules.
-      const elsewhereModule = await tx.module.create({
+      const elsewhereModule = await tx.courseUnit.create({
         data: { courseId: otherCourse.id, name: "Mod 1 - Elsewhere", position: 0 },
         select: { id: true },
       });
       check(
         "another course's module cannot be ordered into this one",
         await refusal(() =>
-          asInstructor.modules.reorder({
+          asInstructor.courseUnits.reorder({
             courseId: course.id,
-            moduleIds: [...reversed.filter((id) => id !== trimmed.id), elsewhereModule.id],
+            courseUnitIds: [...reversed.filter((id) => id !== trimmed.id), elsewhereModule.id],
           }),
         ),
         "BAD_REQUEST",
@@ -431,28 +436,30 @@ async function main() {
   */
   await inOwnTransaction(db, async (tx) => {
     const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-    const made = await asInstructor.modules.create({
+    const made = await asInstructor.courseUnits.create({
+      category: "MODULE",
       courseId: course.id,
       name: "Mod 96 - Duplicate Target",
     });
     check(
       "a duplicate name in one course is refused",
-      await refusal(() => asInstructor.modules.create({ courseId: course.id, name: made.name })),
+      await refusal(() => asInstructor.courseUnits.create({ category: "MODULE", courseId: course.id, name: made.name })),
       "CONFLICT",
     );
   });
 
   await inOwnTransaction(db, async (tx) => {
     const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-    const existingName = (await asInstructor.modules.listForCourse({ courseId: course.id }))[0];
-    const other = await asInstructor.modules.create({
+    const existingName = (await asInstructor.courseUnits.listForCourse({ courseId: course.id }))[0];
+    const other = await asInstructor.courseUnits.create({
+      category: "MODULE",
       courseId: course.id,
       name: "Mod 95 - To Be Renamed",
     });
     check(
       "renaming onto an existing name is refused",
       await refusal(() =>
-        asInstructor.modules.rename({ moduleId: other.id, name: existingName.name }),
+        asInstructor.courseUnits.update({ courseUnitId: other.id, name: existingName.name }),
       ),
       "CONFLICT",
     );
@@ -469,7 +476,7 @@ async function main() {
     above. Found by doing it wrong: the delete failed as expected and then took eleven
     unrelated checks down with it.
   */
-  const holdingWork = await db.module.findFirst({
+  const holdingWork = await db.courseUnit.findFirst({
     where: { courseId: course.id, assignments: { some: {} } },
     select: { id: true, name: true },
   });
@@ -477,7 +484,7 @@ async function main() {
   if (holdingWork) {
     try {
       await db.$transaction(async (tx) => {
-        await tx.module.delete({ where: { id: holdingWork.id } });
+        await tx.courseUnit.delete({ where: { id: holdingWork.id } });
         throw new Error("DELETED");
       });
       check("the foreign key refuses removing a module with assignments", "accepted", "refused");
@@ -527,7 +534,7 @@ async function main() {
       const seedModules = async () => {
         const byPosition = new Map<number, string>();
         for (const [position, name] of SEED_MODULE_NAMES.entries()) {
-          const existing = await tx.module.findFirst({
+          const existing = await tx.courseUnit.findFirst({
             where: { courseId: scratch.id, position },
             orderBy: { name: "asc" },
             select: { id: true },
@@ -536,7 +543,7 @@ async function main() {
             byPosition.set(position, existing.id);
             continue;
           }
-          const row = await tx.module.upsert({
+          const row = await tx.courseUnit.upsert({
             where: { courseId_name: { courseId: scratch.id, name } },
             create: { courseId: scratch.id, name, position },
             update: {},
@@ -548,15 +555,15 @@ async function main() {
       };
 
       await seedModules();
-      const created = await tx.module.count({ where: { courseId: scratch.id } });
+      const created = await tx.courseUnit.count({ where: { courseId: scratch.id } });
       check("seeding a fresh course creates its modules", created, SEED_MODULE_NAMES.length);
 
       // An instructor renames the one at position 1, exactly as `modules.rename` does.
-      const target = await tx.module.findFirst({
+      const target = await tx.courseUnit.findFirst({
         where: { courseId: scratch.id, position: 1 },
         select: { id: true },
       });
-      await tx.module.update({
+      await tx.courseUnit.update({
         where: { id: target!.id },
         data: { name: "Mod 1 - JS Fundamentals" },
       });
@@ -564,7 +571,7 @@ async function main() {
       // And the seed runs again.
       const second = await seedModules();
 
-      const after = await tx.module.findMany({
+      const after = await tx.courseUnit.findMany({
         where: { courseId: scratch.id },
         select: { id: true, name: true, position: true },
         orderBy: [{ position: "asc" }, { name: "asc" }],
@@ -598,7 +605,7 @@ async function main() {
   }
 
   // --- the rollback really rolled back ---------------------------------------
-  const leftover = await db.module.count({
+  const leftover = await db.courseUnit.count({
     where: { name: { in: ["Mod 98 - Renamed", "Mod 99 - Verify Two", "Mod 97 - Padded"] } },
   });
   check("no modules survived the rollback", leftover, 0);

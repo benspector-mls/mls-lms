@@ -93,8 +93,8 @@ async function main() {
   );
 
   checkThat(
-    "every row names its course and its module",
-    rows.every((r) => Boolean(r.course?.id && r.course?.name && r.module?.name)),
+    "every row names its course and its unit",
+    rows.every((r) => Boolean(r.course?.id && r.course?.name && r.courseUnit?.name)),
   );
 
   // --- listMine: scoping -------------------------------------------------

@@ -235,11 +235,11 @@ async function main() {
   console.log("\n--- through the callers ----------------------------------------------");
 
   const course = await db.course.findFirst({
-    where: { archivedAt: null, modules: { some: {} }, instructors: { some: {} } },
+    where: { archivedAt: null, courseUnits: { some: {} }, instructors: { some: {} } },
     select: {
       id: true,
       instructors: { take: 1, select: { userId: true } },
-      modules: { orderBy: { position: "asc" }, take: 2, select: { id: true } },
+      courseUnits: { orderBy: { position: "asc" }, take: 2, select: { id: true } },
     },
   });
 
@@ -255,7 +255,7 @@ async function main() {
   }
 
   const instructor = course.instructors[0]!;
-  const firstModule = course.modules[0]!;
+  const firstModule = course.courseUnits[0]!;
   const createCaller = createCallerFactory(appRouter);
 
   try {
@@ -267,7 +267,7 @@ async function main() {
         const before = (await asInstructor.resources.listForCourse({ courseId: course.id })).length;
 
         const link = await asInstructor.resources.create({
-          moduleId: firstModule.id,
+          courseUnitId: firstModule.id,
           spec: {
             kind: "LINK",
             title: "Verify Zebra",
@@ -279,13 +279,13 @@ async function main() {
         check("...with its description trimmed", link.description, "Read the first two sections.");
 
         const note = await asInstructor.resources.create({
-          moduleId: firstModule.id,
+          courseUnitId: firstModule.id,
           spec: { kind: "TEXT", title: "Verify Apple", body: "## Hello\n\nSome prose." },
         });
         check("a note is created with its markdown", note.body?.startsWith("## Hello"), true);
 
         const video = await asInstructor.resources.create({
-          moduleId: firstModule.id,
+          courseUnitId: firstModule.id,
           spec: { kind: "VIDEO", title: "Verify Mango", url: "https://youtu.be/dQw4w9WgXcQ" },
         });
         check("a video stores its provider", video.videoProvider, "YOUTUBE");
@@ -294,7 +294,7 @@ async function main() {
           "an unrecognised video link is refused by the procedure, not only the form",
           await refusal(() =>
             asInstructor.resources.create({
-              moduleId: firstModule.id,
+              courseUnitId: firstModule.id,
               spec: { kind: "VIDEO", title: "Nope", url: "https://www.loom.com/share/a" },
             }),
           ),
@@ -350,10 +350,10 @@ async function main() {
           ["LINK", null],
         );
 
-        if (course.modules.length > 1) {
+        if (course.courseUnits.length > 1) {
           const moved = await asInstructor.resources.update({
             resourceId: link.id,
-            moduleId: course.modules[1]!.id,
+            courseUnitId: course.courseUnits[1]!.id,
             spec: {
               kind: "LINK",
               title: "Verify Zebra",
@@ -363,8 +363,8 @@ async function main() {
           });
           check(
             "a resource can be moved to another module of the same course",
-            moved.moduleId,
-            course.modules[1]!.id,
+            moved.courseUnitId,
+            course.courseUnits[1]!.id,
           );
         } else {
           console.log("skip  moving between modules — the course has only one");
@@ -375,7 +375,7 @@ async function main() {
         course it belongs to and appears on one it does not, and nothing on either screen would
         explain it. The foreign key would accept it happily, which is why this is checked.
       */
-        const elsewhere = await tx.module.findFirst({
+        const elsewhere = await tx.courseUnit.findFirst({
           where: { courseId: { not: course.id } },
           select: { id: true },
         });
@@ -385,7 +385,7 @@ async function main() {
             await refusal(() =>
               asInstructor.resources.update({
                 resourceId: link.id,
-                moduleId: elsewhere.id,
+                courseUnitId: elsewhere.id,
                 spec: {
                   kind: "LINK",
                   title: "Verify Zebra",
@@ -403,8 +403,8 @@ async function main() {
         // --- where they appear ---------------------------------------------------
         //
         // The Modules screen and the student's course page both read them through
-        // `modules.listForCourse`, so its own list has to carry them and in the same order.
-        const modules = await asInstructor.modules.listForCourse({ courseId: course.id });
+        // `courseUnits.listForCourse`, so its own list has to carry them and in the same order.
+        const modules = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
         const holding = modules.find((row) => row.id === firstModule.id);
         check("the module list carries its resources", (holding?.resources.length ?? 0) > 0, true);
         check(
@@ -418,7 +418,7 @@ async function main() {
           "a student cannot add a resource",
           await refusal(() =>
             asStudent.resources.create({
-              moduleId: firstModule.id,
+              courseUnitId: firstModule.id,
               spec: { kind: "LINK", title: "Nope", url: "https://a.example", description: null },
             }),
           ),
@@ -455,7 +455,7 @@ async function main() {
             "an instructor who does not teach the course cannot add a resource to it",
             await refusal(() =>
               asOutsider.resources.create({
-                moduleId: firstModule.id,
+                courseUnitId: firstModule.id,
                 spec: { kind: "LINK", title: "Nope", url: "https://a.example", description: null },
               }),
             ),
@@ -517,23 +517,23 @@ async function main() {
   */
   try {
     await db.$transaction(async (tx) => {
-      const scratch = await tx.module.create({
+      const scratch = await tx.courseUnit.create({
         data: { courseId: course.id, name: "Verify Cascade Module", position: 9999 },
         select: { id: true },
       });
       await tx.resource.create({
         data: {
-          moduleId: scratch.id,
+          courseUnitId: scratch.id,
           kind: "LINK",
           title: "Verify Cascade",
           url: "https://a.example",
         },
       });
 
-      await tx.module.delete({ where: { id: scratch.id } });
+      await tx.courseUnit.delete({ where: { id: scratch.id } });
       check(
         "a resource is deleted with its module",
-        await tx.resource.count({ where: { moduleId: scratch.id } }),
+        await tx.resource.count({ where: { courseUnitId: scratch.id } }),
         0,
       );
 
@@ -551,7 +551,7 @@ async function main() {
   );
   check(
     "...nor the module the cascade check made",
-    await db.module.count({ where: { name: "Verify Cascade Module" } }),
+    await db.courseUnit.count({ where: { name: "Verify Cascade Module" } }),
     0,
   );
 

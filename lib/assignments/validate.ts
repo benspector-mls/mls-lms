@@ -112,21 +112,21 @@ export async function validateAssignmentDraft(
   }
 
   /*
-    A module of a *different* course is the failure this catches, and it is the reason the
-    check reads the row rather than trusting the id. The foreign key guarantees the module
-    exists; nothing at the database level says it belongs to the course the assignment is
-    being created in, so without this an instructor could file an assignment under another
-    cohort's module and it would appear in neither course's list.
+    A unit of a *different* course is the failure this catches, and it is the reason the check
+    reads the row rather than trusting the id. The foreign key guarantees the unit exists;
+    nothing at the database level says it belongs to the course the assignment is being created
+    in, so without this an instructor could file an assignment under another cohort's module and
+    it would appear in neither course's list.
   */
-  const assignedModule = await db.module.findUnique({
-    where: { id: spec.moduleId },
+  const assignedModule = await db.courseUnit.findUnique({
+    where: { id: spec.courseUnitId },
     select: { id: true, courseId: true, name: true },
   });
 
   if (!assignedModule) {
-    error("moduleId", "That module does not exist. Create it before adding assignments to it.");
+    error("courseUnitId", "That unit does not exist. Create it before adding assignments to it.");
   } else if (assignedModule.courseId !== input.courseId) {
-    error("moduleId", "That module belongs to a different course.");
+    error("courseUnitId", "That unit belongs to a different course.");
   }
 
   // ---- Names must not collide with another assignment in the same course ----

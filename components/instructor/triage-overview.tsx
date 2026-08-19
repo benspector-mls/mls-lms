@@ -1,34 +1,32 @@
 import Link from "next/link";
 import type * as React from "react";
 import {
-  AlertTriangle,
   Archive,
   ArrowRight,
   CircleCheck,
   Clock,
-  FileClock,
   FileText,
   Inbox,
-  Loader2,
   MessageSquareOff,
   PencilLine,
-  RotateCcw,
   Sparkles,
   XCircle,
 } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
-import { FlagBadge } from "@/components/status-badge";
 import { TestStudentBadge } from "@/components/test-student-badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { GroupPicker } from "@/components/instructor/group-picker";
 import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
+import {
+  groupByAssignment,
+  nameSubtext,
+  type AssignmentGroup,
+} from "@/lib/grade/triage-groups";
 import { gradingQueueHref } from "@/lib/links";
-import { initials } from "@/lib/people";
-import { flagMeta, formatRelative, scoreLabel } from "@/lib/status";
+import { formatRelative } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -55,7 +53,6 @@ type BucketKey =
   | "needs_report"
   | "needs_manual_grade"
   | "draft_ready"
-  | "needs_manual_review"
   | "grading_failed"
   | "comment_not_posted";
 
@@ -64,7 +61,6 @@ const WORK_BUCKETS: BucketKey[] = [
   "needs_report",
   "needs_manual_grade",
   "draft_ready",
-  "needs_manual_review",
   "grading_failed",
   "comment_not_posted",
 ];
@@ -101,20 +97,6 @@ const BUCKET_META: Record<
     icon: Sparkles,
     tone: "text-primary",
     accent: "bg-primary/10",
-  },
-  /*
-    Distinct from `needs_manual_grade` above, and the labels have to keep them apart: this
-    is a report that exists and cannot be trusted, where that one is an assignment that was
-    never going to have a report at all. Conflating them would tell an instructor to check a
-    cross-check finding that does not exist.
-  */
-  needs_manual_review: {
-    label: "Held for review",
-    description:
-      "A report was produced but something in it could not be verified, so it is held rather than offered for approval. Check it before releasing.",
-    icon: AlertTriangle,
-    tone: "text-amber-600 dark:text-amber-400",
-    accent: "bg-amber-500/10",
   },
   grading_failed: {
     label: "Grading failed",
@@ -226,39 +208,6 @@ export function TriageOverview({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/*
-          The first card covers both ways of having no usable report — one waiting on the
-          pipeline, one waiting on a person — because the summary answers "how much is
-          untouched" and the piles below say which kind. Four cards for six buckets is
-          deliberate: this row was never exhaustive, and the count in the header is.
-        */}
-        <StatCard
-          label="Not graded yet"
-          value={buckets.needs_report.length + buckets.needs_manual_grade.length}
-          icon={FileText}
-          tone="text-sky-600 dark:text-sky-400"
-        />
-        <StatCard
-          label="Ready to review"
-          value={buckets.draft_ready.length}
-          icon={Sparkles}
-          tone="text-primary"
-        />
-        <StatCard
-          label="Held for review"
-          value={buckets.needs_manual_review.length}
-          icon={AlertTriangle}
-          tone="text-amber-600 dark:text-amber-400"
-        />
-        <StatCard
-          label="Failed runs"
-          value={buckets.grading_failed.length}
-          icon={XCircle}
-          tone="text-destructive"
-        />
-      </div>
-
       {remaining === 0 ? (
         <EmptyState
           icon={<Inbox />}
@@ -273,11 +222,10 @@ export function TriageOverview({
             two are usually empty and sit side by side so they take one row rather than
             two.
           */}
-          <TriageBucket bucketKey="needs_report" rows={buckets.needs_report} now={now} />
           {/*
             Only when it has something in it. A course with no hand-graded assignments would
             otherwise show a permanently empty pile for a kind of work it never has.
-          */}
+            */}
           {buckets.needs_manual_grade.length > 0 && (
             <TriageBucket
               bucketKey="needs_manual_grade"
@@ -285,15 +233,9 @@ export function TriageOverview({
               now={now}
             />
           )}
+          <TriageBucket bucketKey="needs_report" rows={buckets.needs_report} now={now} />
           <TriageBucket bucketKey="draft_ready" rows={buckets.draft_ready} now={now} />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TriageBucket
-              bucketKey="needs_manual_review"
-              rows={buckets.needs_manual_review}
-              now={now}
-            />
-            <TriageBucket bucketKey="grading_failed" rows={buckets.grading_failed} now={now} />
-          </div>
+          <TriageBucket bucketKey="grading_failed" rows={buckets.grading_failed} now={now} />
           {/*
             Rendered only when it has something in it. An empty "approved, never
             delivered" card reads as a warning on a screen where every other empty card
@@ -325,8 +267,9 @@ export function TriageOverview({
             </div>
             <Card>
               <CardContent className="flex flex-col gap-1 py-2">
-                {generating.map((row) => (
-                  <TriageRow key={row.id} row={row} now={now} />
+                {/* Grouped the same way the buckets are, so one screen has one kind of row. */}
+                {groupByAssignment(generating).map((group) => (
+                  <AssignmentRow key={group.assignmentId} group={group} now={now} />
                 ))}
               </CardContent>
             </Card>
@@ -346,7 +289,6 @@ function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
     needs_report: [],
     needs_manual_grade: [],
     draft_ready: [],
-    needs_manual_review: [],
     grading_failed: [],
     comment_not_posted: [],
   };
@@ -361,6 +303,7 @@ function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
 function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Row[]; now: Date }) {
   const meta = BUCKET_META[bucketKey];
   const Icon = meta.icon;
+  const groups = groupByAssignment(rows);
 
   return (
     <Card>
@@ -377,6 +320,12 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
           <div className="flex-1">
             <CardTitle className="flex items-center gap-2 text-base">
               {meta.label}
+              {/*
+                Submissions, not assignments. This is the figure the whole screen is counted in,
+                and it stays the count of rows even though the rows beneath are now grouped —
+                otherwise a bucket holding twelve submissions across four assignments would read
+                as four pieces of work outstanding.
+              */}
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                 {rows.length}
               </span>
@@ -386,15 +335,15 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
         </div>
       </CardHeader>
       <CardContent>
-        {rows.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-6 text-sm text-muted-foreground">
             <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
             Nothing here.
           </div>
         ) : (
           <div className="flex flex-col gap-1">
-            {rows.map((row) => (
-              <TriageRow key={row.id} row={row} now={now} />
+            {groups.map((group) => (
+              <AssignmentRow key={group.assignmentId} group={group} now={now} />
             ))}
           </div>
         )}
@@ -403,134 +352,62 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
   );
 }
 
-function TriageRow({ row, now }: { row: Row; now: Date }) {
-  const draft = row.activeDraft;
+/**
+ * One assignment inside a bucket: its title, how many are waiting, and who they are.
+ *
+ * **A row per assignment rather than per submission**, because that is the unit of work. Opening
+ * it goes to the assignment's grading queue with nothing selected, which is where the twelve are
+ * worked through one after another — naming a submission here would pick one of them arbitrarily
+ * and then require going back for the rest.
+ *
+ * The names are the reason this stays scannable: an instructor looking for whether a particular
+ * student is in the pile can see it without opening the assignment, and past three names the list
+ * stops being scannable and becomes a paragraph.
+ */
+function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date }) {
+  const anyTestStudent = group.rows.some((row) => row.student.testStudentNumber !== null);
+  const anyLate = group.rows.some((row) => row.isLate);
 
   /*
-    Only the flags an instructor has to decide about. The rest — mechanical errors,
-    imprecise terminology — say points were lost, which is what grading is for and not a
-    reason to look at one submission before another.
+    The most recent thing that happened across the whole group, which is what "how stale is this
+    pile" means once the rows are one row. The oldest would name the submission that has waited
+    longest, which is a different and less useful question here — the pile is worked as a unit.
   */
-  const faults = draft
-    ? [...new Set(draft.sections.flatMap((s) => s.flags))].filter((code) => flagMeta(code).fault)
-    : [];
-
-  const lowConfidence = draft?.sections.some((s) => s.confidence === "LOW") ?? false;
-
-  // Two columns compared, no API call: the student has pushed past what was graded.
-  const revised =
-    row.gradedHeadSha != null && row.headSha != null && row.headSha !== row.gradedHeadSha;
-
-  // Not shown for an out-of-date draft: a number proposed against code the student has
-  // replaced is worse than no number, because it reads as this submission's score.
-  const suggested =
-    draft && !row.draftIsStale
-      ? draft.sections.reduce(
-          (total, section) => ({
-            earned: total.earned + (section.editedScoreEarned ?? section.scoreEarned ?? 0),
-            possible: total.possible + (section.scorePossible ?? 0),
-          }),
-          { earned: 0, possible: 0 },
-        )
-      : null;
+  const lastActivity = group.rows.reduce<Date | null>((latest, row) => {
+    const at = row.lastActivityAt ?? row.submittedAt;
+    if (at == null) return latest;
+    const when = new Date(at);
+    return latest === null || when > latest ? when : latest;
+  }, null);
 
   return (
     <Link
-      href={gradingQueueHref(row.assignment.courseId, row.assignment.id, row.id)}
+      href={gradingQueueHref(group.courseId, group.assignmentId)}
       className="flex items-center gap-4 rounded-lg border border-transparent px-3 py-3 transition-colors hover:border-border hover:bg-muted/50"
     >
-      <Avatar className="size-9">
-        <AvatarFallback className="text-xs">{initials(row.student.displayName)}</AvatarFallback>
-      </Avatar>
-
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-medium">
-            {row.student.displayName ?? row.student.email ?? "Unknown student"}
-          </p>
+          <p className="truncate text-sm font-medium">{group.title}</p>
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+            {group.rows.length}
+          </span>
           {/* So a pile of work to grade says which of it is a rehearsal. */}
-          {row.student.testStudentNumber !== null && <TestStudentBadge />}
-        </div>
-        <p className="truncate text-sm text-muted-foreground">{row.assignment.title}</p>
-
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 empty:mt-0">
-          {row.bucket === "generating" && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-              <Loader2 className="size-3" />
-              Generating
-            </span>
-          )}
-
-          {faults.slice(0, 3).map((code) => (
-            <FlagBadge key={code} code={code} />
-          ))}
-          {lowConfidence && <FlagBadge code="LOW_CONFIDENCE" />}
-
-          {/*
-            Why this row is queued rather than ready: the report describes code the
-            student has since replaced, and approving it would be refused.
-          */}
-          {row.draftIsStale && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
-              <FileClock className="size-3" />
-              Draft is out of date
-            </span>
-          )}
-
-          {revised && !row.draftIsStale && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
-              <RotateCcw className="size-3" />
-              Revised
-            </span>
-          )}
-
-          {row.isLate && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
+          {anyTestStudent && <TestStudentBadge />}
+          {anyLate && (
+            <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
               Late
             </span>
           )}
         </div>
+        <p className="truncate text-sm text-muted-foreground">{nameSubtext(group.studentNames)}</p>
       </div>
-
-      {suggested && suggested.possible > 0 && (
-        <div className="hidden text-right sm:block">
-          <p className="text-sm font-medium tabular-nums">
-            {scoreLabel(suggested.earned, suggested.possible)}
-          </p>
-          <p className="text-xs text-muted-foreground">proposed</p>
-        </div>
-      )}
 
       <div className="hidden items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground sm:flex">
         <Clock className="size-3.5" />
-        {formatRelative(row.lastActivityAt ?? row.submittedAt, now)}
+        {lastActivity ? formatRelative(lastActivity, now) : "—"}
       </div>
 
       <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
     </Link>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: number;
-  icon: React.ComponentType<{ className?: string }>;
-  tone: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-3 py-4">
-        <Icon className={cn("size-5", tone)} />
-        <div>
-          <p className="text-2xl leading-none font-semibold tabular-nums">{value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{label}</p>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

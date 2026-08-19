@@ -4,6 +4,7 @@ import { z } from "zod";
 import { inTransaction, type Db } from "@/lib/prisma";
 
 import { isManualOnly } from "@/lib/assignments/spec";
+import type { CourseUnitCategory } from "@/lib/course-units";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
 import { newJoinToken } from "@/lib/courses/join-token";
@@ -15,6 +16,12 @@ import {
   selectedStudentIds,
 } from "@/lib/courses/membership";
 import { assertOwnsCourse, ownerOf } from "@/lib/courses/ownership";
+import {
+  allUnits,
+  courseVerdictByStudent,
+  groupByUnit,
+  type UnitVerdict,
+} from "@/lib/gradebook/categories";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
@@ -27,7 +34,7 @@ import {
   instructorProcedure,
   profileProcedure,
 } from "../init";
-import { displayNameOf, moduleSummarySelect, personNameSelect, personSelect } from "../selects";
+import { displayNameOf, courseUnitSummarySelect, personNameSelect, personSelect } from "../selects";
 
 export const coursesRouter = createTRPCRouter({
   /**
@@ -109,11 +116,79 @@ export const coursesRouter = createTRPCRouter({
       },
     });
 
+    /*
+      Whether the caller has finished each course they are a student of.
+
+      **The one place course-level completion is read**, and until it existed nothing in the
+      application could say whether anybody had finished a course at all — the card showed how
+      many assignments a cohort holds and how many students are in it, neither of which is about
+      the person reading it.
+
+      One rule at three levels: an assignment is complete when `isComplete`, a unit when every
+      published assignment in it is, a course when every unit that has a verdict is. The
+      arithmetic is `courseVerdictByStudent`, the same function the gradebook's Overview column
+      reads, so a student and their instructor cannot be shown different answers.
+
+      Two extra queries rather than a relation on every course, and both narrowed to the courses
+      the caller is *enrolled in*: an instructor's own cohorts get no verdict, because they are
+      not doing the work, and an admin looking at every course in the system fetches nothing here
+      at all. A student is in a handful of courses, so this is a handful of rows.
+    */
+    const studentOf = courses
+      .filter((course) => course.enrollments.length > 0)
+      .map((course) => course.id);
+
+    const verdicts = new Map<string, UnitVerdict>();
+
+    if (studentOf.length > 0) {
+      const [units, cells] = await Promise.all([
+        ctx.db.courseUnit.findMany({
+          where: { courseId: { in: studentOf } },
+          select: {
+            id: true,
+            courseId: true,
+            name: true,
+            position: true,
+            category: true,
+            assignments: {
+              select: { id: true, title: true, dueAt: true, courseUnitId: true, distributedAt: true },
+            },
+          },
+        }),
+        ctx.db.submission.findMany({
+          where: { studentId: ctx.profile.id, assignment: { courseId: { in: studentOf } } },
+          select: { assignmentId: true, studentId: true, isComplete: true },
+        }),
+      ]);
+
+      for (const courseId of studentOf) {
+        const own = units.filter((unit) => unit.courseId === courseId);
+        const grouped = groupByUnit(
+          own.flatMap((unit) => unit.assignments),
+          own,
+        );
+
+        verdicts.set(
+          courseId,
+          courseVerdictByStudent(cells, allUnits(grouped), [ctx.profile.id]).get(ctx.profile.id) ??
+            "pending",
+        );
+      }
+    }
+
     return courses.map(({ instructors, enrollments, ...course }) => ({
       ...course,
       teaches: isAdmin || instructors.length > 0,
       /** Null when the caller is not a student of this course — an instructor, or an admin. */
       enrolledAs: enrollments[0]?.status ?? null,
+      /**
+       * Where the caller stands on the whole course, or null when they are not a student of it.
+       *
+       * "Not finished" rather than "incomplete" while anything is still with an instructor, for
+       * the reason the unit verdict draws the same distinction: telling somebody they have failed
+       * a course nobody has finished marking would be false.
+       */
+      completion: verdicts.get(course.id) ?? null,
     }));
   }),
 
@@ -135,9 +210,9 @@ export const coursesRouter = createTRPCRouter({
           name: true,
           cohortTerm: true,
           archivedAt: true,
-          modules: {
+          courseUnits: {
             orderBy: [{ position: "asc" }, { name: "asc" }],
-            select: moduleSummarySelect,
+            select: courseUnitSummarySelect,
           },
           instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
         },
@@ -255,9 +330,9 @@ export const coursesRouter = createTRPCRouter({
           // For the filter menu, which offers the course's whole module list rather than only
           // the modules that happen to hold an assignment — filtering to an empty module is a
           // legitimate way to find out that it is empty.
-          modules: {
+          courseUnits: {
             orderBy: [{ position: "asc" }, { name: "asc" }],
-            select: moduleSummarySelect,
+            select: courseUnitSummarySelect,
           },
         },
       });
@@ -268,11 +343,11 @@ export const coursesRouter = createTRPCRouter({
 
       const assignments = await ctx.db.assignment.findMany({
         where: { courseId: course.id },
-        orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
+        orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
         select: {
           id: true,
           title: true,
-          module: { select: moduleSummarySelect },
+          courseUnit: { select: courseUnitSummarySelect },
           pointValue: true,
           dueAt: true,
           kind: true,
@@ -283,6 +358,21 @@ export const coursesRouter = createTRPCRouter({
           // at all; an instructor needs to know why nobody has submitted.
           distributedAt: true,
         },
+      });
+
+      /*
+        Every unit of the course, so the screen can group the assignments under the modules,
+        projects, and assessments they belong to.
+
+        Fetched whole rather than derived from the assignments above, so a unit an instructor
+        has just created and not yet filled appears where they put it. Deriving the list from
+        its contents would make an empty one invisible, which is indistinguishable from the
+        create having failed.
+      */
+      const courseUnits = await ctx.db.courseUnit.findMany({
+        where: { courseId: course.id },
+        orderBy: [{ position: "asc" }, { name: "asc" }],
+        select: { ...courseUnitSummarySelect, overview: true },
       });
 
       const cells = await courseCells(ctx.db, course.id, assignments);
@@ -321,6 +411,7 @@ export const coursesRouter = createTRPCRouter({
           manualOnly: isManualOnly(sections),
           counts: counts.get(assignment.id) ?? { graded: 0, submitted: 0, outstanding: 0 },
         })),
+        courseUnits,
       };
     }),
 
@@ -460,14 +551,20 @@ export const coursesRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
       }
 
-      const [assignments, enrollments] = await Promise.all([
+      const [assignments, courseUnits, enrollments] = await Promise.all([
         ctx.db.assignment.findMany({
           where: { courseId: course.id },
-          orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
+          orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
           select: {
             id: true,
             title: true,
-            module: { select: moduleSummarySelect },
+            /*
+              The id flat as well as the unit itself, because `groupByUnit` places an assignment
+              by `courseUnitId` and the grid's filter menu names the unit by its own name. Two
+              readings of one fact, from one row.
+            */
+            courseUnitId: true,
+            courseUnit: { select: courseUnitSummarySelect },
             pointValue: true,
             dueAt: true,
             kind: true,
@@ -479,6 +576,20 @@ export const coursesRouter = createTRPCRouter({
             // cannot see it at all; an instructor needs to know why.
             distributedAt: true,
           },
+        }),
+        /*
+          Every unit of the course, which is what the grid's three category tabs are drawn from.
+
+          A separate query rather than a relation on each assignment, because a course holds a
+          handful of units against fifty assignments — fetching the unit through every one of
+          them would send the same few names over and over. Nothing here needs the assignments:
+          `groupByUnit` attaches them from the list above, which is what keeps the two from
+          describing different sets of work.
+        */
+        ctx.db.courseUnit.findMany({
+          where: { courseId: course.id },
+          orderBy: [{ position: "asc" }, { name: "asc" }],
+          select: courseUnitSummarySelect,
         }),
         /*
           Every status, then split into complements below. The grid must not count a removed
@@ -536,6 +647,14 @@ export const coursesRouter = createTRPCRouter({
           /** Whether this assignment is graded by hand, which the header cell shows. */
           manualOnly: isManualOnly(sections),
         })),
+        /**
+         * Every unit of the course, which is what the grid's three category tabs are drawn
+         * from.
+         *
+         * Returned whole rather than filtered to the ones holding work, so a project an
+         * instructor created a moment ago appears on its tab before anything is in it.
+         */
+        courseUnits,
         /*
           Active, and everything else — not "active" and "removed". The two are complements, so
           every enrollment is in exactly one of them and nobody can go missing from both. That
@@ -633,7 +752,12 @@ export const coursesRouter = createTRPCRouter({
         private repository holds its answer keys.
       */
       let source: {
-        modules: { name: string; position: number }[];
+        /*
+          The category travels with the name and the position, because `copyAssignmentInto`
+          matches a unit across courses on both — a project's deliverable landing in a module
+          that happens to share the name is a wrong answer that looks like a right one.
+        */
+        courseUnits: { name: string; position: number; category: CourseUnitCategory }[];
         assignmentIds: string[];
       } | null = null;
 
@@ -652,9 +776,12 @@ export const coursesRouter = createTRPCRouter({
         const found = await ctx.db.course.findUnique({
           where: { id: input.copyFromCourseId },
           select: {
-            modules: { orderBy: { position: "asc" }, select: { name: true, position: true } },
+            courseUnits: {
+              orderBy: { position: "asc" },
+              select: { name: true, position: true, category: true },
+            },
             assignments: {
-              orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
+              orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
               select: { id: true },
             },
           },
@@ -665,7 +792,7 @@ export const coursesRouter = createTRPCRouter({
         }
 
         source = {
-          modules: found.modules,
+          courseUnits: found.courseUnits,
           assignmentIds: found.assignments.map((assignment) => assignment.id),
         };
       }
@@ -709,15 +836,18 @@ export const coursesRouter = createTRPCRouter({
             throw err;
           });
 
-        if (source && source.modules.length > 0) {
-          // Names carried across exactly, because `duplicate` matches a module across courses
-          // by name and refuses when it finds none. Renaming them is safe *after* the
-          // assignments land, since the module id is the identity.
-          await tx.module.createMany({
-            data: source.modules.map((module) => ({
+        if (source && source.courseUnits.length > 0) {
+          /*
+            Names and categories carried across exactly, because `duplicate` matches a unit
+            across courses by both and refuses when it finds none. Renaming them is safe *after*
+            the assignments land, since the unit id is the identity.
+          */
+          await tx.courseUnit.createMany({
+            data: source.courseUnits.map((unit) => ({
               courseId: created.id,
-              name: module.name,
-              position: module.position,
+              name: unit.name,
+              position: unit.position,
+              category: unit.category,
             })),
           });
         }
@@ -842,10 +972,10 @@ export const coursesRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const course = await assertArchivedAndOwned(ctx, input.courseId, "delete");
 
-      const [enrollments, assignments, modules, instructors, submissions] = await Promise.all([
+      const [enrollments, assignments, courseUnits, instructors, submissions] = await Promise.all([
         ctx.db.enrollment.count({ where: { courseId: course.id } }),
         ctx.db.assignment.count({ where: { courseId: course.id } }),
-        ctx.db.module.count({ where: { courseId: course.id } }),
+        ctx.db.courseUnit.count({ where: { courseId: course.id } }),
         ctx.db.courseInstructor.count({ where: { courseId: course.id } }),
         ctx.db.submission.findMany({
           where: { assignment: { courseId: course.id } },
@@ -865,7 +995,7 @@ export const coursesRouter = createTRPCRouter({
         cohortSlug: course.cohortSlug,
         enrollments,
         assignments,
-        modules,
+        courseUnits,
         instructors,
         submissions: submissions.length,
         releasedGrades: submissions.filter((row) => row.finalScore !== null).length,

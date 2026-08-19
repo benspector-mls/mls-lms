@@ -6,12 +6,11 @@
 // the address is the only place the current course is recorded, so a link that omitted
 // it would land the reader somewhere the switcher could not describe.
 //
-// The eight course-scoped views are the eight sidebar items, and they are listed here in
-// the order the sidebar offers them. `sameViewInCourse` at the foot is what makes switching
-// cohort keep the view, and it has to know all eight — a view missing from it silently
-// falls back to the course address, which is a redirect, so the reader would land
-// somewhere they did not ask for and the switcher would look broken for that screen
-// alone.
+// The six course-scoped views are the six sidebar items, and they are listed here in the order
+// the sidebar offers them. `sameViewInCourse` at the foot is what makes switching cohort keep
+// the view, and it has to know all six — a view missing from it silently falls back to the
+// course address, which is a redirect, so the reader would land somewhere they did not ask for
+// and the switcher would look broken for that screen alone.
 
 export function triageHref(courseId: string): string {
   return `/instructor/courses/${courseId}/triage`;
@@ -51,9 +50,16 @@ export function myAttendanceHref(courseId: string): string {
   return `/courses/${courseId}/attendance`;
 }
 
-/** The assignments list, which is not the same address as one assignment's grading queue. */
-export function courseAssignmentsHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/assignments`;
+/**
+ * The whole of the cohort's curriculum: its modules, projects, and assessments, and the
+ * assignments and resources inside each.
+ *
+ * One address where there were three. Modules, Coursework, and Resources were separate screens
+ * because a project used to be a different kind of row from a module; all three are course units
+ * now, so there is one place to see what is in a course.
+ */
+export function curriculumHref(courseId: string): string {
+  return `/instructor/courses/${courseId}/curriculum`;
 }
 
 export function gradingQueueHref(
@@ -61,28 +67,23 @@ export function gradingQueueHref(
   assignmentId: string,
   submissionId?: string,
 ): string {
-  const base = `/instructor/courses/${courseId}/assignments/${assignmentId}`;
+  const base = `/instructor/courses/${courseId}/curriculum/${assignmentId}`;
   return submissionId ? `${base}?submission=${submissionId}` : base;
 }
 
-export function newAssignmentHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/assignments/new`;
+export function newAssignmentHref(courseId: string, courseUnitId?: string): string {
+  const base = `/instructor/courses/${courseId}/curriculum/new`;
+  /*
+    Carried in the query rather than the path, because it is a starting value for a field on the
+    form rather than a different form. Opened from inside a unit on the Curriculum screen it
+    arrives filled in and the form stops asking which unit — which is the whole reason that
+    screen puts the button inside the unit.
+  */
+  return courseUnitId ? `${base}?unit=${courseUnitId}` : base;
 }
 
 export function editAssignmentHref(courseId: string, assignmentId: string): string {
-  return `/instructor/courses/${courseId}/assignments/${assignmentId}/edit`;
-}
-
-/**
- * Everything in the cohort that is not work: readings, notes, and videos.
- *
- * Beside the assignments list rather than under it, because the two are authored the same way
- * and read in the same place — a module's accordion shows its assignments and then its
- * resources — and a reader looking for "the things I put in this course" should not have to
- * know which of them happen to be graded.
- */
-export function courseResourcesHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/resources`;
+  return `/instructor/courses/${courseId}/curriculum/${assignmentId}/edit`;
 }
 
 export function gradebookHref(courseId: string): string {
@@ -91,10 +92,6 @@ export function gradebookHref(courseId: string): string {
 
 export function rosterHref(courseId: string): string {
   return `/instructor/courses/${courseId}/roster`;
-}
-
-export function modulesHref(courseId: string): string {
-  return `/instructor/courses/${courseId}/modules`;
 }
 
 /**
@@ -140,8 +137,8 @@ export function courseHref(courseId: string): string {
  * only holds for the views that exist in every course; an assignment belongs to exactly
  * one, so its queue and its edit form cannot carry across and land on the course instead.
  *
- * `assignments` is the one segment that means two things. On its own it is the list, which
- * every course has and which carries across; followed by an id or by `new` it is one
+ * `curriculum` is the one segment that means two things. On its own it is the whole course,
+ * which every cohort has and which carries across; followed by an id or by `new` it is one
  * assignment, which does not.
  *
  * `attendance` is the other. Its two tabs are one address, which carries; one *day* is not,
@@ -156,17 +153,15 @@ export function sameViewInCourse(pathname: string, courseId: string): string {
 
   if (rest[0] === "triage") return triageHref(courseId);
   if (rest[0] === "attendance") return attendanceHref(courseId);
-  if (rest[0] === "assignments" && rest.length === 1) return courseAssignmentsHref(courseId);
-  if (rest[0] === "resources") return courseResourcesHref(courseId);
+  if (rest[0] === "curriculum" && rest.length === 1) return curriculumHref(courseId);
   if (rest[0] === "gradebook") return gradebookHref(courseId);
   if (rest[0] === "roster") return rosterHref(courseId);
-  if (rest[0] === "modules") return modulesHref(courseId);
   if (rest[0] === "settings") return courseSettingsHref(courseId);
 
   /*
-    Everything else — one assignment's queue, its edit form, a student's record — belongs to
-    a cohort and cannot travel. Settings rather than the bare course address, which would only
-    redirect here anyway.
+    Everything else — one assignment's queue, its edit form, one project's page, a student's
+    record — belongs to a cohort and cannot travel. Settings rather than the bare course
+    address, which would only redirect here anyway.
   */
   return courseSettingsHref(courseId);
 }

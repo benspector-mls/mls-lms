@@ -164,8 +164,18 @@ export function completeCount(assignments: readonly ProgressAssignment[]): numbe
   return assignments.filter((a) => progressStateOf(a.submissions[0]) === "complete").length;
 }
 
-/** "3 assignments with your instructor", or the singular when there is one. */
-export function segmentTooltip(segment: ProgressSegment): string {
-  const noun = segment.count === 1 ? "assignment" : "assignments";
+/**
+ * "3 deliverables with your instructor", or the singular when there is one.
+ *
+ * The noun is passed in rather than fixed, because a course's work is shown as three bars — one
+ * for assignments, one for an assessment's parts, one for a project's deliverables — and a bar
+ * over deliverables that called them assignments would be describing something else. The default
+ * is the ordinary case, so the single-bar callers say nothing.
+ */
+export function segmentTooltip(
+  segment: ProgressSegment,
+  nouns: { one: string; many: string } = { one: "assignment", many: "assignments" },
+): string {
+  const noun = segment.count === 1 ? nouns.one : nouns.many;
   return `${segment.count} ${noun} · ${segment.label.toLowerCase()}`;
 }

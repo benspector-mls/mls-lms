@@ -83,8 +83,15 @@ export const courseHeaderSelect = {
  * `position` is in it because the order is the whole point — a module list without it sorts
  * alphabetically, which is an ordering of the names rather than of the course.
  */
-export const moduleSummarySelect = {
+export const courseUnitSummarySelect = {
   id: true,
   name: true,
   position: true,
-} satisfies Prisma.ModuleSelect;
+  /*
+    What the unit is for, which is what every reader of this select turns into a label, a tab, or
+    a badge. Here rather than added per call site because ten of them read this object, and a
+    category fetched by nine of them and missed by the tenth is a screen that silently calls a
+    project a module.
+  */
+  category: true,
+} satisfies Prisma.CourseUnitSelect;

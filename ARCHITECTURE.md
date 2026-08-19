@@ -654,39 +654,47 @@ Test results are a fact the model must not contradict, and one rubric input amon
 
 | Situation                                                       | Verdict                                          |
 | --------------------------------------------------------------- | ------------------------------------------------ |
-| Model states a test passed that the run records as failed       | Contradiction → manual review                    |
-| Model awards the "passes all tests" criterion when tests failed | Contradiction → manual review                    |
+| Model states a test passed that the run records as failed       | Contradiction → finding                          |
+| Model awards the "passes all tests" criterion when tests failed | Contradiction → finding                          |
 | Model withholds points despite all tests passing                | **Legitimate** — hardcoding, inefficiency, style |
-| Model's `rubricItems` do not sum to its reported score          | Arithmetic error → manual review                 |
+| Model raises a flag and awards full marks in the band it scores | Contradiction → finding                          |
+| Model deducts a point without raising a flag                    | **Legitimate** — judgment the bands allow        |
+| Model's `rubricItems` do not sum to its reported score          | Arithmetic error → finding                       |
 
 - **The third row is the one a naive implementation gets wrong.** A check written as "claimed score must match pass rate" would flag exactly the judgment the model is there to make: a student who returns hardcoded values passes every test and has demonstrated nothing. So the check compares the model's *claims about test outcomes* against the run, never its score against the pass rate.
 - **The arithmetic verification applies to every section, tested or not.** It is the only automatic check available when a section has no run.
-- **The cross-check operates per section**, because within one submission some sections are bound by test evidence and some are not. A non-empty `tamperedPaths` routes to manual review regardless of score. `grading_draft_sections` records whether a run informed it, so the interface can show which sections had their claims verified.
-- **Confidence is not a cross-check finding and never holds a draft back.** Low confidence on work with no suite is the ordinary condition of most of this curriculum, so treating it as a fault would mark almost every short response and frontend section as exceptional.
-- **Every cross-check finding holds the draft back.** Each is a contradiction. Findings are recorded twice for two readers: as a flag on the section, which an instructor scans, and as a review reason, which says why the draft was held.
+- **A flag names a defect one of the rubric's bands scores, so full marks in that band deducts for it nowhere.** `TERMINOLOGY` is what separates "uses correct terminology throughout" from "generally uses correct terminology", and `MECHANICAL` is a Writing band bullet, so `FLAG_WITHOUT_DEDUCTION` fires when a report raises either and awards every point in the matching band. It is asymmetric for the same reason the test rule is: full marks beside a flag is a contradiction, while a deduction with no flag is judgment the bands permit. When no line item's `criterion` names the band, the check says nothing rather than guessing at scores it cannot locate.
+- **The cross-check operates per section**, because within one submission some sections are bound by test evidence and some are not. A non-empty `tamperedPaths` produces a finding regardless of score. `grading_draft_sections` records whether a run informed it, so the interface can show which sections had their claims verified.
+- **Confidence is not a cross-check finding.** Low confidence on work with no suite is the ordinary condition of most of this curriculum, so treating it as a fault would mark almost every short response and frontend section as exceptional.
+- **A finding directs attention rather than gating.** Each is a contradiction, and each is recorded twice for two readers: as a flag on the section, which an instructor scans, and in `errorDetail`, which names what could not be reconciled. Nothing is gated because nothing is released without an instructor approving it.
 - **Everything else produces manual review with the specific reason attached, never a fabricated score**: fetch or authentication failure, a runner crash as opposed to failing tests, no section type matched, an assignment with no `sections` mapping, or a model call or schema validation failure.
 
 ### Provider isolation
 
 - **One interface, two implementations.** Pipeline code calls `getReportGenerator()` and never references a vendor; `GRADING_LLM_PROVIDER=claude|groq` selects. The contract carries a Zod schema rather than a JSON Schema document, because Claude's SDK derives the response format through `messages.parse()` and `zodOutputFormat()`, and Groq needs a plain JSON Schema in its request body, which the same schema derives.
-- **Claude is the provider in use, on `claude-sonnet-5`.** The model is a constant in `lib/grade/providers/claude.ts` with `ANTHROPIC_MODEL` as an override, so trying another tier costs an environment variable — what it does not cost is the [calibration](#what-is-verified-and-how) that says whether the other tier still agrees with an instructor.
+- **Claude is the provider in use, on `claude-sonnet-5`.** The model is a constant in `lib/grade/providers/claude.ts` with `ANTHROPIC_MODEL` as an override, so trying another tier costs an environment variable — what it does not cost is the [calibration](#what-is-verified-and-how) that says whether the other tier still agrees with an instructor. That calibration has been run against `claude-opus-5`, which agrees with an instructor less often and ranks two submissions the wrong way round, so the cheaper tier is also the better-calibrated one.
 - **Groq's `openai/gpt-oss-120b` with strict `json_schema` remains implemented** and is the only Groq model and mode combination confirmed to guarantee schema-conformant output. Its free tier caps requests at 8,000 tokens per minute and a frontend prompt does not fit — those carry several answer keys and a verbatim README checklist, about 12,400 tokens by Groq's count, rejected with a 413.
 - **Claude's JSON schema support rejects numeric constraints** such as `minimum` and `maximum`, rejects string length limits, and requires `additionalProperties: false`. The schema cannot express them, so the cross-check's arithmetic verification stays necessary on either provider.
 - **Claude reports cached tokens separately from `promptTokens`, not as a subset.** A run that writes the cache shows zero reads and an unchanged prompt count, indistinguishable from broken caching unless the write count is also recorded. All four counts go into `modelMetadata`.
 
 ### What a report costs
 
-Measured on `claude-opus-5`, one section per run, normalized to a cache hit so the only variable is `effort`. The default model is `claude-sonnet-5`, so these are the figures for the more expensive tier and the shape of the answer rather than the current bill; re-measuring is [token management](ROADMAP.md#token-management).
+Measured on `claude-sonnet-5`, the deployed default, one section per run, at $2.00 per million input tokens and $10.00 per million output tokens. Each row is several runs of one submission, so the only variables are `effort` and the model's own run-to-run variation. Costs are normalized to a cache hit — what a run costs reading its cacheable prefix rather than writing it, which is what every submission after the first pays when a cohort is graded in one sitting.
 
-| Section            | Effort | Uncached input | Cached | Output | Cost   | Wall clock |
-| ------------------ | ------ | -------------- | ------ | ------ | ------ | ---------- |
-| `coding_algorithm` | high   | 5,207          | 5,624  | 2,646  | $0.095 | 31s        |
-| `coding_algorithm` | medium | 5,207          | 5,624  | 2,365  | $0.088 | 27s        |
-| `coding_frontend`  | high   | 12,392         | 7,590  | 3,396  | $0.151 | 40s        |
-| `coding_frontend`  | medium | 12,392         | 7,590  | 2,631  | $0.132 | 29s        |
+`npm run cost` produces this table. It prices the four token counts each draft records in `model_metadata.usage`, reports both the billed and the cache-hit figure for every run, and groups by model, effort, and section type. The rates live in one table at the top of `scripts/cost.ts`, so a rate-card change is a one-line edit and no recorded measurement has to be repeated.
 
-- **Output is roughly 60 percent of the cost**, because thinking is billed as output. `GRADING_LLM_EFFORT` therefore moves total cost more than prompt caching or model tier, and it is left at `high`: the gap is 7 to 14 percent. At `medium`, a cohort of 25 costs roughly $2.20 for an algorithm assignment and $3.60 for a frontend one.
-- **Caching works, and its window is short.** A repeated request read 7,590 tokens and wrote none; a later request for the same prompt wrote all 7,590 again, because the default cache lifetime is five minutes. Caching pays when a cohort is graded in one burst and pays nothing when grading is spread across an evening — an input to the orchestration decision. Only the system prompt is cacheable today, which is 38 percent of the frontend input.
+| Section            | Effort | Uncached input | Cacheable | Output        | Cost, median   | Cohort of 25 | Wall clock |
+| ------------------ | ------ | -------------- | --------- | ------------- | -------------- | ------------ | ---------- |
+| `coding_algorithm` | high   | 8,390          | 6,509     | 4,124–10,035  | $0.1132        | $2.83        | 36–99s     |
+| `coding_algorithm` | medium | 8,390          | 6,509     | 3,716–7,481   | $0.0741        | $1.85        | 36–79s     |
+| `coding_frontend`  | high   | 8,717          | 8,475     | 6,966–8,822   | $0.0981        | $2.45        | 128–166s   |
+| `coding_frontend`  | medium | 8,717          | 8,475     | 3,643–3,984   | $0.0573        | $1.43        | 105–110s   |
+
+- **A cost is a range, not a figure, and the reason is output tokens.** The same submission at the same effort against the same prompt produced 4,124 output tokens on one run and 10,035 on another, so a single run measures very little. Report the spread: an algorithm report costs $0.0593 to $0.1184 at `high` and a frontend one $0.0888 to $0.1073.
+- **Output is 70 to 84 percent of the cost**, because thinking is billed as output. `GRADING_LLM_EFFORT` therefore moves total cost more than prompt caching or model tier, and the gap is now large enough to be a real choice: `medium` costs 35 percent less than `high` on an algorithm section and 42 percent less on a frontend one. It is left at `high` because the saving is worth about $80 per cohort-year and the cost of a worse grade is not.
+- **Model tier moves cost far less than its rate card implies.** The same two submissions on `claude-opus-5` cost $0.1437 and $0.1673 on a cache hit, so Sonnet runs at 59 to 79 percent of Opus rather than the 40 percent its rates predict. Sonnet spends the difference on thinking: on the identical frontend prompt it produced 6,966 output tokens against Opus's 4,959. Tier is worth roughly $100 per cohort-year across a curriculum of 78 assignments, which is why [it is a calibration question rather than a cost one](#what-is-verified-and-how).
+- **Caching works, and its window is five minutes.** A repeated request read 8,475 tokens and wrote none; a later request for the same prompt wrote all 8,475 again. Writing that prefix costs 1.25 times the input rate and reading it a tenth, so the first submission of a sitting pays about $0.02 more than the rest. Caching pays when a cohort is graded in one burst and pays nothing when grading is spread across an evening — an input to the orchestration decision. Only the system prompt is cacheable today, which is 49 percent of the frontend input.
+- **A frontend report takes over two minutes of model time**, with no sandbox run involved, so a repository assignment's worst measured case is closer to three and a half minutes once a 30-to-40-second test run is added. That is the figure [triggering and orchestration](ROADMAP.md#triggering-and-orchestration) has to fit inside a 300-second function limit.
 
 ### A ceiling on what a mistake can spend
 
@@ -731,8 +739,9 @@ NOT_STARTED → ACCEPTED → SUBMITTED → GRADED → RESUBMITTED
                                back to SUBMITTED
 ```
 
-- **`submission.status` is the state of the submission, not of a grading run.** The run's state lives on the draft (`GENERATING`, `READY`, `NEEDS_MANUAL_REVIEW`, `FAILED`, `SUPERSEDED`, `APPROVED`), and only approval moves a submission to `GRADED`.
-- **The review screen renders each `grading_draft_section`** — markdown plus its score — with a manual-review banner carrying the specific reason when the pipeline could not produce a confident draft. Never a silently wrong score.
+- **`submission.status` is the state of the submission, not of a grading run.** The run's state lives on the draft (`GENERATING`, `READY`, `FAILED`, `SUPERSEDED`, `APPROVED`), and only approval moves a submission to `GRADED`.
+- **A run that produced a report is `READY`, whatever the cross-check found.** There is deliberately no second ready-ish state: every report is reviewed before anybody sees it, so a pair of statuses reading "ready for review" against "needs manual review" claimed a difference in whether a human was required rather than in what the pipeline noticed. What the cross-check could not reconcile is named in `errorDetail` and in each section's flags, which say where to look rather than whether to look. `NEEDS_MANUAL_REVIEW` remains in `GradingDraftStatus`, nothing writes it, and rows predating this decision are presented and triaged as ready.
+- **The review screen renders each `grading_draft_section`** — markdown plus its score — with a findings banner drawn from `errorDetail` whenever the cross-check recorded something. Never a silently wrong score.
 - **Every section's text and score is editable in place.** An edit is stored in `editedReportMarkdown` and `editedScoreEarned` **alongside** the model's original rather than over it, and written as null when it matches the model's value, which is how discarding one works. Two different comparisons: which sections are dirty is measured against the *effective* values, while the null-or-value decision is measured against the *model's*. Everything a student reads resolves to the edited value.
 
 **Approve** is one transaction:
@@ -820,8 +829,7 @@ The grading queue and a student's record each offer one button for everything ou
 | --------------------- | ------------------------------------------------------------------------- |
 | `needs_report`        | Submitted, and no report has been generated                               |
 | `needs_manual_grade`  | Submitted on an assignment the pipeline cannot grade; waiting on a person |
-| `draft_ready`         | A report is waiting to be reviewed                                        |
-| `needs_manual_review` | The cross-check found something that gates approval                       |
+| `draft_ready`         | A report is waiting to be reviewed, with or without cross-check findings  |
 | `grading_failed`      | The run failed before producing a report — infrastructure, not a zero     |
 | `comment_not_posted`  | Approved, there is a pull request, and the comment never reached it       |
 | `generating`          | A run is in flight; not counted as outstanding                            |
@@ -1125,16 +1133,21 @@ The counts quoted are what each script reported when its section was written. **
 - **The filter was run over all 10,507 files in the curriculum repository**, which matters more than any hand-written case: every path it withheld was genuinely a build artifact, a dependency tree, a committed `.env`, or editor litter, and no directory named `build` or `out` anywhere in the curriculum holds authored work.
 - On real submissions: `swe-1-4-loops` with every test passing scores 30/30 at high confidence; a submission that broke its code and edited the assertion scored 12/13 against the template's assertion; full credit claimed alongside a failing test is caught; claiming a failed test passed is caught in both the bare and `Suite › name` forms; a submission passing every test with hardcoded return values is **not** flagged merely for scoring below full credit.
 
-**Calibration.** `npm run calibrate` grades a sample and compares it against the report an instructor wrote about the same work. The toolkit holds two short response pairs; pair 1 is the exemplar embedded in the prompt and **pair 2 is held out**. This is the one check that says a change of model tier is safe. Below is `claude-sonnet-5`, the current default, run three times — three because the first two runs disagreed with each other.
+**Calibration.** `npm run calibrate` grades a sample and compares it against the report an instructor wrote about the same work. The toolkit holds three short response pairs; pair 1 is the exemplar embedded in the prompt and **pairs 2 and 3 are held out**. Pair 3 exists because pair 2 alone cannot detect leniency: the instructor scored pair 2 at 12/15, which is above the 0.75 completion threshold, so only a model biased downwards can fail it. Pair 3 sits at 11/15, just below the line, and catches a model biased upwards.
 
-|                        | pair 1 (exemplar)  | pair 2 (held out)                                  |
-| ---------------------- | ------------------ | -------------------------------------------------- |
-| Total                  | 12/15 = 12/15, ×3  | 12/15 = 12/15 once; 13/15 against 12/15 twice      |
-| Per-question technical | all four agree, ×3 | three agree every run; **Q2 agrees once in three** |
-| Writing quality        | 1 = 1, ×3          | 2 = 2, ×3                                          |
+This is the one check that says a change of model tier is safe. Below is five runs per tier per held-out pair, all at `high` effort.
 
-- **The exemplar is reproduced exactly, every run.** On the held-out pair the disagreement has moved: the recorded `claude-opus-5` figures put every technical score right and missed the writing score by a band, and this tier gets the writing score right every time and is unstable on Question 2, where the instructor gave 2 of 3 and the model gave 3 twice and 2 once. The model that awards 3 is not wrong about the content; it does not deduct for a stray closing sentence disconnected from the rest of the answer, which the instructor did. That is a judgment a rubric cannot fully specify, and it is why a draft is reviewed rather than published.
-- **A single calibration run is not a measurement.** The same submission, prompt, and model produced 12/15 and 13/15 on different days, so any comparison between tiers has to run more than once. The cross-check passed on every run, confidence was reported honestly, and the disagreement is one point on one question inside a band an instructor is expected to adjust. **The number to quote is a range, not a figure.**
+|                            | `claude-sonnet-5`     | `claude-opus-5`       |
+| -------------------------- | --------------------- | --------------------- |
+| Pair 2, instructor 12/15   | 13, 13, 12, 13, 13    | 11, 11, 12, 11, 12    |
+| Pair 3, instructor 11/15   | 12, 12, 12, 12, 12    | 12, 12, 12, 12, 12    |
+| Completion decision agrees | 5 of 10 runs          | 2 of 10 runs          |
+
+- **Both tiers over-credit the technical criterion by one point, identically.** On pair 3 every run of both models returned 12/15 with the same split — technical 11 of 12 against the instructor's 10 of 12, writing 1 of 3 matching exactly — and the same three flags, `MECHANICAL`, `CLARITY`, and `TERMINOLOGY`. The whole measured gap between the pipeline and an instructor is one technical point on one question, and it belongs to the rubric rather than to either model. **Tier is therefore not the lever for making grading stricter or more lenient**; the rubric's technical bands and the completion threshold are.
+- **A raised flag did not cost a point, and `FLAG_WITHOUT_DEDUCTION` now names the flagrant form of it.** Both models flagged a terminology problem on pair 3 and still awarded 11 of 12 technical, though `TERMINOLOGY` is a technical-band criterion. The check fires when a flag is raised and the matching band is at *full* marks, which is the case it can decide mechanically. **It would not have fired on pair 3**, where one question had already lost a point and the check cannot tell whether that deduction was the flagged one. Catching that needs flags attributed to a rubric item rather than to the section, which is a schema change and not yet made.
+- **`claude-opus-5` inverts the instructor's ranking, which is the disqualifying result.** The instructor placed pair 2 above pair 3. Opus averaged 11.4 on pair 2 and 12.0 on pair 3, scoring the weaker submission higher; Sonnet averaged 12.8 and 12.0 and preserved the ordering. A constant bias can be corrected and a threshold can be moved, but a model that ranks two submissions the wrong way round cannot be tuned into agreement. Opus is also not the stricter grader it appears to be from pair 2 alone — on pair 3 the two tiers are indistinguishable.
+- **Neither tier is safe near the threshold today.** Every run of both models marked pair 3 complete when the instructor marked it incomplete, at `high` confidence and passing the cross-check, so nothing held it for review. A wrongly-incomplete grade is disputed by the student and corrected; a wrongly-complete grade is appealed by nobody. This is the strongest argument for the technical criterion being the next piece of work.
+- **A single calibration run is not a measurement.** The same submission, prompt, and model produced 12/15 and 13/15 on different days, and output token counts vary more than twofold between identical runs. Any comparison between tiers has to run each candidate several times, and **the number to quote is a range, not a figure.**
 - Calibration also found two errors in the reference reports rather than in the pipeline, both since corrected. Coding sections are not calibrated: scoring them is closer to objective, and no graded samples exist.
 
 **Modules.** `verify:modules` runs the tRPC callers inside a rolled-back transaction.

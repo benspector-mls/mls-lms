@@ -16,7 +16,9 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -27,7 +29,8 @@ import {
   repoNameFromRef,
   repoPathFromRef,
 } from "@/lib/assignments/repo-ref";
-import { courseAssignmentsHref } from "@/lib/links";
+import { CATEGORY_META, UNIT_CATEGORIES, compareByPosition } from "@/lib/course-units";
+import { curriculumHref } from "@/lib/links";
 import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
@@ -89,7 +92,14 @@ type Kind = AssignmentKind;
 type FormState = {
   kind: Kind;
   title: string;
-  moduleId: string;
+  /**
+   * The module, project, or assessment this belongs to.
+   *
+   * One field, because an assignment has one parent. All three categories are course units, so
+   * there is nothing to derive and nothing that can disagree — the form asks the question once
+   * and the answer is what gets saved.
+   */
+  courseUnitId: string;
   completionThreshold: number;
   dueAt: Date | null;
   /** As pasted. Normalized to owner/repo on the way out — see toDraft. */
@@ -152,7 +162,7 @@ function isRepoKind(kind: Kind): boolean {
 function toDraft(state: FormState): unknown {
   const shared = {
     title: state.title,
-    moduleId: state.moduleId,
+    courseUnitId: state.courseUnitId,
     completionThreshold: state.completionThreshold,
     dueAt: state.dueAt,
     sections: state.sections,
@@ -205,10 +215,20 @@ const DEBOUNCE_MS = 600;
 export function AssignmentForm({
   courseId,
   existing,
+  initialCourseUnitId,
 }: {
   courseId: string;
   /** Absent when creating. */
   existing?: Draft;
+  /**
+   * The unit this assignment is being written into, from `?unit=`.
+   *
+   * A starting value for the unit selector rather than a lock: the form opened from inside a
+   * project on the Curriculum screen arrives with it chosen, and an instructor who changes their
+   * mind can still pick another. Ignored when editing, since an existing assignment already
+   * carries its own answer.
+   */
+  initialCourseUnitId?: string;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -233,10 +253,11 @@ export function AssignmentForm({
       courseId={courseId}
       context={context.data}
       existing={existing}
+      initialCourseUnitId={initialCourseUnitId}
       onSaved={(assignmentId) => {
         /*
-          To the assignments list, which is where an instructor sees the result in context —
-          the new row, its draft badge, and its place in the module ordering.
+          To the Curriculum screen, which is where an instructor sees the result in context —
+          the new row, its draft badge, and its place inside the unit it belongs to.
 
           Written as the bare course address until the cohort's views became seven addresses,
           at which point that address stopped being a page and became a redirect to Settings.
@@ -245,7 +266,7 @@ export function AssignmentForm({
           reason `lib/links.ts` exists: an address assembled from a template does not move when
           the routes do, and this was the one place still assembling one by hand.
         */
-        router.push(courseAssignmentsHref(courseId));
+        router.push(curriculumHref(courseId));
         void assignmentId;
       }}
     />
@@ -256,17 +277,37 @@ function Editor({
   courseId,
   context,
   existing,
+  initialCourseUnitId,
   onSaved,
 }: {
   courseId: string;
   context: Context;
   existing?: Draft;
+  initialCourseUnitId?: string;
   onSaved: (assignmentId: string) => void;
 }) {
   const trpc = useTRPC();
 
-  const [moduleId, setModuleId] = React.useState<string>(
-    existing?.moduleId ?? context.course.modules[0]?.id ?? "",
+  /**
+   * The course's units in the order the instructor put them, which is one sequence across all
+   * three categories — the same order the Curriculum screen and a student's course page show.
+   *
+   * Sorted here rather than trusted from the payload, because the select groups them by category
+   * below and a group's items have to stay in course order within it.
+   */
+  const units = React.useMemo(
+    () => [...context.course.courseUnits].sort(compareByPosition),
+    [context.course.courseUnits],
+  );
+
+  /**
+   * Which unit this belongs to.
+   *
+   * Held outside `state` for the reason `kind` is: the form reads it while deciding what else to
+   * show, and an existing assignment always has one because the column is not nullable.
+   */
+  const [courseUnitId, setCourseUnitId] = React.useState<string>(
+    existing?.courseUnitId ?? initialCourseUnitId ?? units[0]?.id ?? "",
   );
 
   /*
@@ -281,7 +322,7 @@ function Editor({
       ? fromDraft(existing)
       : blankDraft({
           kind: "REPO",
-          moduleId: context.course.modules[0]?.id ?? "",
+          courseUnitId: initialCourseUnitId ?? units[0]?.id ?? "",
           defaults: {
             githubOrg: context.defaultGithubOrg,
             answerKeyRepo: context.defaultAnswerKeyRepo,
@@ -522,7 +563,7 @@ function Editor({
                   setState(
                     blankDraft({
                       kind: next,
-                      moduleId,
+                      courseUnitId,
                       defaults: {
                         githubOrg: context.defaultGithubOrg,
                         answerKeyRepo: context.defaultAnswerKeyRepo,
@@ -556,43 +597,74 @@ function Editor({
           </Field>
 
           {/*
-            A course with no modules cannot hold an assignment, and the foreign key says so.
-            Stated rather than shown as an empty select, which would read as a loading failure.
+            Which module, project, or assessment this belongs to.
+
+            **One question where there were two.** An assignment used to name a module and then,
+            separately, the project it was a part of — and the second answer overrode the first,
+            so the form showed a module field it was going to ignore. All three are course units
+            now, so there is one parent to choose and no rule reconciling two answers.
+
+            A course with no units cannot hold an assignment, and the foreign key says so. Stated
+            rather than shown as an empty select, which would read as a loading failure.
           */}
-          {context.course.modules.length === 0 ? (
-            <Field label="Module" findings={fieldFindings("moduleId")}>
+          {units.length === 0 ? (
+            <Field label="Belongs to" findings={fieldFindings("courseUnitId")}>
               <Alert>
                 <AlertTriangle />
-                <AlertTitle>This course has no modules yet</AlertTitle>
+                <AlertTitle>This course has nothing to put an assignment in yet</AlertTitle>
                 <AlertDescription>
-                  An assignment belongs to a module, so there has to be one first. Create them on
-                  the course page&apos;s Modules tab, then come back.
+                  Every assignment belongs to a module, a project, or an assessment. Create one on
+                  the Curriculum screen, then come back.
                 </AlertDescription>
               </Alert>
             </Field>
           ) : (
-            <Field label="Module" findings={fieldFindings("moduleId")}>
+            <Field
+              label="Belongs to"
+              findings={fieldFindings("courseUnitId")}
+              hint="A module, a project, or an assessment."
+            >
               <Select
-                value={moduleId}
+                value={courseUnitId}
                 onValueChange={(value) => {
                   // Base UI reports null when a select is cleared; there is no cleared state
                   // here, so an empty string keeps the rest of the form's types honest.
                   const next = value ?? "";
-                  setModuleId(next);
-                  setState((prev) => (prev ? { ...prev, moduleId: next } : prev));
+                  setCourseUnitId(next);
+                  setState((prev) => (prev ? { ...prev, courseUnitId: next } : prev));
                 }}
                 // The trigger renders the value, which is a uuid. Without this it would show one.
-                items={Object.fromEntries(context.course.modules.map((row) => [row.id, row.name]))}
+                items={Object.fromEntries(units.map((row) => [row.id, row.name]))}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a module" />
+                  <SelectValue placeholder="Choose where this belongs" />
                 </SelectTrigger>
                 <SelectContent>
-                  {context.course.modules.map((row) => (
-                    <SelectItem key={row.id} value={row.id}>
-                      {row.name}
-                    </SelectItem>
-                  ))}
+                  {/*
+                    Grouped by category rather than listed in one sequence, so that a course with
+                    twenty modules and one project does not bury the project in the middle of
+                    them. Within a group the course's own order is kept, which is the order the
+                    instructor arranged and the order a student meets the work in.
+
+                    A category with no units contributes no heading. An empty "Assessments"
+                    label would suggest the list had failed to load rather than that the course
+                    has no assessments yet.
+                  */}
+                  {UNIT_CATEGORIES.map((category) => {
+                    const inCategory = units.filter((row) => row.category === category);
+                    if (inCategory.length === 0) return null;
+
+                    return (
+                      <SelectGroup key={category}>
+                        <SelectLabel>{CATEGORY_META[category].unitsLabel}</SelectLabel>
+                        {inCategory.map((row) => (
+                          <SelectItem key={row.id} value={row.id}>
+                            {row.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </Field>
@@ -1247,13 +1319,14 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
  */
 function blankDraft({
   kind,
-  moduleId,
+  courseUnitId,
   defaults,
   rubrics,
   existingState,
 }: {
   kind: Kind;
-  moduleId: string;
+  /** The unit it goes in, kept across a change of kind. */
+  courseUnitId: string;
   defaults: { githubOrg: string | null; answerKeyRepo: string | null };
   rubrics: { id: string; name: string }[];
   existingState: FormState | null;
@@ -1263,7 +1336,7 @@ function blankDraft({
   return {
     kind,
     title: existingState?.title ?? "",
-    moduleId,
+    courseUnitId,
     completionThreshold: existingState?.completionThreshold ?? 0.75,
     dueAt: existingState?.dueAt ?? null,
     templateRepo: repo ? (existingState?.templateRepo ?? "") : "",
@@ -1303,7 +1376,7 @@ function fromDraft(draft: Draft): FormState {
   return {
     kind: draft.kind as Kind,
     title: draft.title,
-    moduleId: draft.moduleId,
+    courseUnitId: draft.courseUnitId,
     completionThreshold: draft.completionThreshold,
     dueAt: draft.dueAt,
     templateRepo: draft.templateRepo ?? "",

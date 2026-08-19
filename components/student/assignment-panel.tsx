@@ -214,7 +214,7 @@ function PanelHeader({
       <SheetTitle className="text-base leading-snug">{assignment.title}</SheetTitle>
 
       <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span>{assignment.module.name}</span>
+        <span>{assignment.courseUnit.name}</span>
         <span aria-hidden="true">·</span>
         <span>{assignment.dueAt ? `Due ${formatDueDate(assignment.dueAt)}` : "No due date"}</span>
       </SheetDescription>

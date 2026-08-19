@@ -46,8 +46,30 @@ export type CrossCheckFinding = {
     | "TEST_CLAIM_CONTRADICTION"
     | "UNKNOWN_TEST_CLAIMED"
     | "FULL_CREDIT_DESPITE_FAILURES"
+    | "FLAG_WITHOUT_DEDUCTION"
     | "PROTECTED_PATHS_CHANGED";
   detail: string;
+};
+
+/**
+ * Which rubric band each flag belongs to, so a raised flag can be checked against the marks
+ * awarded in the band that scores it. Keyed by the flag vocabulary in `schema.ts`, whose
+ * comments already group them as Writing Quality and Technical Score band bullets.
+ *
+ * Every flag the model may raise appears here. Codes the pipeline writes itself — the
+ * cross-check's own findings, TEST_EVIDENCE, LOW_CONFIDENCE — are added after this runs and
+ * belong to no band, so they map to nothing and are skipped.
+ */
+const FLAG_CRITERION_FAMILY: Partial<
+  Record<GradingReport["flags"][number], "technical" | "writing">
+> = {
+  MECHANICAL: "writing",
+  CLARITY: "writing",
+  MARKDOWN: "writing",
+  STRUCTURE: "writing",
+  INCOMPLETE: "technical",
+  UNDERSTANDING: "technical",
+  TERMINOLOGY: "technical",
 };
 
 export type CrossCheckResult = {
@@ -159,6 +181,41 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
       code: "SCORE_OUT_OF_RANGE",
       detail: `The score ${report.scoreEarned} exceeds the maximum ${report.scorePossible}.`,
     });
+  }
+
+  // ---- A flag the score does not reflect --------------------------------
+  //
+  // Every flag names a defect one of the rubric's bands scores: TERMINOLOGY is what
+  // separates "uses correct terminology throughout" from "generally uses correct
+  // terminology", and MECHANICAL is a Writing band bullet. So a report that raises a flag
+  // and still awards every point in that band has reported a defect and deducted for it
+  // nowhere.
+  //
+  // One direction only, on the same reasoning as FULL_CREDIT_DESPITE_FAILURES: full marks
+  // means the defect was accounted for nowhere, while withholding a point without raising
+  // a flag is ordinary judgment and is not checked.
+  for (const family of ["technical", "writing"] as const) {
+    const raised = report.flags.filter((flag) => FLAG_CRITERION_FAMILY[flag] === family);
+    if (raised.length === 0) continue;
+
+    const items = report.rubricItems.filter((item) =>
+      item.criterion.toLowerCase().includes(family),
+    );
+    // No line item names this family, so its scores cannot be located. A check that cannot
+    // see the numbers must say nothing rather than guess — the alternative is a finding on
+    // every report whose criterion labels happen to be worded differently.
+    if (items.length === 0) continue;
+
+    const earned = sum(items.map((item) => item.scoreEarned));
+    const possible = sum(items.map((item) => item.scorePossible));
+    if (possible - earned <= EPSILON) {
+      findings.push({
+        code: "FLAG_WITHOUT_DEDUCTION",
+        detail:
+          `The report raises ${raised.join(", ")} but awards full ${family} marks ` +
+          `(${earned}/${possible}), so nothing was deducted for what it reported.`,
+      });
+    }
   }
 
   // ---- Claims about test outcomes ---------------------------------------

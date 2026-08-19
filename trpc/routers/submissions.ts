@@ -18,7 +18,7 @@ import { signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
-import { moduleSummarySelect, personSelect } from "../selects";
+import { courseUnitSummarySelect, personSelect } from "../selects";
 
 /**
  * Everything the review surface needs from a submission, in one place.
@@ -766,7 +766,7 @@ export const submissionsRouter = createTRPCRouter({
         where: { courseId: input.courseId },
         // Course order — the sequence the instructor set — because reading a student's record is
         // reading it in the order they met the work.
-        orderBy: [{ module: { position: "asc" } }, { title: "asc" }],
+        orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
         select: {
           id: true,
           title: true,
@@ -775,7 +775,7 @@ export const submissionsRouter = createTRPCRouter({
           pointValue: true,
           completionThreshold: true,
           distributedAt: true,
-          module: { select: moduleSummarySelect },
+          courseUnit: { select: courseUnitSummarySelect },
           // Read for the grading mode and not returned whole: `manualOnly` is the answer the
           // review pane needs, and `sections` is a large object a screen has no use for.
           sections: true,

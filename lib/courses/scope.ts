@@ -100,15 +100,22 @@ export async function teachableCourse<S extends Prisma.CourseSelect>(
   return row ?? refuse(ctx.db.course, courseId, "Course");
 }
 
-/** A module, if the caller teaches the course it is in. */
-export async function teachableModule<S extends Prisma.ModuleSelect>(
+/**
+ * A course unit — a module, a project, or an assessment — if the caller teaches the course.
+ *
+ * The refusal says "Course unit" rather than naming the category, and that is forced rather
+ * than chosen: the row is what carries the category, and this refuses precisely when there is no
+ * row to read it from. A caller that wants to say "project not found" has to know it was looking
+ * for one, which is a fact its own input carries.
+ */
+export async function teachableCourseUnit<S extends Prisma.CourseUnitSelect>(
   ctx: AuthedCtx,
-  moduleId: string,
+  courseUnitId: string,
   select: S,
-): Promise<Prisma.ModuleGetPayload<{ select: S }>> {
-  const row = await ctx.db.module.findFirst({
+): Promise<Prisma.CourseUnitGetPayload<{ select: S }>> {
+  const row = await ctx.db.courseUnit.findFirst({
     where: {
-      id: moduleId,
+      id: courseUnitId,
       ...(teachesEverything(ctx)
         ? {}
         : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
@@ -116,10 +123,10 @@ export async function teachableModule<S extends Prisma.ModuleSelect>(
     select,
   });
 
-  return row ?? refuse(ctx.db.module, moduleId, "Module");
+  return row ?? refuse(ctx.db.courseUnit, courseUnitId, "Course unit");
 }
 
-/** A resource, if the caller teaches the course its module is in. */
+/** A resource, if the caller teaches the course its unit is in. */
 export async function teachableResource<S extends Prisma.ResourceSelect>(
   ctx: AuthedCtx,
   resourceId: string,
@@ -130,7 +137,7 @@ export async function teachableResource<S extends Prisma.ResourceSelect>(
       id: resourceId,
       ...(teachesEverything(ctx)
         ? {}
-        : { module: { course: { instructors: { some: { userId: ctx.profile.id } } } } }),
+        : { courseUnit: { course: { instructors: { some: { userId: ctx.profile.id } } } } }),
     },
     select,
   });

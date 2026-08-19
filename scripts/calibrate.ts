@@ -24,6 +24,17 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
 
+/**
+ * The reference solutions these samples were marked against.
+ *
+ * The three pairs are all drawn from `swe-checkpoint-summative-1-4`, so the key is that
+ * assignment's, and named here rather than read from a database row because this script grades
+ * files out of the toolkit and never loads an assignment.
+ */
+const CALIBRATION_ANSWER_KEY_REPO = "The-Marcy-Lab-School/swe-assignment-grading-guides";
+const CALIBRATION_ANSWER_KEY_DIR =
+  "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/short-response-solution";
+
 /** What an instructor's hand-written report says, pulled out of its markdown. */
 type ExpectedScores = {
   total: { earned: number; possible: number } | null;
@@ -91,7 +102,7 @@ async function main() {
   // Read from the repository over the API, the same way grading reads its rubric — there
   // is no local-clone mode any more.
   const only = process.argv[2];
-  const pairs = (only ? [only] : ["1", "2"]).map((n) => ({
+  const pairs = (only ? [only] : ["1", "2", "3"]).map((n) => ({
     n,
     submissionFile: `sample-short-response-submission-${n}.md`,
     reportFile: `sample-short-response-report-${n}.md`,
@@ -116,16 +127,26 @@ async function main() {
     }
     const expected = parseExpected(expectedMarkdown);
 
-    // No answer key paths, deliberately. Nothing is then "expected but missing", so
-    // the prompt adds no low-confidence nudge — and a short response is graded
-    // against the rubric and the questions themselves, which is what a human does.
-    //
-    // Which means no answer key repository either: with no paths to read, naming one would
-    // only be a round trip that changes nothing about the prompt.
+    /*
+      Graded with the answer key, because that is what production does and a calibration
+      that omits it measures a configuration nobody runs.
+
+      This was once deliberately null, on the reasoning that a short response is graded
+      against the rubric and the questions alone. That is not what an instructor does: the
+      key carries a per-question "Look for" list naming the terminology and points each
+      answer has to reach, and the hand-written reports these samples are compared against
+      were marked against it. Withholding it asked the model to infer a standard that was
+      written down.
+
+      The directory is the short response solution specifically, not the assignment's whole
+      answer key folder — that folder also holds the frontend solution, and sending five
+      JavaScript and CSS files into a short response prompt is noise the section cannot use
+      and is billed for on every run.
+    */
     const assets = await loadGradingAssets({
       sectionType: "short_response",
-      answerKeyRepo: null,
-      answerKeyDir: null,
+      answerKeyRepo: CALIBRATION_ANSWER_KEY_REPO,
+      answerKeyDir: CALIBRATION_ANSWER_KEY_DIR,
     });
 
     const response = await generator.generate({

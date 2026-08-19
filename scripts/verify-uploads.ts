@@ -463,15 +463,15 @@ async function main() {
   // A module row rather than a tag off the course. An assignment belongs to a module and the
   // foreign key says so, so a course with none cannot hold one — which is a skip, not a failure.
   const firstModule = course
-    ? await db.module.findFirst({
+    ? await db.courseUnit.findFirst({
         where: { courseId: course.id },
         orderBy: { position: "asc" },
         select: { id: true },
       })
     : null;
-  const moduleId = firstModule?.id;
+  const courseUnitId = firstModule?.id;
 
-  if (!course || !instructor || !studentId || !moduleId) {
+  if (!course || !instructor || !studentId || !courseUnitId) {
     skip("the lifecycle — no seeded course with an instructor, a bound student, and a module");
     return finish();
   }
@@ -496,7 +496,7 @@ async function main() {
         draft: {
           kind: "FILE_UPLOAD",
           title: "Resume, first draft (verify:uploads)",
-          moduleId,
+          courseUnitId,
           dueAt: null,
           acceptedFileTypes: ["pdf"],
           submissionInstructions: "One PDF, named after you.",
@@ -651,7 +651,7 @@ async function main() {
         draft: {
           kind: "EXTERNAL_URL",
           title: "Personal site on Canva (verify:uploads)",
-          moduleId,
+          courseUnitId,
           dueAt: null,
           submissionInstructions: "Make it in Canva, then share the link.",
           sections: [{ grading: "manual", label: "Total", pointValue: 15 }],

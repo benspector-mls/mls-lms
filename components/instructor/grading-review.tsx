@@ -582,8 +582,8 @@ function DraftBody({
         </Alert>
       )}
 
-      {draft.status === "NEEDS_MANUAL_REVIEW" && (
-        <ManualReviewNotice draft={draft} hasSections={draft.sections.length > 0} />
+      {draft.errorDetail && (
+        <FindingsNotice draft={draft} hasSections={draft.sections.length > 0} />
       )}
 
       <WithheldFilesNotice draft={draft} />
@@ -702,7 +702,14 @@ function WithheldFilesNotice({ draft }: { draft: Draft }) {
   );
 }
 
-function ManualReviewNotice({ draft, hasSections }: { draft: Draft; hasSections: boolean }) {
+/**
+ * What the cross-check could not reconcile, named.
+ *
+ * Rendered from `errorDetail` rather than from a status, because every report is reviewed
+ * before anybody sees it and a status saying "needs review" implied the others did not. This
+ * says where to look instead of whether to look.
+ */
+function FindingsNotice({ draft, hasSections }: { draft: Draft; hasSections: boolean }) {
   const reasons = (draft.errorDetail ?? "")
     .split("\n")
     .map((reason) => reason.trim())
@@ -711,12 +718,12 @@ function ManualReviewNotice({ draft, hasSections }: { draft: Draft; hasSections:
   return (
     <Alert className="border-violet-500/40 text-violet-700 dark:text-violet-300">
       <AlertTriangle className="text-violet-600 dark:text-violet-400" />
-      <AlertTitle>Held back for manual review</AlertTitle>
+      <AlertTitle>The cross-check found something</AlertTitle>
       <AlertDescription className="flex flex-col gap-2">
         <p>
-          The cross-check found something it could not reconcile, so this was not offered as ready.{" "}
+          These are the parts of the report the pipeline could not reconcile.{" "}
           {hasSections
-            ? "The report is below and can still be approved — check every score against the code and the tests first."
+            ? "Check them against the code and the tests before approving."
             : "Grade this one directly from the pull request."}
         </p>
         {reasons.length > 0 && (

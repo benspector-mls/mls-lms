@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { Gradebook } from "@/components/instructor/gradebook";
+import { Gradebook, parseGradebookTab } from "@/components/instructor/gradebook";
 import { GradebookDownload } from "@/components/instructor/gradebook-download";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
@@ -22,7 +22,7 @@ export default function GradebookPage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ group?: string }>;
+  searchParams: Promise<{ group?: string; tab?: string }>;
 }) {
   return (
     <Suspense fallback={<PageFallback rows={10} />}>
@@ -36,10 +36,14 @@ async function FullGradebook({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ group?: string }>;
+  searchParams: Promise<{ group?: string; tab?: string }>;
 }) {
   const { courseId } = await params;
-  const groups = await resolveGroup(courseId, (await searchParams).group);
+  const query = await searchParams;
+  const groups = await resolveGroup(courseId, query.group);
+  // Anything unrecognised becomes the overview, so a stale link lands on the tab that
+  // describes all three of the others rather than on an error.
+  const tab = parseGradebookTab(query.tab);
   const data = await getQueryClient().fetchQuery(
     trpc.courses.gradebook.queryOptions({ courseId, group: groups.group }),
   );
@@ -93,7 +97,7 @@ async function FullGradebook({
         }
       />
 
-      <Gradebook data={data} />
+      <Gradebook data={data} tab={tab} group={groups.group} />
     </div>
   );
 }

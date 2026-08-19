@@ -15,7 +15,6 @@ export type TriageBucket =
   | "needs_report"
   | "needs_manual_grade"
   | "draft_ready"
-  | "needs_manual_review"
   | "grading_failed"
   | "comment_not_posted"
   | "generating";
@@ -60,8 +59,9 @@ export function triageBucket(
   // in front of the instructor, so it is not read here at all — the submission falls
   // through to needing a new one.
   if (draft && !draftIsStale) {
-    if (draft.status === "READY") return "draft_ready";
-    if (draft.status === "NEEDS_MANUAL_REVIEW") return "needs_manual_review";
+    // `NEEDS_MANUAL_REVIEW` lands here too, and deliberately: nothing writes it any more, and a
+    // row that predates that decision is a draft awaiting an instructor like any other.
+    if (draft.status === "READY" || draft.status === "NEEDS_MANUAL_REVIEW") return "draft_ready";
     if (draft.status === "FAILED") return "grading_failed";
     if (draft.status === "GENERATING") return "generating";
   }

@@ -29,7 +29,9 @@ describe("triageBucket", () => {
   describe("a run that reached a state somebody has to act on", () => {
     it.each([
       ["READY", "draft_ready"],
-      ["NEEDS_MANUAL_REVIEW", "needs_manual_review"],
+      // Nothing writes NEEDS_MANUAL_REVIEW any more. A row that predates that decision is a
+      // draft awaiting an instructor like any other, which is what it always was.
+      ["NEEDS_MANUAL_REVIEW", "draft_ready"],
       ["FAILED", "grading_failed"],
       ["GENERATING", "generating"],
     ] as const)("reads %s as %s", (status, bucket) => {
@@ -120,7 +122,6 @@ describe("isOutstanding", () => {
       "needs_report",
       "needs_manual_grade",
       "draft_ready",
-      "needs_manual_review",
       "grading_failed",
       "comment_not_posted",
     ] as const) {

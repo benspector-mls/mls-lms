@@ -483,20 +483,31 @@ export async function generateReportForSubmission(submissionId: string): Promise
       });
 
       // Recorded twice on purpose, for two readers: as a flag on the section above, which is
-      // what an instructor scans, and as a review reason here, which is what holds the draft
-      // back and says why.
+      // what an instructor scans, and as a finding here, which names what could not be
+      // reconciled and directs attention at it.
       for (const finding of check.findings) {
         reviewReasons.push(`${sectionType}: ${finding.detail}`);
       }
     }
 
-    const needsReview = reviewReasons.length > 0;
+    /*
+      One ready state, whatever the cross-check found.
 
+      A draft used to be written as `NEEDS_MANUAL_REVIEW` when the cross-check found something
+      and `READY` otherwise, and the pair said the wrong thing: every report is reviewed before
+      anybody sees it, so "ready for review" against "needs manual review" read as a claim about
+      whether a human was required rather than about what the pipeline noticed. The distinction
+      that matters is carried by `errorDetail` and by each section's flags, which name the
+      specific thing to look at — information the status only ever summarized into a boolean.
+
+      `NEEDS_MANUAL_REVIEW` remains in `GradingDraftStatus` and nothing writes it. Rows from
+      before this decision keep it and are presented as ready, which is what they always were.
+    */
     return await db.gradingDraft.update({
       where: { id: draft.id },
       data: {
-        status: needsReview ? "NEEDS_MANUAL_REVIEW" : "READY",
-        errorDetail: needsReview ? reviewReasons.join("\n") : null,
+        status: "READY",
+        errorDetail: reviewReasons.length > 0 ? reviewReasons.join("\n") : null,
         modelMetadata: {
           provider: generator.name,
           promptVersion: PROMPT_VERSION,

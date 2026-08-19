@@ -9,11 +9,9 @@ import {
   BookOpen,
   CalendarCheck,
   ChevronsUpDown,
-  ClipboardList,
   GraduationCap,
   Layers,
   LayoutDashboard,
-  Library,
   ListChecks,
   LogOut,
   Settings,
@@ -72,12 +70,10 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import {
   attendanceHref,
-  courseAssignmentsHref,
-  courseResourcesHref,
+  curriculumHref,
   courseSettingsHref,
   gradebookHref,
   gradingQueueHref,
-  modulesHref,
   myAttendanceHref,
   rosterHref,
   sameViewInCourse,
@@ -139,9 +135,11 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
   const inCourse = segments[0] === "instructor" && segments[1] === "courses" && segments[2];
   const rest = inCourse ? segments.slice(3) : [];
 
-  // The assignment routes: .../assignments/<id> and .../assignments/<id>/edit. "new" is a
-  // sibling of the ids rather than one of them, so it is excluded here and named below.
-  const assignmentId = rest[0] === "assignments" && rest[1] !== "new" ? rest[1] : undefined;
+  /*
+    The assignment routes: .../curriculum/<id> and .../curriculum/<id>/edit. "new" is a sibling
+    of the ids rather than one of them, so it is excluded here and named below.
+  */
+  const assignmentId = rest[0] === "curriculum" && rest[1] !== "new" ? rest[1] : undefined;
 
   // Only fetched where the path names an assignment, because the title is the one label on
   // these screens the course list in memory cannot supply.
@@ -193,15 +191,13 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
       if (rest[1] === "day" && rest[2]) crumbs.push({ label: formatSchoolDay(rest[2]) });
     } else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
     else if (rest[0] === "roster") crumbs.push({ label: "Roster" });
-    else if (rest[0] === "modules") crumbs.push({ label: "Modules" });
-    else if (rest[0] === "resources") crumbs.push({ label: "Resources" });
     else if (rest[0] === "settings") crumbs.push({ label: "Settings" });
-    else if (rest[0] === "assignments") {
-      // The list is a screen of its own now, so it is a step on the trail rather than a
-      // heading the deeper screens skip past.
+    else if (rest[0] === "curriculum") {
+      // The list is a screen of its own, so it is a step on the trail rather than a heading
+      // the deeper screens skip past.
       const listCrumb: Crumb = {
-        label: "Assignments",
-        href: rest.length > 1 ? courseAssignmentsHref(courseId) : undefined,
+        label: "Curriculum",
+        href: rest.length > 1 ? curriculumHref(courseId) : undefined,
       };
       crumbs.push(listCrumb);
 
@@ -359,14 +355,7 @@ const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
   { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
   { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
-  { title: "Modules", href: modulesHref, icon: Layers, segment: "modules" },
-  {
-    title: "Assignments",
-    href: courseAssignmentsHref,
-    icon: ClipboardList,
-    segment: "assignments",
-  },
-  { title: "Resources", href: courseResourcesHref, icon: Library, segment: "resources" },
+  { title: "Curriculum", href: curriculumHref, icon: Layers, segment: "curriculum" },
   { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
   { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
 ] as const;

@@ -205,15 +205,11 @@ async function main() {
         ];
         const switches: [string, string, string][] = [
           ["triage", links.triageHref(alpha), links.triageHref(beta)],
-          [
-            "the assignments list",
-            links.courseAssignmentsHref(alpha),
-            links.courseAssignmentsHref(beta),
-          ],
-          ["resources", links.courseResourcesHref(alpha), links.courseResourcesHref(beta)],
+          ["the coursework list", links.curriculumHref(alpha), links.curriculumHref(beta)],
+          ["resources", links.curriculumHref(alpha), links.curriculumHref(beta)],
           ["the gradebook", links.gradebookHref(alpha), links.gradebookHref(beta)],
           ["the roster", links.rosterHref(alpha), links.rosterHref(beta)],
-          ["modules", links.modulesHref(alpha), links.modulesHref(beta)],
+          ["modules", links.curriculumHref(alpha), links.curriculumHref(beta)],
           ["settings", links.courseSettingsHref(alpha), links.courseSettingsHref(beta)],
           // The four that cannot carry across, each landing on settings rather than on another
           // cohort's copy of an id it does not have.
@@ -245,7 +241,7 @@ async function main() {
         check(
           "a queue link can still open one submission",
           links.gradingQueueHref(alpha, someAssignment, "sub-1"),
-          `/instructor/courses/${alpha}/assignments/${someAssignment}?submission=sub-1`,
+          `/instructor/courses/${alpha}/curriculum/${someAssignment}?submission=sub-1`,
         );
 
         /*
@@ -305,7 +301,7 @@ async function main() {
         check("...and can author in the course immediately", context.course.name, "Verify Empty");
 
         // ---- Copying ----------------------------------------------------------
-        const sourceModules = await tx.module.findMany({
+        const sourceModules = await tx.courseUnit.findMany({
           where: { courseId: course.id },
           select: { name: true, position: true },
           orderBy: { position: "asc" },
@@ -318,7 +314,7 @@ async function main() {
           copyFromCourseId: course.id,
         });
 
-        const copiedModules = await tx.module.findMany({
+        const copiedModules = await tx.courseUnit.findMany({
           where: { courseId: copy.course.id },
           select: { name: true, position: true },
           orderBy: { position: "asc" },
@@ -871,7 +867,7 @@ async function main() {
             (row) =>
               typeof row.assignment.completionThreshold === "number" &&
               typeof row.assignment.manualOnly === "boolean" &&
-              row.assignment.module !== null,
+              row.assignment.courseUnit !== null,
           ),
           true,
         );
@@ -970,7 +966,7 @@ async function main() {
         );
         check(
           "...and its modules, which order their own assignment list",
-          Array.isArray(await asStudent.modules.listForCourse({ courseId: course.id })),
+          Array.isArray(await asStudent.courseUnits.listForCourse({ courseId: course.id })),
           true,
         );
         check(
@@ -1722,7 +1718,8 @@ async function main() {
           courseName: "Verify Deletion",
           cohortTerm: "Cohort Verify H",
         });
-        const doomedModule = await asInstructor.modules.create({
+        const doomedModule = await asInstructor.courseUnits.create({
+          category: "MODULE",
           courseId: doomed.course.id,
           name: "Mod 1",
         });
@@ -1795,7 +1792,7 @@ async function main() {
           bystander ? impact.enrollments : "no spare student to enrol",
           bystander ? 1 : "no spare student to enrol",
         );
-        check("...its modules", impact.modules, 1);
+        check("...its course units", impact.courseUnits, 1);
         check("...its instructors", impact.instructors, 2);
         check(
           "...and asks for the short name rather than the course name",
@@ -1832,7 +1829,7 @@ async function main() {
       */
         check(
           "...taking its modules with it",
-          await tx.module.count({ where: { id: doomedModule.id } }),
+          await tx.courseUnit.count({ where: { id: doomedModule.id } }),
           0,
         );
         check(

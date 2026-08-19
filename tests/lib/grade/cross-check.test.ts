@@ -311,6 +311,118 @@ describe("claims about test outcomes", () => {
   });
 });
 
+/**
+ * A flag names a defect the rubric's bands score, so raising one and awarding every point in
+ * that band deducts for the defect nowhere.
+ *
+ * Asymmetric in the same way the test-failure rule is: full marks beside a flag is a fault,
+ * and a deduction with no flag is ordinary judgment. Calibration found both tiers raising
+ * TERMINOLOGY and awarding near-full technical marks, which is what this exists to name.
+ */
+describe("a flag the score does not reflect", () => {
+  /** Short-response shaped, at full marks, because that is where the flag vocabulary applies. */
+  function shortResponse(overrides: Partial<GradingReport> = {}): GradingReport {
+    return report({
+      scoreEarned: 15,
+      scorePossible: 15,
+      rubricItems: [
+        { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+        { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+        { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+        { label: "Q4", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+        {
+          label: "Writing",
+          criterion: "writing_quality",
+          scoreEarned: 3,
+          scorePossible: 3,
+          note: null,
+        },
+      ],
+      ...overrides,
+    });
+  }
+
+  it("catches a technical flag beside full technical marks", () => {
+    expect(codes(crossCheck(shortResponse({ flags: ["TERMINOLOGY"] }), noFacts))).toEqual([
+      "FLAG_WITHOUT_DEDUCTION",
+    ]);
+  });
+
+  it("catches a writing flag beside full writing marks", () => {
+    expect(codes(crossCheck(shortResponse({ flags: ["MECHANICAL"] }), noFacts))).toEqual([
+      "FLAG_WITHOUT_DEDUCTION",
+    ]);
+  });
+
+  it("names each band separately when both are at full marks", () => {
+    expect(
+      codes(crossCheck(shortResponse({ flags: ["TERMINOLOGY", "MECHANICAL"] }), noFacts)),
+    ).toEqual(["FLAG_WITHOUT_DEDUCTION", "FLAG_WITHOUT_DEDUCTION"]);
+  });
+
+  it("passes when the flagged band lost a point", () => {
+    expect(
+      codes(
+        crossCheck(
+          shortResponse({
+            flags: ["TERMINOLOGY"],
+            scoreEarned: 14,
+            rubricItems: [
+              { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              { label: "Q4", criterion: "technical", scoreEarned: 2, scorePossible: 3, note: "term" },
+              {
+                label: "Writing",
+                criterion: "writing_quality",
+                scoreEarned: 3,
+                scorePossible: 3,
+                note: null,
+              },
+            ],
+          }),
+          noFacts,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not fire on the other band when only one is flagged", () => {
+    expect(
+      codes(
+        crossCheck(
+          shortResponse({
+            flags: ["MECHANICAL"],
+            scoreEarned: 14,
+            rubricItems: [
+              { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              { label: "Q4", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              {
+                label: "Writing",
+                criterion: "writing_quality",
+                scoreEarned: 2,
+                scorePossible: 3,
+                note: "typos",
+              },
+            ],
+          }),
+          noFacts,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("says nothing when no line item names the flagged band", () => {
+    expect(codes(crossCheck(report({ flags: ["TERMINOLOGY"] }), noFacts))).toEqual([]);
+  });
+
+  it("raises no finding when no flag is raised", () => {
+    expect(codes(crossCheck(shortResponse(), noFacts))).toEqual([]);
+  });
+});
+
 describe("facts that route regardless of the report", () => {
   it("always routes a changed protected path to review", () => {
     expect(

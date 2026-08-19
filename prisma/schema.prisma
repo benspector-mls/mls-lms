@@ -47,23 +47,23 @@ enum Role {
 /// Application profile, 1:1 with auth.users. Owned by Prisma.
 model Profile {
   /// Same value as auth.users.id — this is the FK *and* the PK.
-  id             String   @id @db.Uuid
+  id                String   @id @db.Uuid
   // Nullable because auth.users.email is nullable (anonymous, phone, and some
   // OAuth signups have no email). A NOT NULL here would make the on-signup
   // trigger throw and break signup entirely.
-  email          String?  @unique
-  displayName    String?  @map("display_name")
-  avatarUrl      String?  @map("avatar_url")
+  email             String?  @unique
+  displayName       String?  @map("display_name")
+  avatarUrl         String?  @map("avatar_url")
   /// GitHub login handle, populated on GitHub OAuth signup. Unique so one
   /// GitHub account maps to at most one profile. Nullable: email signups have
   /// none, and Postgres permits many NULLs under a unique constraint.
-  githubUsername String?  @unique @map("github_username")
+  githubUsername    String?  @unique @map("github_username")
   /// GitHub's numeric user ID — the DURABLE identity key. A user can rename
   /// their GitHub account, which changes githubUsername but never this. Use
   /// this for identity; use githubUsername only where GitHub's API needs a
   /// login string (repository naming, collaborator invitations).
-  githubUserId   BigInt?  @unique @map("github_user_id")
-  role           Role     @default(STUDENT)
+  githubUserId      BigInt?  @unique @map("github_user_id")
+  role              Role     @default(STUDENT)
   /// Non-null marks this profile as a **test student** — a student-shaped identity an admin
   /// creates to look at a course the way a student meets it, accept its work, and grade the
   /// result. Its value is the number in the name: `Test Student 3`, handle `test-student-3`.
@@ -77,27 +77,27 @@ model Profile {
   /// (`where: { testStudentNumber: null }`) — a test row counted as a student is a figure
   /// somebody quotes. Readers that list students deliberately include them, badged, because
   /// grading one is the whole point.
-  testStudentNumber Int?  @unique @map("test_student_number")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  testStudentNumber Int?     @unique @map("test_student_number")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
   // default on the column so the on-signup trigger (which writes via raw SQL,
   // bypassing Prisma) can insert without specifying updated_at.
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  instructorOf      CourseInstructor[]
-  enrollments       Enrollment[]
-  submissions       Submission[]
-  gradedSubmissions Submission[]          @relation("GradedBy")
-  approvedDrafts    GradingDraft[]        @relation("ApprovedDrafts")
-  editedSections    GradingDraftSection[] @relation("EditedSections")
-  invitesCreated    InstructorInvite[]    @relation("InvitesCreated")
-  invitesRedeemed   InstructorInvite[]    @relation("InvitesRedeemed")
-  rosterEntriesClaimed RosterEntry[]      @relation("RosterClaimed")
-  rosterEntriesAdded   RosterEntry[]      @relation("RosterAdded")
-  attendanceStarted    AttendanceSession[] @relation("AttendanceStarted")
-  attendanceRecorded   AttendanceRecord[]  @relation("AttendanceRecorded")
+  instructorOf         CourseInstructor[]
+  enrollments          Enrollment[]
+  submissions          Submission[]
+  gradedSubmissions    Submission[]          @relation("GradedBy")
+  approvedDrafts       GradingDraft[]        @relation("ApprovedDrafts")
+  editedSections       GradingDraftSection[] @relation("EditedSections")
+  invitesCreated       InstructorInvite[]    @relation("InvitesCreated")
+  invitesRedeemed      InstructorInvite[]    @relation("InvitesRedeemed")
+  rosterEntriesClaimed RosterEntry[]         @relation("RosterClaimed")
+  rosterEntriesAdded   RosterEntry[]         @relation("RosterAdded")
+  attendanceStarted    AttendanceSession[]   @relation("AttendanceStarted")
+  attendanceRecorded   AttendanceRecord[]    @relation("AttendanceRecorded")
 
   @@map("profiles")
   @@schema("public")
@@ -219,15 +219,15 @@ model Course {
   /// `AttendanceSession.lateAfterMinutes` for why editing this must never rewrite a past morning.
   attendanceLateAfterMinutes Int @default(5) @map("attendance_late_after_minutes")
 
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  instructors CourseInstructor[]
-  enrollments Enrollment[]
-  rosterEntries RosterEntry[]
-  assignments Assignment[]
-  modules     Module[]
-  groups      CourseGroup[]
+  instructors        CourseInstructor[]
+  enrollments        Enrollment[]
+  rosterEntries      RosterEntry[]
+  assignments        Assignment[]
+  courseUnits        CourseUnit[]
+  groups             CourseGroup[]
   attendanceSessions AttendanceSession[]
 
   @@map("courses")
@@ -428,7 +428,27 @@ enum AssignmentKind {
   @@schema("public")
 }
 
-/// One module of a course, created and named by an instructor.
+/// What a course unit is *for*, which is the only thing that distinguishes the three.
+///
+/// A module, a project, and an assessment are the same shape — a named, ordered container of
+/// assignments and resources — so they are one table with a category rather than two tables and
+/// a foreign key between them. That earlier design gave an assignment two possible parents and
+/// needed a rule deriving one from the other; this has one parent and no rule.
+enum CourseUnitCategory {
+  /// Skill development: the ordinary teaching unit.
+  MODULE
+  /// Skill application: several assignments that add up to one piece of work, which the
+  /// curriculum calls deliverables.
+  PROJECT
+  /// Skill evaluation: several assignments, each submitted separately and often in a different
+  /// format — a coding repository, a short response, a link to a diagram.
+  ASSESSMENT
+
+  @@schema("public")
+}
+
+/// One unit of a course — a module, a project, or an assessment — created and named by an
+/// instructor.
 ///
 /// Deliberately not tied to anything outside the application. A module used to be a
 /// *tag* — one string that was simultaneously the grouping key, the authoring form's
@@ -436,26 +456,43 @@ enum AssignmentKind {
 /// path in the grading-guides repository. That last job is why a course's module list
 /// could not be corrected: correcting it moved where grading looked for answer keys.
 /// A repository the assignment itself names is now what says where its answer keys
-/// are, so a module is free to be whatever an instructor calls it.
+/// are, so a unit is free to be whatever an instructor calls it.
 ///
 /// **The id is the identity, not the name.** With the name as the identity a rename
 /// rewrites every assignment that used it and is still only ever a string; with a row,
-/// renaming is one column and `assignments.module_id` goes on pointing at the same
-/// module. The foreign key is also what enforces "a module must exist before an
-/// assignment can be added to it", rather than validation code a second caller could
-/// forget to run.
-model Module {
-  id       String @id @default(uuid()) @db.Uuid
-  courseId String @map("course_id") @db.Uuid
+/// renaming is one column and `assignments.course_unit_id` goes on pointing at the same
+/// unit. The foreign key is also what enforces "a unit must exist before an assignment can be
+/// added to it", rather than validation code a second caller could forget to run.
+///
+/// **No score, no due date, and no completion column.** All three are derived: a unit's due
+/// date is the latest among its assignments, and a student has completed it when every one of
+/// its published assignments has `isComplete` — the column `approveDraft` writes once. A stored
+/// verdict here would be a second answer to a question the assignments have already answered.
+model CourseUnit {
+  id       String             @id @default(uuid()) @db.Uuid
+  courseId String             @map("course_id") @db.Uuid
+  /// What this unit is for. Defaults to MODULE, which is what every row was before the three
+  /// were one table.
+  category CourseUnitCategory @default(MODULE)
   /// Free text, typed by an instructor. Nothing is derived from it and nothing parses
   /// it: "Mod 4 - Interactive & Data-Driven User Interfaces" is the title, not a tag a
   /// display name is computed from.
   name     String
-  /// Presentation order within the course. Deliberately NOT unique — `reorder` rewrites
-  /// the whole sequence in one statement, and a unique constraint would refuse any
-  /// intermediate state where two modules briefly share a position. Duplicates would
-  /// only affect tie-breaking, which rewriting the sequence prevents anyway.
+  /// Presentation order within the course, **shared by all three categories**, so a project
+  /// sits between Mod 3 and Mod 4 where it falls in the term and a student's course page is one
+  /// ordered list.
+  ///
+  /// Deliberately NOT unique — `reorder` rewrites the whole sequence in one statement, and a
+  /// unique constraint would refuse any intermediate state where two units briefly share a
+  /// position. Duplicates would only affect tie-breaking, which rewriting the sequence prevents
+  /// anyway.
   position Int
+  /// What the unit is, in markdown, written by an instructor. A project's brief lives here.
+  ///
+  /// On every category rather than only the two that are obviously briefed: a module with an
+  /// introduction is a real thing, and restricting the column would be a rule with no reason
+  /// behind it. Rendered through components/markdown.tsx — the same renderer feedback uses.
+  overview String?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -464,11 +501,12 @@ model Module {
   assignments Assignment[]
   resources   Resource[]
 
-  /// One "Mod 4" per course. Two modules with the same name are indistinguishable in
-  /// every select an instructor picks from.
+  /// One "Mod 4" per course, **across every category**. A module and a project sharing a name
+  /// would be indistinguishable in every select an instructor picks from, so they get called
+  /// "Mod 4" and "Mod 4 Project".
   @@unique([courseId, name])
   @@index([courseId, position])
-  @@map("modules")
+  @@map("course_units")
   @@schema("public")
 }
 
@@ -510,10 +548,10 @@ enum VideoProvider {
 /// of the design. The value is that a student's course page becomes the whole of the course
 /// rather than only the parts that are marked.
 ///
-/// A sibling of `Assignment` under `Module` rather than a shared parent both hang off. The
-/// tidier model is one "module item" that is either of them, and it is a much larger migration:
+/// A sibling of `Assignment` under `CourseUnit` rather than a shared parent both hang off. The
+/// tidier model is one "unit item" that is either of them, and it is a much larger migration:
 /// `Assignment` is referenced by submissions, grading drafts, and test runs. This costs every
-/// reader that wants "everything in this module" a merge of two lists, which is a cost paid in
+/// reader that wants "everything in this unit" a merge of two lists, which is a cost paid in
 /// three screens rather than across the whole schema.
 ///
 /// **No `courseId`.** `Assignment` carries one because a repository name is unique per course
@@ -530,11 +568,11 @@ enum VideoProvider {
 /// assignments, which sort by due date. Neither ordering is maintained by hand, so modules keep
 /// the only manual ordering in a course — which is the right place for it.
 model Resource {
-  id       String       @id @default(uuid()) @db.Uuid
-  moduleId String       @map("module_id") @db.Uuid
-  kind     ResourceKind
+  id           String       @id @default(uuid()) @db.Uuid
+  courseUnitId String       @map("course_unit_id") @db.Uuid
+  kind         ResourceKind
   /// What it is called, for every kind. Also what it sorts by.
-  title    String
+  title        String
 
   /// Where it points, for LINK and VIDEO. Validated as a URL by the schema rather than by the
   /// column, because "required for one kind" is not something a column can express.
@@ -559,15 +597,15 @@ model Resource {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  courseUnit CourseUnit @relation(fields: [courseUnitId], references: [id], onDelete: Cascade)
 
   /// Cascade rather than restrict, which is the opposite of what an assignment gets from its
-  /// module — and right for the opposite reason. `modules.remove` refuses while assignments
-  /// reference the module, because those carry submissions and grades that would be destroyed
+  /// unit — and right for the opposite reason. `courseUnits.remove` refuses while assignments
+  /// reference the unit, because those carry submissions and grades that would be destroyed
   /// with it. A resource carries nothing: it is a title and a link, and re-adding one costs a
-  /// minute. Refusing to remove an empty module because somebody left a reading in it would be
+  /// minute. Refusing to remove an empty unit because somebody left a reading in it would be
   /// a guard against nothing.
-  @@index([moduleId])
+  @@index([courseUnitId])
   @@map("resources")
   @@schema("public")
 }
@@ -576,9 +614,13 @@ model Assignment {
   id                  String         @id @default(uuid()) @db.Uuid
   courseId            String         @map("course_id") @db.Uuid
   title               String
-  /// Which module of the course this belongs to. NOT NULL, so an assignment cannot
-  /// exist outside one — which is the point of the change that introduced it.
-  moduleId            String         @map("module_id") @db.Uuid
+  /// Which unit of the course this belongs to — a module, a project, or an assessment. NOT
+  /// NULL, so an assignment cannot exist outside one.
+  ///
+  /// **One parent, and the unit's own `category` is what says which of the three kinds of work
+  /// this is.** There is deliberately no category column here to agree or disagree with it, and
+  /// no second parent to derive this one from.
+  courseUnitId        String         @map("course_unit_id") @db.Uuid
   kind                AssignmentKind @default(REPO)
   pointValue          Int            @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
@@ -710,14 +752,15 @@ model Assignment {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  /// Restrict rather than Cascade: removing a module must never silently delete the
+  /// Restrict rather than Cascade: removing a unit must never silently delete the
   /// assignments in it, along with their submissions and every graded draft beneath
-  /// them. `modules.remove` refuses while any assignment references it, and this is
+  /// them. `courseUnits.remove` refuses while any assignment references it, and this is
   /// the database saying the same thing rather than trusting that it was asked.
-  module      Module       @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  courseUnit  CourseUnit   @relation(fields: [courseUnitId], references: [id], onDelete: Restrict)
   submissions Submission[]
 
   @@unique([courseId, assignmentRepoName])
+  @@index([courseUnitId])
   @@map("assignments")
   @@schema("public")
 }
@@ -1151,9 +1194,9 @@ model AuditEvent {
   /// Nullable for acts with no signed-in actor. Nothing writes one today, and a NOT NULL here
   /// would mean a future system-initiated event — a scheduled sync, a webhook — had to invent
   /// an actor to be recordable.
-  actorId    String?     @map("actor_id") @db.Uuid
+  actorId    String? @map("actor_id") @db.Uuid
   /// Display name or email as it read when the event was written.
-  actorLabel String?     @map("actor_label")
+  actorLabel String? @map("actor_label")
 
   /// The test student the actor was viewing as, when they were. Null in the ordinary case.
   ///

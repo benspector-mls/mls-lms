@@ -170,10 +170,15 @@ export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
     tone: "review",
     description: "A proposal awaiting your approval.",
   },
+  /*
+    Historical only — nothing writes this. Presented exactly as `READY` because that is what
+    these rows always were: a draft awaiting an instructor, with findings recorded in
+    `errorDetail`. See the note in `generateReportForSubmission` for why the distinction went.
+  */
   NEEDS_MANUAL_REVIEW: {
-    label: "Needs manual review",
-    tone: "danger",
-    description: "No confident draft could be produced.",
+    label: "Ready for review",
+    tone: "review",
+    description: "A proposal awaiting your approval.",
   },
   FAILED: { label: "Failed", tone: "danger", description: "The grading pipeline errored." },
   SUPERSEDED: {

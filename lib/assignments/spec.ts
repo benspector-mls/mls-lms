@@ -460,14 +460,17 @@ const githubName = z
 const shared = {
   title: z.string().min(1).max(200),
   /**
-   * Which module of the course this belongs to.
+   * Which unit of the course this belongs to — a module, a project, or an assessment.
    *
-   * An id rather than a name, so renaming a module does not touch its assignments, and
-   * a foreign key rather than a validation rule, so an assignment cannot belong to a
-   * module that does not exist. The procedure checks it is a module of *this* course,
-   * which this schema cannot see.
+   * An id rather than a name, so renaming a unit does not touch its assignments, and a foreign
+   * key rather than a validation rule, so an assignment cannot belong to a unit that does not
+   * exist. The procedure checks it is a unit of *this* course, which this schema cannot see.
+   *
+   * **One parent, and no derivation.** A deliverable of a project names the project here, the
+   * same way an ordinary assignment names its module; there is no second field and no rule
+   * turning one into the other.
    */
-  moduleId: z.string().uuid(),
+  courseUnitId: z.string().uuid(),
   dueAt: z.date().nullable().default(null),
   completionThreshold: z.number().gt(0).lte(1).default(0.75),
   sections: sectionsSchema,

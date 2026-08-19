@@ -781,7 +781,7 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
             <Detail label="Students" value={countLabel(impact.data.enrollments, "enrollment")} />
             <Detail
               label="Assignments"
-              value={`${impact.data.assignments} in ${countLabel(impact.data.modules, "module")}`}
+              value={`${impact.data.assignments} in ${countLabel(impact.data.courseUnits, "unit")}`}
             />
             <Detail
               label="Submissions"

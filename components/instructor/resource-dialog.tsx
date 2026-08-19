@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,29 +52,40 @@ import type { RouterOutputs } from "@/trpc/types";
  * note is a legitimate edit and `resourceColumns` clears the columns the old kind used.
  */
 
-type Modules = RouterOutputs["modules"]["listForCourse"];
 type Resource = RouterOutputs["resources"]["listForCourse"][number];
 
 export function ResourceDialog({
   open,
   onOpenChange,
-  modules,
+  courseId,
   /** Null to create. Given, the row being edited. */
   resource,
-  /** Which module a new one lands in. Ignored when editing, which reads the resource's own. */
-  defaultModuleId,
+  /** Which unit a new one lands in. Ignored when editing, which reads the resource's own. */
+  defaultCourseUnitId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  modules: Modules;
+  courseId: string;
   resource: Resource | null;
-  defaultModuleId?: string;
+  defaultCourseUnitId?: string;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
+  /*
+    The units this may be filed under, fetched here rather than passed in. The dialog is opened
+    from inside a unit on the Curriculum screen, which already knows which one — but a resource
+    can be *moved* between units from this form, so it needs the whole list either way, and
+    threading it through every call site would be the same query written at each of them.
+  */
+  const units = useQuery({
+    ...trpc.courseUnits.listForCourse.queryOptions({ courseId }),
+    enabled: open,
+  });
+  const modules = React.useMemo(() => units.data ?? [], [units.data]);
+
   const [kind, setKind] = React.useState<ResourceKind>("LINK");
-  const [moduleId, setModuleId] = React.useState("");
+  const [courseUnitId, setCourseUnitId] = React.useState("");
   const [title, setTitle] = React.useState("");
   const [url, setUrl] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -91,7 +102,7 @@ export function ResourceDialog({
 
     if (resource) {
       setKind(resource.kind);
-      setModuleId(resource.moduleId);
+      setCourseUnitId(resource.courseUnitId);
       setTitle(resource.title);
       setUrl(resource.url ?? "");
       setDescription(resource.description ?? "");
@@ -100,12 +111,12 @@ export function ResourceDialog({
     }
 
     setKind("LINK");
-    setModuleId(defaultModuleId ?? modules[0]?.id ?? "");
+    setCourseUnitId(defaultCourseUnitId ?? modules[0]?.id ?? "");
     setTitle("");
     setUrl("");
     setDescription("");
     setBody("");
-  }, [open, resource, defaultModuleId, modules]);
+  }, [open, resource, defaultCourseUnitId, modules]);
 
   const create = useMutation(
     trpc.resources.create.mutationOptions(
@@ -140,7 +151,7 @@ export function ResourceDialog({
   const videoProblem = kind === "VIDEO" && url.trim() !== "" && video === null;
 
   const complete =
-    moduleId !== "" &&
+    courseUnitId !== "" &&
     title.trim() !== "" &&
     (kind === "TEXT" ? body.trim() !== "" : url.trim() !== "") &&
     !videoProblem;
@@ -162,9 +173,9 @@ export function ResourceDialog({
           : { kind: "VIDEO" as const, title, url };
 
     if (resource) {
-      update.mutate({ resourceId: resource.id, moduleId, spec });
+      update.mutate({ resourceId: resource.id, courseUnitId, spec });
     } else {
-      create.mutate({ moduleId, spec });
+      create.mutate({ courseUnitId, spec });
     }
   }
 
@@ -207,8 +218,8 @@ export function ResourceDialog({
             <div className="flex flex-col gap-2">
               <Label htmlFor="resource-module">Module</Label>
               <Select
-                value={moduleId}
-                onValueChange={(next) => next && setModuleId(next)}
+                value={courseUnitId}
+                onValueChange={(next) => next && setCourseUnitId(next)}
                 items={Object.fromEntries(modules.map((row) => [row.id, row.name]))}
               >
                 <SelectTrigger id="resource-module" className="w-full min-w-0">

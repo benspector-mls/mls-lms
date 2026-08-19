@@ -22,7 +22,17 @@ import { cn } from "@/lib/utils";
  * badges directly beneath it, and the count beside the bar is the same function as the green
  * segment rather than a second reading of what "complete" means.
  */
-export function CourseProgressBar({ assignments }: { assignments: readonly ProgressAssignment[] }) {
+export function CourseProgressBar({
+  assignments,
+  label,
+  nouns = { one: "assignment", many: "assignments" },
+}: {
+  assignments: readonly ProgressAssignment[];
+  /** What this bar is about, where a course shows more than one. */
+  label?: string;
+  /** What the work is called, so a project's bar does not call its deliverables assignments. */
+  nouns?: { one: string; many: string };
+}) {
   const segments = progressSegments(assignments);
   const complete = completeCount(assignments);
 
@@ -30,6 +40,7 @@ export function CourseProgressBar({ assignments }: { assignments: readonly Progr
 
   return (
     <div className="flex flex-col gap-2">
+      {label && <p className="text-xs font-medium text-muted-foreground">{label}</p>}
       {/*
         `flex` with a grow per segment rather than percentage widths, so the segments always fill
         the bar exactly. Rounding five percentages to two decimal places leaves a hairline of
@@ -52,7 +63,7 @@ export function CourseProgressBar({ assignments }: { assignments: readonly Progr
                 />
               }
             />
-            <TooltipContent>{segmentTooltip(segment)}</TooltipContent>
+            <TooltipContent>{segmentTooltip(segment, nouns)}</TooltipContent>
           </Tooltip>
         ))}
       </div>
@@ -63,7 +74,7 @@ export function CourseProgressBar({ assignments }: { assignments: readonly Progr
           looking for and the rest of the line is the breakdown behind it.
         */}
         <span className="font-medium text-foreground">
-          {complete} of {assignments.length} complete
+          {complete} of {assignments.length} {nouns.many} complete
         </span>
 
         {/*

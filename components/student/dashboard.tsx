@@ -266,7 +266,7 @@ function RowTitle({ row }: { row: DashboardAssignment }) {
         <AssignmentKindBadge kind={row.kind} className="hidden sm:inline-flex" />
       </span>
       <span className="truncate text-xs text-muted-foreground">
-        {row.course.name} · {row.module.name}
+        {row.course.name} · {row.courseUnit.name}
       </span>
     </span>
   );
