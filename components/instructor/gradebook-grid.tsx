@@ -968,27 +968,17 @@ function CellLegend() {
       <LegendItem
         mark={<CellMark kind="notStarted" />}
         label={SUBMISSION_STATUS_META.NOT_STARTED.label}
-        description="never accepted, and nothing handed in"
+        description="never accepted"
       />
       <LegendItem
         mark={<CellMark kind="accepted" />}
         label={SUBMISSION_STATUS_META.ACCEPTED.label}
-        description="taken up, with nothing handed in yet"
+        description="accepted, not yet submitted"
       />
       <LegendItem
         mark={<CellMark kind="waiting" />}
         label="Waiting on you"
-        description="handed in and not yet graded"
-      />
-      <LegendItem
-        mark={
-          <span className="flex items-center gap-0.5">
-            <span className="text-[10px] font-medium tabular-nums text-foreground">8/10</span>
-            <CellMark kind="waiting" />
-          </span>
-        }
-        label={SUBMISSION_STATUS_META.RESUBMITTED.label}
-        description="graded and back with you — the score shown is the old one"
+        description="submitted (or resubmitted), not yet graded"
       />
     </ul>
   );
