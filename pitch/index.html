@@ -642,7 +642,7 @@
               />
               <span class="ph">
                 <b>The student's assignment panel, with&nbsp;Accept</b>
-                <code>screenshots/05-accept.png</code>
+                <code>screenshots/05-accept.gif</code>
               </span>
               <figcaption>One instructor action, and everything downstream updates.</figcaption>
             </figure>
@@ -666,7 +666,7 @@
         <div class="body">
           <div class="col dense">
             <ul>
-              <li><strong>Create a cohort, or copy last term's</strong> — assignments and modules come with the copy; students, groups, and grades do not</li>
+              <li><strong>Create a cohort, or copy last term's</strong> — assignments and course units come with the copy; students, groups, and grades do not</li>
               <li><strong>The short name is permanent</strong> — it prefixes every repository the cohort generates, so creating one has a review step</li>
               <li><strong>A join link, plus a list of who you expect.</strong> A student is admitted by a link <em>and</em> a list, never by either alone</li>
               <li><strong>Regenerating the link</strong> locks out anyone who has not used it yet; everybody already in stays in</li>
@@ -746,9 +746,10 @@
               </tbody>
             </table>
             <ul class="dense" style="margin-top: 18px">
-              <li><strong>An assignment is a draft until you publish it.</strong> A module that is full to you reads as empty to a student</li>
+              <li><strong>An assignment is a draft until you publish it.</strong> A unit that is full to you reads as empty to a student</li>
               <li><strong>The form checks the repositories before a student can hit the failure</strong> — the template must carry GitHub's template flag, a public answer-key repository is refused, and it lists which files it resolved</li>
-              <li><strong>Copy an assignment into another cohort you teach</strong>, matching the module by name</li>
+              <li><strong>A due date carries a time</strong>, and both are read and written in the school's timezone rather than the browser's — so a deadline set from a laptop still on Pacific is the deadline the student reads</li>
+              <li><strong>Copy an assignment into another cohort you teach</strong>, matching the course unit by name</li>
             </ul>
           </div>
           <div class="col narrow">
@@ -779,15 +780,16 @@
       <!-- ============================================================ 8 -->
       <section class="slide">
         <p class="eyebrow">Slide 8</p>
-        <h2>Modules, readings, notes, and videos</h2>
+        <h2>Course units, and the readings that live under them</h2>
         <div class="rule"></div>
         <div class="body">
           <div class="col narrow">
             <ul>
-              <li><strong>Modules</strong> you name, order, and reorder yourself, per cohort</li>
-              <li>Under each one, beside its assignments: <strong>readings, Markdown notes that open in place, and video that plays without leaving the page</strong></li>
+              <li><strong>A module, a project, and an assessment are one thing</strong> — a named, ordered container of assignments and resources. What differs is only what it is for: skill development, skill application, skill evaluation. That is a category on the unit, not three separate features</li>
+              <li>You name, order, and reorder them yourself, per cohort. <strong>The word follows the category</strong>, so a project's list reads "Deliverables" and an assessment's "Parts"</li>
+              <li>Under each unit, beside its assignments: <strong>readings, Markdown notes that open in place, and video that plays without leaving the page</strong> — so a project can carry its own brief</li>
               <li>Resources have <strong>no publish step</strong> — students see one as soon as you add it</li>
-              <li>Assignments order themselves by due date; modules you drag</li>
+              <li>Assignments order themselves by due date; units you drag</li>
             </ul>
             <div class="punch">This is the fourth service from slide 2, and it is done.</div>
           </div>
@@ -795,11 +797,11 @@
             <figure class="shot">
               <img
                 src="screenshots/08-module-resources.png"
-                alt="A module with its assignments and resources"
+                alt="A course unit with its assignments and resources"
                 onerror="this.parentElement.classList.add('missing')"
               />
               <span class="ph">
-                <b>A module with its assignments and its resources beneath them</b>
+                <b>A unit expanded, with its assignments and its resources beneath them</b>
                 <code>screenshots/08-module-resources.png</code>
               </span>
               <figcaption>Readings live next to the work they belong to.</figcaption>
@@ -811,6 +813,7 @@
           <ul>
             <li>The least exciting slide in the deck, kept because it is a quarter of what we lost</li>
             <li>If readings do not live next to the work, people post links in Slack and the course only exists in Slack</li>
+            <li>If anybody remembers three separate things here, that is the change: a project was always a module with a different purpose, and treating it as a second table bought nothing</li>
           </ul>
         </aside>
       </section>
@@ -834,11 +837,13 @@
             <p class="eyebrow" style="margin: 14px 0 6px">3 · Then a check that is not the model</p>
             <ul>
               <li>Ordinary code verifies the report's arithmetic and every claim it makes about the tests</li>
-              <li>Points that do not add up, a claim about a test that never ran, full marks next to failures — <strong>any contradiction holds the draft back</strong></li>
+              <li>Points that do not add up, a claim about a test that never ran, full marks next to failures, a flag raised with no point deducted for it, a score out of a maximum the section does not carry — <strong>every contradiction it finds is named on the draft, in the words of the rule it broke</strong></li>
+              <li><strong>It does not sort reports into ones you must read and ones you may skip</strong>, because you read all of them. What it does is tell you where to look first</li>
             </ul>
             <p class="eyebrow" style="margin: 14px 0 6px">4 · Then you</p>
             <ul>
               <li><strong>Reports are always drafts. Nothing is ever posted automatically</strong></li>
+              <li>The report you are about to send is the first thing on the screen; the rubric rows and the test evidence sit beneath it</li>
               <li>Your edit is kept beside the model's original, not over it</li>
               <li><strong>Three things are refused outright at approval:</strong> approving twice, approving a draft describing a commit the student has pushed past, and approving a report whose text states a different score than the one recorded</li>
             </ul>
@@ -862,7 +867,8 @@
         <aside class="notes">
           <ul>
             <li>The tests are not the model — they are your tests, run for real</li>
-            <li>The cross-check is not the model either — ordinary code, and it stops the draft rather than flagging it</li>
+            <li>The cross-check is not the model either — ordinary code, checking the report against arithmetic and against the test run</li>
+            <li><strong>If asked why it does not hold the bad ones back:</strong> a status meaning "this one needs a person" implies the others do not, and that is the wrong habit to build. Every report is reviewed, so the check's job is to point at the paragraph rather than to gate the queue</li>
             <li>Test results are an input to the rubric, not the score: nine of thirteen passing is not ninety per cent</li>
           </ul>
         </aside>
@@ -883,12 +889,11 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Needs a report</td><td>Press generate</td></tr>
-                <tr><td>Needs grading by hand</td><td>Read it and write the feedback</td></tr>
-                <tr><td>Draft ready</td><td>Read, edit, approve</td></tr>
-                <tr><td>Held for review</td><td>The cross-check found a contradiction; it says which</td></tr>
-                <tr><td>Failed</td><td>Broke before a report existed. <strong>Not a zero</strong></td></tr>
-                <tr><td>Comment did not send</td><td>Grade is recorded; the comment needs a retry</td></tr>
+                <tr><td>No report yet</td><td>Press generate</td></tr>
+                <tr><td>To grade by hand</td><td>Read it and write the feedback</td></tr>
+                <tr><td>Drafts ready to review</td><td>Read, edit, approve — the cross-check names anything it found</td></tr>
+                <tr><td>Grading failed</td><td>Broke before a report existed. <strong>Not a zero</strong></td></tr>
+                <tr><td>Approved, never delivered</td><td>Grade is recorded; the comment needs a retry</td></tr>
                 <tr><td>Generating</td><td>In flight right now</td></tr>
               </tbody>
             </table>
@@ -903,11 +908,11 @@
             <figure class="shot">
               <img
                 src="screenshots/10-triage.png"
-                alt="The triage screen showing the seven piles"
+                alt="The triage screen showing the six piles"
                 onerror="this.parentElement.classList.add('missing')"
               />
               <span class="ph">
-                <b>Triage — the seven piles, with counts</b>
+                <b>Triage — the six piles, with counts</b>
                 <code>screenshots/10-triage.png</code>
               </span>
               <figcaption>One screen: what needs doing in this cohort.</figcaption>
@@ -918,7 +923,8 @@
         <aside class="notes">
           <ul>
             <li>If one slide decides whether this is worth adopting, it is this one</li>
-            <li>The seven piles partition the work — every outstanding submission is in exactly one</li>
+            <li>The six piles partition the work — every outstanding submission is in exactly one</li>
+            <li>There used to be a seventh, "held for review", and taking it out was deliberate: a pile for the reports needing a person implied the rest did not need one</li>
             <li>I want to know whether the pile names mean anything before I explain them. If I have to explain one, the name is wrong</li>
           </ul>
         </aside>
@@ -955,7 +961,7 @@
                 <b>The gradebook — every assignment against every student</b>
                 <code>screenshots/10-gradebook.png</code>
               </span>
-              <figcaption>Each cell coloured by what it needs. Downloads as CSV.</figcaption>
+              <figcaption>A unit's cell reads "3 / 5", not "Incomplete". Downloads as CSV.</figcaption>
             </figure>
           </div>
         </div>
@@ -964,6 +970,8 @@
           <ul>
             <li>Triage is "what needs doing"; the record is "how is this student doing"; the gradebook is "where is the whole cohort"</li>
             <li>The record is the answer for a mentor meeting — read down it</li>
+            <li>The unit cells used to say "Complete", "Incomplete", or "Not finished", and the middle two were a distinction only the code knew. A figure a reader can check beats a word they have to be taught</li>
+            <li>Next week's unpublished assignment does not turn a finished unit into "5 / 6" — published work counts on both halves</li>
           </ul>
         </aside>
       </section>
@@ -993,7 +1001,7 @@
                 onerror="this.parentElement.classList.add('missing')"
               />
               <span class="ph">
-                <b>The student dashboard — four lists, nothing dismissible</b>
+                <b>The student dashboard — every list, nothing dismissible</b>
                 <code>screenshots/11-student-dashboard.png</code>
               </span>
               <figcaption>"Where is my feedback" cannot be a question they have to ask us.</figcaption>
@@ -1012,14 +1020,15 @@
       <!-- ============================================================ 12 -->
       <section class="slide">
         <p class="eyebrow">Slide 12</p>
-        <h2>Attendance: the one thing here that is new rather than restored</h2>
+        <h2>Attendance: one of the two things here that are new rather than restored</h2>
         <div class="rule"></div>
         <div class="body">
           <div class="col narrow dense">
             <ul>
               <li><strong>What it replaces:</strong> a Google Form where somebody edited a three-digit code by hand every morning, and a picklist that let anybody submit as anybody</li>
-              <li><strong>One press starts a session.</strong> A four-digit code goes on the projector or the shared Zoom window and <strong>changes every thirty seconds</strong>; the one before it keeps working, so nobody is punished for typing slowly</li>
+              <li><strong>One press starts a session</strong>, and <strong>one code lasts as long as check-in is open</strong>. It sits on the attendance screen beside a Copy button, so it is distributed once — paste it into the chat and the shared screen is never involved. Projecting it is still there for a room with a projector, as one option rather than the only route</li>
               <li><strong>The code proves presence; being signed in proves who.</strong> The form asked one short code to do both, which is why it did neither</li>
+              <li><strong>You can replace the code mid-session</strong> if you decide it has leaked — a judgment call with a button, rather than a clock deciding for you</li>
               <li><strong>The board fills in live</strong>, and four buttons per row fix the ones that need it &mdash; phones die, people are in the bathroom</li>
               <li><strong>It ends when you press End, or after ninety minutes.</strong> Extend buys thirty more. The backstop stops a session nobody closed leaving a working code alive until the next class</li>
               <li><strong>The second tab is the whole term:</strong> who is drifting, a grid, and a CSV with a column saying whether each mark came from the fellow or from staff</li>
@@ -1033,17 +1042,18 @@
                 onerror="this.parentElement.classList.add('missing')"
               />
               <span class="ph">
-                <b>The code as a class sees it, and the board as the instructor does</b>
+                <b>The code beside the Copy button, and the board as the instructor sees it</b>
                 <code>screenshots/12-attendance-code.png</code>
               </span>
               <figcaption>Nobody edits a form at 8:55 any more.</figcaption>
             </figure>
             <p class="note">
-              <strong>What it does not solve, and I will not claim otherwise:</strong> a fellow can
-              photograph the code and send it to somebody at home. That is collusion rather than
-              authentication, and the answers to it are worse than the problem. What rotation does
-              solve is the failure the form actually has &mdash; a code posted in the group chat at
-              9:00 that still works at 11:00 for somebody who never arrived.
+              <strong>What it does not solve, and I will not claim otherwise:</strong> a fixed code
+              can be sent to somebody at home and will work until class ends. That is collusion
+              rather than authentication, and the answers to it cost more than the problem &mdash;
+              a rotating code bought very little, because it had to keep the previous one working
+              too. What the code does defend against is guessing, and that comes from the two
+              attempt ceilings rather than from a clock.
             </p>
           </div>
         </div>
@@ -1056,6 +1066,53 @@
             <li>A morning nobody opened leaves no record and nothing catches it. Term dates would fix it and are deliberately not built: without them a warning fires on Saturdays</li>
             <li>Per course, not per program. A fellow taking three courses checks into three sessions</li>
             <li>This is the newest thing in the deck and the least used &mdash; built and tested, not yet run by a real cohort</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 12b -->
+      <section class="slide">
+        <p class="eyebrow">Slide 12b</p>
+        <h2>The GCF: the other thing that is new rather than restored</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col narrow dense">
+            <ul>
+              <li><strong>The General Coding Framework is sat at CodeSignal, outside this application.</strong> A fellow practises against mocks, then sits a proctored one whose score goes to employers</li>
+              <li><strong>It is not coursework</strong> &mdash; no assignment, no submission, nothing handed in &mdash; so until now it could not be expressed here at all, and lived in a spreadsheet beside nothing else about the fellow</li>
+              <li><strong>You import CodeSignal's own export.</strong> The file is parsed in the browser and never uploaded, so a term of personal email addresses does not go into our storage</li>
+              <li><strong>Importing the same export twice changes nothing</strong>, and an import fills in a score somebody typed by hand rather than sitting a second record beside it</li>
+              <li><strong>Fellows are matched on the address they used at CodeSignal</strong>, which resolves most rows on its own; the rest you assign once and it remembers. <strong>Deliberately never matched on name</strong> &mdash; a nickname or a changed surname writes one fellow's score onto another's record, silently</li>
+              <li><strong>Mock and proctored are never added, averaged, or compared.</strong> Each kind shows attempts, best, and the last three</li>
+            </ul>
+          </div>
+          <div class="col">
+            <figure class="shot">
+              <img
+                src="screenshots/12b-gcf.png"
+                alt="The gradebook's GCF tab"
+                onerror="this.parentElement.classList.add('missing')"
+              />
+              <span class="ph">
+                <b>The gradebook's GCF tab, with both kinds and one student selected</b>
+                <code>screenshots/12b-gcf.png</code>
+              </span>
+              <figcaption>A fellow reads their own at <code>/gcf</code>, flag and note included.</figcaption>
+            </figure>
+            <p class="note">
+              <strong>It takes no part in whether a course is complete.</strong> A course is complete
+              when its units are; folding in an external benchmark would make every course
+              uncompletable for anybody who has not sat the test yet.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">12b</div>
+        <aside class="notes">
+          <ul>
+            <li>The reason this exists: a fellow's record was in two places, and the half employers see was the half we could not look at beside their coursework</li>
+            <li>A flag on an attempt is shown to the fellow with the instructor's note beside it. Learning from an employer that something on your record was questioned is the failure that showing it prevents</li>
+            <li>Reading a real 274-row export decided most of the design &mdash; nothing but an assessment's name separates a mock from a class exercise, so the import ticks the ones named "[Mock]" as a default to override, and the rows it leaves out are visible rather than silently dropped</li>
+            <li>Ask whether "GCF" is the right word on the screen, or whether it should say CodeSignal</li>
           </ul>
         </aside>
       </section>
@@ -1134,15 +1191,17 @@
                 </tr>
                 <tr>
                   <td>Shared the rest of the course</td>
-                  <td><strong>Resources</strong>, under the module they belong to</td>
+                  <td><strong>Resources</strong>, under the course unit they belong to</td>
                 </tr>
               </tbody>
             </table>
             <div class="punch">All four. Built, and run against real repositories.</div>
             <p class="note">
-              <strong>And one that was never on the list: attendance.</strong> It was not lost with
-              the LMS &mdash; it was a Google Form somebody edited by hand every morning &mdash; so it
-              is the one thing here that is new rather than restored. Slide&nbsp;12.
+              <strong>And two that were never on the list: attendance and the GCF.</strong> Neither
+              was lost with the LMS &mdash; attendance was a Google Form somebody edited by hand
+              every morning, and a fellow's CodeSignal results lived in a spreadsheet nobody could
+              see beside their coursework &mdash; so these are the two things here that are new
+              rather than restored. Slides&nbsp;12 and&nbsp;12b.
             </p>
           </div>
         </div>
@@ -1186,6 +1245,7 @@
           <ul>
             <li>This list is not modesty — it is read aloud at the start of every testing session, because an hour spent telling me about something I already know is missing is an hour I wasted for you</li>
             <li><strong>Attendance moved off this slide.</strong> If somebody remembers it being here, that is the change: it is built, and slide 12 is it</li>
+            <li>The GCF moved off it too, and it was never on it — a fellow's CodeSignal results could not be expressed here at all until this month. Slide 12b</li>
             <li>Three are decisions, not gaps: no email, no notifications, no automatic grading</li>
             <li>On notifications: ask me for them rather than let me build the wrong version. The cheapest useful answer is on the roadmap — a calendar feed, no vendor, no credentials</li>
           </ul>
@@ -1206,7 +1266,9 @@
         <div class="body">
           <div class="col">
             <p class="note" style="margin: 0 0 14px">
-              Measured, one section per report, on the <strong>more expensive</strong> model tier.
+              Measured on the model actually in use, one section per report, and re-derivable at any
+              time — the token counts are stored on every report and <code>npm run cost</code>
+              prices them against today's rates.
             </p>
             <table>
               <thead>
@@ -1219,24 +1281,25 @@
               <tbody>
                 <tr>
                   <td>One report</td>
-                  <td class="num">$0.09 – $0.15</td>
-                  <td class="num">27 – 40 seconds</td>
+                  <td class="num">$0.06 – $0.12</td>
+                  <td class="num">36 seconds – 2½ minutes</td>
                 </tr>
                 <tr>
                   <td><strong>A cohort of 25 — one assignment</strong></td>
-                  <td class="num"><strong>about $2 to $4</strong></td>
+                  <td class="num"><strong>about $1.50 to $3</strong></td>
                   <td></td>
                 </tr>
                 <tr>
                   <td>100 students, one frontend assignment</td>
-                  <td class="num">about $15</td>
-                  <td class="num">over 3 hours, run one after another</td>
+                  <td class="num">about $10</td>
+                  <td class="num">about 5 hours, run one after another</td>
                 </tr>
               </tbody>
             </table>
             <ul class="dense" style="margin-top: 20px">
-              <li>These are from the expensive tier (Opus) and the default is the cheaper one (Sonnet) — the <em>shape</em> is what to trust, not the number</li>
-              <li>Re-measuring is the first item on the roadmap; a real cohort produces figures, and I have estimates</li>
+              <li><strong>Where the cost is: thinking.</strong> Output is 70 to 86 per cent of the bill, so the effort setting moves the number more than the model tier or caching does</li>
+              <li><strong>The cheaper tier is also the better-calibrated one</strong>, so none of this is a saving bought with accuracy. Moving up a tier would cost about two cents a report — roughly $100 a cohort-year — and agree with an instructor less often</li>
+              <li><strong>A cost is a range, not a figure.</strong> The same submission, prompt, and model produced 4,124 output tokens on one run and 10,035 on another. What a real cohort adds is volume, not a different number</li>
             </ul>
           </div>
         </div>
@@ -1245,6 +1308,7 @@
           <ul>
             <li>This goes before the concerns because it disarms the version of the worry that is about money</li>
             <li>Three dollars a cohort is not the risk anybody here is actually worried about — the next two slides are</li>
+            <li>If asked whether the cheap model is the reason to distrust the grade, it is the opposite: the expensive tier was tested against the same instructor-marked samples and agreed with an instructor less often</li>
           </ul>
         </aside>
       </section>
@@ -1580,7 +1644,7 @@
               <li>Supabase Auth with GitHub sign-in · a GitHub App via Octokit · E2B for sandboxed test execution</li>
               <li>Claude <code>claude-sonnet-5</code>, behind a provider interface</li>
               <li><strong>Every read and write goes through one server layer into the database. Nothing queries the database from the browser</strong></li>
-              <li>Scale: 11 server routers, 25 screens, 25 assignment templates, and the verification scripts in A3</li>
+              <li>Scale: 13 server routers, 28 screens, 25 assignment templates, and the verification scripts in A3</li>
             </ul>
           </div>
         </div>
@@ -1607,7 +1671,7 @@
                 <tr><td>What client-side JavaScript may read</td><td>Table privileges — nothing</td></tr>
                 <tr><td>What happened, and who did it</td><td>Append-only <code>audit_events</code></td></tr>
                 <tr><td>Spending on models and sandboxes</td><td>Counted out of the audit log</td></tr>
-                <tr><td>Who may mark themselves present</td><td>A rotating code, plus <code>assertActiveStudent</code></td></tr>
+                <tr><td>Who may mark themselves present</td><td>A per-session code, plus <code>assertActiveStudent</code></td></tr>
                 <tr><td>Guessing at that code</td><td>Two ceilings, both counted out of the audit log</td></tr>
               </tbody>
             </table>
@@ -1639,17 +1703,26 @@
                 <tr><th>Script</th><th class="num">Checks</th><th>Script</th><th class="num">Checks</th></tr>
               </thead>
               <tbody>
-                <tr><td><code>verify:enrollment</code></td><td class="num">209</td><td>sandbox suite</td><td class="num">41</td></tr>
-                <tr><td><code>verify:authoring</code></td><td class="num">156</td><td><code>verify:modules</code></td><td class="num">35</td></tr>
-                <tr><td>grading suites</td><td class="num">101</td><td><code>verify:dashboard</code></td><td class="num">27</td></tr>
-                <tr><td><code>verify:uploads</code></td><td class="num">88</td><td><code>verify:app</code></td><td class="num">16</td></tr>
-                <tr><td><code>verify:resources</code></td><td class="num">64</td><td><code>verify:e2b</code></td><td class="num">8</td></tr>
-                <tr><td><code>verify:approve</code></td><td class="num">53</td><td><code>verify:staff</code></td><td class="num">50</td></tr>
+                <tr><td>grading suites</td><td class="num">275</td><td><code>verify:staff</code></td><td class="num">50</td></tr>
+                <tr><td><code>verify:enrollment</code></td><td class="num">209</td><td><code>verify:groups</code></td><td class="num">46</td></tr>
+                <tr><td><code>verify:authoring</code></td><td class="num">156</td><td>sandbox suite</td><td class="num">41</td></tr>
+                <tr><td><code>verify:uploads</code></td><td class="num">88</td><td><code>verify:modules</code></td><td class="num">35</td></tr>
+                <tr><td><code>verify:resources</code></td><td class="num">64</td><td><code>verify:dashboard</code></td><td class="num">27</td></tr>
+                <tr><td><code>verify:attendance</code></td><td class="num">59</td><td><code>verify:app</code></td><td class="num">16</td></tr>
+                <tr><td><code>verify:approve</code></td><td class="num">53</td><td><code>verify:e2b</code></td><td class="num">8</td></tr>
               </tbody>
             </table>
+            <p class="note" style="margin-bottom: 10px">
+              <strong>878 of these run without anything real</strong> — one command, a second and a
+              third of wall clock. The rest need the database, a repository, a sandbox, or a model
+              call, and <code>scripts/verify/BASELINE.md</code> records what each reported before the
+              review pass, because a script that quietly stops checking something exits zero too.
+            </p>
             <p class="note">
               <strong>Known gaps:</strong> no Python template exists yet, so the Python test runner is
-              unverified; one dependency-installation setting has no assignment that exercises it.
+              unverified; one dependency-installation setting has no assignment that exercises it; and
+              the two newest scripts, <code>verify:curriculum</code> and <code>verify:gcf</code>, have
+              no recorded baseline yet.
             </p>
           </div>
         </div>
@@ -1663,26 +1736,32 @@
         <div class="rule"></div>
         <div class="body">
           <div class="col narrow">
-            <p class="note" style="margin: 0 0 14px">
-              The same submission graded by an instructor and by the pipeline, three times. The
-              instructor's own score was <strong>12/15</strong>.
+            <p class="note" style="margin: 0 0 12px">
+              Five submissions an instructor marked by hand, graded five times each on both model
+              tiers. <strong>Four of the five are held back</strong> — only the first is shown to the
+              model as an example.
             </p>
             <table class="tight">
               <thead>
-                <tr><th></th><th class="num">Run 1</th><th class="num">Run 2</th><th class="num">Run 3</th></tr>
+                <tr><th>Instructor</th><th>The model in use</th><th>The dearer one</th></tr>
               </thead>
               <tbody>
-                <tr><td>Already in the prompt as an example</td><td class="num">12/15</td><td class="num">12/15</td><td class="num">12/15</td></tr>
-                <tr><td><strong>Held back — the real test</strong></td><td class="num">12/15</td><td class="num">13/15</td><td class="num">13/15</td></tr>
+                <tr><td>12/15 · example</td><td class="num">12 12 12 12 12</td><td class="num">12 12 12 12 12</td></tr>
+                <tr><td><strong>12/15 · held back</strong></td><td class="num">12 12 12 12 12</td><td class="num">11 11 11 11 11</td></tr>
+                <tr><td><strong>11/15 · held back</strong></td><td class="num">11 11 12 11 11</td><td class="num">12 12 12 12 12</td></tr>
+                <tr><td><strong>13/18 · held back</strong></td><td class="num">13 12 13 13 12</td><td class="num">12 13 12 12 13</td></tr>
+                <tr><td><strong>17/18 · held back</strong></td><td class="num">15 16 15 15 16</td><td class="num">15 16 16 15 16</td></tr>
+                <tr><td><strong>Passed or not, agreed</strong></td><td class="num"><strong>19 of 20</strong></td><td class="num">10 of 20</td></tr>
               </tbody>
             </table>
           </div>
           <div class="col dense">
             <ul>
-              <li><strong>Where the disagreement is:</strong> one question, worth one point. The instructor deducted for a stray closing sentence; the model deducted for it once in three runs</li>
-              <li><strong>A judgment a rubric cannot fully specify</strong> — and exactly why a draft is reviewed rather than published</li>
-              <li><strong>A single calibration run is not a measurement.</strong> Same submission, same prompt, same model produced 12 and 13 on different days. <strong>Quote a range, not a number</strong></li>
-              <li><strong>What is steady:</strong> the example reproduced exactly all three runs, and the cross-check passed all three. The pipeline is stable; the variation is in the judgment</li>
+              <li><strong>The number that matters is the last row</strong> — not whether the score matched, but whether the pass-or-fail decision did. Nineteen of twenty on the model in use</li>
+              <li><strong>The dearer model ranks two of these the wrong way round</strong>, on every run of both. It fails a student the instructor passed and passes one the instructor failed. A constant bias can be corrected; an inverted ranking cannot be tuned away</li>
+              <li><strong>Consistency is not accuracy.</strong> The dearer model barely moves between runs and sits in the wrong place. The cheaper one wobbles a point and centres on the instructor</li>
+              <li><strong>Where the remaining gap is:</strong> two answers on the last submission that name the right idea without using the key's word for it. The instructor gave the point; the rubric says a required term absent is a defect. <strong>That is a disagreement about the answer key, not about the model</strong></li>
+              <li><strong>A single run is not a measurement</strong> — hence five. Quote a range, not a number</li>
             </ul>
           </div>
         </div>
@@ -1691,6 +1770,9 @@
           <ul>
             <li>Exit interview question 5: would you trust a grade this generated in front of a student who challenged it, and what would you need to show them?</li>
             <li>An instructor who would not defend a generated grade will not use the feature, whatever they say about liking it</li>
+            <li>Calibration is how the rubric got fixed, and it found the faults by disagreeing rather than by anybody reasoning about it: that a required item <em>absent</em> is a defect, that the answer key's list is a floor rather than a ceiling, and that a bundled item lets a half-answer round up</li>
+            <li>The writing score is the part I would have expected to be softest, and it is now the firmest — the same figure as the instructor on all twenty-five runs, once the band counted two kinds of defect instead of five adjectives</li>
+            <li><strong>Offer to run it live.</strong> One command, five submissions, about four minutes and about forty cents</li>
           </ul>
         </aside>
       </section>
@@ -1703,7 +1785,7 @@
         <div class="body">
           <div class="col dense">
             <ul>
-              <li><strong>1 · Token management</strong> — what a report really costs, on the tier in use. Needs a real cohort</li>
+              <li><strong>1 · Token management</strong> — the cost is now measured on the tier in use and re-derives itself from what each report already stores. What is left needs a real cohort: the breakdown <em>within</em> a prompt, and whether moving the answer keys into the cached part is worth the 6 per cent it looks like</li>
               <li><strong>2 · The diff next to the report</strong> — the only item that makes the hour an instructor already spends a shorter hour</li>
               <li><strong>3 · Notes a student keeps on their own work</strong></li>
               <li><strong>4 · Working a pile by what it is</strong> — grading every resubmission at one sitting</li>
