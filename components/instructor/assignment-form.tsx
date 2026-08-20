@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import * as React from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Save } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, Loader2, Plus, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
@@ -479,12 +479,13 @@ function Editor({
   const warnings = findings.filter((finding) => finding.severity === "warning");
   const fieldFindings = (path: string) => findings.filter((finding) => finding.path === path);
 
+  /*
+    Creating says nothing on success and leaves nowhere on its own, unlike `update` below. Handing
+    the assignment out is a second write, so what to say and where to go are only known once both
+    have been attempted — see `createAssignment`.
+  */
   const create = useMutation(
     trpc.assignments.create.mutationOptions({
-      onSuccess: (result) => {
-        toast.success(`Created ${result.assignment.title}. It is not visible to students yet.`);
-        onSaved(result.assignment.id);
-      },
       onError: (error) => toast.error(error.message),
     }),
   );
@@ -497,8 +498,13 @@ function Editor({
       onError: (error) => toast.error(error.message),
     }),
   );
+  /*
+    No `onError` of its own: a failure here is reported by `createAssignment` together with the
+    fact that the assignment was created anyway, which is the part the instructor needs to know.
+  */
+  const publish = useMutation(trpc.assignments.publish.mutationOptions({}));
 
-  const busy = create.isPending || update.isPending;
+  const busy = create.isPending || update.isPending || publish.isPending;
   // Deliberately not "no errors": a draft the server has not seen yet has no findings, which
   // is not the same as being valid. Saving is refused until the settled draft has been checked.
   const checked = settled === state && validation.isSuccess;
@@ -508,6 +514,48 @@ function Editor({
     (total, section) => total + (Number.isFinite(section.pointValue) ? section.pointValue : 0),
     0,
   );
+
+  /**
+   * Creates the assignment, and hands it out when that is what was asked for.
+   *
+   * **Two writes rather than one**, because publishing is its own procedure and an assignment is
+   * created unpublished by design — a draft is the state every assignment passes through, and
+   * `distributedAt` is what a student's listing reads. "Create and publish" is not a different
+   * kind of creation; it is the two operations an instructor otherwise performs a screen apart.
+   *
+   * **A publish that fails still leaves for the Curriculum screen**, and this is the case worth
+   * being deliberate about. The assignment exists by then. Staying on the form would leave an
+   * instructor looking at fields they have already saved, where pressing the button again makes a
+   * second copy; the Curriculum screen shows the draft that was made, with Publish on its row.
+   */
+  async function createAssignment(distribute: boolean) {
+    if (!state) return;
+
+    let created;
+    try {
+      created = await create.mutateAsync({ courseId, draft: toDraft(state) });
+    } catch {
+      // `create`'s own handler named the reason. Nothing was written, and the form is untouched
+      // and can be submitted again once it is fixed.
+      return;
+    }
+
+    const { assignment } = created;
+
+    if (!distribute) {
+      toast.success(`Created ${assignment.title}. It is not visible to students yet.`);
+    } else {
+      try {
+        await publish.mutateAsync({ assignmentId: assignment.id });
+        toast.success(`Created ${assignment.title} and published it to your students.`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Publishing did not go through.";
+        toast.error(`Created ${assignment.title} as a draft. It was not published: ${reason}`);
+      }
+    }
+
+    onSaved(assignment.id);
+  }
 
   const runnerNames = [NO_RUNNER, ...Object.keys(RUNNER_PRESETS)];
 
@@ -1072,23 +1120,56 @@ function Editor({
             screens away from where it is asked. Here the order reads: fill this in, here is what
             is still wrong with it, now create it.
           */}
-          <div className="flex items-center justify-end">
-            <Button
-              disabled={!canSave}
-              onClick={() => {
-                if (!state) return;
-                const draft = toDraft(state);
-                if (existing) update.mutate({ assignmentId: existing.id, draft });
-                else create.mutate({ courseId, draft });
-              }}
-            >
-              {busy ? (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <Save data-icon="inline-start" />
-              )}
-              {existing ? "Save" : "Create"}
-            </Button>
+          {/*
+            Editing an existing assignment saves it and says nothing about publishing: whether
+            students can see it is already decided, and its row on the Curriculum screen is where
+            that is changed. Creating one decides both at once, so both are offered.
+          */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {existing ? (
+              <Button
+                disabled={!canSave}
+                onClick={() => {
+                  if (!state) return;
+                  update.mutate({ assignmentId: existing.id, draft: toDraft(state) });
+                }}
+              >
+                {busy ? (
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <Save data-icon="inline-start" />
+                )}
+                Save
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  disabled={!canSave}
+                  onClick={() => void createAssignment(false)}
+                >
+                  {busy ? (
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                  ) : (
+                    <Save data-icon="inline-start" />
+                  )}
+                  Create Draft
+                </Button>
+                {/*
+                  The primary of the two, and not guarded by a confirmation. Publishing is one
+                  click from the assignment's own row and "Hide from students" is one click back
+                  from it, which is a cheaper undo than a dialog is a warning.
+                */}
+                <Button disabled={!canSave} onClick={() => void createAssignment(true)}>
+                  {busy ? (
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                  ) : (
+                    <Eye data-icon="inline-start" />
+                  )}
+                  Create and Publish
+                </Button>
+              </>
+            )}
           </div>
         </>
       )}
