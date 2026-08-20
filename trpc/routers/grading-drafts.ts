@@ -5,7 +5,13 @@ import { isManualOnly, manualSections } from "@/lib/assignments/spec";
 import { assertWithinRate, DRAFT_GENERATION_LIMIT } from "@/lib/audit/rate-limit";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { approveDraft, ApprovalError, deliveryOutcome, retryComment } from "@/lib/grade/approve";
+import {
+  approveDraft,
+  ApprovalError,
+  deliveryOutcome,
+  effectiveSection,
+  retryComment,
+} from "@/lib/grade/approve";
 import { teachableSubmission } from "@/lib/courses/scope";
 import { GradingAssetsError } from "@/lib/grade/assets";
 import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
@@ -206,6 +212,174 @@ export const gradingDraftsRouter = createTRPCRouter({
           },
         },
         select: { id: true },
+      });
+    }),
+
+  /**
+   * Opens a correction to a grade that has already gone out.
+   *
+   * An instructor who mistypes a score, or reads a sentence back and would put it differently,
+   * previously had no way to act on it: `updateSection` refuses to touch an approved draft, and
+   * the only route to another round was the student handing work in again. So a wrong grade
+   * stayed wrong until the student did something about it, which is the wrong person entirely.
+   *
+   * **A new round rather than an edit of the released one.** What the student was told is a
+   * matter of record — on a repository it is a comment on their pull request, which cannot be
+   * unsaid — so a correction is added beside the first round rather than over it, and releasing
+   * it posts its own comment. That is the same rule `updateSection` enforces and the same reason:
+   * changing the record of what somebody was told, without changing what they saw, leaves the
+   * two disagreeing and nobody able to tell which happened.
+   *
+   * **Pre-filled with what was sent, which is the whole point.** The alternative — the blank
+   * draft `startManual` opens — means retyping a whole report to change one number, and an
+   * instructor who does that is being asked to rewrite work they already did. The copied values
+   * are the *effective* ones, so a section the instructor already edited is carried forward as
+   * they left it rather than as the model first wrote it.
+   *
+   * The model's own artifacts are deliberately not copied. Rubric rows, flags, confidence, and
+   * instructor notes describe a run that produced the previous round; attaching them to a round
+   * a person wrote by hand would credit the model with a judgment it did not make. `modelMetadata`
+   * is null for the same reason, which is also what the review screen reads to know no model
+   * wrote this.
+   */
+  reviseReleased: instructorProcedure
+    .input(z.object({ submissionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        headSha: true,
+      });
+
+      /*
+        An unapproved draft already is the round in progress, so it is returned rather than a
+        second one created — the reason `startManual` does the same. Pressing this twice is the
+        ordinary way it happens, and two drafts for one submission leaves an instructor choosing
+        between forms, one of which their writing is not in.
+      */
+      const open = await ctx.db.gradingDraft.findFirst({
+        where: {
+          submissionId: submission.id,
+          approvedAt: null,
+          status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+
+      if (open) return open;
+
+      const released = await ctx.db.gradingDraft.findFirst({
+        where: { submissionId: submission.id, status: "APPROVED" },
+        orderBy: { approvedAt: "desc" },
+        select: {
+          sections: {
+            // Deterministic, so the corrected round reads in the order the released one did.
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: {
+              sectionType: true,
+              reportMarkdown: true,
+              scoreEarned: true,
+              scorePossible: true,
+              editedReportMarkdown: true,
+              editedScoreEarned: true,
+            },
+          },
+        },
+      });
+
+      if (!released) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Nothing has been released for this submission yet, so there is no grade to " +
+            "correct. Grade it the ordinary way.",
+        });
+      }
+
+      return ctx.db.gradingDraft.create({
+        data: {
+          submissionId: submission.id,
+          /*
+            The commit the work is at now, not the one the released round described. This round
+            is a judgment about the code that is there, and everything that later asks "has this
+            been revised since it was graded" compares against what approval records from here.
+          */
+          headSha: submission.headSha,
+          status: "READY",
+          // Null marks this as written by a person rather than a model — see the note above.
+          modelMetadata: undefined,
+          sections: {
+            create: released.sections.map((section) => {
+              // The instructor's edit where they made one, the model's output where they did not.
+              // The same function approval uses to decide what to post, so a correction starts
+              // from exactly the text and score the student received.
+              const sent = effectiveSection(section);
+
+              return {
+                sectionType: sent.sectionType,
+                reportMarkdown: sent.reportMarkdown,
+                scoreEarned: sent.scoreEarned,
+                scorePossible: sent.scorePossible,
+              };
+            }),
+          },
+        },
+        select: { id: true },
+      });
+    }),
+
+  /**
+   * Puts an unapproved draft aside without releasing it.
+   *
+   * The way back out. Opening a correction, or generating a report and deciding not to use it,
+   * otherwise left a submission with an unapproved draft on top of it — which reads as work
+   * waiting in triage, in the grading queue, and on the review screen, where the released grade
+   * it hides is the thing an instructor actually wanted to see. There was no way to say "never
+   * mind": the only exit was approving something, and approving a correction nobody needed posts
+   * a second comment to a student for no reason.
+   *
+   * `SUPERSEDED` rather than deleted, and the status is chosen rather than invented: everything
+   * already reads it as history rather than as a state to act on. Approval refuses it,
+   * `draftStatusAddsSomething` keeps it off the submission's badge, and `triageBucket` falls
+   * through it to the submission's own status — so a discarded draft leaves a released grade
+   * reading exactly as it did before the correction was opened. The draft itself stays in the
+   * history, because a report an instructor rejected is evidence about the grading and the one
+   * thing a later judgment about it would want.
+   *
+   * An approved draft is refused. That is a round of feedback a student has read, and unsaying
+   * it is not something this can do.
+   */
+  discard: instructorProcedure
+    .input(z.object({ draftId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const draft = await ctx.db.gradingDraft.findUnique({
+        where: { id: input.draftId },
+        select: { id: true, submissionId: true, status: true, approvedAt: true },
+      });
+
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
+
+      // Authorization lives on the submission, so it is checked there rather than duplicated
+      // here — the same arrangement as `get` and `updateSection`.
+      await teachableSubmission(ctx, draft.submissionId, { id: true });
+
+      if (draft.approvedAt !== null || draft.status === "APPROVED") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This round has already been released, so it cannot be put aside — the student " +
+            "has read it. Open a correction if the grade needs changing.",
+        });
+      }
+
+      // Already aside. Returned rather than refused, because pressing the button twice is not
+      // an error and the second press wants the same outcome as the first.
+      if (draft.status === "SUPERSEDED") return { id: draft.id, status: draft.status };
+
+      return ctx.db.gradingDraft.update({
+        where: { id: draft.id },
+        data: { status: "SUPERSEDED" },
+        select: { id: true, status: true },
       });
     }),
 

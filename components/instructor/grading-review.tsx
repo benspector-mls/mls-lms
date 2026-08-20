@@ -178,7 +178,17 @@ export function GradingReview({
   }
 
   const data = drafts.data;
-  const draft = data.drafts[0] ?? null;
+  /*
+    The newest draft that has not been put aside, and the newest of all only when every one has.
+
+    A discarded draft is history — that is the whole meaning of `SUPERSEDED` — so reading it as
+    the current state would leave a released grade hidden behind a report its instructor had
+    just rejected, with the correction panel gone because the screen thought a superseded draft
+    was the headline. The fallback matters for the other case: a submission whose only draft was
+    discarded still has to render something, and its own history is the honest thing to show.
+  */
+  const draft =
+    data.drafts.find((entry) => entry.status !== "SUPERSEDED") ?? data.drafts[0] ?? null;
 
   // The run that describes the code currently on the pull request. An older run is not
   // evidence about this commit, so it is not offered as if it were.
@@ -863,6 +873,58 @@ function HandGradePanel({
   );
 }
 
+/**
+ * Correcting a grade that has already gone out.
+ *
+ * The way back into a submission nobody is waiting on. A mistyped score or a sentence read back
+ * and regretted had no route at all before this: editing an approved draft is refused, and the
+ * only other round was the one a student's resubmission started — so a wrong grade stayed wrong
+ * until the student acted, which is the wrong person entirely.
+ *
+ * Deliberately quieter than the two panels it stands in for. Those are work waiting on the
+ * instructor and say so; this is an offer on a submission that is finished, and a card competing
+ * with the released report above it would read as though something were wrong with it.
+ */
+function CorrectionPanel({ submission }: { submission: QueueSubmission }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const revise = useMutation(trpc.gradingDrafts.reviseReleased.mutationOptions(settled()));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Pencil className="size-4 text-muted-foreground" />
+          Correct this grade
+        </CardTitle>
+        <CardDescription>
+          Opens a new round already holding what was sent, so a wrong score is one edit rather than
+          a rewrite. Nothing reaches the student until you release it, and the round is added beside
+          this one rather than replacing it
+          {submission.prUrl
+            ? " — releasing posts a second comment, because the first cannot be unsaid."
+            : "."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button
+          variant="outline"
+          disabled={revise.isPending}
+          onClick={() => revise.mutate({ submissionId: submission.id })}
+        >
+          {revise.isPending ? (
+            <Loader2 data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <Pencil data-icon="inline-start" />
+          )}
+          {revise.isPending ? "Opening…" : "Open a correction"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function GeneratePanel({
   submission,
   data,
@@ -988,6 +1050,15 @@ function DraftEditor({
   const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   const updateSection = useMutation(trpc.gradingDrafts.updateSection.mutationOptions());
+  const discard = useMutation(
+    trpc.gradingDrafts.discard.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Put aside. Nothing was sent, and it stays in the history.");
+        },
+      }),
+    ),
+  );
   const approve = useMutation(
     trpc.gradingDrafts.approve.mutationOptions(
       settled({
@@ -1203,6 +1274,28 @@ function DraftEditor({
                     <Loader2 data-icon="inline-start" className="animate-spin" />
                   )}
                   {updateSection.isPending ? "Saving…" : "Save"}
+                </Button>
+              )}
+              {/*
+                The way out, beside the way on. A round opened and then not wanted — a correction
+                to a grade that turned out to be right, a report an instructor would rather write
+                themselves — otherwise had no exit but approving something, and approving a
+                correction nobody needed sends a student a second comment for no reason.
+
+                Ghost rather than outlined: it is the quietest thing on a bar whose other two
+                buttons are the work. And absent while an unreleased grade has unsaved edits in
+                it, so the discarding press cannot be the one that was meant for Save.
+              */}
+              {!unsaved && (
+                <Button
+                  variant="ghost"
+                  disabled={busy || discard.isPending}
+                  onClick={() => discard.mutate({ draftId: draft.id })}
+                >
+                  {discard.isPending && (
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                  )}
+                  {discard.isPending ? "Putting aside…" : "Put this round aside"}
                 </Button>
               )}
               <Button disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
@@ -1618,11 +1711,11 @@ function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList })
               ) : (
                 <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
               )}
-              {superseded ? "Superseded report" : "Released"}
+              {superseded ? "Set aside, never released" : "Released"}
             </CardTitle>
             <CardDescription>
               {superseded
-                ? "Replaced by a later run. Kept as part of the record."
+                ? "This round was never sent to the student. It stays as part of the record."
                 : `Approved ${formatDateTime(draft.approvedAt)}. The student can read this.`}
             </CardDescription>
           </div>
@@ -1688,19 +1781,29 @@ function ReleasedBody({
   return (
     <div className="flex flex-col gap-4">
       {/*
-        Revising a released grade means a new report, not an edit of this one. The student
-        keeps both, which is the point of having a history at all.
+        Revising a released grade means a new round, not an edit of this one. The student keeps
+        both, which is the point of having a history at all.
 
-        Which of the two ways to start that round is offered is the same choice `DraftBody`
-        makes for a first grade, and made the same way: an assignment the pipeline cannot read
-        has no report to generate, so offering one here would be a button that cannot succeed.
+        Which round is offered depends on whether there is new work to judge. Revised work needs
+        assessing from the work itself — a blank draft on a hand-graded assignment, a fresh report
+        on one the pipeline can read, which is the same choice `DraftBody` makes for a first
+        grade. With no new work, what the instructor came here for is to fix what they wrote, so
+        the round opens holding it.
       */}
       {!superseded &&
-        revised &&
-        (data.manualOnly ? (
-          <HandGradePanel submission={submission} data={data} revision />
+        (revised ? (
+          data.manualOnly ? (
+            <HandGradePanel submission={submission} data={data} revision />
+          ) : (
+            <GeneratePanel
+              submission={submission}
+              data={data}
+              label="Grade the newer commit"
+              retry
+            />
+          )
         ) : (
-          <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
+          <CorrectionPanel submission={submission} />
         ))}
 
       <p className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">

@@ -164,7 +164,7 @@ export async function approveDraft(params: {
     );
   }
   if (draft.status === "SUPERSEDED") {
-    throw new ApprovalError(`This draft was superseded by a newer commit. Generate a new one.`);
+    throw new ApprovalError(`This round was set aside and cannot be released. Start another one.`);
   }
 
   // Approving twice would post the same feedback to the pull request a second time.

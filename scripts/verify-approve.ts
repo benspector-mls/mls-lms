@@ -10,7 +10,7 @@
  */
 import type { Db } from "../lib/prisma";
 
-import { createChecker, inOwnTransaction, loadEnvironment } from "./verify/harness";
+import { createChecker, inOwnTransaction, loadEnvironment, refusal } from "./verify/harness";
 
 loadEnvironment();
 
@@ -582,9 +582,144 @@ async function handGradedLifecycle(db: Db) {
           [17, true],
         );
 
+        // --- correcting a grade that has already gone out --------------------
+        //
+        // The instructor's own mistake, with no new work from the student. Previously there was
+        // no way to act on it at all: editing an approved draft is refused, and the only other
+        // round was the one a resubmission started — so a wrong grade waited on the student.
+        const correction = await asInstructor.gradingDrafts.reviseReleased({
+          submissionId: submitted.id,
+        });
+        check(
+          "a correction is a new round, not the released one",
+          correction.id !== opened.id,
+          true,
+        );
+
+        const sameCorrection = await asInstructor.gradingDrafts.reviseReleased({
+          submissionId: submitted.id,
+        });
+        check("opening one twice opens the same round", sameCorrection.id, correction.id);
+
+        const prefilled = await asInstructor.gradingDrafts.get({ draftId: correction.id });
+        check(
+          "it opens holding the score that was sent, so one number is one edit",
+          prefilled.sections.map((s) => [s.sectionType, s.scoreEarned, s.scorePossible]),
+          [["Reflection", 17, 20]],
+        );
+        check(
+          "...and the text, rather than making the instructor retype the report",
+          prefilled.sections[0].reportMarkdown?.includes("Clear and specific throughout."),
+          true,
+        );
+        // The copied round is a person's work, whatever wrote the one before it.
+        check("...and no model is credited with it", prefilled.modelMetadata, null);
+
+        const correcting = await asInstructor.submissions.listForAssignment({
+          assignmentId: assignment.id,
+        });
+        check(
+          "an open correction is work waiting on the instructor",
+          correcting.submissions.find((entry) => entry.id === submitted.id)?.bucket,
+          "draft_ready",
+        );
+
+        /*
+          Changing the score alone leaves the copied report still stating the old one, and that
+          is the one edit that must not go out — so the guard that catches it has to catch it
+          here too, on text this procedure wrote rather than a model.
+        */
+        await asInstructor.gradingDrafts.updateSection({
+          sectionId: prefilled.sections[0].id,
+          reportMarkdown: null,
+          scoreEarned: 19,
+        });
+        let halfCorrected = "";
+        try {
+          await asInstructor.gradingDrafts.approve({ draftId: correction.id });
+        } catch (err) {
+          halfCorrected =
+            err instanceof Error &&
+            /says 17\/20 but the score being recorded is 19/.test(err.message)
+              ? "refused"
+              : `unexpected: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        check("correcting the score and not the report is refused", halfCorrected, "refused");
+
+        await asInstructor.gradingDrafts.updateSection({
+          sectionId: prefilled.sections[0].id,
+          reportMarkdown: "## Reflection Score: 19/20 = 95%\n\nBetter than I first credited.",
+          scoreEarned: 19,
+        });
+        const corrected = await asInstructor.gradingDrafts.approve({ draftId: correction.id });
+        check("releasing the correction records the new score", corrected.finalScore, 19);
+
+        const bothRounds = await asInstructor.gradingDrafts.listForSubmission({
+          submissionId: submitted.id,
+        });
+        check(
+          "both rounds are on record rather than one being rewritten",
+          bothRounds.drafts.map((entry) => entry.status),
+          ["APPROVED", "APPROVED"],
+        );
+        check(
+          "and the grade on the submission is the corrected one",
+          bothRounds.grade?.finalScore,
+          19,
+        );
+
+        // --- a round opened and then not wanted -------------------------------
+        //
+        // The way back out. Without it, opening a correction on a grade that turns out to be
+        // right leaves a finished submission reading as work forever, and the only exit is
+        // approving something — which sends the student a second comment for no reason.
+        const spare = await asInstructor.gradingDrafts.reviseReleased({
+          submissionId: submitted.id,
+        });
+        const setAside = await asInstructor.gradingDrafts.discard({ draftId: spare.id });
+        check("a round can be put aside without releasing it", setAside.status, "SUPERSEDED");
+        check(
+          "putting it aside twice is not an error",
+          (await asInstructor.gradingDrafts.discard({ draftId: spare.id })).status,
+          "SUPERSEDED",
+        );
+
+        const afterAside = await asInstructor.submissions.listForAssignment({
+          assignmentId: assignment.id,
+        });
+        check(
+          "a submission whose open round was put aside is finished again",
+          afterAside.submissions.find((entry) => entry.id === submitted.id)?.bucket,
+          null,
+        );
+
+        let releaseAside = "";
+        try {
+          await asInstructor.gradingDrafts.approve({ draftId: spare.id });
+        } catch (err) {
+          releaseAside =
+            err instanceof Error && /set aside/.test(err.message)
+              ? "refused"
+              : `unexpected: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        check("a round that was put aside cannot be released", releaseAside, "refused");
+
+        // A round the student has read is not something this can unsay.
+        check(
+          "a released round cannot be put aside",
+          await refusal(() => asInstructor.gradingDrafts.discard({ draftId: correction.id })),
+          "BAD_REQUEST",
+        );
+
         throw new Error("ROLLBACK");
       },
-      { timeout: 30_000 },
+      /*
+        Sixty seconds rather than thirty. This lifecycle is now three rounds of grading driven
+        through the real procedures, and the gradebook read near the end of it was occasionally
+        crossing the old cap on its own — a timeout that reports as a failure of whatever
+        statement happened to be in flight.
+      */
+      { timeout: 60_000 },
     );
   } catch (err) {
     if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
