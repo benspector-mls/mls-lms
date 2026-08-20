@@ -5,6 +5,7 @@ import { assertCourseMember } from "@/lib/courses/membership";
 import { teachableCourseUnit } from "@/lib/courses/scope";
 import { CATEGORY_META } from "@/lib/course-units";
 import { CourseUnitCategory } from "@/lib/generated/prisma/enums";
+import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { courseUnitSummarySelect } from "../selects";
@@ -42,6 +43,26 @@ const overview = z
 
 const category = z.enum(CourseUnitCategory);
 
+/**
+ * Where a new unit goes in the course's one sequence.
+ *
+ * **A unit to sit after, rather than a number.** Position is still assigned by the server and
+ * never sent by the browser, which is what keeps one sequence consistent while three categories
+ * are being added to it. It also makes a stale choice a refusal instead of a surprise: an anchor
+ * that another instructor has since removed cannot land this unit somewhere nobody picked.
+ *
+ * Defaulting to the end is what it means for a course to grow through a term, and it is what
+ * every existing caller wants — the `verify:*` scripts create a dozen units without caring where
+ * any of them lands.
+ */
+const placement = z
+  .discriminatedUnion("at", [
+    z.object({ at: z.literal("end") }),
+    z.object({ at: z.literal("start") }),
+    z.object({ at: z.literal("after"), courseUnitId: z.string().uuid() }),
+  ])
+  .default({ at: "end" });
+
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string): never {
   const code = (err as { code?: string }).code;
@@ -57,6 +78,39 @@ function refuseDuplicate(err: unknown, name: string): never {
     });
   }
   throw err;
+}
+
+/**
+ * Rewrites every position in a course from a list of ids, in one statement.
+ *
+ * **One statement, which is what makes it atomic on its own.** The obvious implementation is one
+ * `update` per unit, and a half-applied order is worse than none — the page would show two units
+ * in the same place with no way to tell which move failed. A single UPDATE cannot half-apply, so
+ * it composes with whatever transaction is above it and needs none of its own.
+ *
+ * **Shared by `reorder` and `create`, so one place writes a position.** Creating a unit anywhere
+ * but the end is a change to the sequence, and the sequence has one definition — a second way to
+ * write it is how two screens come to disagree about what order the course is in.
+ *
+ * `course_id` is in the predicate as well as being checked by the callers. `reorder` already
+ * refuses a list that is not exactly this course's units; this means that even if it did not, the
+ * statement still cannot touch another course's rows.
+ *
+ * Takes a `Tx` rather than the module's client, because both callers may be running inside a
+ * transaction that is not theirs — see `inTransaction` in lib/prisma.ts.
+ */
+async function writeOrder(tx: Tx, courseId: string, courseUnitIds: string[]): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE course_units AS u
+       SET position = ordered.position, updated_at = now()
+      FROM (
+        SELECT id, position
+          FROM unnest(${courseUnitIds}::text[], ${courseUnitIds.map((_, i) => i)}::int[])
+            AS t(id, position)
+      ) AS ordered
+     WHERE u.id::text = ordered.id
+       AND u.course_id = ${courseId}::uuid
+  `;
 }
 
 export const courseUnitsRouter = createTRPCRouter({
@@ -142,35 +196,106 @@ export const courseUnitsRouter = createTRPCRouter({
     }),
 
   /**
-   * Adds a unit at the end of the course.
+   * Adds a unit to the course, at the end or at a chosen place in the sequence.
    *
    * The category is the only thing that differs between creating a module, a project, and an
    * assessment, which is why there is one procedure rather than three. Position is assigned here,
-   * never sent by the browser.
+   * never sent by the browser — `placement` names a unit to sit after, and the integers are this
+   * procedure's business.
+   *
+   * **Placement is here rather than being a move the instructor makes afterwards**, because a new
+   * unit belongs where it falls in the term and the up-and-down buttons cost one round trip per
+   * position. A project added to a course of ten units and belonging after Mod 4 was six clicks
+   * and six writes; it is now one.
    */
   create: courseProcedure
-    .input(z.object({ name: unitName, category, overview }))
+    .input(z.object({ name: unitName, category, overview, placement }))
     .mutation(async ({ ctx, input }) => {
-      const last = await ctx.db.courseUnit.findFirst({
-        where: { courseId: input.courseId },
-        orderBy: { position: "desc" },
-        select: { position: true },
-      });
+      /*
+        One transaction, because placing a unit anywhere but the end is an insert *and* a rewrite
+        of the sequence, and half of that pair is a course in an order nobody chose.
 
-      try {
-        return await ctx.db.courseUnit.create({
-          data: {
-            courseId: input.courseId,
-            name: input.name,
-            category: input.category,
-            overview: input.overview,
-            position: (last?.position ?? -1) + 1,
-          },
-          select: courseUnitSummarySelect,
+        `inTransaction` rather than `ctx.db.$transaction`: a `verify:*` script drives these
+        procedures with `ctx.db` already bound to its own transaction, and a transaction client
+        still carries `$transaction` at runtime — calling it would open a second transaction on a
+        different connection that cannot see the script's own uncommitted rows. See lib/prisma.ts.
+      */
+      return inTransaction(ctx.db, async (tx) => {
+        /*
+          The sequence as it stands, in the order `listForCourse` presents it, read inside the
+          transaction so the order written below is the one the insert actually happened against.
+        */
+        const existing = await tx.courseUnit.findMany({
+          where: { courseId: input.courseId },
+          orderBy: [{ position: "asc" }, { name: "asc" }],
+          select: { id: true, position: true },
         });
-      } catch (err) {
-        refuseDuplicate(err, input.name);
-      }
+
+        /*
+          Where in that list the new unit goes. `existing.length` is the end.
+
+          Destructured to a `const` because the narrowing has to survive into the callback below:
+          TypeScript discards what it knows about `input.placement.at` inside a closure, since
+          `input` is a parameter it cannot prove nobody reassigns.
+        */
+        const { placement: where } = input;
+        let index: number;
+        if (where.at === "end") {
+          index = existing.length;
+        } else if (where.at === "start") {
+          index = 0;
+        } else {
+          const anchor = existing.findIndex((unit) => unit.id === where.courseUnitId);
+          /*
+            Refused rather than falling back to the end. The list this came from is a list of this
+            course's units, so a miss means the anchor was removed or belongs to another course —
+            and quietly appending would put the unit somewhere the instructor did not ask for and
+            would not think to check.
+          */
+          if (anchor === -1) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "The unit you chose to place this after is no longer in this course. " +
+                "Reload the page and try again.",
+            });
+          }
+          index = anchor + 1;
+        }
+
+        /*
+          Inserted at the end first, whatever the placement. `existing` is ordered ascending, so
+          its last position is the highest one — and a course with gaps in its positions, which
+          `remove` leaves behind deliberately, still gets a row that sorts last rather than one
+          that ties with a unit already there.
+        */
+        const last = existing.at(-1)?.position ?? -1;
+        const created = await tx.courseUnit
+          .create({
+            data: {
+              courseId: input.courseId,
+              name: input.name,
+              category: input.category,
+              overview: input.overview,
+              position: last + 1,
+            },
+            select: courseUnitSummarySelect,
+          })
+          .catch((err) => refuseDuplicate(err, input.name));
+
+        /*
+          Then the sequence is rewritten with the new id spliced in — but only when that changes
+          something. Placing at the end, and placing after the unit that is already last, are the
+          same request as the insert above has already satisfied.
+        */
+        if (index < existing.length) {
+          const ordered = existing.map((unit) => unit.id);
+          ordered.splice(index, 0, created.id);
+          await writeOrder(tx, input.courseId, ordered);
+        }
+
+        return created;
+      });
     }),
 
   /**
@@ -230,31 +355,7 @@ export const courseUnitsRouter = createTRPCRouter({
         });
       }
 
-      /*
-        One statement, which is what makes this atomic without opening a transaction.
-
-        The obvious implementation is one `update` per unit inside `$transaction`, and it has two
-        problems. A half-applied order is worse than none — the page would show two units in the
-        same place with no way to tell which move failed — and Prisma refuses a nested interactive
-        transaction, so any caller already inside one (every verification script, and anything
-        that later wants to reorder as part of a larger write) would fail outright. A single
-        UPDATE is atomic by definition and composes with whatever is above it.
-
-        `course_id` is in the predicate as well as checked above. Validation already refuses a list
-        that is not exactly this course's units; this means that even if it did not, the statement
-        still cannot touch another course's rows.
-      */
-      await ctx.db.$executeRaw`
-        UPDATE course_units AS u
-           SET position = ordered.position, updated_at = now()
-          FROM (
-            SELECT id, position
-              FROM unnest(${input.courseUnitIds}::text[], ${input.courseUnitIds.map((_, i) => i)}::int[])
-                AS t(id, position)
-          ) AS ordered
-         WHERE u.id::text = ordered.id
-           AND u.course_id = ${input.courseId}::uuid
-      `;
+      await writeOrder(ctx.db, input.courseId, input.courseUnitIds);
 
       return { count: input.courseUnitIds.length };
     }),

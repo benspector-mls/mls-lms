@@ -140,6 +140,31 @@ async function main() {
         1,
       );
 
+      /*
+        A new unit placed after one of another category, which is the shared sequence seen from the
+        creating end rather than the reordering end. An instructor adding the Mod 4 project asks for
+        it after Mod 4, and nothing about the anchor's category enters into where it lands.
+      */
+      const modAnchor = reordered.find((unit) => unit.category === "MODULE")!;
+      const placedAfterModule = await asInstructor.courseUnits.create({
+        category: "PROJECT",
+        courseId: course.id,
+        name: `Verify Placed Project ${stamp}`,
+        placement: { at: "after", courseUnitId: modAnchor.id },
+      });
+
+      const withPlaced = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
+      check(
+        "a project placed after a module lands immediately after it",
+        withPlaced.findIndex((unit) => unit.id === placedAfterModule.id),
+        withPlaced.findIndex((unit) => unit.id === modAnchor.id) + 1,
+      );
+      check(
+        "...leaving one dense sequence over every category",
+        withPlaced.every((unit, index) => unit.position === index),
+        true,
+      );
+
       check(
         "a list missing one category is refused, because the sequence is shared",
         await refusal(() =>

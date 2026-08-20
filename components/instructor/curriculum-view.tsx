@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
 import {
@@ -22,6 +22,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CATEGORY_META, UNIT_CATEGORIES, partCount } from "@/lib/course-units";
@@ -65,6 +73,8 @@ export function Curriculum({ courseId }: { courseId: string }) {
 
   const [adding, setAdding] = React.useState<CourseUnitCategory | null>(null);
   const [newName, setNewName] = React.useState("");
+  /** The placement select's value: `"end"`, `"start"`, or `"after:<id>"`. See `parsePlacement`. */
+  const [newPlacement, setNewPlacement] = React.useState("end");
   const [renaming, setRenaming] = React.useState<string | null>(null);
 
   const create = useMutation(
@@ -74,6 +84,7 @@ export function Curriculum({ courseId }: { courseId: string }) {
           toast.success(`Created "${row.name}".`);
           setAdding(null);
           setNewName("");
+          setNewPlacement("end");
         },
       }),
     ),
@@ -82,14 +93,75 @@ export function Curriculum({ courseId }: { courseId: string }) {
   const update = useMutation(
     trpc.courseUnits.update.mutationOptions(settled({ onSuccess: () => setRenaming(null) })),
   );
-  const reorder = useMutation(trpc.courseUnits.reorder.mutationOptions(settled()));
+  /*
+    Reorder is the one mutation on this screen that does not go through `settled()`, and the
+    difference is what makes a click cheap.
+
+    `settled()` invalidates every client query and re-runs the page's server components on each
+    success. That is right for a rename or a removal, and it is most of what made moving a unit
+    slow: each click waited for a round trip and a full re-render before the next one was allowed.
+    Nothing on this route is server-rendered from the unit list — see the page, which renders a
+    static header and this client component — so a reorder needs neither the blanket invalidation
+    nor the refresh.
+  */
+  const queryClient = useQueryClient();
+  const unitsKey = trpc.courseUnits.listForCourse.queryKey({ courseId });
+  const reorderKey = trpc.courseUnits.reorder.mutationKey();
+
+  const reorder = useMutation(
+    trpc.courseUnits.reorder.mutationOptions({
+      /*
+        **One scope, so these run one after another rather than at once.** Every reorder rewrites
+        the whole sequence, so concurrent requests are not merely wasteful — the order that sticks
+        is whichever one the server happens to finish last, which need not be the last one the
+        instructor clicked. Serialising them makes the final state the final click.
+      */
+      scope: { id: `reorder-units-${courseId}` },
+
+      /*
+        The list moves on the click, not on the reply. The refetch in flight is cancelled first,
+        or it could land after this write and put the old order back.
+      */
+      onMutate: async ({ courseUnitIds }) => {
+        await queryClient.cancelQueries({ queryKey: unitsKey });
+        const previous = queryClient.getQueryData(unitsKey);
+        queryClient.setQueryData(unitsKey, (current) => inOrder(current, courseUnitIds));
+        return { previous };
+      },
+
+      /*
+        Put the order back and say why. The procedure's own refusal already reads "Reload the page
+        and try again — someone may have added or removed one", which is the case this is for.
+      */
+      onError: (error, _input, context) => {
+        if (context?.previous) queryClient.setQueryData(unitsKey, context.previous);
+        toast.error(error.message);
+      },
+
+      /*
+        One refetch per burst rather than one per click: with the mutations serialised, this is the
+        last of them when nothing else is still queued. The units query only — the whole point is
+        not to re-fetch the rest of the screen for a move.
+      */
+      onSettled: () => {
+        if (queryClient.isMutating({ mutationKey: reorderKey }) === 1) {
+          void queryClient.invalidateQueries({ queryKey: unitsKey });
+        }
+      },
+    }),
+  );
   const remove = useMutation(
     trpc.courseUnits.remove.mutationOptions(
       settled({ onSuccess: (row) => toast.success(`Removed "${row.name}".`) }),
     ),
   );
 
-  const busy = create.isPending || update.isPending || reorder.isPending || remove.isPending;
+  /*
+    Deliberately without `reorder.isPending`. The other three change what the list contains, so a
+    move computed against the old list would be refused; a move is applied in the browser at once
+    and needs nothing disabled while it is confirmed.
+  */
+  const busy = create.isPending || update.isPending || remove.isPending;
 
   if (units.isPending) {
     return (
@@ -102,6 +174,7 @@ export function Curriculum({ courseId }: { courseId: string }) {
   }
 
   const rows = units.data ?? [];
+  const placements = placementOptions(rows);
 
   /** Sends the whole order with one pair swapped — see `courseUnits.reorder`. */
   function move(index: number, direction: -1 | 1) {
@@ -130,6 +203,7 @@ export function Curriculum({ courseId }: { courseId: string }) {
             onClick={() => {
               setAdding(category);
               setNewName("");
+              setNewPlacement("end");
             }}
           >
             <Plus data-icon="inline-start" />
@@ -144,7 +218,13 @@ export function Curriculum({ courseId }: { courseId: string }) {
           onSubmit={(event) => {
             event.preventDefault();
             if (!newName.trim()) return;
-            create.mutate({ courseId, category: adding, name: newName.trim(), overview: null });
+            create.mutate({
+              courseId,
+              category: adding,
+              name: newName.trim(),
+              overview: null,
+              placement: parsePlacement(newPlacement),
+            });
           }}
         >
           <Input
@@ -155,6 +235,42 @@ export function Curriculum({ courseId }: { courseId: string }) {
             aria-label={`New ${CATEGORY_META[adding].noun} name`}
             className="min-w-48 flex-1"
           />
+
+          {/*
+            Where it goes, chosen when it is made.
+
+            A unit added to a course of ten and belonging after Mod 4 used to be created at the end
+            and then walked up the list one click at a time. The sequence is already on screen, so
+            the question can simply be asked — and the answer names a unit rather than a number,
+            which is the form the server accepts.
+
+            Absent for the first unit of a course, because there is nothing to place it relative to
+            and "At the end" of an empty list is not a choice.
+          */}
+          {rows.length > 0 && (
+            <div className="flex shrink-0 items-center gap-2">
+              <Label htmlFor="unit-placement" className="text-xs text-muted-foreground">
+                Place
+              </Label>
+              <Select
+                value={newPlacement}
+                onValueChange={(next) => next && setNewPlacement(next as string)}
+                items={placements}
+              >
+                <SelectTrigger id="unit-placement" size="sm" className="max-w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(placements).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <Button type="submit" size="sm" disabled={busy || !newName.trim()}>
             {create.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
             Add {CATEGORY_META[adding].noun}
@@ -453,4 +569,50 @@ function UnitSection({
       />
     </Collapsible>
   );
+}
+
+/**
+ * The placement select's options, in the order the course is in.
+ *
+ * Every unit is offered as something to sit after, whatever its category, because the three share
+ * one sequence — a project goes after Mod 4 as readily as Mod 5 does.
+ */
+function placementOptions(rows: readonly Unit[]): Record<string, string> {
+  const options: Record<string, string> = { end: "At the end", start: "At the beginning" };
+  for (const unit of rows) options[`after:${unit.id}`] = `After ${unit.name}`;
+  return options;
+}
+
+/** The select's value as the procedure's `placement`. Anything unrecognised is the end. */
+function parsePlacement(value: string) {
+  if (value === "start") return { at: "start" } as const;
+  if (value.startsWith("after:")) {
+    return { at: "after", courseUnitId: value.slice("after:".length) } as const;
+  }
+  return { at: "end" } as const;
+}
+
+/**
+ * The cached list of units in a new order, for the optimistic write in `onMutate`.
+ *
+ * `position` is renumbered along with the order rather than left as it was, so the cache says the
+ * same thing the server is about to — anything reading a position from it, now or later, reads the
+ * order on screen instead of the one before the click.
+ *
+ * A list that does not account for exactly the units in the cache is left alone. That is the state
+ * `reorder` refuses server-side, and guessing at a partial order in the browser would show an
+ * arrangement that is about to be rejected.
+ */
+function inOrder(units: Unit[] | undefined, courseUnitIds: string[]): Unit[] | undefined {
+  if (!units) return units;
+
+  const byId = new Map(units.map((unit) => [unit.id, unit]));
+  const next: Unit[] = [];
+  for (const id of courseUnitIds) {
+    const unit = byId.get(id);
+    if (unit) next.push(unit);
+  }
+  if (next.length !== units.length) return units;
+
+  return next.map((unit, position) => ({ ...unit, position }));
 }

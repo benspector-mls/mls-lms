@@ -156,6 +156,88 @@ async function main() {
         "BAD_REQUEST",
       );
 
+      // --- placing a new unit in the sequence -------------------------------
+      //
+      // Why `placement` exists at all: a unit belonging in the middle of a term used to be created
+      // at the end and then walked up the list, one write per position. These checks come after
+      // the reordering ones deliberately — placing a unit renumbers the sequence, so a position
+      // captured earlier is no longer the one to compare against.
+      const sequenceBefore = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
+
+      const atStart = await asInstructor.courseUnits.create({
+        category: "PROJECT",
+        courseId: course.id,
+        name: "Mod 96 - Placed First",
+        placement: { at: "start" },
+      });
+      const withStart = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
+
+      check("a unit placed at the start comes first", withStart[0]!.id, atStart.id);
+      check(
+        "...and everything it displaced keeps its own order",
+        withStart.slice(1).map((row) => row.id),
+        sequenceBefore.map((row) => row.id),
+      );
+      check(
+        "...over a sequence renumbered densely from zero",
+        withStart.map((row) => row.position),
+        withStart.map((_, index) => index),
+      );
+
+      /*
+        Placed after a unit, not at a number. The anchor here is the module that is now second,
+        and a project going after it is the ordinary case — the sequence is shared, so what the
+        anchor's category is does not enter into it.
+      */
+      const anchor = withStart[1]!;
+      const placedAfter = await asInstructor.courseUnits.create({
+        category: "ASSESSMENT",
+        courseId: course.id,
+        name: "Mod 95 - Placed After",
+        placement: { at: "after", courseUnitId: anchor.id },
+      });
+      const withAfter = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
+
+      check(
+        "a unit placed after another sits immediately after it",
+        withAfter.findIndex((row) => row.id === placedAfter.id),
+        withAfter.findIndex((row) => row.id === anchor.id) + 1,
+      );
+      check(
+        "...and the sequence is still dense from zero",
+        withAfter.map((row) => row.position),
+        withAfter.map((_, index) => index),
+      );
+
+      // Placing after the unit that is already last is the end, and takes the same path as
+      // asking for the end outright.
+      const placedLast = await asInstructor.courseUnits.create({
+        category: "MODULE",
+        courseId: course.id,
+        name: "Mod 94 - Placed Last",
+        placement: { at: "after", courseUnitId: withAfter.at(-1)!.id },
+      });
+      const withLast = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
+      check("placing after the last unit is the end", withLast.at(-1)!.id, placedLast.id);
+
+      /*
+        An anchor this course does not have is refused rather than quietly appended. A stale one is
+        a unit another instructor removed while the form was open, and landing the new unit at the
+        end would put it somewhere nobody chose and nobody would think to check.
+      */
+      check(
+        "placing after a unit that is not in this course is refused",
+        await refusal(() =>
+          asInstructor.courseUnits.create({
+            category: "MODULE",
+            courseId: course.id,
+            name: "Mod 93 - Nowhere",
+            placement: { at: "after", courseUnitId: "00000000-0000-4000-8000-000000000000" },
+          }),
+        ),
+        "BAD_REQUEST",
+      );
+
       // --- removing ---------------------------------------------------------
       check(
         "an empty module can be removed",
