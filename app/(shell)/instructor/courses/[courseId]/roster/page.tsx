@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { ExpectedStudents } from "@/components/instructor/expected-students";
 import { GroupManager } from "@/components/instructor/group-manager";
 import { CourseRoster, JoinLinkCard } from "@/components/instructor/roster";
+import { TeamSetManager } from "@/components/instructor/team-set-manager";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,10 +40,11 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
     one. The roster is where groups are *made*; a roster narrowed to a group could not show the
     student who is in none, which is exactly who an instructor comes here to place.
   */
-  const [data, groups, memberships, expected] = await Promise.all([
+  const [data, groups, memberships, teamSets, expected] = await Promise.all([
     queryClient.fetchQuery(trpc.courses.roster.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.groups.listForCourse.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.groups.membershipsForCourse.queryOptions({ courseId })),
+    queryClient.fetchQuery(trpc.teamSets.listForCourse.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.enrollments.roster.queryOptions({ courseId })),
   ]);
 
@@ -70,7 +72,17 @@ async function Roster({ params }: { params: Promise<{ courseId: string }> }) {
 
         <TabsContent value="active" className="mt-4 flex flex-col gap-6">
           <CourseRoster data={data} />
+          {/*
+            Groups first, then team sets. Groups are what an instructor already knows and uses
+            every week; team sets are the newer and rarer act, and putting them second is what
+            makes the pair read as "the filter, and then the thing students hand in through".
+
+            `memberships` serves both. It is the cohort's active enrollments with their students,
+            which is what placement needs, so the team card is handed the same list rather than
+            asking for it again.
+          */}
           <GroupManager courseId={courseId} data={groups} memberships={memberships} />
+          <TeamSetManager courseId={courseId} data={teamSets} roster={memberships} />
         </TabsContent>
 
         {/*

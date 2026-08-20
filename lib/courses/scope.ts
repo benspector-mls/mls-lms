@@ -164,6 +164,48 @@ export async function teachableGroup<S extends Prisma.CourseGroupSelect>(
   return row ?? refuse(ctx.db.courseGroup, groupId, "Group");
 }
 
+export async function teachableTeamSet<S extends Prisma.TeamSetSelect>(
+  ctx: AuthedCtx,
+  teamSetId: string,
+  select: S,
+): Promise<Prisma.TeamSetGetPayload<{ select: S }>> {
+  const row = await ctx.db.teamSet.findFirst({
+    where: {
+      id: teamSetId,
+      ...(teachesEverything(ctx)
+        ? {}
+        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+    },
+    select,
+  });
+
+  return row ?? refuse(ctx.db.teamSet, teamSetId, "Team set");
+}
+
+/**
+ * One team, reached through the set it belongs to.
+ *
+ * Its own loader rather than a caller reading the set and then the team, because renaming a team
+ * and removing one both name the team alone — and the set is what says whose course it is.
+ */
+export async function teachableTeam<S extends Prisma.TeamSelect>(
+  ctx: AuthedCtx,
+  teamId: string,
+  select: S,
+): Promise<Prisma.TeamGetPayload<{ select: S }>> {
+  const row = await ctx.db.team.findFirst({
+    where: {
+      id: teamId,
+      ...(teachesEverything(ctx)
+        ? {}
+        : { teamSet: { course: { instructors: { some: { userId: ctx.profile.id } } } } }),
+    },
+    select,
+  });
+
+  return row ?? refuse(ctx.db.team, teamId, "Team");
+}
+
 /** An enrollment, if the caller teaches the course it is in. */
 export async function teachableEnrollment<S extends Prisma.EnrollmentSelect>(
   ctx: AuthedCtx,

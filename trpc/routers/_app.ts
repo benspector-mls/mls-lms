@@ -14,6 +14,7 @@ import { courseUnitsRouter } from "./course-units";
 import { resourcesRouter } from "./resources";
 import { staffRouter } from "./staff";
 import { submissionsRouter } from "./submissions";
+import { teamSetsRouter } from "./team-sets";
 import { testRunsRouter } from "./test-runs";
 import { testStudentsRouter } from "./test-students";
 
@@ -159,6 +160,7 @@ export const appRouter = createTRPCRouter({
   gcf: gcfRouter,
   courseUnits: courseUnitsRouter,
   groups: groupsRouter,
+  teamSets: teamSetsRouter,
   resources: resourcesRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
