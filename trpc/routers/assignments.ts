@@ -11,6 +11,7 @@ import {
 } from "@/lib/assignments/accept";
 import { detectRunnerPreset, NOT_A_REPOSITORY } from "@/lib/assignments/detect";
 import { normalizeRepoRef } from "@/lib/assignments/repo-ref";
+import { distributedToStudent } from "@/lib/assignments/scope";
 import { assertKindImplemented } from "@/lib/assignments/spec";
 import {
   hasErrors,
@@ -147,22 +148,17 @@ export const assignmentsRouter = createTRPCRouter({
    * feedback text to render a list of links would make this the most expensive page in the
    * application. Following the link is what loads the report.
    *
-   * Active enrollments in cohorts that are still running, which is narrower than the course page
-   * on purpose. A removed student keeps reading the feedback they were given and an archived
-   * cohort stays readable — both are settled — but a deadline list for a cohort somebody has
-   * finished or been removed from would be telling them to hand in work that would be refused.
+   * The scoping — published work, a cohort that is still running, an active enrollment — is
+   * `distributedToStudent` in `lib/assignments/scope.ts`, which the calendar feed calls too, so a
+   * deadline this dashboard shows and a deadline a student's calendar shows cannot come to differ.
+   * The reasoning for each of its three conditions lives there.
    */
   listMine: profileProcedure.query(async ({ ctx }) => {
     const assignments = await ctx.db.assignment.findMany({
-      where: {
-        // Unpublished work is invisible here for the same reason it is on a course page, and
-        // unconditionally: this procedure has no instructor mode to fall into.
-        distributedAt: { not: null },
-        course: {
-          archivedAt: null,
-          enrollments: { some: { studentId: ctx.profile.id, status: "ACTIVE" } },
-        },
-      },
+      // Published work, in a cohort still running, that the caller is actively enrolled in. Shared
+      // with the calendar feed rather than written out here, because a deadline the dashboard shows
+      // and a deadline a student's calendar shows have to be the same deadline.
+      where: distributedToStudent(ctx.profile.id),
       select: {
         id: true,
         title: true,

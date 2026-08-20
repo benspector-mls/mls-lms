@@ -29,7 +29,17 @@ export default function ProfilePage() {
 }
 
 async function Profile() {
-  const profile = await getQueryClient().fetchQuery(trpc.me.queryOptions());
+  const queryClient = getQueryClient();
+
+  /*
+    Two reads rather than one column on `me`, because `me` is fetched by every screen in the shell
+    and a calendar token is a credential — there is no reason for it to sit in the payload of every
+    page when one card on this screen reads it.
+  */
+  const [profile, calendar] = await Promise.all([
+    queryClient.fetchQuery(trpc.me.queryOptions()),
+    queryClient.fetchQuery(trpc.calendarSubscription.queryOptions()),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
@@ -43,7 +53,7 @@ async function Profile() {
         empty form here would invite somebody to type a name into a row that does not exist.
       */}
       {profile ? (
-        <ProfileView profile={profile} />
+        <ProfileView profile={profile} calendarToken={calendar.token} />
       ) : (
         <ErrorState
           title="This account has no profile"

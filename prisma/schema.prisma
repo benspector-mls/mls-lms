@@ -78,6 +78,18 @@ model Profile {
   /// somebody quotes. Readers that list students deliberately include them, badged, because
   /// grading one is the whole point.
   testStudentNumber Int?     @unique @map("test_student_number")
+  /// The address of this person's own calendar feed, which a calendar application polls for their
+  /// due dates. Written the first time they ask for the link and replaced whenever they ask again,
+  /// so it is nullable: most profiles never ask, and an admin's never will.
+  ///
+  /// **The token is the whole of the authorization** on `GET /api/calendar/[token]`, because no
+  /// calendar application sends a cookie. That is why the feed carries titles and dates and never a
+  /// score or a status: a student may paste this address into a shared calendar, forward it, or
+  /// lose it, and a leaked deadline is an inconvenience where a leaked grade is not.
+  ///
+  /// `@unique` because it is how the route finds this row, and because two profiles landing on one
+  /// token must fail at the database rather than by having checked first and been overtaken.
+  calendarToken     String?  @unique @map("calendar_token")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
   // default on the column so the on-signup trigger (which writes via raw SQL,

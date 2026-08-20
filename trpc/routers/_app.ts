@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { newJoinToken } from "@/lib/courses/join-token";
 import { displayNameSchema } from "@/lib/people";
 import { createTRPCRouter, protectedProcedure } from "../init";
 import { assignmentsRouter } from "./assignments";
@@ -86,6 +87,71 @@ export const appRouter = createTRPCRouter({
         select: profileFields,
       }),
     ),
+
+  /*
+    ===================================================================================
+    Subscribing a calendar to due dates
+
+    A student copies one address into Google Calendar, and their calendar polls it from then on.
+    The feed itself is `app/api/calendar/[token]/route.ts` — a route handler rather than a
+    procedure, because no calendar application sends a cookie or speaks tRPC. These two are the
+    only way the address is ever handed out.
+
+    `protectedProcedure` rather than `profileProcedure`, matching `me` and `updateDisplayName`
+    directly above: both of these name the caller's own row in a `where`, so the middleware's
+    extra fetch of the whole profile would buy nothing and cost a query on the mutation.
+    ===================================================================================
+  */
+
+  /**
+   * Whether the caller has a calendar address yet, and what it is.
+   *
+   * **Its own query rather than a column on `me`**, which every screen in the shell fetches. The
+   * token is a credential, and there is no reason for it to sit in the payload of every page when
+   * one card on one screen reads it.
+   *
+   * Null is the ordinary answer, not an error: the token is written the first time somebody asks
+   * for their link, so most profiles have none and never will.
+   */
+  calendarSubscription: protectedProcedure.query(async ({ ctx }) => {
+    const profile = await ctx.db.profile.findUnique({
+      // Scoped to the caller, which is the only thing stopping one student from reading another's
+      // feed address — Prisma bypasses row level security.
+      where: { id: ctx.user.id },
+      select: { calendarToken: true },
+    });
+
+    return { token: profile?.calendarToken ?? null };
+  }),
+
+  /**
+   * Write a fresh calendar address for the caller, replacing any they had.
+   *
+   * **One mutation for both presses.** Creating the link for the first time and replacing one that
+   * was pasted somewhere public are the same write; only the card's wording differs, and only
+   * because replacing an address that a calendar is already subscribed to is worth confirming
+   * first. A second procedure that differed by a null check would be two ways to make one secret.
+   *
+   * `newJoinToken` is reused rather than a second generator, for the reason that module exists:
+   * `crypto.randomUUID` with the hyphens removed, 122 bits of randomness, one word to paste.
+   *
+   * Nothing is recorded in the audit log, deliberately. That log holds the acts that decide who can
+   * see whose work, and this address grants only the titles and dates of work its holder was
+   * already assigned — which is exactly why the feed carries no score.
+   *
+   * **Under an admin's test-student view this writes the test student's token**, because
+   * `ctx.user.id` is the test student's for the whole request. That is the honest answer rather
+   * than an exception worth carving out, and it is how the feed gets checked at all.
+   */
+  newCalendarToken: protectedProcedure.mutation(async ({ ctx }) => {
+    const profile = await ctx.db.profile.update({
+      where: { id: ctx.user.id },
+      data: { calendarToken: newJoinToken() },
+      select: { calendarToken: true },
+    });
+
+    return { token: profile.calendarToken };
+  }),
 
   courses: coursesRouter,
   enrollments: enrollmentsRouter,

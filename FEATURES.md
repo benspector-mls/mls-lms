@@ -23,7 +23,9 @@ Your **Profile**, reached from your name at the bottom of the sidebar, has one t
 
 Everything else on that screen is read-only and says where it comes from: your email is the one GitHub authenticated, your GitHub username is recorded when you sign in, and your role is an admin's decision. The screen also lists what the application stores about you and, in as many words, what it does not: no date of birth, no address, no phone number, no government identifier, no payment detail.
 
-There are no other settings. No notification preferences, no email change, no way to delete your own account. The light and dark toggle in the header is the only other control, and it is not remembered between devices.
+The one other thing that screen does is hand out the address of your own **calendar feed**, so your due dates appear in a calendar you already keep — see [your due dates in your own calendar](#your-due-dates-in-your-own-calendar).
+
+Beyond those two there are no settings. No notification preferences, no email change, no way to delete your own account. The light and dark toggle in the header is the only other control, and it is not remembered between devices.
 
 ---
 
@@ -254,6 +256,18 @@ Graded work never appears as a deadline, including work that came back below the
 Once you are in, it says so for the rest of the day. If it says **Late** and you were here on time, tell your instructor — they can change it. If check-in has closed and you missed it, the Attendance screen says that too, and the answer is the same: tell your instructor, because they are the only ones who can record it.
 
 **Your full attendance record** is on that Attendance screen: in the sidebar, under whichever course you are reading — the course you are in expands to show Coursework and Attendance. It says how many sessions you have been to since you joined and shows the whole term as a **calendar you can page through month by month**, in the same colours as the week on your dashboard. Grey is a session where nothing was recorded for you. An excused absence still counts as missed, which the screen says rather than leaving you to work it out.
+
+### Your due dates in your own calendar
+
+Your **Profile** has an address you can add to Google Calendar, Apple Calendar, or Outlook once. From then on your calendar fetches it by itself, and **every deadline from every cohort you are in appears there** — including assignments published after you subscribed, and deadlines your instructor moves.
+
+Press **Create my calendar link** and you get an address. **Copy** puts it on your clipboard, which is what you need for Apple Calendar and Outlook; **Add to Google Calendar** opens Google with it already filled in. Each deadline arrives as a half-hour block ending when the work is due, and the exact minute is in the title: *Due at 11:59 PM: swe-1-5-arrays*, with the cohort's name and a link back to the assignment inside it.
+
+**It carries titles and due dates and nothing else.** No grades, no feedback, and nothing about what you have or have not handed in. That is deliberate, because the address is the only thing protecting it: anyone holding it can read your deadlines. Treat it as private, do not paste it into a calendar the whole cohort can see, and if it goes somewhere you did not intend, **Replace this address** on the same screen makes the old one stop working immediately. You will need to add the new address to your calendar afterwards.
+
+**Google Calendar will call it by its address rather than by its name**, showing `https://…/api/calendar/…` in your list of calendars. That is Google's behaviour for any calendar added by URL and there is nothing this application can send to change it — rename it in Google's own sidebar and the new name sticks. Apple Calendar and Outlook pick the name up on their own.
+
+**A calendar checks for changes about once a day.** So a deadline that moves tonight may not show in yours until tomorrow, and this application is always the thing that is right about a due date. If something looks wrong in your calendar, your dashboard is the answer.
 
 ### Your course
 

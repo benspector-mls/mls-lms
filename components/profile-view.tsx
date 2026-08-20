@@ -2,14 +2,15 @@
 
 import * as React from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, GitBranch, Loader2 } from "lucide-react";
+import { CalendarPlus, Check, Copy, ExternalLink, GitBranch, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
   DISPLAY_NAME_MAX_LENGTH,
@@ -41,11 +42,26 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Profile = NonNullable<RouterOutputs["me"]>;
 
-export function ProfileView({ profile }: { profile: Profile }) {
+export function ProfileView({
+  profile,
+  calendarToken,
+}: {
+  profile: Profile;
+  /** The caller's calendar feed token, or null if they have never asked for one. */
+  calendarToken: string | null;
+}) {
   return (
     <div className="flex flex-col gap-6">
       <NameCard profile={profile} />
       <AccountCard profile={profile} />
+      {/*
+        Students only, following the same judgment `app/(shell)/dashboard/page.tsx` makes when it
+        sends an instructor to their grading queue: a list of what is due is a student's screen. The
+        feed itself refuses nobody and would honestly answer an instructor with whatever they happen
+        to be enrolled in — so this is about what is worth offering, not about access. An admin
+        looking as a test student sees it, because a test student is a STUDENT.
+      */}
+      {profile.role === "STUDENT" && <CalendarCard calendarToken={calendarToken} />}
       <StoredDataCard />
     </div>
   );
@@ -200,6 +216,183 @@ function NameCard({ profile }: { profile: Profile }) {
   );
 }
 
+/**
+ * Due dates in a calendar the student already keeps.
+ *
+ * **One address, copied once, and the calendar does the rest.** There is no OAuth here and no
+ * Google API — the whole feature on this side is a token, and on the other side a route that
+ * renders text. What it buys is that a deadline moved by an instructor, and an assignment published
+ * after the subscription was made, both reach the student without anybody pressing anything.
+ *
+ * `JoinLinkCard` in `components/instructor/roster.tsx` is the shape this copies, including its
+ * `origin` effect and its inline confirmation. The one real difference is that the join link is a
+ * password to a cohort where this is a window onto one person's deadlines, so the confirmation says
+ * something different: nobody is being locked out, but a calendar already subscribed goes quiet.
+ *
+ * **The address to copy is the primary control and the Google button is the convenience.** Google's
+ * web interface handles a pasted `https` feed address reliably, where a `webcal://` link depends on
+ * an operating system handler being registered and fails silently when it is not. And the address
+ * is what somebody needs anyway to add the feed to Apple Calendar, Outlook, or anything else.
+ */
+function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const [copied, setCopied] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+
+  /*
+    What the mutation last wrote, held here rather than read from `create.data`.
+
+    `useServerMutation` refreshes the server component, so the prop catches up on its own — but a
+    beat later, and the address would otherwise appear after the toast announcing it. Holding it
+    means `token` below is right immediately, and it is also what makes "was there an address before
+    this press" answerable: on the press, this is still the previous render's value.
+  */
+  const [written, setWritten] = React.useState<string | null>(null);
+  const token = written ?? calendarToken;
+
+  const create = useMutation(
+    trpc.newCalendarToken.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          // Read before `setWritten`, so it is what was on screen when the button was pressed.
+          const replaced = token !== null;
+
+          setWritten(result.token);
+          setConfirming(false);
+          setCopied(false);
+          toast.success(
+            replaced
+              ? "New calendar link. Any calendar still subscribed to the old one stops updating."
+              : "Your calendar link is ready.",
+          );
+        },
+      }),
+    ),
+  );
+
+  // Built in the browser, for the reason `JoinLinkCard` gives: the server rendering this has no
+  // reliable idea which host the student is looking at, since a preview deployment and production
+  // share the same code.
+  const [origin, setOrigin] = React.useState("");
+  React.useEffect(() => setOrigin(window.location.origin), []);
+
+  const path = token ? `/api/calendar/${token}` : "";
+  const link = origin ? `${origin}${path}` : path;
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Due dates in your own calendar</h2>
+        <p className="text-xs text-muted-foreground">
+          Add this address to Google Calendar, Apple Calendar, or Outlook once, and every deadline
+          from every cohort you are in appears there — including work published after you subscribe,
+          and deadlines an instructor moves. It carries assignment titles and due dates only: no
+          grades, no feedback, and nothing about what you have handed in.
+        </p>
+      </div>
+
+      {token ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-background px-3 py-2 text-xs">
+              {link}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void navigator.clipboard.writeText(link);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+            {/*
+              An anchor wearing the button's classes, which is what `submitted-link.tsx` does and
+              what this needs: it is a link out, so it should be one for a middle click and for a
+              screen reader. Held back until the effect above has supplied the origin, because a
+              relative address is not something Google can subscribe to.
+            */}
+            {origin && (
+              <a
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+                href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(link)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink data-icon="inline-start" />
+                Add to Google Calendar
+              </a>
+            )}
+          </div>
+
+          {/*
+            Said here rather than left to be discovered, because it is the one limit of this
+            approach and it looks like a bug from the outside. A student who moves a deadline in
+            their head at 11pm and does not see it in their calendar by morning has not found a
+            fault; they have found how often a calendar asks.
+          */}
+          <p className="text-xs text-muted-foreground">
+            A calendar checks for changes roughly once a day, so a deadline that moves tonight may
+            not reach yours until tomorrow. This application is always right about a due date; your
+            calendar catches up.
+          </p>
+
+          {confirming ? (
+            <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                The current address stops working immediately. Any calendar you have already
+                subscribed will stop receiving updates, and you will need to add the new address to
+                it. Replace this only if the old one has gone somewhere you did not intend.
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={create.isPending}
+                  onClick={() => create.mutate()}
+                >
+                  Replace the address
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+                  Keep it
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="self-start text-xs text-muted-foreground underline-offset-4 hover:underline"
+              onClick={() => setConfirming(true)}
+            >
+              Replace this address
+            </button>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-col items-start gap-2">
+          <Button size="sm" disabled={create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <CalendarPlus data-icon="inline-start" />
+            )}
+            Create my calendar link
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Treat the address as private once it exists. Anyone holding it can read your deadlines —
+            which is why it carries nothing else — and you can replace it here at any time.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** How a role reads on screen, rather than as the enum it is stored as. */
 const ROLE_LABEL: Record<Profile["role"], string> = {
   STUDENT: "Student",
@@ -299,13 +492,13 @@ function StoredDataCard() {
       </ul>
 
       <p className="text-xs text-muted-foreground">
-        Date of birth, home address, phone number, government identifiers, or anything to
-        do with payment are NOT collected by this application.
+        Date of birth, home address, phone number, government identifiers, or anything to do with
+        payment are NOT collected by this application.
       </p>
       <p className="text-xs text-muted-foreground">
-        Instructors on your cohort can read your work and your grades; nobody
-        outside it can. Code you hand in through a repository also lives on GitHub, in private
-        repositories owned by the Marcy Lab School.
+        Instructors on your cohort can read your work and your grades; nobody outside it can. Code
+        you hand in through a repository also lives on GitHub, in private repositories owned by the
+        Marcy Lab School.
       </p>
     </section>
   );
