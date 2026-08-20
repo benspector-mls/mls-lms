@@ -113,6 +113,7 @@ model Profile {
   gcfAttempts          GcfAttempt[]          @relation("GcfAttempts")
   gcfRecorded          GcfAttempt[]          @relation("GcfRecorded")
   gcfIdentities        GcfIdentity[]         @relation("GcfIdentities")
+  handedIn             Submission[]          @relation("HandedInBy")
 
   @@map("profiles")
   @@schema("public")
@@ -243,6 +244,7 @@ model Course {
   assignments        Assignment[]
   courseUnits        CourseUnit[]
   groups             CourseGroup[]
+  teamSets           TeamSet[]
   attendanceSessions AttendanceSession[]
 
   @@map("courses")
@@ -371,6 +373,7 @@ model Enrollment {
   course           Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
   student          Profile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
   groupMemberships GroupMembership[]
+  teamMemberships  TeamMembership[]
   attendance       AttendanceRecord[]
 
   @@unique([courseId, studentId])
@@ -380,6 +383,115 @@ model Enrollment {
   /// procedure that writes it. A composite foreign key needs a unique index to reference.
   @@unique([id, courseId])
   @@map("enrollments")
+  @@schema("public")
+}
+
+// ===========================================================================
+// Teams, and work handed in by one
+// ===========================================================================
+
+/// A named, reusable collection of the teams a course's students work in — "Unit 3 project
+/// teams".
+///
+/// **A second mechanism beside `CourseGroup`, deliberately not an extension of it.** A group
+/// divides a cohort between co-teachers: it is a filter, students never see it, and it decides
+/// nothing about the work. A team hands in one piece of work and receives one grade, and its
+/// members can see each other. Keeping them apart is what stops a finished project's teams from
+/// crowding the grading-split picker, and it is why nothing about groups had to change.
+///
+/// A set rather than a flat list of teams, because a course runs several projects and each wants
+/// its own division of the same cohort. An assignment names a set, not the teams in it, so
+/// pointing the second and third assignments of one project at the same teams is one choice
+/// rather than a list re-picked each time.
+model TeamSet {
+  id        String   @id @default(uuid()) @db.Uuid
+  courseId  String   @map("course_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teams       Team[]
+  memberships TeamMembership[]
+  assignments Assignment[]
+
+  /// One "Unit 3 project teams" per course.
+  @@unique([courseId, name])
+  /// Redundant against the primary key, and bought for the same reason `Enrollment` buys one:
+  /// `TeamMembership` points at `(teamSetId, courseId)` together, which is what makes a
+  /// membership joining another cohort's student unrepresentable rather than merely refused.
+  @@unique([id, courseId])
+  @@map("team_sets")
+  @@schema("public")
+}
+
+/// One team inside a set: the students who hand in together and receive one grade.
+///
+/// `position` exists though `CourseGroup` deliberately has none, because a set is created by
+/// asking how many teams it holds. The rows are born in order and stay in it, so "Team 4" does
+/// not sort after "Team 12" the way a list ordered by name would.
+///
+/// `courseId` is carried rather than read through the set, so a membership can be held to one
+/// course from both ends at once. See `TeamMembership`.
+model Team {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamSetId String   @map("team_set_id") @db.Uuid
+  courseId  String   @map("course_id") @db.Uuid
+  name      String
+  position  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  teamSet     TeamSet          @relation(fields: [teamSetId, courseId], references: [id, courseId], onDelete: Cascade)
+  memberships TeamMembership[]
+  submissions Submission[]
+
+  /// One "Team 3" per set, and one team in each position.
+  @@unique([teamSetId, name])
+  @@unique([teamSetId, position])
+  /// For the composite foreign keys on `TeamMembership` and `Submission`, both of which point
+  /// at a team *and* the set it belongs to, so a team from another set cannot be named.
+  @@unique([id, teamSetId])
+  @@index([courseId])
+  @@map("teams")
+  @@schema("public")
+}
+
+/// One student's place on one team.
+///
+/// Joined to the **enrollment** rather than to the profile, following `GroupMembership` and for
+/// the same reason: the foreign key is what guarantees a team's members are students of that
+/// team's course, where a validation rule is something a second caller can forget.
+///
+/// **Three foreign keys hold one fact.** `(teamId, teamSetId)` says the team belongs to the set,
+/// `(teamSetId, courseId)` says the set belongs to the course, and `(enrollmentId, courseId)`
+/// says the student is enrolled in it. There is no `courseId` a row could hold that satisfies
+/// all three while naming another cohort's student, so the mistake is unrepresentable rather
+/// than refused.
+///
+/// **`@@unique([teamSetId, enrollmentId])` is what makes a set a partition.** A student is on at
+/// most one team of any one set, which is what "which team are you on for this project" needs to
+/// have a single answer. They may be on a team in every other set, which is what makes a set
+/// reusable across projects.
+///
+/// A removed student keeps their memberships, as they keep their group memberships: removal is a
+/// status rather than a deleted row, so restoring somebody returns them to the team they were on.
+model TeamMembership {
+  id           String   @id @default(uuid()) @db.Uuid
+  teamId       String   @map("team_id") @db.Uuid
+  teamSetId    String   @map("team_set_id") @db.Uuid
+  courseId     String   @map("course_id") @db.Uuid
+  enrollmentId String   @map("enrollment_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  team       Team       @relation(fields: [teamId, teamSetId], references: [id, teamSetId], onDelete: Cascade)
+  teamSet    TeamSet    @relation(fields: [teamSetId, courseId], references: [id, courseId], onDelete: Cascade)
+  enrollment Enrollment @relation(fields: [enrollmentId, courseId], references: [id, courseId], onDelete: Cascade)
+
+  @@unique([teamSetId, enrollmentId])
+  @@index([enrollmentId])
+  @@index([teamId])
+  @@map("team_memberships")
   @@schema("public")
 }
 
@@ -732,6 +844,15 @@ model Assignment {
   /// application can already render.
   submissionInstructions String? @map("submission_instructions")
 
+  /// The set of teams this assignment is handed in by, or null for work each student does
+  /// alone. **Pointing at a set is what makes an assignment team work**; there is no boolean
+  /// beside it to disagree, for the same reason there is no `category` column beside the unit's.
+  ///
+  /// `Restrict`, so a set cannot be deleted out from under work that was graded through it. The
+  /// composite reference is to `(id, courseId)` rather than to the id alone, which is what makes
+  /// naming another cohort's team set unrepresentable.
+  teamSetId String? @map("team_set_id") @db.Uuid
+
   distributedAt DateTime? @map("distributed_at") @db.Timestamptz(6)
   /// One entry per gradable section this assignment can contain, e.g.
   /// [{ "type": "coding_algorithm", "rubricId": "...",
@@ -766,16 +887,25 @@ model Assignment {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course               Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   /// Restrict rather than Cascade: removing a unit must never silently delete the
   /// assignments in it, along with their submissions and every graded draft beneath
   /// them. `courseUnits.remove` refuses while any assignment references it, and this is
   /// the database saying the same thing rather than trusting that it was asked.
-  courseUnit  CourseUnit   @relation(fields: [courseUnitId], references: [id], onDelete: Restrict)
-  submissions Submission[]
+  courseUnit           CourseUnit   @relation(fields: [courseUnitId], references: [id], onDelete: Restrict)
+  teamSet              TeamSet?     @relation(fields: [teamSetId, courseId], references: [id, courseId], onDelete: Restrict)
+  submissions          Submission[]
+  /// Never read. It exists so that the foreign key behind it exists — see
+  /// `Submission.assignmentTeamSet`. `submissions` above is the relation to use.
+  submissionsByTeamSet Submission[] @relation("SubmissionTeamSet")
 
   @@unique([courseId, assignmentRepoName])
+  /// Redundant against the primary key, and bought so a submission can point at
+  /// `(assignmentId, teamSetId)` together — which is what stops a submission naming a team from
+  /// some set other than the one its own assignment is handed in by.
+  @@unique([id, teamSetId])
   @@index([courseUnitId])
+  @@index([teamSetId])
   @@map("assignments")
   @@schema("public")
 }
@@ -808,12 +938,45 @@ enum SalesforceSyncStatus {
   @@schema("public")
 }
 
-/// One row per (assignment, student).
+/// One row per (assignment, student), whether the work was done alone or by a team.
 model Submission {
   id           String           @id @default(uuid()) @db.Uuid
   assignmentId String           @map("assignment_id") @db.Uuid
   studentId    String           @map("student_id") @db.Uuid
   status       SubmissionStatus @default(NOT_STARTED)
+
+  /// The team this was handed in by, and the set that team belongs to. Both null for work a
+  /// student does alone.
+  ///
+  /// `teamSetId` is carried rather than read through the team so that two composite foreign keys
+  /// can hold one fact from both ends: the team belongs to the set, and the set is the one this
+  /// row's own assignment is handed in by. A submission naming another project's team is then
+  /// unrepresentable rather than merely unlikely.
+  teamId    String? @map("team_id") @db.Uuid
+  teamSetId String? @map("team_set_id") @db.Uuid
+
+  /// The team's own row, when this one is a **mirror** of it: one member's copy of the grade
+  /// their team was given.
+  ///
+  /// Null on every submission a student holds in their own right, and on the one row per team
+  /// that holds the work — the repository, the pull request, the uploaded file, and every
+  /// grading draft and test run. A mirror carries status and outcome and nothing about where the
+  /// work is; a screen that needs to open the work resolves through this.
+  ///
+  /// Every member keeps a row so that the gradebook, the CSV export, a student's own feedback
+  /// page, and the Salesforce columns all go on reading one row per student. What they cost is
+  /// that the reads answering "what is waiting on an instructor" have to know a mirror is not
+  /// work, which is what `triageBucket`'s `mirrorsAnotherSubmission` is for.
+  teamSubmissionId String? @map("team_submission_id") @db.Uuid
+
+  /// Which member handed in the version now standing, rewritten on every hand-in.
+  ///
+  /// Any active member may hand in on their team's behalf, and doing so replaces what was there
+  /// rather than adding a second submission — so "who handed this in" is a fact that changes
+  /// while the row that holds the work does not. Null for work handed in before this column
+  /// existed, and for a repository whose pull request was opened by an account matching no
+  /// member of the team.
+  handedInById String? @map("handed_in_by") @db.Uuid
 
   repoFullName              String? @unique @map("repo_full_name")
   repoUrl                   String? @map("repo_url")
@@ -885,13 +1048,35 @@ model Submission {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  assignment    Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  student       Profile        @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  gradedBy      Profile?       @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
-  gradingDrafts GradingDraft[]
-  testRuns      TestRun[]
+  assignment        Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student           Profile        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gradedBy          Profile?       @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
+  handedInBy        Profile?       @relation("HandedInBy", fields: [handedInById], references: [id], onDelete: SetNull)
+  team              Team?          @relation(fields: [teamId, teamSetId], references: [id, teamSetId], onDelete: Restrict)
+  /// `NoAction` rather than `Restrict`, and the difference matters: deleting an assignment
+  /// cascades its submissions, and `RESTRICT` is checked per row rather than at the end of the
+  /// statement, so it would refuse a cascade that is about to remove the mirror as well.
+  /// **A constraint rather than a relation anybody reads.** It carries the foreign key holding a
+  /// submission's team set to the one its own assignment is handed in by — which, together with
+  /// the composite key on `team` above holding a team to its set, is what makes "graded as part
+  /// of last term's teams" unrepresentable rather than merely unlikely.
+  ///
+  /// Declared here rather than left as hand-written SQL because a foreign key is something
+  /// `migrate diff` *can* see: left out of the schema it would be proposed for removal on every
+  /// future migration, and one day somebody would accept the proposal. Use `assignment` above.
+  assignmentTeamSet Assignment?    @relation("SubmissionTeamSet", fields: [assignmentId, teamSetId], references: [id, teamSetId], onDelete: Cascade, onUpdate: Cascade)
+  teamSubmission    Submission?    @relation("TeamMirror", fields: [teamSubmissionId, assignmentId], references: [id, assignmentId], onDelete: NoAction, onUpdate: NoAction)
+  mirrors           Submission[]   @relation("TeamMirror")
+  gradingDrafts     GradingDraft[]
+  testRuns          TestRun[]
 
   @@unique([assignmentId, studentId])
+  /// Redundant against the primary key, and bought so a mirror points at `(id, assignmentId)`
+  /// together — which is what makes a mirror of a submission on some *other* assignment
+  /// unrepresentable.
+  @@unique([id, assignmentId])
+  @@index([teamSubmissionId])
+  @@index([teamId])
   @@map("submissions")
   @@schema("public")
 }
