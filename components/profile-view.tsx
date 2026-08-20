@@ -281,6 +281,21 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
   const path = token ? `/api/calendar/${token}` : "";
   const link = origin ? `${origin}${path}` : path;
 
+  /*
+    The same address under the `webcal` scheme, which is what a subscription is asked for with.
+
+    **This is not decoration and it is the difference between subscribing and importing.** Google's
+    own add-by-URL endpoint refuses an `https` address in its `cid` — "Unable to add calendar, check
+    the URL" — and accepts the identical address spelled `webcal`, which it maps back to `https`
+    itself. Apple Calendar treats a `webcal` link as a subscription to set up rather than a file to
+    fetch, for the same reason.
+
+    What is at stake if it is wrong: a person who cannot subscribe falls back to downloading the file
+    and importing it, and an import copies today's events once and never updates. That looks like it
+    worked and is the one outcome this feature exists to avoid.
+  */
+  const webcalLink = link.replace(/^https?:\/\//, "webcal://");
+
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
@@ -320,7 +335,7 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
             {origin && (
               <a
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-                href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(link)}`}
+                href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcalLink)}`}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -331,10 +346,28 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
           </div>
 
           {/*
-            Said here rather than left to be discovered, because it is the one limit of this
-            approach and it looks like a bug from the outside. A student who moves a deadline in
-            their head at 11pm and does not see it in their calendar by morning has not found a
-            fault; they have found how often a calendar asks.
+            **Subscribe and import are two different things and only one of them is this feature.**
+            Every calendar application offers both, a click apart, and the wrong one appears to work:
+            it copies today's deadlines in and then never changes again. Somebody who opens the
+            address in a browser gets a file, which puts the import path directly in front of them —
+            so the distinction is named here rather than left to be discovered a month later, when a
+            calendar is quietly out of date and nothing says so.
+          */}
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              Subscribe to the address — do not import a file.
+            </span>{" "}
+            In Google Calendar that is{" "}
+            <span className="font-medium">Other calendars → From URL</span>, not Import; in Apple
+            Calendar it is <span className="font-medium">File → New Calendar Subscription</span>.
+            Importing copies today&apos;s deadlines in once and never updates again, which looks
+            like it worked.
+          </p>
+
+          {/*
+            The one limit of this approach, and it looks like a bug from the outside. A student who
+            moves a deadline in their head at 11pm and does not see it in their calendar by morning
+            has not found a fault; they have found how often a calendar asks.
           */}
           <p className="text-xs text-muted-foreground">
             A calendar checks for changes roughly once a day, so a deadline that moves tonight may

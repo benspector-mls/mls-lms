@@ -167,10 +167,16 @@ async function main() {
       feed.response.headers.get("cache-control") === "no-store",
       feed.response.headers.get("cache-control") ?? "none",
     );
+    /*
+      A feed must not advertise itself as a file. `Content-Disposition` describes something to save,
+      and saving-then-importing is the failure this feature exists to avoid: it copies today's
+      deadlines once and never updates, which looks like success. Checked as an absence because it
+      was present once and put exactly that path in front of the first person to try this.
+    */
     checkThat(
-      "...and offers a filename without forcing a download",
-      feed.response.headers.get("content-disposition")?.startsWith("inline") === true,
-      feed.response.headers.get("content-disposition") ?? "none",
+      "...and does not present itself as a file to download",
+      feed.response.headers.get("content-disposition") === null,
+      feed.response.headers.get("content-disposition") ?? "absent",
     );
 
     checkThat(

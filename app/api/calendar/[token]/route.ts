@@ -104,10 +104,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       /*
-        A name for the file if somebody saves it, and `inline` so a browser opening the address to
-        check it shows the text rather than starting a download.
+        **No `Content-Disposition`, deliberately.** That header describes a file to save, and this is
+        a feed to poll — the two are the difference between subscribing and importing, and an import
+        copies today's deadlines once and then never changes. Advertising a filename put the wrong
+        path in front of the first person to try this: the browser offered the `.ics` file, and
+        importing it looked like success while producing a calendar that would never update again.
       */
-      "Content-Disposition": 'inline; filename="marcy-due-dates.ics"',
       /*
         No caching anywhere. A calendar polls this roughly daily on its own, so there is no load to
         relieve, and a cached copy would only add to the delay before a moved deadline reaches
