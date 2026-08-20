@@ -969,8 +969,18 @@ function DraftEditor({
   const queryClient = useQueryClient();
   const actionsSlot = React.useContext(HeaderActionsSlot);
 
-  const [scores, setScores] = React.useState<Record<string, number>>(() =>
-    Object.fromEntries(draft.sections.map((s) => [s.id, effectiveScore(s) ?? 0])),
+  /*
+    Null where a section has no score yet, which is a different thing from a score of zero and
+    has to stay different.
+
+    A hand-written draft starts with every section unscored, so collapsing the two to 0 here meant
+    an instructor typing 0 changed nothing this editor could see: the section never counted as
+    edited, nothing was sent, and approving then refused it as blank. A genuine zero — an empty
+    document, a section not attempted — is a grade an instructor is entitled to give, and the
+    approval guard has always been willing to record it. It was never reaching the server.
+  */
+  const [scores, setScores] = React.useState<Record<string, number | null>>(() =>
+    Object.fromEntries(draft.sections.map((s) => [s.id, effectiveScore(s)])),
   );
   const [reports, setReports] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(draft.sections.map((s) => [s.id, effectiveReport(s) ?? ""])),
@@ -1009,7 +1019,7 @@ function DraftEditor({
 
   const changedSections = draft.sections.filter(
     (s) =>
-      (scores[s.id] ?? 0) !== (effectiveScore(s) ?? 0) ||
+      (scores[s.id] ?? null) !== effectiveScore(s) ||
       (reports[s.id] ?? "") !== (effectiveReport(s) ?? ""),
   );
 
@@ -1023,7 +1033,14 @@ function DraftEditor({
     const stated = statedScoreInText(text);
     if (!stated) return [];
 
-    const recorded = scores[section.id] ?? 0;
+    /*
+      Nothing to disagree with yet. Reading an unscored section as 0 would announce that "the
+      score is 0/10" about a section that has no score, and approving refuses it for the plainer
+      reason a moment later.
+    */
+    const recorded = scores[section.id] ?? null;
+    if (recorded === null) return [];
+
     const possible = section.scorePossible ?? 0;
     if (stated.earned === recorded && stated.possible === possible) return [];
 
@@ -1046,16 +1063,21 @@ function DraftEditor({
    * field is sent as an edit or as null compares against the *model's* values, because
    * null is how an edit is discarded: typing a score back to what the model proposed
    * withdraws the edit rather than making a new one.
+   *
+   * The model's raw value, not that value or zero. On a hand-written draft there is no model
+   * value at all, so `section.scoreEarned` is null — and comparing a score of 0 against null-or-
+   * zero made a deliberate zero look like a withdrawn edit, which is the one score this form
+   * could not save.
    */
   async function saveEdits() {
     for (const section of changedSections) {
       const report = reports[section.id] ?? "";
-      const score = scores[section.id] ?? 0;
+      const score = scores[section.id] ?? null;
 
       await updateSection.mutateAsync({
         sectionId: section.id,
         reportMarkdown: report.trim() === (section.reportMarkdown ?? "").trim() ? null : report,
-        scoreEarned: score === (section.scoreEarned ?? 0) ? null : score,
+        scoreEarned: score === section.scoreEarned ? null : score,
       });
     }
   }
@@ -1118,12 +1140,12 @@ function DraftEditor({
           <SectionEditor
             key={section.id}
             section={section}
-            score={scores[section.id] ?? 0}
+            score={scores[section.id] ?? null}
             report={reports[section.id] ?? ""}
             onScore={(value) => setScores((prev) => ({ ...prev, [section.id]: value }))}
             onReport={(value) => setReports((prev) => ({ ...prev, [section.id]: value }))}
             onReset={() => {
-              setScores((prev) => ({ ...prev, [section.id]: effectiveScore(section) ?? 0 }));
+              setScores((prev) => ({ ...prev, [section.id]: effectiveScore(section) }));
               setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? "" }));
             }}
             unsaved={changedSections.some((changed) => changed.id === section.id)}
@@ -1393,9 +1415,10 @@ function SectionEditor({
   unsaved,
 }: {
   section: Section;
-  score: number;
+  /** Null when this section has no score yet, which the empty box says and a 0 does not. */
+  score: number | null;
   report: string;
-  onScore: (value: number) => void;
+  onScore: (value: number | null) => void;
   onReport: (value: string) => void;
   onReset: () => void;
   /** True when this section differs from what is stored. */
@@ -1441,9 +1464,24 @@ function SectionEditor({
                 min={0}
                 max={possible}
                 step="any"
-                value={score}
+                /*
+                  Empty for a section with no score yet, rather than a 0 nobody typed. A hand-
+                  written draft opens with every box empty, which is what asks to be filled in —
+                  a box reading 0 looks like a score that has already been decided.
+                */
+                value={score ?? ""}
                 onChange={(event) => {
-                  const parsed = Number(event.target.value);
+                  const raw = event.target.value;
+                  /*
+                    Clearing the box means "not scored", not zero. `Number("")` is 0, so without
+                    this the two are the same keystroke — and they are the distinction the whole
+                    form now rests on.
+                  */
+                  if (raw.trim() === "") {
+                    onScore(null);
+                    return;
+                  }
+                  const parsed = Number(raw);
                   if (Number.isNaN(parsed)) return;
                   onScore(Math.max(0, Math.min(possible, parsed)));
                 }}

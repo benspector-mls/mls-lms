@@ -117,6 +117,68 @@ export function effectiveSection(section: {
 }
 
 /**
+ * Why a draft may not be released yet, or null when it is ready.
+ *
+ * **A score is required on every section. Written feedback is not.**
+ *
+ * The score is what the gradebook records, what completion is judged against, and the one thing
+ * no other place can supply — so a section without one cannot be released. A hand-graded draft
+ * starts with every box empty, and releasing that would record a zero nobody chose. A score of
+ * zero *is* a score: zero for an empty document is a grade an instructor is entitled to give, so
+ * the test is `=== null` and never a falsiness check — the same hazard `effectiveSection` above
+ * is written around.
+ *
+ * Feedback is optional because it is frequently written somewhere else. An instructor grading a
+ * Google Doc leaves their comments in the document, where the student is already reading, and
+ * repeating them here would be transcription. The student's own page says a section had no
+ * written feedback rather than showing them a blank.
+ *
+ * The exception is a submission with a pull request. There the comment this posts *is* how the
+ * feedback reaches the student, so a grade with no text anywhere would post an empty comment —
+ * and an empty comment is not merely unhelpful. It fails to send, `deliveryOutcome` reads the
+ * absent comment id as a delivery that failed, and the submission then sits in
+ * `comment_not_posted` permanently with a retry that cannot succeed. One section with something
+ * in it is enough; `buildFeedbackMarkdown` drops the empty ones.
+ *
+ * Pure, and here rather than in `approve.ts`, so the rule can be read and tested without a
+ * database or a GitHub client behind it.
+ */
+export function blankSectionRefusal(
+  sections: { sectionType: string; reportMarkdown: string | null; scoreEarned: number | null }[],
+  options: {
+    /**
+     * Whether this submission has a pull request to post the feedback comment to.
+     * `hasSomewhereToPost` above is what answers it at the call site.
+     */
+    hasPullRequest: boolean;
+  },
+): string | null {
+  const noScore = sections.filter((section) => section.scoreEarned === null);
+
+  if (noScore.length > 0) {
+    const named =
+      `${noScore.map((section) => `"${section.sectionType}"`).join(", ")} ` +
+      `${noScore.length === 1 ? "has" : "have"}`;
+
+    return (
+      `${named} no score. Every section needs one before releasing — a section left blank ` +
+      `would be recorded as a zero nobody chose. Written feedback is optional and a score of ` +
+      `zero is a real grade; the score itself is what cannot be missing.`
+    );
+  }
+
+  if (options.hasPullRequest && sections.every((section) => !section.reportMarkdown?.trim())) {
+    return (
+      `Every section is blank, and this grade posts a comment to the pull request — which is ` +
+      `where the student reads their feedback, so an empty one tells them nothing. Write ` +
+      `feedback in at least one section.`
+    );
+  }
+
+  return null;
+}
+
+/**
  * Joins each section's report into the single document posted to the pull request.
  *
  * Sections are separated by a rule rather than merged, because they are graded against different

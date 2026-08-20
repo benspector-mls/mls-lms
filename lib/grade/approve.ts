@@ -7,6 +7,7 @@ import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { postOrUpdatePrComment } from "../github/prs";
 import {
+  blankSectionRefusal,
   buildFeedbackMarkdown,
   deliveryOutcome,
   effectiveSection,
@@ -59,6 +60,7 @@ export class ApprovalError extends Error {
  * and the same reason, as `statedScoreInText` below.
  */
 export {
+  blankSectionRefusal,
   buildFeedbackMarkdown,
   deliveryOutcome,
   effectiveSection,
@@ -201,26 +203,15 @@ export async function approveDraft(params: {
   const sections = draft.sections.map(effectiveSection);
 
   /*
-    A section nobody has filled in. This is what a hand-graded draft starts as — blank text
-    and no score — and releasing one would record a real zero for work nobody assessed and
-    show the student an empty report. Refused rather than treated as 0, because the two are
-    indistinguishable downstream once written and only one of them is ever meant.
-
-    An AI-graded section cannot reach this: the model's output is schema-constrained to carry
-    both, and `updateSection` refuses empty text rather than storing it.
+    Every section needs a score; written feedback is optional except where there is a pull
+    request to post it to. The rule is `blankSectionRefusal` in `./delivery`, pure and
+    unit-tested there, and the pull request question is answered by the same `hasSomewhereToPost`
+    the delivery step below uses — so approval cannot allow a comment that posting then refuses.
   */
-  const unscored = sections.filter(
-    (section) => section.scoreEarned === null || !section.reportMarkdown?.trim(),
-  );
-
-  if (unscored.length > 0) {
-    throw new ApprovalError(
-      `${unscored.map((section) => `"${section.sectionType}"`).join(", ")} ` +
-        `${unscored.length === 1 ? "has" : "have"} no score or no feedback written yet. ` +
-        `Fill in every section before releasing — a blank section would be recorded as a ` +
-        `zero and shown to the student as an empty report.`,
-    );
-  }
+  const blank = blankSectionRefusal(sections, {
+    hasPullRequest: hasSomewhereToPost(submission),
+  });
+  if (blank) throw new ApprovalError(blank);
 
   // The number in the prose against the number being recorded. An instructor revising a
   // report is expected — writing "27/30" into the text while the recorded score stays

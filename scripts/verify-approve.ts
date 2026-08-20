@@ -505,7 +505,7 @@ async function handGradedLifecycle(db: Db) {
           await asInstructor.gradingDrafts.approve({ draftId: opened.id });
         } catch (err) {
           blankApproval =
-            err instanceof Error && /no score or no feedback/.test(err.message)
+            err instanceof Error && /has no score/.test(err.message)
               ? "refused"
               : `unexpected: ${err instanceof Error ? err.message : String(err)}`;
         }

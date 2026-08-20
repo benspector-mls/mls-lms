@@ -1,4 +1,5 @@
 import {
+  blankSectionRefusal,
   buildFeedbackMarkdown,
   deliveryOutcome,
   effectiveSection,
@@ -192,5 +193,121 @@ describe("statedScoreInText", () => {
     // The rule the interface's warning and the server's refusal both rest on, which is why
     // this function has no database or network imports: they are literally the same function.
     expect(statedScoreInText("You scored 11/15 on this, well done.")).toBeNull();
+  });
+});
+
+/**
+ * What may not be released yet.
+ *
+ * Two rules, and the cases exist because each has a near neighbour it must not swallow. A score
+ * of **zero** is not the same as **no score at all**: a student who hands in an empty document
+ * has earned a zero, and an instructor has to be able to record one. And **blank feedback** is a
+ * legitimate choice — the comments frequently live in the Google Doc the instructor is reading —
+ * except on a submission whose feedback reaches the student as a pull request comment, where
+ * posting nothing would fail to send and strand the grade in `comment_not_posted` forever.
+ */
+describe("blankSectionRefusal", () => {
+  const noPr = { hasPullRequest: false };
+  const withPr = { hasPullRequest: true };
+  const filled = { sectionType: "Delivery", reportMarkdown: "Clear throughout.", scoreEarned: 8 };
+
+  describe("the score, which is required", () => {
+    it("allows a section that has one", () => {
+      expect(blankSectionRefusal([filled], noPr)).toBeNull();
+    });
+
+    it("allows a deliberate zero", () => {
+      expect(
+        blankSectionRefusal(
+          [{ sectionType: "Technical Content", reportMarkdown: "No content.", scoreEarned: 0 }],
+          noPr,
+        ),
+      ).toBeNull();
+    });
+
+    it("allows a deliberate zero with no feedback beside it", () => {
+      // Both halves of the new rule at once, and the combination an instructor grading an empty
+      // Google Doc actually types: a zero, and their reasons left in the document.
+      expect(
+        blankSectionRefusal(
+          [{ sectionType: "Technical Content", reportMarkdown: null, scoreEarned: 0 }],
+          noPr,
+        ),
+      ).toBeNull();
+    });
+
+    it("refuses a section with none, whatever the feedback says", () => {
+      const refusal = blankSectionRefusal(
+        [{ sectionType: "Delivery", reportMarkdown: "Rushed in places.", scoreEarned: null }],
+        noPr,
+      );
+      expect(refusal).toContain('"Delivery" has no score');
+    });
+
+    it("groups several sections and agrees with the verb", () => {
+      const refusal = blankSectionRefusal(
+        [
+          filled,
+          { sectionType: "Delivery", reportMarkdown: "Rushed.", scoreEarned: null },
+          { sectionType: "Technical Content", reportMarkdown: "Thin.", scoreEarned: null },
+        ],
+        noPr,
+      );
+      expect(refusal).toContain('"Delivery", "Technical Content" have no score');
+    });
+
+    it("says a zero is a real grade, so the refusal is not read as banning one", () => {
+      const refusal = blankSectionRefusal(
+        [{ sectionType: "Delivery", reportMarkdown: null, scoreEarned: null }],
+        noPr,
+      );
+      expect(refusal).toContain("a score of zero is a real grade");
+    });
+
+    it("is the refusal given first, because it applies everywhere", () => {
+      // A draft that is missing scores AND would post an empty comment is told about the scores.
+      // Fixing them is the instructor's next action either way, and two refusals in one message
+      // is a wall of text about a form with two empty boxes.
+      const refusal = blankSectionRefusal(
+        [{ sectionType: "Delivery", reportMarkdown: null, scoreEarned: null }],
+        withPr,
+      );
+      expect(refusal).toContain("no score");
+      expect(refusal).not.toContain("posts a comment");
+    });
+  });
+
+  describe("the feedback, which is optional", () => {
+    it("allows every section blank where there is no pull request", () => {
+      expect(
+        blankSectionRefusal(
+          [
+            { sectionType: "Delivery", reportMarkdown: null, scoreEarned: 7 },
+            { sectionType: "Technical Content", reportMarkdown: "  ", scoreEarned: 9 },
+          ],
+          noPr,
+        ),
+      ).toBeNull();
+    });
+
+    it("refuses every section blank where there is one", () => {
+      // Not unhelpfulness but a delivery that cannot happen: an empty comment body fails to
+      // send, and the submission then sits in `comment_not_posted` with a retry that cannot win.
+      const refusal = blankSectionRefusal(
+        [{ sectionType: "Delivery", reportMarkdown: "   ", scoreEarned: 7 }],
+        withPr,
+      );
+      expect(refusal).toContain("posts a comment to the pull request");
+    });
+
+    it("allows a pull request grade where one section has something in it", () => {
+      // `buildFeedbackMarkdown` drops the empty ones, so the comment has content and posts.
+      expect(
+        blankSectionRefusal(
+          [filled, { sectionType: "Technical Content", reportMarkdown: null, scoreEarned: 0 }],
+          withPr,
+        ),
+      ).toBeNull();
+    });
   });
 });
