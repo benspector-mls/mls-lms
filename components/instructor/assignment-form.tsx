@@ -3,7 +3,16 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import * as React from "react";
-import { AlertTriangle, CheckCircle2, Eye, Loader2, Plus, Save } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  Loader2,
+  PencilLine,
+  Plus,
+  Save,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
@@ -219,6 +228,21 @@ function toDraft(state: FormState): unknown {
 
 const DEBOUNCE_MS = 600;
 
+/**
+ * Where the reference solution browser starts, and where it returns to when the answer key
+ * repository changes.
+ *
+ * The grading guides repository holds the answer keys under `answer-keys/`, and its root holds
+ * other things — the grading toolkit among them. Starting the browser one level in means an
+ * instructor walking to an assignment's folder begins where the modules are listed rather than
+ * scrolling past directories no assignment ever names.
+ *
+ * A starting point, not a rule. The schema accepts a folder at any depth, including the root,
+ * and the breadcrumb above the listing still reaches it in one click — which is what a
+ * repository holding a single assignment's solutions and nothing else needs.
+ */
+const ANSWER_KEYS_START_DIR = "answer-keys";
+
 export function AssignmentForm({
   courseId,
   existing,
@@ -413,8 +437,9 @@ function Editor({
     Two cases, and they differ:
 
     - The address carries a path: take it.
-    - It does not, but names a *different* repository than before: reset to the root, because a
-      directory from the previous repository almost certainly does not exist in this one.
+    - It does not, but names a *different* repository than before: reset to the starting
+      folder, because a directory from the previous repository almost certainly does not exist
+      in this one.
 
     Otherwise the directory is left alone, so an instructor who navigated somewhere keeps that
     place rather than being pulled back by an unrelated keystroke. Guarded on the exact pasted
@@ -432,7 +457,7 @@ function Editor({
 
     if (within) setState((prev) => (prev ? { ...prev, answerKeyDir: within } : prev));
     else if (changedRepository) {
-      setState((prev) => (prev ? { ...prev, answerKeyDir: "" } : prev));
+      setState((prev) => (prev ? { ...prev, answerKeyDir: ANSWER_KEYS_START_DIR } : prev));
     }
   }, [settled?.answerKeyRepo, setState]);
 
@@ -1054,15 +1079,20 @@ function Editor({
               ))}
 
               {/*
-                One grading mode per assignment, so only one of these is ever offered. A
-                mixed assignment is refused by the schema — the pipeline would report on some
-                of its sections and not others, and the assignment's point total would exceed
-                what approving could record — so the button that would build one is absent
-                rather than present and refused. Splitting the work into two assignments is
-                the answer, and it is the direction the curriculum is going anyway.
+                One grading mode per assignment. A mixed assignment is refused by the schema —
+                the pipeline would report on some of its sections and not others, and the
+                assignment's point total would exceed what approving could record — so a second
+                section can only ever be added in the mode this assignment is already in.
 
-                A kind with no repository has nothing for the pipeline to read, so hand
-                grading is its only mode and the choice never arises.
+                Which leaves the other mode to offer as a *switch* rather than as an addition,
+                and a repository assignment is offered both directions. Hand grading is always
+                available for one — a repository nobody wants a report on is still a repository
+                — and an instructor should not have to delete the model-graded section to
+                discover that. So the button says what it does: it replaces the sections above
+                with a single one the instructor scores, and the button beside it goes back.
+
+                A kind with no repository has nothing for the pipeline to read, so hand grading
+                is its only mode and no switch is offered.
               */}
               <div className="flex flex-wrap gap-2">
                 {isRepoKind(state.kind) && !hasManualSection && (
@@ -1085,24 +1115,47 @@ function Editor({
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      setState({
-                        ...state,
-                        sections: [
-                          ...state.sections,
-                          { grading: "manual", label: "", pointValue: 10 },
-                        ],
-                      })
+                      setState({ ...state, sections: [...state.sections, manualSection()] })
                     }
                   >
                     <Plus data-icon="inline-start" />
                     Section graded by hand
                   </Button>
                 )}
+                {isRepoKind(state.kind) && hasAiSection && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setState({ ...state, sections: [manualSection()] })}
+                  >
+                    <PencilLine data-icon="inline-start" />
+                    Grade this by hand instead
+                  </Button>
+                )}
+                {isRepoKind(state.kind) && hasManualSection && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setState({ ...state, sections: [aiSection({ rubrics: context.rubrics })] })
+                    }
+                  >
+                    <Sparkles data-icon="inline-start" />
+                    Have the model grade this instead
+                  </Button>
+                )}
               </div>
 
-              {hasManualSection && isRepoKind(state.kind) && (
+              {isRepoKind(state.kind) && hasManualSection && (
                 <p className="text-xs text-muted-foreground">
                   This assignment is graded by hand, so no report is generated for it.
+                </p>
+              )}
+
+              {isRepoKind(state.kind) && hasAiSection && (
+                <p className="text-xs text-muted-foreground">
+                  An assignment is graded one way or the other, never both. Switching to hand
+                  grading replaces the sections above with a single one you score yourself.
                 </p>
               )}
             </CardContent>
@@ -1441,16 +1494,31 @@ function FormSkeleton() {
   );
 }
 
+/**
+ * What a new section is worth until an instructor says otherwise.
+ *
+ * One point, because there is no number a form can guess that is right more often than it is
+ * wrong, and a wrong guess that looks deliberate is worse than an obvious placeholder. Thirty
+ * points reads as a decision somebody made; one point reads as a field waiting to be filled
+ * in, which is what it is.
+ */
+const DEFAULT_POINT_VALUE = 1;
+
 /** A new AI-graded section, with the rubric already matched to its type. */
 function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): SectionDraft {
   const type = "coding_algorithm" as const;
   return {
     grading: "ai",
     type,
-    pointValue: 30,
+    pointValue: DEFAULT_POINT_VALUE,
     rubricId: rubrics.find((r) => r.name === SECTION_TYPE_REGISTRY[type].rubricName)?.id ?? "",
     reportTemplate: "coding-fluency",
   };
+}
+
+/** A new hand-graded section. Unnamed, because what it is called is the instructor's to say. */
+function manualSection(): SectionDraft {
+  return { grading: "manual", label: "", pointValue: DEFAULT_POINT_VALUE };
 }
 
 /**
@@ -1488,8 +1556,9 @@ function blankDraft({
     dueAt: existingState?.dueAt ?? null,
     templateRepo: repo ? (existingState?.templateRepo ?? "") : "",
     answerKeyRepo: repo ? existingState?.answerKeyRepo || defaults.answerKeyRepo || "" : "",
-    // The root until an address with a path is pasted, or a folder is chosen below.
-    answerKeyDir: repo ? (existingState?.answerKeyDir ?? "") : "",
+    // Where the answer keys live until an address with a path is pasted, or a folder is
+    // chosen below.
+    answerKeyDir: repo ? (existingState?.answerKeyDir ?? ANSWER_KEYS_START_DIR) : "",
     // Follows the template's own name once one is named — see the effect in `Editor`.
     assignmentRepoName: repo ? (existingState?.assignmentRepoName ?? "") : "",
     githubOrg: repo ? existingState?.githubOrg || defaults.githubOrg || "" : "",
@@ -1515,7 +1584,7 @@ function blankDraft({
         : [aiSection({ rubrics })]
       : existingState?.sections.every((section) => section.grading === "manual")
         ? existingState.sections
-        : [{ grading: "manual", label: "", pointValue: 10 }],
+        : [manualSection()],
   };
 }
 
