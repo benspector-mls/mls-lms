@@ -8,6 +8,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:grade` | 101 | nothing — **now three suites under `tests/lib/grade/`** |
 | `verify:modules` | 35 | the database |
 | `verify:groups` | 46 | the database |
+| `verify:team-sets` | 32 | the database |
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
 | `verify:approve` | 48 → **53** | the database |
@@ -55,6 +56,12 @@ Its 28 need one active enrollment in a cohort that is still running, and a unit 
 **A number moves only when a script gains checks, and then it is written down here with both figures.** `verify:enrollment` went from 200 to 209 when the roster arrived: that somebody nobody expected is refused, that the screen says so before the button, that an instructor can write down who is expected, that the screen then offers the button, that pasting the same list twice adds nobody, that joining claims the entry, that a claimed entry cannot be removed, and — the two that hold the ordering in place — that a student already in the cohort is unaffected by having no entry, and that their screen still says they are in it. `verify:approve` went from 48 to 53 when batch generation added five: that a run can be claimed, that a second attempt on the same commit is refused, that another commit is separate work, that the no-commit case is claimed once too, and that an abandoned claim can be taken. The old figure stays beside the new one because the point of this file is that a count which changed for a reason looks exactly like one that changed by accident, unless somebody says which.
 
 **The first two rows are history rather than instructions.** `verify:sandbox` and `verify:grade` needed nothing — no database, no repository, no model — which is exactly what makes them unit tests rather than scripts, so their 142 assertions are now Jest cases and both scripts are gone. Nothing was dropped in the move: the sandbox suite carries 41 assertions and the three grading suites carry the other 101, in 100 cases, the one difference being that `hasTestEvidence`'s pair of checks share a case. The rows stay in the table because they are what the counts below were compared against, and because the next reader should know where those numbers went.
+
+**`verify:team-sets` is newer than this file's premise.** It was written with the feature rather than before it, so it has no pre-refactor figure to reproduce — 32 is simply what it reports today. It needs a course with an instructor and **three** distinct students, and it skips rather than passes without them: placement is a partition, and the case worth checking is moving somebody from one team to another, which with two people and two teams passes whether the move happened or a stale row survived. Three also makes "distribute evenly" uneven. Two of its groups skip on their own if the cohort has no assignment or no enrollment outside it, and a skip still exits non-zero.
+
+**It is the reason a live check existed before anything read a team set.** Three of the new tables' foreign keys are composite, so Prisma owns whole sets of columns and refuses a write naming one of them by hand. TypeScript does not catch it — excess-property checking does not reach the elements of an array built by a callback — so `teamSets.create` compiled and would have failed the first time an instructor pressed the button. Nothing but a script that actually writes could have found it.
+
+**Every refusal below the procedures gets its own transaction, and the first draft did not.** A duplicate name is a unique-constraint violation, which aborts the transaction it happens in, so sharing one meant nine later checks failed because the earlier one had worked. The same is true of all seven submission-level checks, which is why each rebuilds its fixture instead of sharing one.
 
 **The README's figures are older than these.** It records 43 for groups and 61 for resources where they now report 46 and 64 — the scripts grew and the prose did not. That is the whole reason this file exists: the number to compare against is the one the script prints today, not the one somebody wrote down once.
 

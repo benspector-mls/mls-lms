@@ -152,9 +152,15 @@ export const teamSetsRouter = createTRPCRouter({
           data: {
             courseId: input.courseId,
             name: input.name,
+            /*
+              `courseId` is deliberately absent from each team. `Team.teamSet` is a composite
+              relation over `(teamSetId, courseId)`, so Prisma owns both columns and fills them
+              from the parent — and rejects a nested create that sets either by hand. That is
+              also the guarantee: a team cannot be created into a course its set does not belong
+              to, because nothing here gets to say which course it is.
+            */
             teams: {
               create: Array.from({ length: input.teamCount }, (_, index) => ({
-                courseId: input.courseId,
                 name: `Team ${index + 1}`,
                 position: index,
               })),
@@ -240,13 +246,17 @@ export const teamSetsRouter = createTRPCRouter({
       });
       const position = (last?.position ?? -1) + 1;
 
+      /*
+        Connected rather than given a `teamSetId` and a `courseId`, for the reason `create` above
+        omits `courseId`: the two columns belong to one composite relation, so Prisma sets them
+        together from the set named here or refuses.
+      */
       try {
         return await ctx.db.team.create({
           data: {
-            teamSetId: set.id,
-            courseId: set.courseId,
             name: `Team ${position + 1}`,
             position,
+            teamSet: { connect: { id_courseId: { id: set.id, courseId: set.courseId } } },
           },
           select: { id: true, name: true, position: true },
         });
