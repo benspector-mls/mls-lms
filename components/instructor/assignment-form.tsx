@@ -520,30 +520,17 @@ function Editor({
       <PageHeader
         title={existing ? `Edit ${existing.title}` : "New assignment"}
         description={`${context.course.name} · ${context.course.cohortTerm}`}
+        /*
+          The point total, and nothing to press. It is a readout of what the sections below add up
+          to, which is worth seeing while they are edited; the button that commits them is at the
+          foot of the form, after the fields it writes.
+        */
         actions={
-          <div className="flex items-center gap-2">
-            {state && (
-              <Badge variant="outline" className="font-normal tabular-nums">
-                {pointTotal} pts
-              </Badge>
-            )}
-            <Button
-              disabled={!canSave}
-              onClick={() => {
-                if (!state) return;
-                const draft = toDraft(state);
-                if (existing) update.mutate({ assignmentId: existing.id, draft });
-                else create.mutate({ courseId, draft });
-              }}
-            >
-              {busy ? (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <Save data-icon="inline-start" />
-              )}
-              {existing ? "Save" : "Create"}
-            </Button>
-          </div>
+          state && (
+            <Badge variant="outline" className="font-normal tabular-nums">
+              {pointTotal} pts
+            </Badge>
+          )
         }
       />
 
@@ -1074,6 +1061,35 @@ function Editor({
           </Card>
 
           <Findings errors={errors} warnings={warnings} checking={!checked} />
+
+          {/*
+            At the end, after every field it commits and after the findings that say why it is
+            disabled.
+
+            In the header it was the first thing on the screen and the last thing that made sense:
+            an instructor met "Create" before being asked what they were creating, and a disabled
+            button at the top with its explanation at the bottom is a question answered three
+            screens away from where it is asked. Here the order reads: fill this in, here is what
+            is still wrong with it, now create it.
+          */}
+          <div className="flex items-center justify-end">
+            <Button
+              disabled={!canSave}
+              onClick={() => {
+                if (!state) return;
+                const draft = toDraft(state);
+                if (existing) update.mutate({ assignmentId: existing.id, draft });
+                else create.mutate({ courseId, draft });
+              }}
+            >
+              {busy ? (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <Save data-icon="inline-start" />
+              )}
+              {existing ? "Save" : "Create"}
+            </Button>
+          </div>
         </>
       )}
     </div>
