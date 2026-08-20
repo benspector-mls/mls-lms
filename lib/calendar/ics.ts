@@ -34,10 +34,9 @@ const MAX_OCTETS = 75;
  * grew up on; `NAME` is the property RFC 7986 added to replace it. Emitting one risks a client that
  * only knows the other, and the cost of both is a line.
  *
- * **A client is free to ignore both.** Google Calendar in particular names a URL subscription after
- * its address and leaves renaming to the person who added it — so a calendar called
- * `https://…/api/calendar/…` is Google's behaviour rather than a missing property, and the fix is
- * the pencil in Google's own sidebar.
+ * **Google reads this and shows it**, checked against a real subscription on a deployment. A
+ * subscription displaying `https://…/api/calendar/…` instead has never successfully fetched — which
+ * is what a feed on a local address always looks like, since Google fetches from its own servers.
  */
 export const CALENDAR_NAME = "Marcy Lab School — due dates";
 

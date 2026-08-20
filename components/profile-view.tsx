@@ -372,7 +372,8 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
           <p className="text-xs text-muted-foreground">
             A calendar checks for changes roughly once a day, so a deadline that moves tonight may
             not reach yours until tomorrow. This application is always right about a due date; your
-            calendar catches up.
+            calendar catches up. Google offers no way to check now — if you need a change
+            immediately, remove the calendar and add the same address again.
           </p>
 
           {confirming ? (

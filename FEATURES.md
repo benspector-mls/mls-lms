@@ -267,9 +267,11 @@ Press **Create my calendar link** and you get an address. **Copy** puts it on yo
 
 **Subscribe to the address — do not import a file.** Every calendar application offers both, a click apart, and the wrong one looks like it worked: importing copies today's deadlines in once and never updates again. In Google Calendar the right one is **Other calendars → From URL**; in Apple Calendar it is **File → New Calendar Subscription**. The **Add to Google Calendar** button on your Profile takes the correct path for you, and opening the address in a browser does not — a browser offers you the file, which is the import route.
 
-**Google Calendar will call it by its address rather than by its name**, showing `https://…/api/calendar/…` in your list of calendars. That is Google's behaviour for any calendar added by URL and there is nothing this application can send to change it — rename it in Google's own sidebar and the new name sticks. Apple Calendar and Outlook pick the name up on their own.
+It arrives called **Marcy Lab School — due dates**, and you can rename it in your own calendar without breaking anything.
 
 **A calendar checks for changes about once a day.** So a deadline that moves tonight may not show in yours until tomorrow, and this application is always the thing that is right about a due date. If something looks wrong in your calendar, your dashboard is the answer.
+
+**Google gives you no way to make it check now**, and nothing this application sends can hurry it — the feed asks to be re-read every twelve hours and Google decides for itself. If you need a change immediately, remove the calendar and add the same address again, which fetches it there and then; a subscription holds nothing of its own, so you lose nothing by doing that. **Apple Calendar and Outlook let you choose the interval**, down to a few minutes, which is worth knowing if you want your calendar to keep up rather than catch up.
 
 ### Your course
 
