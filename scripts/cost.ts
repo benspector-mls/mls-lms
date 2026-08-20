@@ -22,35 +22,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
 
-/**
- * Published rates in US dollars per million tokens, input and output.
- *
- * Sonnet is the deployed default and Opus is here because the first cost table was
- * measured on it, so a comparison between the two tiers stays reproducible rather than
- * remembered. Keyed by the exact model identifier the provider records in
- * `model_metadata.provider`, so a model that has no entry is reported as unpriced
- * instead of being silently costed at another tier's rate.
- */
-const RATES: Record<string, { input: number; output: number }> = {
-  "claude-sonnet-5": { input: 2, output: 10 },
-  "claude-opus-5": { input: 5, output: 25 },
-};
-
-/**
- * Cached input is billed at roughly a tenth of the input rate, and writing the cache at
- * 1.25 times it on the five-minute lifetime this pipeline uses. Both are multipliers on
- * whatever the model's input rate is, which is why they are factors here rather than
- * four more numbers per model.
- */
-const CACHE_READ_FACTOR = 0.1;
-const CACHE_WRITE_FACTOR = 1.25;
-
-type Usage = {
-  promptTokens: number;
-  cachedPromptTokens: number;
-  cacheWriteTokens: number;
-  completionTokens: number;
-};
+import { money, priceUsage, type Usage } from "../lib/grade/pricing";
 
 type Priced = {
   when: Date;
@@ -83,30 +55,6 @@ function splitProvider(provider: string): { model: string; effort: string } | nu
   return { model: parts[1], effort: parts[2] };
 }
 
-function priceOne(
-  usage: Usage,
-  model: string,
-): { inputCost: number; outputCost: number; normalizedTotal: number } | null {
-  const rate = RATES[model];
-  if (!rate) return null;
-
-  const perToken = rate.input / 1_000_000;
-  const inputCost =
-    usage.promptTokens * perToken +
-    usage.cachedPromptTokens * perToken * CACHE_READ_FACTOR +
-    usage.cacheWriteTokens * perToken * CACHE_WRITE_FACTOR;
-  const outputCost = usage.completionTokens * (rate.output / 1_000_000);
-
-  // The cacheable prefix is whichever count is non-zero: a run either read it or wrote
-  // it, never both. Priced here as a read in either case.
-  const cacheable = usage.cachedPromptTokens + usage.cacheWriteTokens;
-  const normalizedTotal =
-    usage.promptTokens * perToken + cacheable * perToken * CACHE_READ_FACTOR + outputCost;
-
-  return { inputCost, outputCost, normalizedTotal };
-}
-
-const money = (dollars: number) => `$${dollars.toFixed(4)}`;
 const pct = (part: number, whole: number) =>
   whole === 0 ? "n/a" : `${Math.round((part / whole) * 100)}%`;
 
@@ -159,7 +107,7 @@ async function main() {
       completionTokens: meta.usage.completionTokens ?? 0,
     };
 
-    const cost = priceOne(usage, split.model);
+    const cost = priceUsage(usage, split.model);
     if (!cost) {
       unpriced.add(split.model);
       continue;

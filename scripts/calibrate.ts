@@ -21,6 +21,8 @@
  */
 import { config as loadEnv } from "dotenv";
 
+import { money, priceUsage, type PricedUsage, type Usage } from "../lib/grade/pricing";
+
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
 
@@ -55,6 +57,17 @@ const CALIBRATION_PAIRS: Record<string, { answerKeyDir: string }> = {
     answerKeyDir: "answer-keys/mod-4-dom/swe-checkpoint-summative-1-4/short-response-solution",
   },
   "4": { answerKeyDir: "answer-keys/mod-6-databases/swe-6-1-sql-basics-sr" },
+  /*
+    Pair 5 shares pair 4's assignment, questions, and key on purpose. Resemblance between two
+    held-out pairs is harmless — only pair 1 is in the prompt, so only resemblance to *it* can
+    be answered from memory — and holding the questions constant makes writing quality the
+    variable rather than topic difficulty.
+
+    It is the sample that exercises the writing band: strong technical work with an unclosed
+    backtick and a missing word, which is the first submission on record to fail the markdown
+    axis and the first to sit above the completion threshold on this assignment.
+  */
+  "5": { answerKeyDir: "answer-keys/mod-6-databases/swe-6-1-sql-basics-sr" },
 };
 
 /** What an instructor's hand-written report says, pulled out of its markdown. */
@@ -147,6 +160,16 @@ async function main() {
   console.log(`Provider  ${generator.name}\n`);
 
   let mismatches = 0;
+  /*
+    Priced per pair as well as summed, because the two questions calibration answers are
+    "does it agree" and "what did agreeing cost", and only the first was ever reported. A
+    tier comparison without a price is half an answer, and the price cannot be recovered
+    afterwards: this harness writes no draft, so `npm run cost` has no row to read.
+
+    The model identifier comes from the response rather than from the provider name, so a
+    run pointed at a tier by environment variable is priced as the tier that answered.
+  */
+  const priced: { pair: string; model: string; usage: Usage; cost: PricedUsage }[] = [];
 
   for (const pair of pairs) {
     const [submission, expectedMarkdown] = await Promise.all([
@@ -206,11 +229,29 @@ async function main() {
     const actual = response.output;
     const items = actual.rubricItems;
 
+    // The provider reports the two cache counts as optional, because a provider that does
+    // not cache omits them rather than reporting zero. Zero is the right reading for
+    // pricing either way, and normalizing here keeps the arithmetic free of that question.
+    const usage: Usage = {
+      promptTokens: response.usage.promptTokens,
+      completionTokens: response.usage.completionTokens,
+      cachedPromptTokens: response.usage.cachedPromptTokens ?? 0,
+      cacheWriteTokens: response.usage.cacheWriteTokens ?? 0,
+    };
+    const cost = priceUsage(usage, response.modelId);
+    if (cost) priced.push({ pair: pair.n, model: response.modelId, usage, cost });
+
     // The same cross-check the pipeline runs. Without it this harness would report a
     // score the real system would have refused to show anyone, and compare it against
     // an instructor's as though the two were alternatives. They are not: a report that
     // fails the cross-check never reaches a student at all.
-    const check = crossCheck(actual, { tests: null, tamperedPaths: [] });
+    const check = crossCheck(actual, {
+      tests: null,
+      tamperedPaths: [],
+      // The same maximum the prompt was given, so a report scored out of a different one is
+      // reported here rather than silently compared against the instructor's on another scale.
+      pointValue: expected.total?.possible ?? 15,
+    });
     const actualTechnical = sumCriterion(items, (c) => c.includes("technical"));
     const actualWriting = sumCriterion(items, (c) => c.includes("writing"));
     const actualFlag = actual.flags.includes("MECHANICAL");
@@ -248,6 +289,17 @@ async function main() {
         (check.needsManualReview
           ? `WOULD BE HELD: ${check.findings.map((f) => f.code).join(", ")}`
           : "passes"),
+    );
+    // Both bases, for the reason given on `normalizedTotal`: within one run the first pair
+    // on an assignment writes the cache and the rest read it, so the billed figures alone
+    // would say more about pair order than about the tier.
+    console.log(
+      `  cost            ${"".padEnd(15)} ` +
+        (cost
+          ? `${money(cost.total)} billed, ${money(cost.normalizedTotal)} on a hit  ` +
+            `(${usage.completionTokens} out, ` +
+            `${usage.cacheWriteTokens > 0 ? "cache written" : "cache read"})`
+          : `unpriced — ${response.modelId} has no entry in RATES`),
     );
 
     // Reported separately from the score comparison, and first, because it changes
@@ -297,6 +349,23 @@ async function main() {
     }
 
     console.log(`\n${"─".repeat(74)}\n${actual.reportMarkdown}\n`);
+  }
+
+  if (priced.length > 0) {
+    const sum = (pick: (p: (typeof priced)[number]) => number) =>
+      priced.reduce((running, p) => running + pick(p), 0);
+    const billed = sum((p) => p.cost.total);
+    const onHit = sum((p) => p.cost.normalizedTotal);
+    console.log(`${"═".repeat(74)}`);
+    console.log(
+      `Cost      ${priced.length} report${priced.length === 1 ? "" : "s"} on ${priced[0].model}  ` +
+        `${money(billed)} billed, ${money(onHit)} on a hit  ` +
+        `(${money(onHit / priced.length)} a report)`,
+    );
+    console.log(
+      `          ${sum((p) => p.usage.completionTokens).toLocaleString()} output tokens, ` +
+        `${Math.round((sum((p) => p.cost.outputCost) / billed) * 100)}% of the bill`,
+    );
   }
 
   // Deliberately not an exit code. A one-point difference on a subjective writing
