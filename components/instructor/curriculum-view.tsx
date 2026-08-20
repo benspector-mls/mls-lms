@@ -229,7 +229,6 @@ function UnitSection({
   onRemove: () => void;
 }) {
   const meta = CATEGORY_META[unit.category];
-  const drafts = unit.assignments.filter((a) => a.distributedAt === null).length;
   const [open, setOpen] = React.useState(unit.assignments.length > 0 || unit.resources.length > 0);
   const [name, setName] = React.useState(unit.name);
   const [addingResource, setAddingResource] = React.useState(false);
@@ -302,9 +301,6 @@ function UnitSection({
                     {meta.noun}
                   </Badge>
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold">{unit.name}</span>
-                  <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-                    {unitSummary(unit, drafts)}
-                  </span>
                 </CollapsibleTrigger>
               </h2>
 
@@ -372,9 +368,14 @@ function UnitSection({
                 The word follows the category, so a project's list reads "Deliverables" and an
                 assessment's "Parts". That is the vocabulary every other screen uses for the work
                 inside a unit, and it comes from one place rather than being chosen here.
+
+                The count is part of the heading — "2 assignments", "3 deliverables" — rather than
+                a figure in the unit's header row. The header row named the unit and gave four
+                numbers about it, and a reader counting the assignments had to hold the label from
+                one line and the number from another. Here the number sits on the list it counts.
               */}
               <h3 className="px-3 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {CATEGORY_META[unit.category].partPluralNoun}
+                {partCount(unit.category, unit.assignments.length)}
               </h3>
               <ul className="divide-y divide-border">
                 {unit.assignments.map((assignment) => (
@@ -420,7 +421,7 @@ function UnitSection({
                 deadline to a title.
               */}
               <h3 className="px-3 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Resources
+                {unit.resources.length} {unit.resources.length === 1 ? "resource" : "resources"}
               </h3>
               <ul className="divide-y divide-border">
                 {unit.resources.map((resource) => (
@@ -452,15 +453,4 @@ function UnitSection({
       />
     </Collapsible>
   );
-}
-
-/** "6 assignments · 2 drafts · 3 resources", in the words of the category. */
-function unitSummary(unit: Unit, drafts: number): string {
-  const parts: string[] = [];
-  if (unit.assignments.length > 0) parts.push(partCount(unit.category, unit.assignments.length));
-  if (drafts > 0) parts.push(`${drafts} draft${drafts === 1 ? "" : "s"}`);
-  if (unit.resources.length > 0) {
-    parts.push(`${unit.resources.length} resource${unit.resources.length === 1 ? "" : "s"}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : "Nothing yet";
 }
