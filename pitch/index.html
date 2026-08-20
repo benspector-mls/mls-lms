@@ -1232,7 +1232,7 @@
             <ul>
               <li><strong>Nothing grades itself when a student pushes.</strong> A person starts it</li>
               <li><strong>No summary of one student across a term.</strong> You read down their record</li>
-              <li><strong>You cannot write your own rubrics yet.</strong> Four fixed kinds, all coding — which is why a resume gets no AI report</li>
+              <li><strong>You cannot write your own rubrics yet.</strong> Four fixed kinds, all coding — which is why a resume gets no AI report. <strong>Slide 15b is what writing one would take</strong></li>
               <li><strong>The code is read on GitHub, in another tab.</strong> No diff next to the report. Top of the roadmap</li>
             </ul>
             <p class="note">
@@ -1248,6 +1248,57 @@
             <li>The GCF moved off it too, and it was never on it — a fellow's CodeSignal results could not be expressed here at all until this month. Slide 12b</li>
             <li>Three are decisions, not gaps: no email, no notifications, no automatic grading</li>
             <li>On notifications: ask me for them rather than let me build the wrong version. The cheapest useful answer is on the roadmap — a calendar feed, no vendor, no credentials</li>
+          </ul>
+        </aside>
+      </section>
+
+      <!-- ============================================================ 15b -->
+      <section class="slide">
+        <p class="eyebrow">Slide 15b</p>
+        <h2>What it took to make one rubric gradeable, and who did that work</h2>
+        <div class="rule"></div>
+        <div class="body">
+          <div class="col dense">
+            <p class="eyebrow" style="margin-bottom: 6px">The method: mark it by hand, then compare</p>
+            <ul>
+              <li><strong>Five submissions were graded by an instructor by hand</strong>, then graded again by the pipeline and the two reports read side by side. Where they disagreed, <strong>the rubric was usually the thing that was wrong</strong></li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">What the rubric had to change, and why</p>
+            <ul>
+              <li><strong>Adjectives became counts.</strong> "Demonstrates deep understanding" and "minor errors" cannot be checked by anybody, so they became a count of defects: none is a 3, exactly one is a 2, two or three is a 1</li>
+              <li><strong>A missing required idea had to be named as a defect.</strong> The rubric described what a good answer contains and never said that omitting a required idea costs a point &mdash; so a correct answer that skipped one kept full marks</li>
+              <li><strong>The writing score went from five vague qualities to two checkable ones</strong>, and had to say out loud what is <em>feedback rather than a deduction</em>: a long-winded sentence, weak flow, a run-on. Without that line, every unpolished submission drifted a point down</li>
+            </ul>
+            <p class="eyebrow" style="margin: 14px 0 6px">And what the answer keys had to change</p>
+            <ul>
+              <li><strong>One checkable claim per line.</strong> A line asking for two things at once let a half-answer round up, because half a requirement is not a missing one</li>
+              <li><strong>"Bonus" items had to come out.</strong> Listed among the things to look for, they were read as required and cost students a point</li>
+            </ul>
+          </div>
+          <div class="col narrow dense">
+            <div class="punch">The expensive input is an instructor's marking, not the model.</div>
+            <ul style="margin-top: 16px">
+              <li><strong>Four revisions of the rubric</strong>, each one checked by re-running the same five submissions</li>
+              <li><strong>Each check is about four minutes and about forty cents.</strong> So the cost of this work is the hand marking, and it is paid once per rubric rather than once per assignment</li>
+              <li><strong>It ends up better for students either way.</strong> Every change above makes the rubric more checkable by a human marker too &mdash; a student can be told which requirement they missed, rather than which adjective they fell short of</li>
+            </ul>
+            <p class="note">
+              <strong>What this says about non-coding work.</strong> The discipline transfers: a
+              resume or a reflection needs the same countable bands and the same one-claim-per-line
+              key, plus a handful of submissions somebody has already marked. <strong>What does not
+              transfer is reading the artefact</strong> &mdash; a slide deck or a recorded
+              presentation is not text the pipeline can read today, so start with the written work.
+            </p>
+          </div>
+        </div>
+        <div class="slidenum">15b</div>
+        <aside class="notes">
+          <ul>
+            <li><strong>This is the slide to point at if anybody asks for AI grading on their own assignment.</strong> The answer is not no; it is "mark five of them by hand first, and expect your rubric to change"</li>
+            <li>Every one of these faults was found by disagreement, not by anybody reasoning about the rubric in advance. I would not have predicted a single one of them</li>
+            <li>The one still open is the honest one to name: some keys ask for a specific term, and a student can demonstrate the idea without using the word. An instructor gives the point; the rubric as written takes it. That is a decision about each key &mdash; which items require the word &mdash; and it is curriculum work rather than engineering</li>
+            <li>Do not let this be heard as "the model needed dumbing down". The rubric was ambiguous, and two markers reading it would have disagreed with each other too</li>
+            <li>The numbers behind all of this are appendix A4, if challenged</li>
           </ul>
         </aside>
       </section>
@@ -1769,6 +1820,7 @@
         <aside class="notes">
           <ul>
             <li>Exit interview question 5: would you trust a grade this generated in front of a student who challenged it, and what would you need to show them?</li>
+            <li>These are the numbers; <strong>slide 15b is what produced them</strong> — the rubric and answer-key changes each of these runs was measuring</li>
             <li>An instructor who would not defend a generated grade will not use the feature, whatever they say about liking it</li>
             <li>Calibration is how the rubric got fixed, and it found the faults by disagreeing rather than by anybody reasoning about it: that a required item <em>absent</em> is a defect, that the answer key's list is a floor rather than a ceiling, and that a bundled item lets a half-answer round up</li>
             <li>The writing score is the part I would have expected to be softest, and it is now the firmest — the same figure as the instructor on all twenty-five runs, once the band counted two kinds of defect instead of five adjectives</li>
@@ -1796,7 +1848,7 @@
             <ul>
               <li><strong>6 · Salesforce synchronization</strong> — see slide 21</li>
               <li><strong>7 · Targeted assignments, and excusing a student</strong></li>
-              <li><strong>8 · AI grading for non-coding work</strong> — begins with instructor-authored rubrics</li>
+              <li><strong>8 · AI grading for non-coding work</strong> — begins with instructor-authored rubrics, and with the hand marking on slide 15b</li>
               <li><strong>9 · An evaluation of one student's growth across a term</strong></li>
               <li><strong>10 · A chat scoped to a student's own course context</strong></li>
             </ul>
