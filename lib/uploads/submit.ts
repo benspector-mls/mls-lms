@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { isLinkSubmitted } from "../assignments/spec";
 import type { AssignmentKind } from "../generated/prisma/enums";
 import type { db as globalDb } from "../prisma";
+import { handInState } from "../submissions/hand-in";
 import { checkUpload } from "./file-types";
 import { storeSubmissionUpload } from "./storage";
 
@@ -216,8 +217,13 @@ export async function storeAndRecordUpload(
       studentId: params.profileId,
       status: "NOT_STARTED",
     },
+    /*
+      Nothing written, so what comes back is the row as it stands — which is what the hand-in
+      rule below needs, and the reason no second read is made for it. On the create branch it
+      is the row just made: no submission time, never late, and not yet started.
+    */
     update: {},
-    select: { id: true },
+    select: { id: true, status: true, submittedAt: true, isLate: true },
   });
 
   const { path } = await storeSubmissionUpload({
@@ -236,17 +242,22 @@ export async function storeAndRecordUpload(
     bytes: params.bytes,
   });
 
-  const submittedAt = new Date();
+  const now = new Date();
+
+  /*
+    Status, submission time, and lateness together, by the same rule the link form and the pull
+    request webhook use: a file uploaded on top of a released grade is a revision, and it does
+    not move the time the work was first handed in.
+  */
+  const state = handInState({ current: submission, dueAt: params.assignment.dueAt, now });
 
   return db.submission.update({
     where: { id: submission.id },
     data: {
-      status: "SUBMITTED",
-      submittedAt,
-      // Computed here exactly as the webhook computes it for a pull request: against the
-      // assignment's own dueAt, and never late when there is no due date.
-      isLate: params.assignment.dueAt ? submittedAt > params.assignment.dueAt : false,
-      lastActivityAt: submittedAt,
+      ...state,
+      // When the work last moved, which is what orders the instructor's queue. The submission
+      // time inside `state` is the first hand-in and does not answer that.
+      lastActivityAt: now,
       uploadPath: path,
       uploadFilename: params.filename,
       uploadSizeBytes: params.bytes.byteLength,

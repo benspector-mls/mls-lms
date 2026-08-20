@@ -797,7 +797,21 @@ function useGenerateReport() {
  * point is the editor and the approval an AI-graded submission goes through, rather than a
  * separate path with its own way of being wrong.
  */
-function HandGradePanel({ submission, data }: { submission: QueueSubmission; data: DraftList }) {
+function HandGradePanel({
+  submission,
+  data,
+  revision = false,
+}: {
+  submission: QueueSubmission;
+  data: DraftList;
+  /**
+   * Whether this is a second round on work that has already been graded once, which changes
+   * every word on the card. "Grade this by hand" on a submission with a released report below it
+   * reads as an instruction to do the thing that has already been done, and says nothing about
+   * what happens to the feedback the student has already read.
+   */
+  revision?: boolean;
+}) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
@@ -808,12 +822,22 @@ function HandGradePanel({ submission, data }: { submission: QueueSubmission; dat
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <PencilLine className="size-4 text-violet-600 dark:text-violet-400" />
-          Grade this by hand
+          {revision ? "Grade the revised work" : "Grade this by hand"}
         </CardTitle>
         <CardDescription>
-          This assignment has nothing the pipeline can read, so there is no report to generate. Open
-          the student&apos;s work, then write the feedback and the score here. Nothing reaches the
-          student until you release it.
+          {revision ? (
+            <>
+              This student handed in revised work and asked for another look. Read what they
+              submitted above, then write this round&apos;s feedback and score. The report below is
+              kept as the record of the first round — the student keeps both.
+            </>
+          ) : (
+            <>
+              This assignment has nothing the pipeline can read, so there is no report to generate.
+              Open the student&apos;s work, then write the feedback and the score here. Nothing
+              reaches the student until you release it.
+            </>
+          )}
         </CardDescription>
       </CardHeader>
       {/*
@@ -832,7 +856,7 @@ function HandGradePanel({ submission, data }: { submission: QueueSubmission; dat
           ) : (
             <PencilLine data-icon="inline-start" />
           )}
-          {start.isPending ? "Opening…" : "Start grading"}
+          {start.isPending ? "Opening…" : revision ? "Start the next round" : "Start grading"}
         </Button>
       </CardContent>
     </Card>
@@ -1609,15 +1633,37 @@ function ReleasedBody({
 }) {
   const superseded = draft.status === "SUPERSEDED";
 
+  /*
+    Work handed in again since the grade went out, which is the one state in which a released
+    report is not the end of the story.
+
+    Two ways to be in it, because the kinds reach it differently and reading only the second
+    left hand-graded work with no way to be graded again: a student declaring a revision ready
+    is `RESUBMITTED` whatever the kind, while a repository can also have commits pushed past the
+    ones the grade describes. A document or an uploaded file has no commit, so the two columns
+    are both null and comparing them says nothing.
+  */
+  const revised =
+    submission.status === "RESUBMITTED" ||
+    (submission.headSha !== null && submission.headSha !== submission.gradedHeadSha);
+
   return (
     <div className="flex flex-col gap-4">
       {/*
         Revising a released grade means a new report, not an edit of this one. The student
         keeps both, which is the point of having a history at all.
+
+        Which of the two ways to start that round is offered is the same choice `DraftBody`
+        makes for a first grade, and made the same way: an assignment the pipeline cannot read
+        has no report to generate, so offering one here would be a button that cannot succeed.
       */}
-      {!superseded && submission.headSha !== submission.gradedHeadSha && (
-        <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
-      )}
+      {!superseded &&
+        revised &&
+        (data.manualOnly ? (
+          <HandGradePanel submission={submission} data={data} revision />
+        ) : (
+          <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
+        ))}
 
       <p className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
         As it was sent

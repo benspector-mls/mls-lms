@@ -367,6 +367,12 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
 function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date }) {
   const anyTestStudent = group.rows.some((row) => row.student.testStudentNumber !== null);
   const anyLate = group.rows.some((row) => row.isLate);
+  /*
+    So a pile of work says which of it is a second round. Grading a revision is a different job
+    from grading a first submission — the previous report and score are what the new one is
+    written against — and the row is the last place an instructor sees before opening the queue.
+  */
+  const anyRevised = group.rows.some((row) => row.status === "RESUBMITTED");
 
   /*
     The most recent thing that happened across the whole group, which is what "how stale is this
@@ -393,6 +399,11 @@ function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date 
           </span>
           {/* So a pile of work to grade says which of it is a rehearsal. */}
           {anyTestStudent && <TestStudentBadge />}
+          {anyRevised && (
+            <span className="shrink-0 rounded-md border border-violet-500/40 px-2 py-0.5 text-xs text-violet-600 dark:text-violet-400">
+              Resubmitted
+            </span>
+          )}
           {anyLate && (
             <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
               Late

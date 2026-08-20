@@ -14,6 +14,7 @@ import { teachableAssignment } from "@/lib/courses/scope";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { linkHost } from "@/lib/status";
+import { handInState } from "@/lib/submissions/hand-in";
 import { signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
@@ -220,16 +221,29 @@ export const submissionsRouter = createTRPCRouter({
         });
       }
 
-      const submittedAt = new Date();
+      const now = new Date();
 
       /*
-        `isLate` is computed here rather than read from anywhere, exactly as the webhook
-        computes it for a pull request: the comparison is against the assignment's own
-        `dueAt`, and a submission with no due date is never late.
+        Read before written, because what this hand-in means depends on the state the
+        submission is already in. Work handed in on top of a released grade is a revision and
+        has to enter the queue as one, and the time the work was first handed in is not
+        something a later hand-in may move. `handInState` is that rule, shared with the upload
+        route and the pull request webhook so the three ways work arrives cannot disagree
+        about it.
 
         The row may not exist yet. A student can reach this without having pressed Accept, so
-        an upsert is what keeps a missing row from being an error the student cannot act on.
+        an upsert is what keeps a missing row from being an error the student cannot act on,
+        and a null `current` is what tells the rule this is a first submission.
       */
+      const current = await ctx.db.submission.findUnique({
+        where: {
+          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
+        },
+        select: { status: true, submittedAt: true, isLate: true },
+      });
+
+      const state = handInState({ current, dueAt: assignment.dueAt, now });
+
       return ctx.db.submission.upsert({
         where: {
           assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
@@ -237,18 +251,17 @@ export const submissionsRouter = createTRPCRouter({
         create: {
           assignmentId: assignment.id,
           studentId: ctx.profile.id,
-          status: "SUBMITTED",
+          ...state,
           submittedUrl: input.submittedUrl,
-          submittedAt,
-          isLate: assignment.dueAt ? submittedAt > assignment.dueAt : false,
-          lastActivityAt: submittedAt,
+          lastActivityAt: now,
         },
         update: {
-          status: "SUBMITTED",
+          ...state,
           submittedUrl: input.submittedUrl,
-          submittedAt,
-          isLate: assignment.dueAt ? submittedAt > assignment.dueAt : false,
-          lastActivityAt: submittedAt,
+          // Now, not `submittedAt`: this is when the work last moved, and it is what orders
+          // the instructor's queue. A revision that carried the original submission time here
+          // would sit at the bottom of the pile it had just been added to.
+          lastActivityAt: now,
         },
         select: { id: true, status: true, submittedUrl: true, submittedAt: true, isLate: true },
       });

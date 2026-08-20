@@ -4,6 +4,7 @@ import { db } from "@/lib/prisma";
 import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 import { isGithubAppConfigured } from "@/lib/github/app-client";
 import { verifyGithubSignature } from "@/lib/github/webhook-verify";
+import { handInState, handInStatus } from "@/lib/submissions/hand-in";
 
 /**
  * GitHub webhook receiver.
@@ -92,6 +93,11 @@ export async function POST(request: NextRequest) {
  * enough. A student who closes their pull request and opens a new one fires `opened`
  * a second time, and treating that as a first submission would reset an already
  * graded row and lose the very distinction the queue depends on.
+ *
+ * Which status a hand-in produces is `handInStatus`, shared with the two kinds that have no
+ * pull request to observe. Only the `synchronize` case is this webhook's own: a commit pushed
+ * to an open pull request is not a hand-in at all — see below — so there is nothing for the
+ * rule to decide.
  */
 function resolveStatus(action: string, current: SubmissionStatus): SubmissionStatus | undefined {
   if (action === "synchronize") return undefined;
@@ -99,9 +105,7 @@ function resolveStatus(action: string, current: SubmissionStatus): SubmissionSta
   // Reopening after a grade is a revision, and is recorded as one without the student
   // needing to press anything. The button in the application exists for the other
   // route to the same state: pushing more commits to a pull request that stayed open.
-  if (current === "GRADED" || current === "RESUBMITTED") return "RESUBMITTED";
-
-  return "SUBMITTED";
+  return handInStatus(current);
 }
 
 async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
@@ -151,13 +155,14 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
 
   const now = new Date();
 
-  // Recorded on first submission only, so a resubmission does not reset the
-  // original submission time and turn a late submission into an on-time one.
-  const submittedAt = submission.submittedAt ?? now;
-
-  const isLate = submission.assignment.dueAt
-    ? submittedAt > submission.assignment.dueAt
-    : submission.isLate;
+  // Recorded on first submission only, so a resubmission does not reset the original
+  // submission time and turn an on-time submission into a late one. The rule is shared with
+  // the two kinds that hand in without a pull request, which is where it had been missing.
+  const { submittedAt, isLate } = handInState({
+    current: submission,
+    dueAt: submission.assignment.dueAt,
+    now,
+  });
 
   await db.submission.update({
     where: { id: submission.id },
