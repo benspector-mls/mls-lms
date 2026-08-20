@@ -329,7 +329,7 @@ export const gradingDraftsRouter = createTRPCRouter({
     }),
 
   /**
-   * Puts an unapproved draft aside without releasing it.
+   * Discards an unreleased round without sending it.
    *
    * The way back out. Opening a correction, or generating a report and deciding not to use it,
    * otherwise left a submission with an unapproved draft on top of it — which reads as work
@@ -340,14 +340,20 @@ export const gradingDraftsRouter = createTRPCRouter({
    *
    * `SUPERSEDED` rather than deleted, and the status is chosen rather than invented: everything
    * already reads it as history rather than as a state to act on. Approval refuses it,
-   * `draftStatusAddsSomething` keeps it off the submission's badge, and `triageBucket` falls
-   * through it to the submission's own status — so a discarded draft leaves a released grade
-   * reading exactly as it did before the correction was opened. The draft itself stays in the
-   * history, because a report an instructor rejected is evidence about the grading and the one
-   * thing a later judgment about it would want.
+   * `draftStatusAddsSomething` keeps it off the submission's badge, `triageBucket` falls through
+   * it to the submission's own status, and every "most recent round" query excludes it — so a
+   * discarded round leaves a released grade reading exactly as it did before the correction was
+   * opened, and shows up nowhere an instructor looks.
    *
-   * An approved draft is refused. That is a round of feedback a student has read, and unsaying
-   * it is not something this can do.
+   * **The row stays, and deleting it would cost two things.** A generated report spent real
+   * tokens whether or not anyone kept it, and `scripts/cost.ts` prices every draft from the usage
+   * it stored — dismissed runs are precisely the ones worth seeing there, being the ones that
+   * produced nothing usable. And a report an instructor rejected outright is the strongest
+   * evidence the grading is off; keeping only the accepted ones would leave any later judgment
+   * of quality reading from a sample that cannot disagree with itself.
+   *
+   * Two refusals. An approved round is feedback a student has read, and unsaying it is not
+   * something this can do. A run still in flight cannot be discarded either — see below.
    */
   discard: instructorProcedure
     .input(z.object({ draftId: z.string().uuid() }))
@@ -367,13 +373,29 @@ export const gradingDraftsRouter = createTRPCRouter({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            "This round has already been released, so it cannot be put aside — the student " +
+            "This feedback has already been released, so it cannot be discarded — the student " +
             "has read it. Open a correction if the grade needs changing.",
         });
       }
 
-      // Already aside. Returned rather than refused, because pressing the button twice is not
-      // an error and the second press wants the same outcome as the first.
+      /*
+        A run still writing to this row cannot be discarded, because discarding it would not
+        stick: `generateReportForSubmission` sets the round it claimed to READY when it finishes,
+        which would raise a discarded round from the dead as work waiting on somebody. Refused
+        rather than raced, and refused with the wait it needs — the run is a minute or two, and
+        discarding afterwards does what was meant.
+      */
+      if (draft.status === "GENERATING") {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "A report is still being generated for this submission. Wait for it to finish — " +
+            "a couple of minutes — and discard it then.",
+        });
+      }
+
+      // Already discarded. Returned rather than refused, because pressing the button twice is
+      // not an error and the second press wants the same outcome as the first.
       if (draft.status === "SUPERSEDED") return { id: draft.id, status: draft.status };
 
       return ctx.db.gradingDraft.update({

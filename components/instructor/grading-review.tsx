@@ -178,17 +178,28 @@ export function GradingReview({
   }
 
   const data = drafts.data;
-  /*
-    The newest draft that has not been put aside, and the newest of all only when every one has.
 
-    A discarded draft is history — that is the whole meaning of `SUPERSEDED` — so reading it as
-    the current state would leave a released grade hidden behind a report its instructor had
-    just rejected, with the correction panel gone because the screen thought a superseded draft
-    was the headline. The fallback matters for the other case: a submission whose only draft was
-    discarded still has to render something, and its own history is the honest thing to show.
+  /*
+    The newest round that has not been discarded, and null when every one has.
+
+    A discarded round was never sent to anybody, so it is not a state to show or act on — that is
+    the whole meaning of `SUPERSEDED`. Reading one as current did two wrong things: it hid a
+    released grade behind a report its instructor had just rejected, and on work that had never
+    been graded it left the screen with no way forward at all, because the released view offers no
+    action on a round it thinks was discarded. Null is the honest answer in that second case, and
+    it is the one the rest of this screen already knows how to render: no current round, so offer
+    to start one.
   */
-  const draft =
-    data.drafts.find((entry) => entry.status !== "SUPERSEDED") ?? data.drafts[0] ?? null;
+  const draft = data.drafts.find((entry) => entry.status !== "SUPERSEDED") ?? null;
+
+  /*
+    Rounds worth listing under the grade. A discarded round was never sent to anybody, so it is
+    not previous feedback and does not belong in a list called that. The row stays in the
+    database — a report that cost a model call and a report an instructor rejected are both
+    things a later judgment about the grading wants — and off a screen whose subject is one
+    student's record.
+  */
+  const history = data.drafts.filter((entry) => entry.status !== "SUPERSEDED");
 
   // The run that describes the code currently on the pull request. An older run is not
   // evidence about this commit, so it is not offered as if it were.
@@ -224,21 +235,15 @@ export function GradingReview({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           <div className="mx-auto flex max-w-5xl flex-col gap-5">
             {/*
-              Read first, because it is the answer to the only question that matters once
-              a submission is already graded: what did this student get. Everything below
-              — the evidence, the editable report — is how that answer was reached, not
-              the answer itself.
-            */}
-            {draft && (draft.status === "APPROVED" || draft.status === "SUPERSEDED") && (
-              <ReleasedSummaryCard draft={draft} data={data} />
-            )}
+              The work itself, first.
 
-            <CommentRecoveryNotice submission={submission} grade={data.grade} />
+              Reading it is what an instructor came to this screen to do, and every card below is
+              about it — so on a graded submission the document sits above the grade it was given,
+              which is the order the two are read in. It is also the analogue of test evidence for
+              work with no suite: the thing the grade rests on.
 
-            {/*
-              The analogue of test evidence for work with no suite: the thing the grade rests
-              on. Here rather than inside the hand-grading card, because that card is gone once
-              a draft exists and the file is most needed while the feedback is being written.
+              Here rather than inside the hand-grading card, because that card is gone once a
+              draft exists and the file is most needed while the feedback is being written.
             */}
             {submission.uploadFilename && (
               <UploadedFileRow
@@ -272,6 +277,8 @@ export function GradingReview({
               />
             )}
 
+            <CommentRecoveryNotice submission={submission} grade={data.grade} />
+
             <DraftBody
               key={draft?.id ?? "none"}
               submission={submission}
@@ -282,9 +289,7 @@ export function GradingReview({
               testEvidence={testEvidence}
             />
 
-            {data.drafts.length > 1 && (
-              <DraftHistory drafts={data.drafts} activeId={draft?.id} now={now} />
-            )}
+            {history.length > 1 && <DraftHistory drafts={history} activeId={draft?.id} now={now} />}
           </div>
         </div>
       </HeaderActionsSlot.Provider>
@@ -597,7 +602,7 @@ function DraftBody({
     );
   }
 
-  if (draft.status === "APPROVED" || draft.status === "SUPERSEDED") {
+  if (draft.status === "APPROVED") {
     return (
       <ReleasedBody submission={submission} draft={draft} data={data} testEvidence={testEvidence} />
     );
@@ -1054,7 +1059,7 @@ function DraftEditor({
     trpc.gradingDrafts.discard.mutationOptions(
       settled({
         onSuccess: () => {
-          toast.success("Put aside. Nothing was sent, and it stays in the history.");
+          toast.success("Discarded. Nothing was sent to the student.");
         },
       }),
     ),
@@ -1282,6 +1287,9 @@ function DraftEditor({
                 themselves — otherwise had no exit but approving something, and approving a
                 correction nobody needed sends a student a second comment for no reason.
 
+                Discarding hides the round everywhere an instructor looks. The row itself stays,
+                which is why the message says nothing was sent rather than nothing was kept.
+
                 Ghost rather than outlined: it is the quietest thing on a bar whose other two
                 buttons are the work. And absent while an unreleased grade has unsaved edits in
                 it, so the discarding press cannot be the one that was meant for Save.
@@ -1295,7 +1303,7 @@ function DraftEditor({
                   {discard.isPending && (
                     <Loader2 data-icon="inline-start" className="animate-spin" />
                   )}
-                  {discard.isPending ? "Putting aside…" : "Put this round aside"}
+                  {discard.isPending ? "Discarding…" : "Discard this feedback"}
                 </Button>
               )}
               <Button disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
@@ -1691,13 +1699,14 @@ function SectionEditor({
 }
 
 /**
- * The score and release date for an approved or superseded draft.
+ * A round that went out: the score, when it went, and the feedback that went with it.
  *
- * Pulled out of `ReleasedBody` so it can be read at the top of the screen, before the
- * evidence a re-grading instructor would otherwise have to scroll past to find it.
+ * One card rather than a summary above a row of section cards. The score and the words that
+ * justify it are one thing an instructor reads together — "9 out of 15" and the paragraph
+ * explaining why are not two findings — and separating them meant a heading ("As it was sent")
+ * whose only job was to say the cards below belonged to the card above.
  */
-function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList }) {
-  const superseded = draft.status === "SUPERSEDED";
+function ReleasedGradeCard({ draft, data }: { draft: Draft; data: DraftList }) {
   const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
 
   return (
@@ -1706,21 +1715,15 @@ function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList })
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
             <CardTitle className="flex items-center gap-2 text-base">
-              {superseded ? (
-                <History className="size-4 text-muted-foreground" />
-              ) : (
-                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-              )}
-              {superseded ? "Set aside, never released" : "Released"}
+              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+              Released
             </CardTitle>
             <CardDescription>
-              {superseded
-                ? "This round was never sent to the student. It stays as part of the record."
-                : `Approved ${formatDateTime(draft.approvedAt)}. The student can read this.`}
+              Approved {formatDateTime(draft.approvedAt)}. The student can read this.
             </CardDescription>
           </div>
 
-          {!superseded && data.grade?.finalScore != null && (
+          {data.grade?.finalScore != null && (
             <div className="flex flex-col items-end">
               <span className="text-2xl font-semibold tabular-nums">
                 {data.grade.finalScore}
@@ -1745,11 +1748,17 @@ function ReleasedSummaryCard({ draft, data }: { draft: Draft; data: DraftList })
           )}
         </div>
       </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        {draft.sections.map((section, index) => (
+          <ReleasedSection key={section.id} section={section} first={index === 0} />
+        ))}
+      </CardContent>
     </Card>
   );
 }
 
-/** An approved or superseded draft, read-only. What was sent is a matter of record. */
+/** A round that went out, read-only. What a student was told is a matter of record. */
 function ReleasedBody({
   submission,
   draft,
@@ -1762,8 +1771,6 @@ function ReleasedBody({
   /** Below what was sent, for the same reason it is below the report while one is being edited. */
   testEvidence: React.ReactNode;
 }) {
-  const superseded = draft.status === "SUPERSEDED";
-
   /*
     Work handed in again since the grade went out, which is the one state in which a released
     report is not the end of the story.
@@ -1778,8 +1785,21 @@ function ReleasedBody({
     submission.status === "RESUBMITTED" ||
     (submission.headSha !== null && submission.headSha !== submission.gradedHeadSha);
 
+  /*
+    The grade, then what it rests on, then the way to change it.
+
+    The grade is read first because it is the answer to the only question that matters once a
+    submission is graded: what did this student get. The evidence is why it says that, which is a
+    question asked second. And the offer to open another round comes after both, because deciding
+    to change a grade is something an instructor does having read it — a button above the report
+    invites a correction before there is anything to correct.
+  */
   return (
     <div className="flex flex-col gap-4">
+      <ReleasedGradeCard draft={draft} data={data} />
+
+      {testEvidence}
+
       {/*
         Revising a released grade means a new round, not an edit of this one. The student keeps
         both, which is the point of having a history at all.
@@ -1790,66 +1810,76 @@ function ReleasedBody({
         grade. With no new work, what the instructor came here for is to fix what they wrote, so
         the round opens holding it.
       */}
-      {!superseded &&
-        (revised ? (
-          data.manualOnly ? (
-            <HandGradePanel submission={submission} data={data} revision />
-          ) : (
-            <GeneratePanel
-              submission={submission}
-              data={data}
-              label="Grade the newer commit"
-              retry
-            />
-          )
+      {revised ? (
+        data.manualOnly ? (
+          <HandGradePanel submission={submission} data={data} revision />
         ) : (
-          <CorrectionPanel submission={submission} />
-        ))}
-
-      <p className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        As it was sent
-      </p>
-      {draft.sections.map((section) => (
-        <ReadOnlySection key={section.id} section={section} />
-      ))}
-
-      {testEvidence}
+          <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
+        )
+      ) : (
+        <CorrectionPanel submission={submission} />
+      )}
     </div>
   );
 }
 
-function ReadOnlySection({ section }: { section: Section }) {
+/**
+ * One section of a round that went out, inside the card that released it.
+ *
+ * A block rather than a card of its own, because a card inside a card reads as a separate
+ * finding. A rule above every section but the first is what keeps them apart instead.
+ */
+function ReleasedSection({ section, first }: { section: Section; first: boolean }) {
   const report = effectiveReport(section);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-col gap-1.5">
-            <CardTitle className="text-base">{sectionLabel(section.sectionType)}</CardTitle>
+    <div className={cn("flex flex-col gap-2", !first && "border-t border-border pt-4")}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1.5">
+          <h3 className="text-sm font-semibold">{sectionLabel(section.sectionType)}</h3>
+          {section.flags.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               {section.flags.map((flag) => (
                 <FlagBadge key={flag} code={flag} />
               ))}
             </div>
-          </div>
-          <span className="shrink-0 text-sm font-semibold tabular-nums">
-            {effectiveScore(section) ?? "—"}
-            <span className="text-muted-foreground"> / {section.scorePossible ?? "—"}</span>
-          </span>
+          )}
         </div>
-      </CardHeader>
-      {report && (
-        <CardContent>
-          <div className="rounded-md border border-border bg-muted/20 p-4">
-            <Markdown content={report} />
-          </div>
-        </CardContent>
+        <span className="shrink-0 text-sm font-semibold tabular-nums">
+          {effectiveScore(section) ?? "—"}
+          <span className="text-muted-foreground"> / {section.scorePossible ?? "—"}</span>
+        </span>
+      </div>
+      {report ? (
+        <div className="rounded-md border border-border bg-muted/20 p-4">
+          <Markdown content={report} />
+        </div>
+      ) : (
+        /*
+          Said rather than left blank. Written feedback is optional — the comments frequently live
+          in the document the instructor was reading — so a section with a score and no words is a
+          choice somebody made, not something missing. The same sentence the student's own page
+          uses, so the two screens describe it the same way.
+        */
+        <p className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+          No written feedback was recorded for this section.
+        </p>
       )}
-    </Card>
+    </div>
   );
 }
 
+/**
+ * Every round this submission has been through, newest first.
+ *
+ * **Rounds, not runs.** A run is something the pipeline does — the tests execute, the model
+ * reads the work — and only some rounds are that. A grade written by hand, and a correction
+ * copied from the round before it, are rounds of feedback that no run produced, so naming the
+ * list after runs described the minority of what is in it.
+ *
+ * The current round is listed too, marked as such. It is shown in full in the card above, and
+ * what this adds for it is its place in the sequence.
+ */
 function DraftHistory({
   drafts,
   activeId,
@@ -1864,7 +1894,7 @@ function DraftHistory({
       <CollapsibleTrigger className="group flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium">
         <span className="flex items-center gap-2">
           <History className="size-4 text-muted-foreground" />
-          Every run for this submission ({drafts.length})
+          Previous feedback ({drafts.length})
         </span>
         <ChevronDown className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180" />
       </CollapsibleTrigger>
@@ -1893,8 +1923,15 @@ function DraftHistory({
                       </Badge>
                     )}
                   </div>
+                  {/*
+                    The commit only where there is one. `shortSha` renders an em dash for null,
+                    which on a document or an upload gave every round in the list a dash standing
+                    in for a concept those kinds do not have — absent reads as not applicable,
+                    where a dash reads as missing.
+                  */}
                   <span className="mt-1 font-mono text-xs text-muted-foreground">
-                    {shortSha(entry.headSha)} · {formatRelative(entry.createdAt, now)}
+                    {entry.headSha ? `${shortSha(entry.headSha)} · ` : ""}
+                    {formatRelative(entry.createdAt, now)}
                   </span>
                 </div>
                 {possible > 0 && (

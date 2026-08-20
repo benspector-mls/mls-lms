@@ -164,7 +164,9 @@ export async function approveDraft(params: {
     );
   }
   if (draft.status === "SUPERSEDED") {
-    throw new ApprovalError(`This round was set aside and cannot be released. Start another one.`);
+    throw new ApprovalError(
+      `This feedback was discarded and cannot be released. Start another round.`,
+    );
   }
 
   // Approving twice would post the same feedback to the pull request a second time.

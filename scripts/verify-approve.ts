@@ -676,10 +676,10 @@ async function handGradedLifecycle(db: Db) {
         const spare = await asInstructor.gradingDrafts.reviseReleased({
           submissionId: submitted.id,
         });
-        const setAside = await asInstructor.gradingDrafts.discard({ draftId: spare.id });
-        check("a round can be put aside without releasing it", setAside.status, "SUPERSEDED");
+        const discarded = await asInstructor.gradingDrafts.discard({ draftId: spare.id });
+        check("a round can be discarded without releasing it", discarded.status, "SUPERSEDED");
         check(
-          "putting it aside twice is not an error",
+          "discarding it twice is not an error",
           (await asInstructor.gradingDrafts.discard({ draftId: spare.id })).status,
           "SUPERSEDED",
         );
@@ -688,7 +688,7 @@ async function handGradedLifecycle(db: Db) {
           assignmentId: assignment.id,
         });
         check(
-          "a submission whose open round was put aside is finished again",
+          "a submission whose open round was discarded is finished again",
           afterAside.submissions.find((entry) => entry.id === submitted.id)?.bucket,
           null,
         );
@@ -698,17 +698,34 @@ async function handGradedLifecycle(db: Db) {
           await asInstructor.gradingDrafts.approve({ draftId: spare.id });
         } catch (err) {
           releaseAside =
-            err instanceof Error && /set aside/.test(err.message)
+            err instanceof Error && /was discarded and cannot be released/.test(err.message)
               ? "refused"
               : `unexpected: ${err instanceof Error ? err.message : String(err)}`;
         }
-        check("a round that was put aside cannot be released", releaseAside, "refused");
+        check("a discarded round cannot be released", releaseAside, "refused");
 
         // A round the student has read is not something this can unsay.
         check(
-          "a released round cannot be put aside",
+          "a released round cannot be discarded",
           await refusal(() => asInstructor.gradingDrafts.discard({ draftId: correction.id })),
           "BAD_REQUEST",
+        );
+
+        /*
+          Nor can a run that is still writing. `generateReportForSubmission` sets the round it
+          claimed to READY when it finishes, so discarding one mid-run would not stick — the round
+          would rise again as work waiting on somebody, minutes after being dismissed. The row is
+          made directly rather than by running the pipeline, which is a sandbox, a model call and
+          a couple of minutes to observe a guard that reads one column.
+        */
+        const inFlight = await tx.gradingDraft.create({
+          data: { submissionId: submitted.id, status: "GENERATING" },
+          select: { id: true },
+        });
+        check(
+          "a run still in flight cannot be discarded",
+          await refusal(() => asInstructor.gradingDrafts.discard({ draftId: inFlight.id })),
+          "CONFLICT",
         );
 
         throw new Error("ROLLBACK");

@@ -60,6 +60,14 @@ const reviewableSubmissionSelect = {
   // Enough of the most recent draft to label a row. The review pane loads the draft in full
   // when a row is selected; a list of forty students does not need forty reports in it.
   gradingDrafts: {
+    /*
+      Never a discarded round. `SUPERSEDED` means a round nobody was sent and nobody has to act
+      on, so treating one as the current round put "Report out of date" on a finished submission's
+      row — a stale flag about a report that had already been rejected. Excluded here rather than
+      filtered by each reader, so this screen and the review pane agree on which round is the
+      current one.
+    */
+    where: { status: { not: "SUPERSEDED" } },
     orderBy: { createdAt: "desc" },
     take: 1,
     select: { id: true, status: true, headSha: true, approvedAt: true },
@@ -520,9 +528,15 @@ export const submissionsRouter = createTRPCRouter({
           assignment: {
             select: { id: true, title: true, courseId: true, sections: true },
           },
-          // The most recent run, superseded ones included: a draft that was replaced is
-          // still what the row's flags describe until a newer one finishes.
+          /*
+            The most recent round that was not discarded. A discarded one is a round nobody was
+            sent and nobody has to act on, so reading it as the current round flagged finished
+            work as having an out-of-date report. The same exclusion as
+            `reviewableSubmissionSelect`, so triage and the review pane cannot disagree about
+            which round is current.
+          */
           gradingDrafts: {
+            where: { status: { not: "SUPERSEDED" } },
             orderBy: { createdAt: "desc" },
             take: 1,
             select: {

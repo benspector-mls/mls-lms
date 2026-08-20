@@ -182,9 +182,9 @@ export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
   },
   FAILED: { label: "Failed", tone: "danger", description: "The grading pipeline errored." },
   SUPERSEDED: {
-    label: "Set aside",
+    label: "Discarded",
     tone: "neutral",
-    description: "Never released. Kept as part of the record.",
+    description: "Never released to the student.",
   },
   /*
     Blue rather than green, for the reason `GRADED` is: approving is what releases feedback, not

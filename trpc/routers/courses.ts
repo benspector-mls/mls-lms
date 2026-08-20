@@ -151,7 +151,13 @@ export const coursesRouter = createTRPCRouter({
             position: true,
             category: true,
             assignments: {
-              select: { id: true, title: true, dueAt: true, courseUnitId: true, distributedAt: true },
+              select: {
+                id: true,
+                title: true,
+                dueAt: true,
+                courseUnitId: true,
+                distributedAt: true,
+              },
             },
           },
         }),
@@ -1544,7 +1550,10 @@ async function courseCells(
       finalScore: true,
       finalScorePossible: true,
       isComplete: true,
+      // The current round, never a discarded one — see `reviewableSubmissionSelect`.
+      // The gradebook's cells read the same buckets the queue does and must agree with it.
       gradingDrafts: {
+        where: { status: { not: "SUPERSEDED" } },
         orderBy: { createdAt: "desc" },
         take: 1,
         select: { status: true, headSha: true },
