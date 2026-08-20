@@ -623,9 +623,12 @@ export const gradingDraftsRouter = createTRPCRouter({
         return await approveDraft({
           draftId: input.draftId,
           approvedByProfileId: ctx.profile.id,
-          // The request's own client rather than the module's. Identical in production, and
-          // what lets a caller driving this inside a transaction see its own rows — which is
-          // how the approval path is checked against real data without writing any.
+          // The request's own client rather than the module's, which is what lets a caller
+          // driving this inside a transaction see its own rows — how the approval path is
+          // checked against real data without writing any. In production it is the module's
+          // client, and `approveDraft` compares the two by identity rather than asking whether
+          // a client was passed, so a real request still gets one transaction around the whole
+          // release.
           client: ctx.db,
         });
       } catch (err) {

@@ -40,8 +40,18 @@ export const MAX_COHORT_SLUG = 24;
 export const COHORT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
+ * How long a team's slug may be.
+ *
+ * Shorter than a cohort's, and cheaper than the 39 characters `MAX_COHORT_SLUG` reserves for a
+ * login: a team's name is chosen by an instructor and is `Team 3` rather than a GitHub handle. So
+ * any cohort and assignment pairing that fits an individual repository name fits a team's, and
+ * `validateAssignmentDraft` needs no second length rule.
+ */
+export const MAX_TEAM_SLUG = 16;
+
+/**
  * Any piece of text as a slug: lowercased, non-alphanumerics collapsed to single hyphens, ends
- * trimmed, cut to the maximum length. "Fall 2026" becomes `fall-2026`, "Cohort 12 (evening)"
+ * trimmed, cut to `max` characters. "Fall 2026" becomes `fall-2026`, "Cohort 12 (evening)"
  * becomes `cohort-12-evening`.
  *
  * Returns "" when there is nothing usable — empty text, or text written entirely in a script this
@@ -49,19 +59,42 @@ export const COHORT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * for a person to fill in rather than inventing something, because a slug nobody chose ends up in
  * the name of every repository a cohort creates.
  *
+ * One transformation with the length passed in, rather than one function per length. The two
+ * callers below cut to different maximums and must agree on everything else — a second regex
+ * would be a second answer to "what is legal in a repository name", and the day they drift is the
+ * day two slugs of the same text stop matching.
+ */
+export function slugify(text: string, max: number): string {
+  return (
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, max)
+      // A trailing hyphen can reappear after the slice, which would produce `f26--swe-1-4-loops`.
+      .replace(/-+$/g, "")
+  );
+}
+
+/**
+ * A cohort term as a slug.
+ *
  * This is the raw transformation. `suggestCohortSlug` below is what a new course actually gets,
  * and it is the one to call unless you specifically want a slug of one string.
  */
 export function slugifyCohort(cohortTerm: string): string {
-  return (
-    cohortTerm
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, MAX_COHORT_SLUG)
-      // A trailing hyphen can reappear after the slice, which would produce `f26--swe-1-4-loops`.
-      .replace(/-+$/g, "")
-  );
+  return slugify(cohortTerm, MAX_COHORT_SLUG);
+}
+
+/**
+ * A team's name as the slug that goes in its repository name.
+ *
+ * "Team 3" becomes `team-3`, so the repository reads `swe-f26-swe-3-2-project-team-3`. Named
+ * after the team rather than after anybody's login, because the repository belongs to the team:
+ * every member pushes to it, and a name carrying one member's handle would say otherwise.
+ */
+export function teamSlug(name: string): string {
+  return slugify(name, MAX_TEAM_SLUG);
 }
 
 /** Season words, shortest form that keeps them apart — `s` alone would not separate two of them. */

@@ -3,6 +3,7 @@ import "server-only";
 import { auditEventData, type AuditActor } from "../audit/record";
 import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
+import { opensOwnTransaction } from "../transactions";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { postOrUpdatePrComment } from "../github/prs";
@@ -104,9 +105,11 @@ export async function approveDraft(params: {
   /** The instructor doing the approving. Recorded as `gradedBy`. */
   approvedByProfileId: string;
   /**
-   * The client to write through. Defaults to the application's own. A caller passing its
-   * transaction gets the two writes below run in order rather than in a nested transaction,
-   * since it is already inside one.
+   * The client to write through. Defaults to the application's own.
+   *
+   * A caller passing a real transaction gets the writes below run in order rather than in a
+   * nested transaction, since it is already inside one. Passing the application's own client is
+   * the same as passing nothing — see `opensOwnTransaction`, and the note at the branch itself.
    */
   client?: Tx;
 }): Promise<ApprovalResult> {
@@ -352,20 +355,28 @@ export async function approveDraft(params: {
   ];
 
   /*
-    Decided from whether a client was handed in, not by asking the client what it is. A
-    transaction client still carries `$transaction` at runtime even though its type omits it,
-    and calling it opens a *second* transaction on a different connection — which cannot see
+    Decided by comparing the client to the application's own, not by asking the client what it
+    is. A transaction client still carries `$transaction` at runtime even though its type omits
+    it, and calling it opens a *second* transaction on a different connection — which cannot see
     the rows the caller's own transaction has written, and fails with "no record was found for
     an update" on a row that is plainly there.
 
-    So: a caller that passed its client is already inside a transaction and owns the atomicity;
-    the two writes run in order. Otherwise this opens the transaction itself, which is what
-    every request does.
+    **Identity rather than presence**, and the difference is whether releasing a grade is atomic
+    at all. Every request arrives through `gradingDrafts.approve`, which passes its own `ctx.db`
+    — and in production that *is* the module's client, so asking merely whether a client was
+    handed in answered yes on every approval and ran these as separate autocommitted statements.
+    A failure between them left a submission graded, its draft approved, and the audit log
+    silent, with nothing an instructor could do: approval refuses a draft it has already
+    approved. The writes are built from `client`, so passing them to `db.$transaction` is only
+    correct in the case where the two are the same object, which is exactly the case this admits.
+
+    A caller that handed in a real transaction is inside one and owns the atomicity, so its
+    writes run in order.
   */
-  if (params.client) {
-    for (const write of writes) await write;
-  } else {
+  if (opensOwnTransaction(params.client, db)) {
     await db.$transaction(writes);
+  } else {
+    for (const write of writes) await write;
   }
 
   // ---- Step two: the comment, best effort ---------------------------------

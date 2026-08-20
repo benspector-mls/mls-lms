@@ -103,13 +103,12 @@ function decorateSubmission<T extends ReviewableSubmission>(
 
   return {
     ...rest,
-    bucket: triageBucket(
-      rest.status,
-      draft,
+    bucket: triageBucket(rest.status, draft, {
       draftIsStale,
-      options.undeliveredIds.has(rest.id),
-      options.manualOnly,
-    ),
+      hasUndeliveredApproval: options.undeliveredIds.has(rest.id),
+      isManualOnly: options.manualOnly,
+      mirrorsAnotherSubmission: false,
+    }),
     draftIsStale,
     activeDraft: draft,
   };
@@ -596,13 +595,12 @@ export const submissionsRouter = createTRPCRouter({
         return {
           ...submission,
           assignment: assignmentFields,
-          bucket: triageBucket(
-            submission.status,
-            draft,
+          bucket: triageBucket(submission.status, draft, {
             draftIsStale,
-            undeliveredIds.has(submission.id),
-            isManualOnly(sections),
-          ),
+            hasUndeliveredApproval: undeliveredIds.has(submission.id),
+            isManualOnly: isManualOnly(sections),
+            mirrorsAnotherSubmission: false,
+          }),
           draftIsStale,
           // Flattened here rather than in the interface. Delivery is deliberately not on
           // this object: whether a grade reached the student is answered by the bucket,

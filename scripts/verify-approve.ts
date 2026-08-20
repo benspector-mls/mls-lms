@@ -175,46 +175,137 @@ async function main() {
 
   check(
     "submitted work with no report needs one",
-    triageBucket("SUBMITTED", null, false, false, false),
+    triageBucket("SUBMITTED", null, {
+      draftIsStale: false,
+      hasUndeliveredApproval: false,
+      isManualOnly: false,
+      mirrorsAnotherSubmission: false,
+    }),
     "needs_report",
   );
   check(
     "submitted work on a hand-graded assignment needs a grade, not a report",
-    triageBucket("SUBMITTED", null, false, false, true),
+    triageBucket("SUBMITTED", null, {
+      draftIsStale: false,
+      hasUndeliveredApproval: false,
+      isManualOnly: true,
+      mirrorsAnotherSubmission: false,
+    }),
     "needs_manual_grade",
   );
   check(
     "a report waiting to be read is ready whichever way it was made",
-    triageBucket("SUBMITTED", { status: "READY" }, false, false, false),
+    triageBucket(
+      "SUBMITTED",
+      { status: "READY" },
+      {
+        draftIsStale: false,
+        hasUndeliveredApproval: false,
+        isManualOnly: false,
+        mirrorsAnotherSubmission: false,
+      },
+    ),
     "draft_ready",
   );
   // The bucket that must not appear on hand-graded work. With the deliverability test in
   // place the flag is false, and a graded submission with an approved draft is finished.
   check(
     "a delivered grade is nobody's work",
-    triageBucket("GRADED", { status: "APPROVED" }, false, false, false),
+    triageBucket(
+      "GRADED",
+      { status: "APPROVED" },
+      {
+        draftIsStale: false,
+        hasUndeliveredApproval: false,
+        isManualOnly: false,
+        mirrorsAnotherSubmission: false,
+      },
+    ),
     null,
   );
   check(
     "a hand-graded submission is finished once approved",
-    triageBucket("GRADED", { status: "APPROVED" }, false, false, true),
+    triageBucket(
+      "GRADED",
+      { status: "APPROVED" },
+      {
+        draftIsStale: false,
+        hasUndeliveredApproval: false,
+        isManualOnly: true,
+        mirrorsAnotherSubmission: false,
+      },
+    ),
     null,
   );
   check(
     "an undelivered comment outranks every other bucket",
-    triageBucket("GRADED", { status: "APPROVED" }, false, true, false),
+    triageBucket(
+      "GRADED",
+      { status: "APPROVED" },
+      {
+        draftIsStale: false,
+        hasUndeliveredApproval: true,
+        isManualOnly: false,
+        mirrorsAnotherSubmission: false,
+      },
+    ),
     "comment_not_posted",
   );
   // A draft describing code the student has replaced is not a report on the work in front
   // of the instructor, so it falls through to needing one — as the right kind.
+  // One member's copy of their team's grade is waiting on nobody, and is read before every
+  // other fact. Without this the members of a team who did not hand in would each be a
+  // separate row in the pile, against a submission with no repository to read.
+  check(
+    "a team mirror is nobody's work",
+    triageBucket("SUBMITTED", null, {
+      draftIsStale: false,
+      hasUndeliveredApproval: false,
+      isManualOnly: false,
+      mirrorsAnotherSubmission: true,
+    }),
+    null,
+  );
+  check(
+    "a team mirror outranks even an undelivered comment",
+    triageBucket(
+      "GRADED",
+      { status: "APPROVED" },
+      {
+        draftIsStale: false,
+        hasUndeliveredApproval: true,
+        isManualOnly: false,
+        mirrorsAnotherSubmission: true,
+      },
+    ),
+    null,
+  );
   check(
     "a stale draft falls through to needing a report",
-    triageBucket("RESUBMITTED", { status: "READY" }, true, false, false),
+    triageBucket(
+      "RESUBMITTED",
+      { status: "READY" },
+      {
+        draftIsStale: true,
+        hasUndeliveredApproval: false,
+        isManualOnly: false,
+        mirrorsAnotherSubmission: false,
+      },
+    ),
     "needs_report",
   );
   check(
     "a stale draft on a hand-graded assignment falls through to needing a grade",
-    triageBucket("RESUBMITTED", { status: "READY" }, true, false, true),
+    triageBucket(
+      "RESUBMITTED",
+      { status: "READY" },
+      {
+        draftIsStale: true,
+        hasUndeliveredApproval: false,
+        isManualOnly: true,
+        mirrorsAnotherSubmission: false,
+      },
+    ),
     "needs_manual_grade",
   );
 

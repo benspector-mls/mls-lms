@@ -298,9 +298,9 @@ export type SubmissionContext = {
   studentFiles: { path: string; content: string }[];
   /** Verified results, or null when this section has no test evidence. */
   testResults: NormalizedResults | null;
-  /** Protected paths the student changed, if any. */
+  /** Protected paths changed in the pull request, if any. */
   tamperedPaths: { path: string; kind: string }[];
-  /** The branch the student actually used, for the submission process note. */
+  /** The branch the pull request was opened from, for the submission process note. */
   headBranch: string | null;
 };
 
@@ -344,14 +344,14 @@ export function buildUserPrompt(params: {
   );
   parts.push("");
 
-  // The process note is a rule from agent-rules.md: a student who did not use a
-  // `draft` branch gets told so, kindly, at the end of the report.
+  // The process note is a rule from agent-rules.md: work that did not come from a
+  // `draft` branch gets a kind reminder at the end of the report.
   if (context.headBranch && context.headBranch !== "draft") {
     parts.push(
-      `The student submitted from a branch named \`${context.headBranch}\` rather than ` +
-        `\`draft\`. Put a short note about this in \`submissionProcessNote\`, reminding ` +
-        `them to use a \`draft\` branch and a pull request next time. Do not deduct ` +
-        `points for it.`,
+      `This submission's pull request comes from a branch named \`${context.headBranch}\` ` +
+        `rather than \`draft\`. Put a short note about this in \`submissionProcessNote\`, ` +
+        `reminding them to use a \`draft\` branch and a pull request next time. Do not ` +
+        `deduct points for it.`,
     );
     parts.push("");
   }
@@ -449,10 +449,10 @@ export function buildUserPrompt(params: {
   if (context.tamperedPaths.length > 0) {
     parts.push("---");
     parts.push("");
-    parts.push("## The student changed grading files");
+    parts.push("## Grading files were changed in this pull request");
     parts.push("");
     parts.push(
-      `The student's pull request modified ${context.tamperedPaths.length} file(s) that ` +
+      `This pull request modified ${context.tamperedPaths.length} file(s) that ` +
         `hold grading infrastructure: ` +
         `${context.tamperedPaths.map((p) => `\`${p.path}\` (${p.kind})`).join(", ")}. ` +
         `The instructor's versions were restored before the suite ran, so the results ` +
@@ -460,8 +460,8 @@ export function buildUserPrompt(params: {
     );
     parts.push("");
     parts.push(
-      "Do not accuse the student of anything and do not deduct points for it. An " +
-        "instructor reviews this separately and will decide what it means — a student " +
+      "Do not accuse anybody of anything and do not deduct points for it. An " +
+        "instructor reviews this separately and will decide what it means — somebody " +
         "may have been experimenting, or may have edited a test by accident. Grade the " +
         "work as submitted and say nothing about it in the report.",
     );

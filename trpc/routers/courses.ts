@@ -1582,13 +1582,12 @@ async function courseCells(
 
     return {
       ...submission,
-      bucket: triageBucket(
-        submission.status,
-        draft,
+      bucket: triageBucket(submission.status, draft, {
         draftIsStale,
-        undeliveredIds.has(submission.id),
-        manualOnlyByAssignment.get(submission.assignmentId) ?? false,
-      ),
+        hasUndeliveredApproval: undeliveredIds.has(submission.id),
+        isManualOnly: manualOnlyByAssignment.get(submission.assignmentId) ?? false,
+        mirrorsAnotherSubmission: false,
+      }),
     };
   });
 }

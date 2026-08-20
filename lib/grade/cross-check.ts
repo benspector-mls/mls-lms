@@ -32,7 +32,7 @@ export type Facts = {
    * which is ordinary for short response and frontend work.
    */
   tests: TestOutcome[] | null;
-  /** Protected paths the student changed. Non-empty always routes to review. */
+  /** Protected paths changed in the pull request. Non-empty always routes to review. */
   tamperedPaths: { path: string; kind: string }[];
   /**
    * What the section is worth, from `assignment.sections`.
@@ -313,7 +313,7 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     findings.push({
       code: "PROTECTED_PATHS_CHANGED",
       detail:
-        `The student changed ${facts.tamperedPaths.length} grading file(s): ` +
+        `This pull request modified ${facts.tamperedPaths.length} grading file(s): ` +
         `${facts.tamperedPaths.map((entry) => `${entry.path} (${entry.kind})`).join(", ")}. ` +
         `The template's versions were restored before the suite ran, so the results are ` +
         `unaffected — but an instructor must decide what the attempt means.`,
