@@ -117,8 +117,8 @@ export function GradingQueue({
     quietly swap the student being read.
 
     `asideSubmissions` is searched too, and only here. It holds the work this queue never lists —
-    a student who has left the cohort, and a student outside the group currently selected — and
-    both are things a link can legitimately name. The gradebook's Removed table links straight to
+    a student who has left the cohort, a student outside the group currently selected, and one
+    member's copy of their team's grade — and all three are things a link can legitimately name. The gradebook's Removed table links straight to
     one, and a colleague's link or a stale tab names the other. Falling through to `filtered[0]`
     for either would show a different student's report under a URL that named one, which is worse
     than an empty pane because nothing about it looks wrong.
@@ -257,9 +257,11 @@ export function GradingQueue({
             list beside it, and an instructor who read a report and approved it without knowing
             the student had left the cohort would be grading somebody who is not there.
 
-            The two reasons are told apart because only one of them is a fact about the student.
-            Leaving the cohort is; being outside the group currently selected is a fact about the
-            picker, which the sentence names so the fix is obvious.
+            The three reasons are told apart because they are different kinds of fact. Leaving
+            the cohort is about the student; being outside the group currently selected is about
+            the picker, which the sentence names so the fix is obvious; and being one member's
+            copy of their team's work is about neither — there is nothing to fix, and what the
+            instructor wants is a way to the row the work is actually on.
           */}
           {asideReason && selected && (
             <div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/60 px-4 py-2.5 text-sm">
@@ -275,9 +277,31 @@ export function GradingQueue({
                     selected.student.email ??
                     "This student"}
                 </span>{" "}
-                {asideReason === "removed"
-                  ? "has been removed from this cohort, so this is not in the queue beside it. Their work stays readable here and in the gradebook."
-                  : "is not in the group you are filtered to, so this is not in the queue beside it. Switch to All students to work it alongside the rest."}
+                {asideReason === "removed" ? (
+                  "has been removed from this cohort, so this is not in the queue beside it. Their work stays readable here and in the gradebook."
+                ) : asideReason === "team_mirror" ? (
+                  <>
+                    has a copy of their team&apos;s grade here. The work, the report, and the rounds
+                    of feedback are all on the team&apos;s own submission, which is where it is read
+                    and released.{" "}
+                    {selected.teamSubmissionId && (
+                      /*
+                        The link is the point of this case. An instructor arriving from a mirror's
+                        gradebook cell would otherwise be parked in a pane with nothing to do and
+                        no indication of where to go.
+                      */
+                      <button
+                        type="button"
+                        className="font-medium text-foreground underline underline-offset-4"
+                        onClick={() => select(selected.teamSubmissionId!)}
+                      >
+                        Open the team&apos;s submission
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  "is not in the group you are filtered to, so this is not in the queue beside it. Switch to All students to work it alongside the rest."
+                )}
               </p>
             </div>
           )}

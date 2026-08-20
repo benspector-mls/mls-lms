@@ -2,7 +2,7 @@ import "server-only";
 
 import { TRPCError } from "@trpc/server";
 
-import { studentRepoName } from "../courses/cohort-slug";
+import { studentRepoName, teamRepoName } from "../courses/cohort-slug";
 import type { Prisma } from "../generated/prisma/client";
 import type { SubmissionModel } from "../generated/prisma/models";
 import { getConfiguredInstallationId, isGithubAppConfigured } from "../github/app-client";
@@ -14,6 +14,7 @@ import {
   waitForRepoContent,
 } from "../github/repos";
 import type { Tx } from "../prisma";
+import { claimTeamWork, ensureTeamRows, type ResolvedTeam } from "../submissions/team";
 import {
   copyUrlFromTemplate,
   NotRepositoryBackedError,
@@ -61,6 +62,9 @@ export const acceptableAssignmentSelect = {
   assignmentRepoName: true,
   githubOrg: true,
   templateDriveUrl: true,
+  /// The set of teams this is handed in by, or null for work each student does alone. Read here
+  /// because it is what decides whether accepting claims a team's row or creates one of its own.
+  teamSetId: true,
   // The cohort's short name, which prefixes the repository this creates.
   course: { select: { cohortSlug: true } },
 } satisfies Prisma.AssignmentSelect;
@@ -84,14 +88,34 @@ export type Accepted = {
 };
 
 /**
+ * The caller's own row, which is what the button re-renders their card from.
+ *
+ * Their own and not the team's, deliberately. On a team assignment the work lives on one row and
+ * every member has a mirror of it, and what a member's own screen is about is their own record —
+ * the grade they were given and whether they have read the feedback. Where the work is is read
+ * through the mirror by the screens that need it.
+ */
+async function ownRow(db: Tx, assignmentId: string, studentId: string): Promise<SubmissionModel> {
+  return db.submission.findUniqueOrThrow({
+    where: { assignmentId_studentId: { assignmentId, studentId } },
+  });
+}
+
+/**
  * Accepting a Google Drive assignment: record that the student started, and hand back the copy
  * prompt.
+ *
+ * **A team makes one copy between them and it is nobody's to create here.** Google's prompt makes
+ * a copy owned by whoever presses it, so a team pressing Accept twice has two documents — which is
+ * the team's business and not a state this owns. What this records is that they started, and which
+ * of their rows the link they eventually paste will live on.
  */
 export async function acceptDriveAssignment(
   db: Tx,
-  params: { assignment: AcceptableAssignment; studentId: string },
+  params: { assignment: AcceptableAssignment; studentId: string; team?: ResolvedTeam | null },
 ): Promise<Accepted> {
   const { assignment, studentId } = params;
+  const team = params.team ?? null;
 
   if (!assignment.templateDriveUrl) {
     throw new TRPCError({
@@ -100,6 +124,31 @@ export async function acceptDriveAssignment(
         "This assignment has no template document, so there is nothing to copy. " +
         "Contact your instructor.",
     });
+  }
+
+  if (team) {
+    /*
+      Claim the row that holds the team's work, then give every member of the team one. Both are
+      idempotent, so a second member pressing Accept joins what the first made rather than
+      making anything.
+    */
+    const { submissionId } = await claimTeamWork(db, {
+      assignmentId: assignment.id,
+      studentId,
+      team,
+      statusIfNew: "ACCEPTED",
+    });
+    await ensureTeamRows(db, {
+      assignmentId: assignment.id,
+      teamId: team.id,
+      teamSetId: team.teamSetId,
+      teamSubmissionId: submissionId,
+    });
+
+    return {
+      submission: await ownRow(db, assignment.id, studentId),
+      copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl),
+    };
   }
 
   // Upserted rather than created, so pressing Accept twice is the same as pressing it once: the
@@ -128,6 +177,14 @@ export async function acceptDriveAssignment(
  * GitHub with no matching row. The recovery for that is below — an existing repository is reused
  * rather than treated as an error.
  *
+ * **A team gets one repository, named after the team.** Every active member is a collaborator
+ * with push access, one pull request against it is the team's submission, and one row holds it
+ * while the rest of the team mirrors that row. The row is claimed before anything touches GitHub,
+ * so two members accepting in the same moment cannot produce two repositories for one team — the
+ * loser of that race joins the winner's row instead. Whether the repository itself then exists is
+ * read from the row rather than assumed from having won, which is what stops a failure at GitHub
+ * leaving a team with a claimed row and no repository nobody will ever create.
+ *
  * **A test student differs in exactly one respect: who is invited.** The repository is generated
  * from the same template, is private like every other, is named the same way, and produces the same
  * row — which is what makes previewing an assignment worth anything. What changes is that
@@ -148,11 +205,14 @@ export async function acceptRepoAssignment(
      * the account with push access — and the person who should have it is whoever is previewing.
      */
     actingAdmin?: { githubUsername: string | null; email: string | null } | null;
+    /** The team this student is on for this assignment, or null for work they do alone. */
+    team?: ResolvedTeam | null;
   },
 ): Promise<Accepted> {
   const { assignment, student } = params;
   const isTestStudent = student.testStudentNumber !== null;
   const actingAdmin = params.actingAdmin ?? null;
+  const team = params.team ?? null;
 
   if (!student.githubUsername) {
     throw new TRPCError({
@@ -228,12 +288,60 @@ export async function acceptRepoAssignment(
     });
   }
 
-  // Already accepted. Return the existing submission rather than creating a second repository.
-  const existing = await db.submission.findUnique({
-    where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
-  });
-  if (existing?.repoFullName) {
-    return { submission: existing, copyUrl: null };
+  /*
+    Already accepted, which for a team is a question about the team rather than about the caller.
+
+    Claimed before the check and before anything touches GitHub, so the row that will hold the
+    work exists whichever member got here first. `claimedNow` is deliberately not read: a member
+    who lost the race still needs the repository to exist, and a member who won still needs to
+    cope with it existing already. What decides is whether the row has a repository.
+  */
+  let teamSubmissionId: string | null = null;
+
+  if (team) {
+    const claim = await claimTeamWork(db, {
+      assignmentId: assignment.id,
+      studentId: student.id,
+      team,
+      statusIfNew: "ACCEPTED",
+    });
+    teamSubmissionId = claim.submissionId;
+
+    const held = await db.submission.findUniqueOrThrow({
+      where: { id: claim.submissionId },
+      select: { repoFullName: true },
+    });
+
+    if (held.repoFullName) {
+      /*
+        The team has its repository. This member may be new to the team, so they are invited and
+        given a row — both idempotent — and then read their own row back.
+      */
+      const [owner, repo] = held.repoFullName.split("/");
+      if (owner && repo && student.githubUsername && !isTestStudent) {
+        await addCollaborator(getConfiguredInstallationId(), {
+          owner,
+          repo,
+          username: student.githubUsername,
+          permission: "push",
+        });
+      }
+      await ensureTeamRows(db, {
+        assignmentId: assignment.id,
+        teamId: team.id,
+        teamSetId: team.teamSetId,
+        teamSubmissionId: claim.submissionId,
+      });
+      return { submission: await ownRow(db, assignment.id, student.id), copyUrl: null };
+    }
+  } else {
+    // Already accepted. Return the existing submission rather than creating a second repository.
+    const existing = await db.submission.findUnique({
+      where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
+    });
+    if (existing?.repoFullName) {
+      return { submission: existing, copyUrl: null };
+    }
   }
 
   const installationId = getConfiguredInstallationId();
@@ -244,11 +352,17 @@ export async function acceptRepoAssignment(
     a student repeating a module gets a fresh repository rather than wanting the one their
     previous cohort holds.
   */
-  const repoName = studentRepoName({
-    cohortSlug: assignment.course.cohortSlug,
-    assignmentRepoName: source.assignmentRepoName,
-    githubLogin: student.githubUsername,
-  });
+  const repoName = team
+    ? teamRepoName({
+        cohortSlug: assignment.course.cohortSlug,
+        assignmentRepoName: source.assignmentRepoName,
+        teamName: team.name,
+      })
+    : studentRepoName({
+        cohortSlug: assignment.course.cohortSlug,
+        assignmentRepoName: source.assignmentRepoName,
+        githubLogin: student.githubUsername,
+      });
   const [templateOwner, templateRepoName] = source.templateRepo.split("/");
 
   if (!templateOwner || !templateRepoName) {
@@ -288,11 +402,16 @@ export async function acceptRepoAssignment(
   if (claimed) {
     throw new TRPCError({
       code: "CONFLICT",
-      message:
-        `You already have the repository ${repoFullName}, for ` +
-        `"${claimed.assignment.title}" in ${claimed.assignment.course.name}. One ` +
-        `repository cannot serve two courses, so this assignment needs a different ` +
-        `repository name — ask your instructor to change it.`,
+      message: team
+        ? `The repository ${repoFullName} is already taken by ` +
+          `"${claimed.assignment.title}" in ${claimed.assignment.course.name}. Team names are ` +
+          `unique within a set but not across a course, so two sets can each hold a ` +
+          `"${team.name}" — ask your instructor to rename this team or the assignment's ` +
+          `repository.`
+        : `You already have the repository ${repoFullName}, for ` +
+          `"${claimed.assignment.title}" in ${claimed.assignment.course.name}. One ` +
+          `repository cannot serve two courses, so this assignment needs a different ` +
+          `repository name — ask your instructor to change it.`,
     });
   }
 
@@ -318,19 +437,54 @@ export async function acceptRepoAssignment(
   }
 
   /*
-    The student is invited — unless there is no such person.
+    Who is invited to push.
 
-    A test student's handle is `test-student-3`, which names no GitHub account, so the invitation
-    would answer 404 and fail an accept that had already created the repository. The admin looking
+    For work a student does alone that is the student — unless there is no such person. A test
+    student's handle is `test-student-3`, which names no GitHub account, so the invitation would
+    answer 404 and fail an accept that had already created the repository. The admin looking
     through it is invited in its place, and is the account that pushes on its behalf —
     `pushesOnItsBehalf`, resolved and checked at the top of this function.
+
+    For a team it is **every active member**, because the repository is the team's and a member
+    who cannot push to it cannot do the work. A member with no linked GitHub account is warned
+    over rather than refused, exactly as an instructor without one is: they must not block their
+    teammates, and their next Accept invites them once they have linked it.
   */
-  await addCollaborator(installationId, {
-    owner: source.githubOrg,
-    repo: repoName,
-    username: pushesOnItsBehalf ?? student.githubUsername,
-    permission: "push",
-  });
+  const invitees = new Set<string>([pushesOnItsBehalf ?? student.githubUsername]);
+
+  if (team) {
+    const members = await db.teamMembership.findMany({
+      where: { teamId: team.id, enrollment: { status: "ACTIVE" } },
+      select: {
+        enrollment: {
+          select: { student: { select: { githubUsername: true, email: true, id: true } } },
+        },
+      },
+    });
+
+    for (const { enrollment } of members) {
+      if (!enrollment.student.githubUsername) {
+        console.warn(
+          `accept: ${enrollment.student.email ?? "a team member"} has no GitHub account linked, ` +
+            `so they were not added to ${source.githubOrg}/${repoName}`,
+        );
+        continue;
+      }
+      // A test student's handle names no account, so inviting it would 404. The admin looking
+      // through one is already in this set as `pushesOnItsBehalf`.
+      if (enrollment.student.id === student.id && isTestStudent) continue;
+      invitees.add(enrollment.student.githubUsername);
+    }
+  }
+
+  for (const username of invitees) {
+    await addCollaborator(installationId, {
+      owner: source.githubOrg,
+      repo: repoName,
+      username,
+      permission: "push",
+    });
+  }
 
   // Every instructor on the course is added, so no repository ever needs manual permission
   // changes.
@@ -385,22 +539,34 @@ export async function acceptRepoAssignment(
     );
   }
 
+  const where = {
+    status: "ACCEPTED" as const,
+    repoFullName,
+    repoUrl: repo.html_url,
+    repoGithubLoginAtCreation: student.githubUsername,
+  };
+
+  if (team && teamSubmissionId) {
+    /*
+      Written to the row already claimed above rather than upserted, because that row is where the
+      team's work lives and it may not be this member's. Then every member gets one — after the
+      repository exists, so a mirror never appears for work there is nowhere to do.
+    */
+    await db.submission.update({ where: { id: teamSubmissionId }, data: where });
+    await ensureTeamRows(db, {
+      assignmentId: assignment.id,
+      teamId: team.id,
+      teamSetId: team.teamSetId,
+      teamSubmissionId,
+    });
+
+    return { submission: await ownRow(db, assignment.id, student.id), copyUrl: null };
+  }
+
   const submission = await db.submission.upsert({
     where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
-    create: {
-      assignmentId: assignment.id,
-      studentId: student.id,
-      status: "ACCEPTED",
-      repoFullName,
-      repoUrl: repo.html_url,
-      repoGithubLoginAtCreation: student.githubUsername,
-    },
-    update: {
-      status: "ACCEPTED",
-      repoFullName,
-      repoUrl: repo.html_url,
-      repoGithubLoginAtCreation: student.githubUsername,
-    },
+    create: { assignmentId: assignment.id, studentId: student.id, ...where },
+    update: where,
   });
 
   return { submission, copyUrl: null };

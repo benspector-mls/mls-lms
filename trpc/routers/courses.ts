@@ -1550,6 +1550,8 @@ async function courseCells(
       finalScore: true,
       finalScorePossible: true,
       isComplete: true,
+      // Whether this row is one member's copy of their team's grade, which the bucket reads.
+      teamSubmissionId: true,
       // The current round, never a discarded one — see `reviewableSubmissionSelect`.
       // The gradebook's cells read the same buckets the queue does and must agree with it.
       gradingDrafts: {
@@ -1586,7 +1588,14 @@ async function courseCells(
         draftIsStale,
         hasUndeliveredApproval: undeliveredIds.has(submission.id),
         isManualOnly: manualOnlyByAssignment.get(submission.assignmentId) ?? false,
-        mirrorsAnotherSubmission: false,
+        /*
+          A mirror keeps its cell — the student really does have that grade, and the gradebook is
+          the record — but it is not work, so its bucket is null. That is the whole of what the
+          gradebook and the assignments list needed to learn: one team's project counts once in
+          "waiting on you" and once in the "to grade" column, and every member of it still has a
+          score in their own row.
+        */
+        mirrorsAnotherSubmission: submission.teamSubmissionId !== null,
       }),
     };
   });

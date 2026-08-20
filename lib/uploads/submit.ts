@@ -6,6 +6,14 @@ import { isLinkSubmitted } from "../assignments/spec";
 import type { AssignmentKind } from "../generated/prisma/enums";
 import type { db as globalDb } from "../prisma";
 import { handInState } from "../submissions/hand-in";
+import {
+  claimTeamWork,
+  ensureTeamRows,
+  recordHandIn,
+  teamForStudent,
+  teamSubmissionFor,
+  type ResolvedTeam,
+} from "../submissions/team";
 import { checkUpload } from "./file-types";
 import { storeSubmissionUpload } from "./storage";
 
@@ -31,6 +39,21 @@ export type HandInAssignment = {
   courseId: string;
   dueAt: Date | null;
   acceptedFileTypes: string[];
+  /**
+   * The team this caller hands in with, or null for work they do alone.
+   *
+   * Resolved here so no caller decides which row the work goes on. It is the difference between
+   * "your submission" and "your team's", and every write below reads it rather than asking again.
+   */
+  team: ResolvedTeam | null;
+  /**
+   * The row already holding this team's work, or null before anybody has started.
+   *
+   * Read rather than claimed, because this function only refuses — the claim is a write and
+   * belongs to whichever act is about to hand something in. What it is for is the open-draft lock
+   * below, which has to ask about the team's drafts rather than the caller's.
+   */
+  teamSubmissionId: string | null;
 };
 
 /**
@@ -61,6 +84,7 @@ export async function assertCanHandIn(
       dueAt: true,
       distributedAt: true,
       acceptedFileTypes: true,
+      teamSetId: true,
     },
   });
 
@@ -127,6 +151,36 @@ export async function assertCanHandIn(
   }
 
   /*
+    Which team this caller hands in with, when the assignment is handed in by teams at all.
+
+    Read from their own membership, so there is no team id anywhere for a caller to substitute —
+    the same reason `accept` resolves it this way. A fellow on no team of the set is refused
+    rather than given a submission of their own: the assignment is one piece of work per team,
+    and a team of one nobody meant to create is worse than being told to ask.
+  */
+  let team: ResolvedTeam | null = null;
+  let teamSubmissionId: string | null = null;
+
+  if (assignment.teamSetId) {
+    team = await teamForStudent(db, {
+      teamSetId: assignment.teamSetId,
+      studentId: params.profileId,
+    });
+
+    if (!team) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "This assignment is handed in by teams, and you have not been placed on one yet. " +
+          "Ask your instructor to add you to a team.",
+      });
+    }
+
+    const held = await teamSubmissionFor(db, { assignmentId: assignment.id, teamId: team.id });
+    teamSubmissionId = held?.id ?? null;
+  }
+
+  /*
     Work an instructor is part-way through reading is not work a student may replace.
 
     **This is the whole of the rule that makes updating a submission safe.** Handing in again is
@@ -141,9 +195,20 @@ export async function assertCanHandIn(
     would lock a student out over a pipeline error they cannot see or fix. An approved draft is
     not caught either, which is what leaves the ordinary resubmission path open after a grade.
   */
+  /*
+    On a team assignment it asks about **the team's** drafts, not the caller's. Drafts hang off
+    the one row holding the work, so a lock scoped to whoever is pressing the button would never
+    fire for a team at all — and the failure it exists to prevent is exactly the one a team makes
+    easiest: one member replacing the file while an instructor writes feedback about it.
+
+    Before anybody has handed in there is no row and therefore no draft, which is why a null
+    `teamSubmissionId` is not a special case.
+  */
   const openDraft = await db.gradingDraft.findFirst({
     where: {
-      submission: { assignmentId: assignment.id, studentId: params.profileId },
+      submission: teamSubmissionId
+        ? { id: teamSubmissionId }
+        : { assignmentId: assignment.id, studentId: params.profileId },
       approvedAt: null,
       status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
     },
@@ -153,9 +218,11 @@ export async function assertCanHandIn(
   if (openDraft) {
     throw new TRPCError({
       code: "CONFLICT",
-      message:
-        "Your instructor is reviewing this now, so it cannot be changed. Wait for their " +
-        "feedback — you can hand in revised work once it arrives.",
+      message: team
+        ? `Your instructor is reviewing ${team.name}'s work now, so it cannot be changed. Wait ` +
+          `for their feedback — your team can hand in revised work once it arrives.`
+        : "Your instructor is reviewing this now, so it cannot be changed. Wait for their " +
+          "feedback — you can hand in revised work once it arrives.",
     });
   }
 
@@ -165,6 +232,8 @@ export async function assertCanHandIn(
     courseId: assignment.courseId,
     dueAt: assignment.dueAt,
     acceptedFileTypes: assignment.acceptedFileTypes,
+    team,
+    teamSubmissionId,
   };
 }
 
@@ -205,26 +274,47 @@ export async function storeAndRecordUpload(
     throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
   }
 
-  const submission = await db.submission.upsert({
-    where: {
-      assignmentId_studentId: {
+  const team = params.assignment.team;
+
+  /*
+    The row the bytes belong to, which for a team is the team's rather than the caller's.
+
+    `NOT_STARTED` on the create branch either way: a `FILE_UPLOAD` assignment has no Accept, so
+    this row often exists only because the path is built from its id, and a failure at the next
+    step must leave a row saying nothing happened — which is true.
+  */
+  const submission = team
+    ? await claimTeamWork(db, {
         assignmentId: params.assignment.id,
         studentId: params.profileId,
-      },
-    },
-    create: {
-      assignmentId: params.assignment.id,
-      studentId: params.profileId,
-      status: "NOT_STARTED",
-    },
-    /*
-      Nothing written, so what comes back is the row as it stands — which is what the hand-in
-      rule below needs, and the reason no second read is made for it. On the create branch it
-      is the row just made: no submission time, never late, and not yet started.
-    */
-    update: {},
-    select: { id: true, status: true, submittedAt: true, isLate: true },
-  });
+        team,
+        statusIfNew: "NOT_STARTED",
+      }).then(({ submissionId }) =>
+        db.submission.findUniqueOrThrow({
+          where: { id: submissionId },
+          select: { id: true, status: true, submittedAt: true, isLate: true },
+        }),
+      )
+    : await db.submission.upsert({
+        where: {
+          assignmentId_studentId: {
+            assignmentId: params.assignment.id,
+            studentId: params.profileId,
+          },
+        },
+        create: {
+          assignmentId: params.assignment.id,
+          studentId: params.profileId,
+          status: "NOT_STARTED",
+        },
+        /*
+          Nothing written, so what comes back is the row as it stands — which is what the hand-in
+          rule below needs, and the reason no second read is made for it. On the create branch it
+          is the row just made: no submission time, never late, and not yet started.
+        */
+        update: {},
+        select: { id: true, status: true, submittedAt: true, isLate: true },
+      });
 
   const { path } = await storeSubmissionUpload({
     submissionId: submission.id,
@@ -251,17 +341,51 @@ export async function storeAndRecordUpload(
   */
   const state = handInState({ current: submission, dueAt: params.assignment.dueAt, now });
 
-  return db.submission.update({
-    where: { id: submission.id },
-    data: {
-      ...state,
+  /*
+    Written through `recordHandIn`, which is what puts the state on every member's row and keeps
+    the path on the one holding the file. **`uploadPath` is deliberately not copied**: the bytes
+    are stored once, under this row's id, and re-uploading writes a *new* object rather than
+    overwriting the one an instructor may be reading — so four copies of a path would be three
+    members downloading a superseded file with nothing saying so. Every member's own page reads
+    the path through the relation instead. What they do carry is the filename and the size, which
+    is what their own screen shows.
+  */
+  await recordHandIn(db, {
+    submissionId: submission.id,
+    handIn: {
+      state,
       // When the work last moved, which is what orders the instructor's queue. The submission
       // time inside `state` is the first hand-in and does not answer that.
       lastActivityAt: now,
-      uploadPath: path,
-      uploadFilename: params.filename,
-      uploadSizeBytes: params.bytes.byteLength,
-      uploadContentType: check.contentType,
+      handedInById: params.profileId,
+      location: { uploadPath: path },
+      describe: {
+        uploadFilename: params.filename,
+        uploadSizeBytes: params.bytes.byteLength,
+        uploadContentType: check.contentType,
+      },
+    },
+  });
+
+  if (team) {
+    await ensureTeamRows(db, {
+      assignmentId: params.assignment.id,
+      teamId: team.id,
+      teamSetId: team.teamSetId,
+      teamSubmissionId: submission.id,
+    });
+  }
+
+  /*
+    The caller's own row, which is what their screen re-renders from. On a team assignment that is
+    a mirror of the row just written, carrying the same status and the same filename.
+  */
+  return db.submission.findUniqueOrThrow({
+    where: {
+      assignmentId_studentId: {
+        assignmentId: params.assignment.id,
+        studentId: params.profileId,
+      },
     },
     select: {
       id: true,

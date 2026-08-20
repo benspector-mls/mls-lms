@@ -199,3 +199,27 @@ export function studentRepoName(params: {
 }): string {
   return `${params.cohortSlug}-${params.assignmentRepoName}-${params.githubLogin}`;
 }
+
+/**
+ * The repository one team gets for one assignment.
+ *
+ * `{cohortSlug}-{assignmentRepoName}-{team slug}`, which is the same shape as a student's with
+ * the team's name where the login goes. **Named after the team rather than after whoever created
+ * it**, because the repository belongs to the team: every member is a collaborator and pushes to
+ * it, and a name carrying one member's handle would say otherwise for the rest of the term.
+ *
+ * The slug is shorter than a login can be, so any cohort and assignment pairing that fits
+ * `studentRepoName` fits this — see `MAX_TEAM_SLUG`.
+ *
+ * Team names are unique within a set but not within a course, so two sets can each hold a "Team
+ * 1" and the set is not in the name. The accept path reads `repoFullName` before it creates
+ * anything and refuses a collision in words, which is the same guard it already applies to one
+ * student holding one repository across two cohorts.
+ */
+export function teamRepoName(params: {
+  cohortSlug: string;
+  assignmentRepoName: string;
+  teamName: string;
+}): string {
+  return `${params.cohortSlug}-${params.assignmentRepoName}-${teamSlug(params.teamName)}`;
+}

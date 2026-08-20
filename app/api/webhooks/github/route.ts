@@ -5,6 +5,7 @@ import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 import { isGithubAppConfigured } from "@/lib/github/app-client";
 import { verifyGithubSignature } from "@/lib/github/webhook-verify";
 import { handInState, handInStatus } from "@/lib/submissions/hand-in";
+import { recordActivity, recordHandIn } from "@/lib/submissions/team";
 
 /**
  * GitHub webhook receiver.
@@ -34,6 +35,14 @@ type PullRequestWebhookPayload = {
     html_url: string;
     head: { sha: string; ref: string };
     base: { ref: string };
+    /**
+     * The account that opened the pull request, which is how a hand-in gets a name.
+     *
+     * Optional because this type is a description of what is read rather than of what GitHub
+     * sends, and a payload without it must not throw — it means nobody is named, which is
+     * already a state every screen handles.
+     */
+    user?: { login: string } | null;
   };
 };
 
@@ -108,6 +117,31 @@ function resolveStatus(action: string, current: SubmissionStatus): SubmissionSta
   return handInStatus(current);
 }
 
+/**
+ * Which member of this work's team opened the pull request, if any of them did.
+ *
+ * Scoped to the people who hold a row on this piece of work — the row itself and every mirror of
+ * it — so it cannot name somebody unrelated who happens to share a handle. Null when the account
+ * matches nobody, which is the ordinary case for an instructor pushing a fix and for a test
+ * student, whose handle names no GitHub account at all. The screens read null as "your team's
+ * pull request" rather than naming anybody.
+ *
+ * Case-insensitively, because GitHub logins are, and the one on record was typed by a person.
+ */
+async function memberBehind(login: string | null, submissionId: string): Promise<string | null> {
+  if (!login) return null;
+
+  const member = await db.profile.findFirst({
+    where: {
+      githubUsername: { equals: login, mode: "insensitive" },
+      submissions: { some: { OR: [{ id: submissionId }, { teamSubmissionId: submissionId }] } },
+    },
+    select: { id: true },
+  });
+
+  return member?.id ?? null;
+}
+
 async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
   const { action } = payload;
 
@@ -135,6 +169,10 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
 
   const repoFullName = payload.repository.full_name;
 
+  /*
+    Resolved by repository, which needs no change for a team: `repoFullName` is globally unique and
+    only the row holding a team's work ever carries one, so this finds that row and never a mirror.
+  */
   const submission = await db.submission.findUnique({
     where: { repoFullName },
     select: {
@@ -142,6 +180,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
       status: true,
       submittedAt: true,
       isLate: true,
+      teamId: true,
       assignment: { select: { id: true, dueAt: true } },
     },
   });
@@ -155,31 +194,50 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
 
   const now = new Date();
 
-  // Recorded on first submission only, so a resubmission does not reset the original
-  // submission time and turn an on-time submission into a late one. The rule is shared with
-  // the two kinds that hand in without a pull request, which is where it had been missing.
-  const { submittedAt, isLate } = handInState({
-    current: submission,
-    dueAt: submission.assignment.dueAt,
-    now,
-  });
+  /*
+    Where the work is now. Written only to the row that holds it: on a team's other rows each of
+    these would be a copy that goes stale, and a mirror carrying a `headSha` with no
+    `gradedHeadSha` beside it would read as "pushed since graded" for good.
+  */
+  const location = {
+    prNumber: payload.pull_request.number,
+    prUrl: payload.pull_request.html_url,
+    headBranch: payload.pull_request.head.ref,
+    headSha: payload.pull_request.head.sha,
+  };
 
-  await db.submission.update({
-    where: { id: submission.id },
-    data: {
-      // Undefined leaves the column alone, which is what `synchronize` needs: the new
-      // commit is recorded through headSha and lastActivityAt, and the status is the
-      // student's to change.
-      status: resolveStatus(action, submission.status),
-      submittedAt,
-      isLate,
-      prNumber: payload.pull_request.number,
-      prUrl: payload.pull_request.html_url,
-      headBranch: payload.pull_request.head.ref,
-      headSha: payload.pull_request.head.sha,
-      lastActivityAt: now,
-    },
-  });
+  const status = resolveStatus(action, submission.status);
+
+  if (status === undefined) {
+    /*
+      A commit pushed to a pull request that is already open, which is not a hand-in. Recorded as
+      activity: the commit and the time it arrived, and nothing about status, when the work was
+      handed in, or by whom.
+    */
+    await recordActivity(db, { submissionId: submission.id, at: now, location });
+  } else {
+    /*
+      Opening or reopening the pull request, which is the act of handing in.
+
+      `handedInById` is resolved from the account that opened it, matched against the members of
+      the team — null when nothing matches, which the screens read as "your team's pull request"
+      rather than naming somebody. For work a student does alone it is themselves, looked up the
+      same way, so there is one rule rather than a branch.
+
+      `handInState` records the submission time on the first hand-in only, so a resubmission does
+      not reset it and turn an on-time submission into a late one. That rule is shared with the two
+      kinds that hand in without a pull request.
+    */
+    await recordHandIn(db, {
+      submissionId: submission.id,
+      handIn: {
+        state: handInState({ current: submission, dueAt: submission.assignment.dueAt, now }),
+        lastActivityAt: now,
+        handedInById: await memberBehind(payload.pull_request.user?.login ?? null, submission.id),
+        location,
+      },
+    });
+  }
 
   // Phase 2 adds the grading job here. On `synchronize` it must also mark any
   // existing grading draft for this submission as SUPERSEDED, so an instructor's

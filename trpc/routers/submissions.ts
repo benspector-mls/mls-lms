@@ -5,7 +5,7 @@ import { isManualOnly } from "@/lib/assignments/spec";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
 import {
-  activeStudentWork,
+  teamAwareWork,
   assertOwnsOrTeaches,
   removedStudentIds,
   selectedStudentIds,
@@ -15,6 +15,12 @@ import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { linkHost } from "@/lib/status";
 import { handInState } from "@/lib/submissions/hand-in";
+import {
+  claimTeamWork,
+  ensureTeamRows,
+  recordHandIn,
+  recordResubmissionDeclared,
+} from "@/lib/submissions/team";
 import { signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
@@ -57,6 +63,12 @@ const reviewableSubmissionSelect = {
   gradedAt: true,
   gradedHeadSha: true,
   student: { select: personSelect },
+  /*
+    Whether this row is one member's copy of their team's grade. Selected because `triageBucket`
+    reads it: a mirror is waiting on nobody, so it is not work — and without this every member of
+    a team but one would be a separate row in the pile, against a submission with no repository.
+  */
+  teamSubmissionId: true,
   // Enough of the most recent draft to label a row. The review pane loads the draft in full
   // when a row is selected; a list of forty students does not need forty reports in it.
   gradingDrafts: {
@@ -107,7 +119,7 @@ function decorateSubmission<T extends ReviewableSubmission>(
       draftIsStale,
       hasUndeliveredApproval: options.undeliveredIds.has(rest.id),
       isManualOnly: options.manualOnly,
-      mirrorsAnotherSubmission: false,
+      mirrorsAnotherSubmission: rest.teamSubmissionId !== null,
     }),
     draftIsStale,
     activeDraft: draft,
@@ -242,33 +254,75 @@ export const submissionsRouter = createTRPCRouter({
         an upsert is what keeps a missing row from being an error the student cannot act on,
         and a null `current` is what tells the rule this is a first submission.
       */
-      const current = await ctx.db.submission.findUnique({
-        where: {
-          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
-        },
-        select: { status: true, submittedAt: true, isLate: true },
-      });
+      const team = assignment.team;
 
-      const state = handInState({ current, dueAt: assignment.dueAt, now });
+      /*
+        Which row the link goes on. For a team it is the team's, claimed if nobody holds it yet —
+        and `NOT_STARTED` on the create branch because a link assignment has no Accept, so a row
+        that exists only to receive one has had nothing happen to it.
+      */
+      const target = team
+        ? await claimTeamWork(ctx.db, {
+            assignmentId: assignment.id,
+            studentId: ctx.profile.id,
+            team,
+            statusIfNew: "NOT_STARTED",
+          }).then(({ submissionId }) =>
+            ctx.db.submission.findUniqueOrThrow({
+              where: { id: submissionId },
+              select: { id: true, status: true, submittedAt: true, isLate: true },
+            }),
+          )
+        : await ctx.db.submission.upsert({
+            where: {
+              assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
+            },
+            create: {
+              assignmentId: assignment.id,
+              studentId: ctx.profile.id,
+              status: "NOT_STARTED",
+            },
+            update: {},
+            select: { id: true, status: true, submittedAt: true, isLate: true },
+          });
 
-      return ctx.db.submission.upsert({
-        where: {
-          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
-        },
-        create: {
-          assignmentId: assignment.id,
-          studentId: ctx.profile.id,
-          ...state,
-          submittedUrl: input.submittedUrl,
-          lastActivityAt: now,
-        },
-        update: {
-          ...state,
-          submittedUrl: input.submittedUrl,
+      const state = handInState({ current: target, dueAt: assignment.dueAt, now });
+
+      /*
+        One rule writes both the row holding the work and every member's copy of it. The link
+        itself stays on the one row: it is where the work is, and five copies of it are five
+        chances to point at the wrong document.
+      */
+      await recordHandIn(ctx.db, {
+        submissionId: target.id,
+        handIn: {
+          state,
           // Now, not `submittedAt`: this is when the work last moved, and it is what orders
           // the instructor's queue. A revision that carried the original submission time here
           // would sit at the bottom of the pile it had just been added to.
           lastActivityAt: now,
+          handedInById: ctx.profile.id,
+          location: { submittedUrl: input.submittedUrl },
+        },
+      });
+
+      if (team) {
+        await ensureTeamRows(ctx.db, {
+          assignmentId: assignment.id,
+          teamId: team.id,
+          teamSetId: team.teamSetId,
+          teamSubmissionId: target.id,
+        });
+      }
+
+      /*
+        The caller's own row. On a team assignment `submittedUrl` is null on it, because the link
+        lives on the row holding the work — the student's own page reads it through the relation,
+        which is also how it shows a link a teammate pasted.
+      */
+      return ctx.db.submission.findUniqueOrThrow({
+        where: {
+          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
         },
         select: { id: true, status: true, submittedUrl: true, submittedAt: true, isLate: true },
       });
@@ -354,7 +408,23 @@ export const submissionsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const submission = await ctx.db.submission.findUnique({
         where: { id: input.submissionId },
-        select: { id: true, studentId: true, status: true, headSha: true, gradedHeadSha: true },
+        select: {
+          id: true,
+          studentId: true,
+          status: true,
+          headSha: true,
+          gradedHeadSha: true,
+          teamSubmissionId: true,
+          /*
+            The row holding the work, when this one is a mirror of it. Whether there are new
+            commits is a fact about the team's repository, and a mirror holds neither `headSha`
+            nor `gradedHeadSha` — so reading them off this row would find two nulls and let a
+            team declare a resubmission with nothing pushed.
+          */
+          teamSubmission: {
+            select: { id: true, status: true, headSha: true, gradedHeadSha: true },
+          },
+        },
       });
 
       if (!submission) {
@@ -362,12 +432,21 @@ export const submissionsRouter = createTRPCRouter({
       }
 
       // Scoped to the caller's own submission. Prisma bypasses row level security, so
-      // this comparison is the only thing stopping one student acting on another's.
+      // this comparison is the only thing stopping one student acting on another's. It holds for
+      // a team too: every member has a row of their own, and this is theirs.
       if (submission.studentId !== ctx.profile.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "This is not your submission." });
       }
 
-      if (submission.status !== "GRADED" && submission.status !== "RESUBMITTED") {
+      /*
+        Every check below is about the work, so it reads the row holding it — the caller's own
+        when they work alone, and their team's when they do not. Any member may declare it, which
+        is the same rule as handing in: the work is the team's, so asking for it to be looked at
+        again is too.
+      */
+      const work = submission.teamSubmission ?? submission;
+
+      if (work.status !== "GRADED" && work.status !== "RESUBMITTED") {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -379,7 +458,7 @@ export const submissionsRouter = createTRPCRouter({
       // Nothing new to look at. Told plainly rather than accepted quietly, because a
       // student who pressed this expecting to send something would otherwise wait on a
       // review of the code that was already graded.
-      if (submission.headSha && submission.headSha === submission.gradedHeadSha) {
+      if (work.headSha && work.headSha === work.gradedHeadSha) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -388,9 +467,11 @@ export const submissionsRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.submission.update({
+      await recordResubmissionDeclared(ctx.db, { submissionId: work.id, at: new Date() });
+
+      // The caller's own row, which is what their screen re-renders from.
+      return ctx.db.submission.findUniqueOrThrow({
         where: { id: submission.id },
-        data: { status: "RESUBMITTED", lastActivityAt: new Date() },
         select: { id: true, status: true },
       });
     }),
@@ -486,7 +567,7 @@ export const submissionsRouter = createTRPCRouter({
             gradebook shows it, in its own table, which is where a departed student's record
             belongs. Restoring them puts it straight back, because this reads live status.
           */
-          ...activeStudentWork(input.courseId, selection),
+          ...teamAwareWork(input.courseId, selection),
           OR: [
             // Open work, whether or not a run has happened yet.
             { status: { in: ["SUBMITTED", "RESUBMITTED"] } },
@@ -521,6 +602,8 @@ export const submissionsRouter = createTRPCRouter({
           student: {
             select: { id: true, displayName: true, email: true, testStudentNumber: true },
           },
+          // Whether this row is one member's copy of their team's grade, which the bucket reads.
+          teamSubmissionId: true,
           // `sections` for the grading mode: an assignment the pipeline cannot grade lands
           // in a different bucket, because the action waiting on the instructor is
           // different and generating a report is not one of the things they can do.
@@ -563,7 +646,15 @@ export const submissionsRouter = createTRPCRouter({
       const gradedCount = await ctx.db.submission.count({
         where: {
           assignment: { courseId: input.courseId },
-          ...activeStudentWork(input.courseId, selection),
+          ...teamAwareWork(input.courseId, selection),
+          /*
+            One per piece of work, not one per person. A team's grade is on every member's row, so
+            counting all of them would say twelve were approved where three were read — and this
+            number sits beside the pile above, which counts a team once. A `count` carries no
+            bucket, so the exclusion has to be in the query; that is the only reason this reads
+            differently from every other place a mirror is skipped.
+          */
+          teamSubmissionId: null,
           status: "GRADED",
         },
       });
@@ -599,7 +690,7 @@ export const submissionsRouter = createTRPCRouter({
             draftIsStale,
             hasUndeliveredApproval: undeliveredIds.has(submission.id),
             isManualOnly: isManualOnly(sections),
-            mirrorsAnotherSubmission: false,
+            mirrorsAnotherSubmission: submission.teamSubmissionId !== null,
           }),
           draftIsStale,
           // Flattened here rather than in the interface. Delivery is deliberately not on
@@ -684,13 +775,22 @@ export const submissionsRouter = createTRPCRouter({
       /**
        * Why a submission is out of the pile, or null when it is in it.
        *
-       * Removal is checked first because it is the stronger fact: somebody who has left the
-       * cohort is not work to be done whichever group they were in, and telling an instructor
-       * they are merely outside the current filter would read as something a picker can fix.
+       * **Takes the row rather than a student id**, because one of the three reasons is not about
+       * the student at all: a mirror is a member's copy of their team's grade, and which member
+       * holds it says nothing about whether it is work. A signature that named only the student
+       * could not express it.
+       *
+       * A mirror is checked first, then removal, in order of how little the reason has to do with
+       * the instructor's filter. A mirror is never work whoever holds it; somebody who has left
+       * the cohort is not work whichever group they were in; being outside the selected group is
+       * the only one of the three a picker can undo, which is why it is last.
        */
-      const asideReason = (studentId: string): "removed" | "outside_group" | null => {
-        if (removed.has(studentId)) return "removed";
-        if (inSelection && !inSelection.has(studentId)) return "outside_group";
+      const asideReason = (
+        row: (typeof submissions)[number],
+      ): "team_mirror" | "removed" | "outside_group" | null => {
+        if (row.teamSubmissionId !== null) return "team_mirror";
+        if (removed.has(row.student.id)) return "removed";
+        if (inSelection && !inSelection.has(row.student.id)) return "outside_group";
         return null;
       };
 
@@ -713,9 +813,7 @@ export const submissionsRouter = createTRPCRouter({
          * selected group is out for a different and much weaker reason, which is why the two
          * are told apart below rather than merged into "not here".
          */
-        submissions: submissions
-          .filter((row) => asideReason(row.student.id) === null)
-          .map(decorate),
+        submissions: submissions.filter((row) => asideReason(row) === null).map(decorate),
         /**
          * Work this queue does not list and will still open when a link names one.
          *
@@ -734,7 +832,7 @@ export const submissionsRouter = createTRPCRouter({
          * written as separate queries can each miss a row and nothing would say so.
          */
         asideSubmissions: submissions
-          .map((row) => ({ row, reason: asideReason(row.student.id) }))
+          .map((row) => ({ row, reason: asideReason(row) }))
           .filter((entry) => entry.reason !== null)
           .map((entry) => ({ ...decorate(entry.row), asideReason: entry.reason! })),
       };

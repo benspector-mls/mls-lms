@@ -216,6 +216,39 @@ export function activeStudentWork(courseId: string, selection: GroupSelection = 
 }
 
 /**
+ * The same narrowing, widened by one case: **a team's work stays in the pile while any member of
+ * it is still in the cohort.**
+ *
+ * For the reads that answer "what is waiting on an instructor". One row per team holds the work,
+ * and that row belongs to whichever member arrived first — who can leave the cohort while the rest
+ * of the team goes on working. `activeStudentWork` alone would then drop the team's only real row
+ * out of triage and out of the counts, and the work would be waiting on somebody with nothing
+ * anywhere to say so. The teammates' mirrors are not a substitute: a mirror is not work, and is
+ * excluded by the bucket rather than by this.
+ *
+ * **Keyed on `AND` rather than spread, and that is deliberate.** The triage pile already has an
+ * `OR` of its own — open work, a run to act on, an undelivered comment — and an object literal has
+ * one `OR` key, so a fragment contributing a second would silently replace it and quietly widen
+ * the pile to every submission in the cohort. Nesting inside `AND` is what makes the two
+ * independent. Anything using this must not also set `AND`.
+ *
+ * The gradebook and the student's own screens must keep using neither this nor `activeStudentWork`
+ * — they show a mirror, because the student really does have that grade.
+ */
+export function teamAwareWork(courseId: string, selection: GroupSelection = { kind: "all" }) {
+  return {
+    AND: [
+      {
+        OR: [
+          activeStudentWork(courseId, selection),
+          { mirrors: { some: activeStudentWork(courseId, selection) } },
+        ],
+      },
+    ],
+  };
+}
+
+/**
  * The same narrowing expressed against `Enrollment` rather than against `Submission`.
  *
  * The gradebook and the roster read enrollments directly rather than through the work, so they

@@ -22,6 +22,7 @@ import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/co
 import { teachableAssignment } from "@/lib/courses/scope";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { effectiveSection } from "@/lib/grade/approve";
+import { teamForStudent } from "@/lib/submissions/team";
 import { listAnswerKeyEntries, listAnswerKeys, MAX_ANSWER_KEYS } from "@/lib/grade/assets";
 
 import {
@@ -410,6 +411,32 @@ export const assignmentsRouter = createTRPCRouter({
       await assertActiveStudent(ctx, assignment.courseId);
 
       /*
+        Which team this student hands in with, when the assignment is handed in by teams at all.
+
+        Read from their own membership rather than from anything in the input, so there is no team
+        id for a caller to substitute. A fellow on no team of the set is refused before any of the
+        four kinds below does anything: their instructor has not finished placing the cohort, and
+        the honest answer is to say so rather than to create work for a team of one.
+      */
+      let team = null;
+
+      if (assignment.teamSetId) {
+        team = await teamForStudent(ctx.db, {
+          teamSetId: assignment.teamSetId,
+          studentId: student.id,
+        });
+
+        if (!team) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This assignment is handed in by teams, and you have not been placed on one yet. " +
+              "Ask your instructor to add you to a team.",
+          });
+        }
+      }
+
+      /*
         A `switch` over every kind rather than the ifs this was, so a fifth kind is a compile
         error here rather than a request that quietly falls through to the repository path.
 
@@ -419,7 +446,7 @@ export const assignmentsRouter = createTRPCRouter({
       */
       switch (assignment.kind) {
         case "GOOGLE_DRIVE":
-          return acceptDriveAssignment(ctx.db, { assignment, studentId: student.id });
+          return acceptDriveAssignment(ctx.db, { assignment, studentId: student.id, team });
 
         case "REPO":
           /*
@@ -432,6 +459,7 @@ export const assignmentsRouter = createTRPCRouter({
             assignment,
             student,
             actingAdmin: ctx.viewingAs?.admin ?? null,
+            team,
           });
 
         case "FILE_UPLOAD":
