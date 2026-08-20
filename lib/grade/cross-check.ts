@@ -34,6 +34,14 @@ export type Facts = {
   tests: TestOutcome[] | null;
   /** Protected paths the student changed. Non-empty always routes to review. */
   tamperedPaths: { path: string; kind: string }[];
+  /**
+   * What the section is worth, from `assignment.sections`.
+   *
+   * Required rather than optional, so a caller cannot omit the one number that makes the
+   * score mean anything. Every caller has it: the pipeline refuses to grade a section
+   * without a `pointValue` at all, and calibration reads it from the instructor's report.
+   */
+  pointValue: number;
 };
 
 export type CrossCheckFinding = {
@@ -43,6 +51,7 @@ export type CrossCheckFinding = {
     | "REPORT_TEXT_SCORE_MISMATCH"
     | "INTERNAL_LABEL_IN_REPORT"
     | "SCORE_OUT_OF_RANGE"
+    | "SCORE_POSSIBLE_MISMATCH"
     | "TEST_CLAIM_CONTRADICTION"
     | "UNKNOWN_TEST_CLAIMED"
     | "FULL_CREDIT_DESPITE_FAILURES"
@@ -180,6 +189,32 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     findings.push({
       code: "SCORE_OUT_OF_RANGE",
       detail: `The score ${report.scoreEarned} exceeds the maximum ${report.scorePossible}.`,
+    });
+  }
+
+  /*
+    The denominator, against the one the section actually carries.
+
+    Every check above is the report against itself, and a report can be perfectly consistent
+    about the wrong maximum: 0 out of 3 for a section worth 15 sums correctly, sits in range,
+    and says nothing false about any test. The prompt is told the point value and the model is
+    expected to restate it, which makes a different number a contradiction of a fact rather
+    than a judgment — the same shape as a claim about a test outcome.
+
+    This is the second half of a defence whose first half already exists. `generateReportForSubmission`
+    refuses to grade a section with no `pointValue` at all, because a model told nothing about the
+    maximum invents one; what was missing was checking the number that came back. Left unchecked it
+    is not a visible fault but a silent one: approval copies `scorePossible` into
+    `finalScorePossible`, so the gradebook records the invented denominator and computes completion
+    against it.
+  */
+  if (Math.abs(report.scorePossible - facts.pointValue) > EPSILON) {
+    findings.push({
+      code: "SCORE_POSSIBLE_MISMATCH",
+      detail:
+        `The report is scored out of ${report.scorePossible}, but this section is worth ` +
+        `${facts.pointValue}. Every score in it describes a different maximum than the one ` +
+        `the gradebook will record.`,
     });
   }
 

@@ -457,7 +457,11 @@ export async function generateReportForSubmission(submissionId: string): Promise
       usageTotals.cachedPromptTokens += response.usage.cachedPromptTokens ?? 0;
       usageTotals.cacheWriteTokens += response.usage.cacheWriteTokens ?? 0;
 
-      const facts: Facts = { tests: sectionResults?.tests ?? null, tamperedPaths };
+      const facts: Facts = {
+        tests: sectionResults?.tests ?? null,
+        tamperedPaths,
+        pointValue: sectionPointValue,
+      };
       const check = crossCheck(response.output, facts);
 
       await db.gradingDraftSection.create({

@@ -32,7 +32,9 @@ function report(overrides: Partial<GradingReport> = {}): GradingReport {
   };
 }
 
-const noFacts: Facts = { tests: null, tamperedPaths: [] };
+/* The default `report()` is scored out of 12, so the fixtures agree with that maximum and only
+   the case under test differs from it. */
+const noFacts: Facts = { tests: null, tamperedPaths: [], pointValue: 12 };
 const codes = (result: ReturnType<typeof crossCheck>) => result.findings.map((f) => f.code).sort();
 
 describe("arithmetic", () => {
@@ -47,9 +49,11 @@ describe("arithmetic", () => {
   });
 
   it("catches a mismatched possible total", () => {
-    expect(codes(crossCheck(report({ scorePossible: 15 }), noFacts))).toEqual([
-      "ARITHMETIC_MISMATCH",
-    ]);
+    // The fixture moves with the report, so this isolates the arithmetic rule rather than
+    // also tripping the point-value comparison below.
+    expect(
+      codes(crossCheck(report({ scorePossible: 15 }), { ...noFacts, pointValue: 15 })),
+    ).toEqual(["ARITHMETIC_MISMATCH"]);
   });
 
   it("catches earning more than was possible", () => {
@@ -79,7 +83,7 @@ describe("arithmetic", () => {
             { label: "x", criterion: "checklist", scoreEarned: 5.5, scorePossible: 6, note: null },
           ],
         }),
-        noFacts,
+        { ...noFacts, pointValue: 6 },
       ).needsManualReview,
     ).toBe(false);
   });
@@ -157,7 +161,7 @@ describe("the score in the text against the recorded score", () => {
           ],
           reportMarkdown: "## Score: 5.5/6 = 92%",
         }),
-        noFacts,
+        { ...noFacts, pointValue: 6 },
       ).needsManualReview,
     ).toBe(false);
   });
@@ -175,7 +179,7 @@ describe("claims about test outcomes", () => {
     { suite: "From Scratch Tests", name: "loop5to10 works", status: "passed" as const },
     { suite: "From Scratch Tests", name: "fizzbuzz works", status: "failed" as const },
   ];
-  const withTests: Facts = { tests: runTests, tamperedPaths: [] };
+  const withTests: Facts = { tests: runTests, tamperedPaths: [], pointValue: 12 };
 
   it("passes a claim that matches the run", () => {
     expect(
@@ -284,6 +288,7 @@ describe("claims about test outcomes", () => {
         { suite: "S", name: "b", status: "passed" },
       ],
       tamperedPaths: [],
+      pointValue: 12,
     };
 
     expect(
@@ -320,6 +325,9 @@ describe("claims about test outcomes", () => {
  * TERMINOLOGY and awarding near-full technical marks, which is what this exists to name.
  */
 describe("a flag the score does not reflect", () => {
+  /** These reports are out of 15, so the section they are checked against is worth 15. */
+  const srFacts: Facts = { ...noFacts, pointValue: 15 };
+
   /** Short-response shaped, at full marks, because that is where the flag vocabulary applies. */
   function shortResponse(overrides: Partial<GradingReport> = {}): GradingReport {
     return report({
@@ -343,20 +351,20 @@ describe("a flag the score does not reflect", () => {
   }
 
   it("catches a technical flag beside full technical marks", () => {
-    expect(codes(crossCheck(shortResponse({ flags: ["TERMINOLOGY"] }), noFacts))).toEqual([
+    expect(codes(crossCheck(shortResponse({ flags: ["TERMINOLOGY"] }), srFacts))).toEqual([
       "FLAG_WITHOUT_DEDUCTION",
     ]);
   });
 
   it("catches a writing flag beside full writing marks", () => {
-    expect(codes(crossCheck(shortResponse({ flags: ["MECHANICAL"] }), noFacts))).toEqual([
+    expect(codes(crossCheck(shortResponse({ flags: ["MECHANICAL"] }), srFacts))).toEqual([
       "FLAG_WITHOUT_DEDUCTION",
     ]);
   });
 
   it("names each band separately when both are at full marks", () => {
     expect(
-      codes(crossCheck(shortResponse({ flags: ["TERMINOLOGY", "MECHANICAL"] }), noFacts)),
+      codes(crossCheck(shortResponse({ flags: ["TERMINOLOGY", "MECHANICAL"] }), srFacts)),
     ).toEqual(["FLAG_WITHOUT_DEDUCTION", "FLAG_WITHOUT_DEDUCTION"]);
   });
 
@@ -381,7 +389,7 @@ describe("a flag the score does not reflect", () => {
               },
             ],
           }),
-          noFacts,
+          srFacts,
         ),
       ),
     ).toEqual([]);
@@ -408,7 +416,7 @@ describe("a flag the score does not reflect", () => {
               },
             ],
           }),
-          noFacts,
+          srFacts,
         ),
       ),
     ).toEqual([]);
@@ -419,7 +427,61 @@ describe("a flag the score does not reflect", () => {
   });
 
   it("raises no finding when no flag is raised", () => {
-    expect(codes(crossCheck(shortResponse(), noFacts))).toEqual([]);
+    expect(codes(crossCheck(shortResponse(), srFacts))).toEqual([]);
+  });
+});
+
+/**
+ * The denominator, against the one the section carries.
+ *
+ * Every other arithmetic rule checks the report against itself, and a report can be entirely
+ * self-consistent about the wrong maximum. Calibration produced one: 0 out of 3 on a section
+ * worth 15, summing correctly and in range, which no other check here can see. It matters more
+ * than it looks because approval copies `scorePossible` into `finalScorePossible`, so an
+ * invented denominator reaches the gradebook rather than an error message.
+ */
+describe("the denominator against the section's point value", () => {
+  /** The shape calibration actually returned: internally consistent, wrong scale. */
+  function wrongScale(): GradingReport {
+    return report({
+      scoreEarned: 0,
+      scorePossible: 3,
+      rubricItems: [
+        { label: "Writing Quality", criterion: "writing", scoreEarned: 0, scorePossible: 3, note: null },
+      ],
+    });
+  }
+
+  it("catches a report scored out of the wrong maximum", () => {
+    expect(codes(crossCheck(wrongScale(), { ...noFacts, pointValue: 15 }))).toEqual([
+      "SCORE_POSSIBLE_MISMATCH",
+    ]);
+  });
+
+  it("holds that report back rather than letting it reach a gradebook", () => {
+    expect(
+      crossCheck(wrongScale(), { ...noFacts, pointValue: 15 }).needsManualReview,
+    ).toBe(true);
+  });
+
+  it("says nothing when the report is scored out of the section's own value", () => {
+    expect(codes(crossCheck(report(), { ...noFacts, pointValue: 12 }))).toEqual([]);
+  });
+
+  it("catches a maximum that is too large as well as too small", () => {
+    expect(
+      codes(crossCheck(report({ scorePossible: 12 }), { ...noFacts, pointValue: 10 })),
+    ).toEqual(["SCORE_POSSIBLE_MISMATCH"]);
+  });
+
+  it("tolerates a fractional point value, since half credit is normal", () => {
+    expect(
+      codes(
+        crossCheck(report({ scoreEarned: 5.5, scorePossible: 12, rubricItems: [
+          { label: "Q1", criterion: "algorithm", scoreEarned: 5.5, scorePossible: 12, note: null },
+        ] }), { ...noFacts, pointValue: 12 }),
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -430,6 +492,7 @@ describe("facts that route regardless of the report", () => {
         crossCheck(report(), {
           tests: null,
           tamperedPaths: [{ path: "tests/a.spec.js", kind: "modified" }],
+          pointValue: 12,
         }),
       ),
     ).toEqual(["PROTECTED_PATHS_CHANGED"]);
