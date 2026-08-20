@@ -61,6 +61,15 @@ const assignmentFields = {
   templateDriveUrl: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
+  /*
+    Which teams hand this in, or null for work each student does alone.
+
+    Student-facing as well as read by the form: a student's own page has to say that this is
+    handed in with their team and who is on it, and the assignment is what says whether that
+    question applies at all.
+  */
+  teamSetId: true,
+  teamSet: { select: { id: true, name: true } },
 } as const;
 
 /** Refuses a draft that would not grade correctly, naming the fields. */
@@ -103,6 +112,7 @@ function writableFields(
     templateDriveUrl: spec.templateDriveUrl,
     acceptedFileTypes: spec.acceptedFileTypes,
     submissionInstructions: spec.submissionInstructions,
+    teamSetId: spec.teamSetId,
     sections: spec.sections as never,
   };
 }
@@ -491,7 +501,7 @@ export const assignmentsRouter = createTRPCRouter({
    * list, and a form that appears one field at a time as three requests land reads as broken.
    */
   authoringContext: courseProcedure.query(async ({ ctx, input }) => {
-    const [course, courseUnits, rubrics, siblings] = await Promise.all([
+    const [course, courseUnits, rubrics, siblings, teamSets, activeCount] = await Promise.all([
       ctx.db.course.findUnique({
         where: { id: input.courseId },
         select: { id: true, name: true, cohortTerm: true },
@@ -510,6 +520,29 @@ export const assignmentsRouter = createTRPCRouter({
         select: { githubOrg: true, answerKeyRepo: true },
         take: 50,
       }),
+      /*
+        The course's team sets, for the choice of whether this is team work.
+
+        With how many teams each holds and how many fellows are on none of them, because the
+        second number is what an instructor needs before publishing: a fellow on no team of the
+        set an assignment is handed in by has no work to accept at all, and the form is the last
+        place that can say so before students see it.
+      */
+      ctx.db.teamSet.findMany({
+        where: { courseId: input.courseId },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          _count: { select: { teams: true } },
+          teams: {
+            select: {
+              _count: { select: { memberships: { where: { enrollment: { status: "ACTIVE" } } } } },
+            },
+          },
+        },
+      }),
+      ctx.db.enrollment.count({ where: { courseId: input.courseId, status: "ACTIVE" } }),
     ]);
 
     if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
@@ -545,6 +578,17 @@ export const assignmentsRouter = createTRPCRouter({
       rubrics,
       defaultGithubOrg,
       defaultAnswerKeyRepo,
+      teamSets: teamSets.map((set) => {
+        const placed = set.teams.reduce((total, team) => total + team._count.memberships, 0);
+        return {
+          id: set.id,
+          name: set.name,
+          teamCount: set._count.teams,
+          placedCount: placed,
+          /** How many active fellows are on no team of this set, and would get no work. */
+          unplacedCount: Math.max(0, activeCount - placed),
+        };
+      }),
     };
   }),
 
@@ -580,6 +624,7 @@ export const assignmentsRouter = createTRPCRouter({
         templateDriveUrl: true,
         acceptedFileTypes: true,
         submissionInstructions: true,
+        teamSetId: true,
         sections: true,
         _count: { select: { submissions: true } },
       });
@@ -706,6 +751,8 @@ export const assignmentsRouter = createTRPCRouter({
       const existing = await teachableAssignment(ctx, input.assignmentId, {
         courseId: true,
         assignmentRepoName: true,
+        distributedAt: true,
+        teamSetId: true,
         _count: { select: { submissions: true } },
       });
 
@@ -717,6 +764,33 @@ export const assignmentsRouter = createTRPCRouter({
       refuseOnErrors(findings);
       if (!spec || pointValue === null) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "That draft is not an assignment." });
+      }
+
+      /*
+        Whether this is team work is frozen once the assignment is published, which is the rule
+        and the sentence `kind` already uses on this screen.
+
+        Both directions are refused and for different reasons. Turning it *on* afterwards would
+        force a choice of whose repository, pull request and file survive out of however many
+        students had already submitted separately — a choice this cannot make and must not make
+        quietly. Turning it *off* would leave every member but one holding a grade whose drafts
+        belong to a submission that is no longer theirs, and their feedback history would collapse
+        from a round-by-round record to a single undifferentiated block, silently.
+
+        Keyed on `distributedAt` rather than on the submission count, because the count is zero
+        for the whole window between publishing and the first Accept — and an assignment students
+        can already see is one whose terms should not change under them.
+      */
+      if (existing.distributedAt !== null && spec.teamSetId !== existing.teamSetId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            existing.teamSetId === null
+              ? "This assignment is already published as individual work, so it cannot become " +
+                "team work. Create a team assignment instead."
+              : "This assignment is already published as team work, so which teams hand it in " +
+                "cannot change. Create a new assignment instead.",
+        });
       }
 
       if (

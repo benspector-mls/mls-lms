@@ -69,6 +69,17 @@ const reviewableSubmissionSelect = {
     a team but one would be a separate row in the pile, against a submission with no repository.
   */
   teamSubmissionId: true,
+  /*
+    The team this was handed in by, who is on it, and which of them handed in the version now
+    standing. Null on work a student did alone.
+
+    Read here rather than on the review screen's own query, so the queue's list and a student's
+    record cannot name a team differently — the reason this select exists at all. `mirrors` is the
+    rest of the team: every member holds a row, and this row's own student is the remaining one.
+  */
+  team: { select: { id: true, name: true, teamSet: { select: { name: true } } } },
+  handedInBy: { select: { id: true, displayName: true } },
+  mirrors: { select: { student: { select: personSelect } } },
   // Enough of the most recent draft to label a row. The review pane loads the draft in full
   // when a row is selected; a list of forty students does not need forty reports in it.
   gradingDrafts: {
@@ -109,12 +120,29 @@ function decorateSubmission<T extends ReviewableSubmission>(
   submission: T,
   options: { manualOnly: boolean; undeliveredIds: Set<string> },
 ) {
-  const { gradingDrafts, ...rest } = submission;
+  const { gradingDrafts, mirrors, team, handedInBy, ...rest } = submission;
   const draft = gradingDrafts[0] ?? null;
   const draftIsStale = draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
 
   return {
     ...rest,
+    /*
+      The team as one object, flattened here so no screen assembles it twice.
+
+      `members` puts this row's own student first and their teammates after, which is the order
+      every reader wants: on the row holding the work that is whoever claimed it, and on a mirror
+      it is the member whose record this is. Only the display name and the id travel — a report is
+      read by students, and a member's email or GitHub handle is nothing their teammates need.
+    */
+    team: team
+      ? {
+          id: team.id,
+          name: team.name,
+          setName: team.teamSet.name,
+          handedInBy,
+          members: [rest.student, ...mirrors.map((mirror) => mirror.student)],
+        }
+      : null,
     bucket: triageBucket(rest.status, draft, {
       draftIsStale,
       hasUndeliveredApproval: options.undeliveredIds.has(rest.id),

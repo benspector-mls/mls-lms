@@ -146,6 +146,17 @@ export async function generateReportForSubmission(submissionId: string): Promise
       prNumber: true,
       headBranch: true,
       student: { select: { githubUsername: true } },
+      /*
+        Whether this row is one member's copy of their team's grade, and — when it is the team's
+        own row — who else the report is addressed to.
+
+        Handles only, deliberately. The report is posted as a pull request comment and rendered on
+        every member's page, so putting display names into model-written prose that gets published
+        is a new class of mistake for no benefit.
+      */
+      teamSubmissionId: true,
+      team: { select: { name: true } },
+      mirrors: { select: { student: { select: { githubUsername: true } } } },
       assignment: {
         select: {
           title: true,
@@ -166,6 +177,22 @@ export async function generateReportForSubmission(submissionId: string): Promise
   });
 
   if (!submission) throw new ReportGenerationError(`No submission ${submissionId}.`);
+
+  /*
+    One member's copy of their team's grade, refused before the pull request check below.
+
+    Order matters here rather than being tidy. A mirror carries no repository and no pull request,
+    so the check below would catch it and say "no pull request yet" — which sends an instructor
+    looking for one that will never exist, on a row that is not where the work is. Said properly,
+    the message names where to go instead.
+  */
+  if (submission.teamSubmissionId !== null) {
+    throw new ReportGenerationError(
+      `Submission ${submissionId} is one member's copy of their team's work, so it is not what ` +
+        `gets graded. Generate the report on the team's own submission.`,
+    );
+  }
+
   if (!submission.repoFullName || !submission.headSha || submission.prNumber === null) {
     throw new ReportGenerationError(
       `Submission ${submissionId} has no pull request yet, so there is nothing to grade.`,

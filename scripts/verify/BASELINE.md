@@ -9,7 +9,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:modules` | 35 | the database |
 | `verify:groups` | 46 | the database |
 | `verify:team-sets` | 32 | the database |
-| `verify:team-work` | 25 | the database |
+| `verify:team-work` | 40 | the database |
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
 | `verify:approve` | 48 → **53** | the database |
@@ -60,7 +60,9 @@ Its 28 need one active enrollment in a cohort that is still running, and a unit 
 
 **`verify:team-work` is the other half, and needs no GitHub.** `verify:team-sets` covers making the teams; this covers what happens when one of them hands something in. It creates an `EXTERNAL_URL` assignment inside the throwaway transaction, which exercises the same claim-and-fan-out path a repository assignment does — the difference between the kinds is *where the work is*, and that is exactly the part which never reaches a mirror. So it needs no repository, no sandbox and no model, and still checks the thing that matters.
 
-Its three most valuable checks are the ones about a second member. That a second hand-in writes onto the same row is what the decision not to move the row rests on; that who handed it in moves while when the team first handed in does not is the pair of facts a single careless `update` would collapse; and that a member placed on the team afterwards gets a row carrying what the team had already done is what stops a late arrival reading as somebody who never started. It also holds the queue's exhaustiveness the way `verify:groups` does — the listed pile plus the set-aside pile is every row — and that the open-draft lock fires for a member who is *not* the one an instructor is reading, which is the case that never fired before drafts were looked up on the team's own row.
+It went from 25 to 40 when releasing a grade arrived: the fan-out itself, one audit event per member, that no mirror strands waiting for a comment, and the four refusals — a report, a hand-graded round, a correction, and a comment retry, none of which may be aimed at a mirror. The fan-out check is the single most valuable one in either script: every column a released grade writes, collected from all three rows and compared as one set, because a set with more than one member means somebody got a different grade from their teammates and no screen anywhere would say so.
+
+Its three most valuable hand-in checks are the ones about a second member. That a second hand-in writes onto the same row is what the decision not to move the row rests on; that who handed it in moves while when the team first handed in does not is the pair of facts a single careless `update` would collapse; and that a member placed on the team afterwards gets a row carrying what the team had already done is what stops a late arrival reading as somebody who never started. It also holds the queue's exhaustiveness the way `verify:groups` does — the listed pile plus the set-aside pile is every row — and that the open-draft lock fires for a member who is *not* the one an instructor is reading, which is the case that never fired before drafts were looked up on the team's own row.
 
 **`verify:team-sets` is newer than this file's premise.** It was written with the feature rather than before it, so it has no pre-refactor figure to reproduce — 32 is simply what it reports today. It needs a course with an instructor and **three** distinct students, and it skips rather than passes without them: placement is a partition, and the case worth checking is moving somebody from one team to another, which with two people and two teams passes whether the move happened or a stale row survived. Three also makes "distribute evenly" uneven. Two of its groups skip on their own if the cohort has no assignment or no enrollment outside it, and a skip still exits non-zero.
 

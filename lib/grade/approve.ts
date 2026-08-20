@@ -4,6 +4,7 @@ import { auditEventData, type AuditActor } from "../audit/record";
 import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
 import { opensOwnTransaction } from "../transactions";
+import { sharedAfterGrade } from "../submissions/team";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { postOrUpdatePrComment } from "../github/prs";
@@ -88,6 +89,15 @@ export type ApprovalResult = {
    * `delivery` is `failed`: having nowhere to post is not an error and has no message.
    */
   commentError: string | null;
+  /**
+   * The team this went to, and how many fellows received it. Null for work a student did alone.
+   *
+   * Here so the toast can say what actually happened — "Released 8/10 to Team 3, 4 fellows" — and
+   * so `retryComment` can say the same. Read from the rows the grade was written to rather than
+   * from the count of an `updateMany`, which would mean indexing into the transaction's results by
+   * position.
+   */
+  team: { id: string; name: string; memberCount: number } | null;
 };
 
 /**
@@ -145,6 +155,23 @@ export async function approveDraft(params: {
           // may since have changed.
           studentId: true,
           student: { select: { displayName: true, email: true, githubUsername: true } },
+          /*
+            The team, if this is a team's work, and every member's own row.
+
+            `mirrors` is what the grade is copied onto and what the audit log names, so both are
+            read here rather than queried again later — the copies and the record of them are one
+            act. `teamSubmissionId` is read to refuse the opposite case: a draft somehow held by a
+            mirror, which must not be able to write a second, different grade over the fan-out.
+          */
+          teamSubmissionId: true,
+          team: { select: { id: true, name: true } },
+          mirrors: {
+            select: {
+              id: true,
+              studentId: true,
+              student: { select: { displayName: true, email: true, githubUsername: true } },
+            },
+          },
           assignment: {
             select: {
               completionThreshold: true,
@@ -183,6 +210,21 @@ export async function approveDraft(params: {
   }
 
   const submission = draft.submission;
+
+  /*
+    A draft held by one member's copy of their team's grade.
+
+    Mirrors carry no drafts, so reaching this means one was written by hand. Refused rather than
+    followed, because approving it would write a second grade onto rows the real approval also
+    writes — two releases of one piece of work, in an order nothing decides. One comparison, and
+    it is what makes "the team's work is graded on the team's row" a rule rather than a habit.
+  */
+  if (submission.teamSubmissionId !== null) {
+    throw new ApprovalError(
+      `This submission is one member's copy of their team's work, so it is not what gets ` +
+        `graded. Open the team's own submission and release it there.`,
+    );
+  }
 
   // Refused rather than warned about. The instructor read a report describing one
   // commit; approving it would attach that report to different code and record its
@@ -290,24 +332,43 @@ export async function approveDraft(params: {
   // Both rows together, because a draft marked APPROVED whose submission is not GRADED
   // — or the reverse — would put the feedback history and the gradebook out of step.
   // Both are local writes, so the transaction closes without waiting on anything.
+  /*
+    The grade, as one object used for the row holding the work and for every member's copy of it.
+
+    One object rather than two lists of columns, which is what makes them impossible to diverge —
+    a column added to a student's own record and forgotten on their teammates' would be a grade
+    that reads differently depending on who is looking.
+  */
+  const grade = sharedAfterGrade({
+    finalScore,
+    finalScorePossible,
+    isComplete,
+    feedbackMarkdown,
+    gradedById: params.approvedByProfileId,
+    gradedAt: approvedAt,
+    gradedHeadSha: draft.headSha,
+  });
+
   const writes = [
-    client.submission.update({
-      where: { id: submission.id },
-      data: {
-        status: "GRADED",
-        finalScore,
-        finalScorePossible,
-        isComplete,
-        // The current grade, denormalized from the approved draft so a student's page
-        // is one read. The drafts remain the history.
-        feedbackMarkdown,
-        gradedById: params.approvedByProfileId,
-        gradedAt: approvedAt,
-        // What the grade describes. Everything that later asks "has this been revised
-        // since it was graded" compares against this and nothing else.
-        gradedHeadSha: draft.headSha,
-        salesforceSyncStatus: "PENDING",
-      },
+    client.submission.update({ where: { id: submission.id }, data: grade }),
+    /*
+      Every member's own row, in the same transaction as the grade itself.
+
+      `updateMany` keyed on the column rather than on the ids read above, deliberately: an id list
+      is a check-then-act, and a member placed on the team between the read and the write would be
+      silently missed. Keyed on the column it covers whatever is a mirror at write time.
+
+      Inside the transaction rather than after it, which is the whole reason the identity check in
+      `opensOwnTransaction` had to be fixed first. A failure here rolls the release back — the work
+      is not graded, the draft is not approved, nothing has been posted — and the instructor
+      presses again. Outside it, the failure would be a graded submission whose teammates have no
+      grade, a draft that refuses re-approval, and nothing anybody could do about it.
+
+      It matches nothing for work a student did alone, so there is one path rather than a branch.
+    */
+    client.submission.updateMany({
+      where: { teamSubmissionId: submission.id },
+      data: grade,
     }),
     client.gradingDraft.update({
       where: { id: draft.id },
@@ -329,29 +390,59 @@ export async function approveDraft(params: {
       `auditEventData` rather than `recordEvent` because these writes are collected unawaited and
       handed to `$transaction` as an array; see `lib/audit/record.ts`.
     */
-    client.auditEvent.create({
-      data: auditEventData({
-        action: "GRADE_APPROVED",
-        actor: approver,
-        subject: {
-          id: submission.studentId,
-          label: displayNameOf(submission.student, "a student"),
-        },
-        course: {
-          id: submission.assignment.courseId,
-          label: submission.assignment.course.name,
-        },
-        detail: {
-          submissionId: submission.id,
-          assignment: submission.assignment.title,
-          scoreEarned: finalScore,
-          scorePossible: finalScorePossible,
-          isComplete,
-          completionThreshold: threshold,
-          gradedHeadSha: draft.headSha,
-        },
+    /*
+      **One event per member**, not one naming the team.
+
+      Three reasons, in the order they would convince somebody. The action is defined as a grade
+      released to a student, and four students receiving one is four releases — which is also how
+      `ATTENDANCE_CHECKED_IN` is defined, one row per fellow per session, because "prove this
+      fellow was there" is the question a funder asks. This table stores a plain uuid beside a text
+      snapshot of what it was called at the time, precisely so a later reader never has to resolve
+      membership *as it is now* to learn who received something — and team membership is editable.
+      And the table is append-only by trigger, so one event naming a team could not be split later
+      if that turned out to be wrong.
+    */
+    ...[
+      { id: submission.id, studentId: submission.studentId, student: submission.student },
+      ...submission.mirrors,
+    ].map((recipient) =>
+      client.auditEvent.create({
+        data: auditEventData({
+          action: "GRADE_APPROVED",
+          actor: approver,
+          subject: {
+            id: recipient.studentId,
+            label: displayNameOf(recipient.student, "a student"),
+          },
+          course: {
+            id: submission.assignment.courseId,
+            label: submission.assignment.course.name,
+          },
+          detail: {
+            // This member's own row, which is the record that changed.
+            submissionId: recipient.id,
+            assignment: submission.assignment.title,
+            scoreEarned: finalScore,
+            scorePossible: finalScorePossible,
+            isComplete,
+            completionThreshold: threshold,
+            gradedHeadSha: draft.headSha,
+            /*
+              The team, snapshotted. Present only on team work, and it is what lets a later reader
+              see that four events were one act without joining back to membership rows that may
+              since have changed.
+            */
+            ...(submission.team
+              ? {
+                  teamName: submission.team.name,
+                  teamSubmissionId: submission.id,
+                  teamMemberCount: submission.mirrors.length + 1,
+                }
+              : {}),
+          },
+        }),
       }),
-    }),
+    ),
   ];
 
   /*
@@ -418,6 +509,13 @@ export async function approveDraft(params: {
     postedPrCommentId,
     delivery: deliveryOutcome({ postedPrCommentId }, submission),
     commentError,
+    team: submission.team
+      ? {
+          id: submission.team.id,
+          name: submission.team.name,
+          memberCount: submission.mirrors.length + 1,
+        }
+      : null,
   };
 }
 
@@ -457,12 +555,32 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
           finalScore: true,
           finalScorePossible: true,
           isComplete: true,
+          teamSubmissionId: true,
+          team: { select: { id: true, name: true } },
+          mirrors: { select: { id: true } },
         },
       },
     },
   });
 
   if (!draft) {
+    /*
+      A mirror holds no drafts, so a retry aimed at one finds nothing — and "no approved draft"
+      would send an instructor looking for a grade that plainly went out. Answered separately, and
+      only after the lookup fails, so the ordinary case pays nothing for it.
+    */
+    const mirror = await db.submission.findFirst({
+      where: { id: submissionId, teamSubmissionId: { not: null } },
+      select: { teamSubmissionId: true },
+    });
+
+    if (mirror) {
+      throw new ApprovalError(
+        `This submission is one member's copy of their team's grade, so there is no comment of ` +
+          `its own to post. The comment belongs to the team's pull request — retry it there.`,
+      );
+    }
+
     throw new ApprovalError(`No approved draft for submission ${submissionId}.`);
   }
   if (draft.postedPrCommentId !== null) {
@@ -502,5 +620,12 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
     postedPrCommentId,
     delivery: "posted",
     commentError: null,
+    team: submission.team
+      ? {
+          id: submission.team.id,
+          name: submission.team.name,
+          memberCount: submission.mirrors.length + 1,
+        }
+      : null,
   };
 }

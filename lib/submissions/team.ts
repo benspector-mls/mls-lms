@@ -206,6 +206,51 @@ async function write(
   });
 }
 
+/** A grade as it is released: what every row of a team carries once it goes out. */
+export type ReleasedGrade = {
+  finalScore: number;
+  finalScorePossible: number;
+  isComplete: boolean;
+  feedbackMarkdown: string;
+  gradedById: string;
+  gradedAt: Date;
+  gradedHeadSha: string | null;
+};
+
+/**
+ * The columns a released grade writes, which are the same on every member's row.
+ *
+ * **Not a fan-out but the columns themselves**, because approval collects its writes unawaited
+ * into an array and hands the array to `$transaction` — so the write cannot happen here. What this
+ * gives instead is one object used for both the row holding the work and its mirrors, which is
+ * stronger than a list of columns to copy: the two cannot diverge, because there is only one.
+ *
+ * `gradedAt` is rewritten on every release rather than set once, which is what makes a second
+ * round read as unread again: `feedbackIsUnread` compares it against each member's own
+ * `feedbackReviewedAt`, and a member who read round one must not be shown round two as already
+ * seen. `feedbackReviewedAt` is deliberately not here — it is each member's own answer.
+ *
+ * `salesforceSyncStatus` goes back to `PENDING` on every row, because every member's record is
+ * synced separately and each of them changed.
+ */
+export function sharedAfterGrade(grade: ReleasedGrade): Prisma.SubmissionUncheckedUpdateManyInput {
+  return {
+    status: "GRADED",
+    finalScore: grade.finalScore,
+    finalScorePossible: grade.finalScorePossible,
+    isComplete: grade.isComplete,
+    // The current grade, denormalized from the approved draft so a student's page is one read.
+    // The drafts remain the history.
+    feedbackMarkdown: grade.feedbackMarkdown,
+    gradedById: grade.gradedById,
+    gradedAt: grade.gradedAt,
+    // What the grade describes. Everything that later asks "has this been revised since it was
+    // graded" compares against this and nothing else.
+    gradedHeadSha: grade.gradedHeadSha,
+    salesforceSyncStatus: "PENDING",
+  };
+}
+
 /**
  * Records a student declaring graded work ready to be looked at again.
  *

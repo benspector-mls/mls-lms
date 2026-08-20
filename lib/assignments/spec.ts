@@ -480,6 +480,19 @@ const shared = {
    * the only thing standing between a student and knowing what to do.
    */
   submissionInstructions: z.string().trim().min(1).max(10_000).nullable().default(null),
+  /**
+   * The set of teams this is handed in by, or null for work each student does alone.
+   *
+   * **Pointing at a set is what makes an assignment team work.** There is no boolean beside it,
+   * for the same reason there is no `category` field here to agree or disagree with the unit's:
+   * two fields can disagree and nothing says which one is right.
+   *
+   * Shared across all four kinds. A team hands in one document, one file, one link or one
+   * repository, and which of those it is changes where the work lives rather than whether it
+   * belongs to a team. The procedure checks the set belongs to *this* course, which this schema
+   * cannot see, and refuses a change once the assignment has been published.
+   */
+  teamSetId: z.string().uuid().nullable().default(null),
 };
 
 /**

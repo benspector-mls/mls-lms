@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Sparkles,
   Undo2,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -297,6 +298,18 @@ export function GradingReview({
   );
 }
 
+/**
+ * "Ana, Ben, Chi and Dev" — a list a person reads rather than one a program prints.
+ *
+ * Its own function because the release dialog is the one place the whole team is spelled out, and
+ * a comma-joined list there would read as data at the moment somebody is being asked to check it.
+ */
+function listNames(members: { displayName: string | null; email: string | null }[]): string {
+  const names = members.map((member) => member.displayName ?? member.email ?? "Unknown");
+  if (names.length <= 1) return names[0] ?? "Nobody";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 function ReviewHeader({
   submission,
   draft,
@@ -309,6 +322,16 @@ function ReviewHeader({
   /** Filled by whatever is being reviewed — see `HeaderActionsSlot`. */
   actionsRef: (node: HTMLDivElement | null) => void;
 }) {
+  /*
+    A member's own record, built from the link this screen was already given.
+
+    `studentHref` names the student whose row is open, so swapping the id in it is how each
+    teammate gets a link without this component being told the course. It is optional — the
+    student overview passes none — and where it is absent nobody is linked.
+  */
+  const memberHref = (memberId: string) =>
+    studentHref ? studentHref.replace(submission.student.id, memberId) : "";
+
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border bg-card px-5 py-4">
       <div className="flex flex-col gap-1">
@@ -323,7 +346,18 @@ function ReviewHeader({
         */}
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-base font-semibold">
-            {studentHref ? (
+            {submission.team ? (
+              /*
+                The team, not a member of it. What is being read is one piece of work that four
+                people did, and heading it with whichever of them happened to claim the row would
+                name somebody the report is not about — and would be the same name for every team
+                whose work they claimed.
+
+                Unlinked, deliberately: a link on a person's name goes to their record, and a team
+                has none. The members below are each linked instead.
+              */
+              submission.team.name
+            ) : studentHref ? (
               <Link href={studentHref} className="hover:underline">
                 {submission.student.displayName ?? submission.student.email ?? "Unknown student"}
               </Link>
@@ -331,7 +365,11 @@ function ReviewHeader({
               (submission.student.displayName ?? submission.student.email ?? "Unknown student")
             )}
           </h2>
-          {submission.student.githubUsername && (
+          {/*
+            The handle only where the repository is named after it. A team's repository is named
+            after the team, so a member's handle here would suggest it was theirs.
+          */}
+          {!submission.team && submission.student.githubUsername && (
             <span className="text-sm text-muted-foreground">
               @{submission.student.githubUsername}
             </span>
@@ -362,6 +400,45 @@ function ReviewHeader({
             )
           )}
         </div>
+        {/*
+          Who is on the team, and which of them handed in the version being read.
+
+          Named rather than counted, because the release below goes to all of them and a count
+          cannot show a team whose membership is wrong. Each name links to that fellow's own
+          record, which is the question a report prompts about a member — the heading above cannot
+          carry that link, because a team has no record of its own.
+        */}
+        {submission.team && (
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+            <Users className="size-3.5 shrink-0" />
+            <span>{submission.team.setName}</span>
+            <span aria-hidden>·</span>
+            {submission.team.members.map((member, index) => {
+              const label = member.displayName ?? member.email ?? "Unknown";
+              const href = memberHref(member.id);
+              return (
+                <span key={member.id}>
+                  {href ? (
+                    <Link href={href} className="text-foreground hover:underline">
+                      {label}
+                    </Link>
+                  ) : (
+                    <span className="text-foreground">{label}</span>
+                  )}
+                  {index < submission.team!.members.length - 1 && ","}
+                </span>
+              );
+            })}
+            {submission.team.handedInBy && (
+              <span>
+                · handed in by{" "}
+                <span className="text-foreground">
+                  {submission.team.handedInBy.displayName ?? "a member"}
+                </span>
+              </span>
+            )}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <SubmissionStatusBadge status={submission.status} />
           {draft && draftStatusAddsSomething(draft.status) && (
@@ -1075,9 +1152,11 @@ function DraftEditor({
             toast.warning(`Grade recorded, but the comment did not post: ${result.commentError}`);
           } else {
             toast.success(
-              `Released ${result.finalScore}/${result.finalScorePossible} to ${
-                submission.student.displayName ?? "the student"
-              }.`,
+              result.team
+                ? `Released ${result.finalScore}/${result.finalScorePossible} to ${result.team.name} — ${result.team.memberCount} ${result.team.memberCount === 1 ? "fellow" : "fellows"}.`
+                : `Released ${result.finalScore}/${result.finalScorePossible} to ${
+                    submission.student.displayName ?? "the student"
+                  }.`,
             );
           }
         },
@@ -1318,11 +1397,21 @@ function DraftEditor({
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Release this grade?</DialogTitle>
+            <DialogTitle>
+              {submission.team
+                ? `Release this grade to ${submission.team.name}?`
+                : "Release this grade?"}
+            </DialogTitle>
             <DialogDescription>
-              {submission.student.displayName ?? "The student"} will see this score and feedback for{" "}
-              {assignmentTitle}, and it is posted as a new comment on the pull request. Earlier
-              rounds of feedback stay where they are.
+              {/*
+                Every member named, not counted. This is the last moment before four people are
+                given a grade, and a count cannot show a team whose membership is wrong — which is
+                exactly the mistake worth catching here, since fixing it afterwards means
+                correcting several released grades rather than one.
+              */}
+              {submission.team
+                ? `${listNames(submission.team.members)} will each see this score and feedback for ${assignmentTitle}. It is posted once, as a new comment on the team's pull request. Earlier rounds of feedback stay where they are.`
+                : `${submission.student.displayName ?? "The student"} will see this score and feedback for ${assignmentTitle}, and it is posted as a new comment on the pull request. Earlier rounds of feedback stay where they are.`}
             </DialogDescription>
           </DialogHeader>
 

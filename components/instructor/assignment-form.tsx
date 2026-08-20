@@ -85,6 +85,12 @@ import type { RouterOutputs } from "@/trpc/types";
  * makes real GitHub calls.
  */
 
+/**
+ * The select's value for "not team work". Not a set id, so it cannot collide with one, and
+ * not the empty string, which Base UI treats as no selection at all.
+ */
+const INDIVIDUAL_WORK = "individual";
+
 type Context = RouterOutputs["assignments"]["authoringContext"];
 type Draft = RouterOutputs["assignments"]["getDraft"];
 
@@ -139,6 +145,14 @@ type FormState = {
   /** Keys of UPLOAD_FILE_TYPES. Only a FILE_UPLOAD assignment sends these. */
   acceptedFileTypes: UploadFileTypeKey[];
   submissionInstructions: string;
+  /**
+   * The set of teams this is handed in by, or null for work each student does alone.
+   *
+   * One field rather than a tick-box beside a select, because pointing at a set *is* what makes
+   * an assignment team work — two fields could disagree and nothing would say which was right.
+   * The tick-box below writes this and reads it; it holds no state of its own.
+   */
+  teamSetId: string | null;
   sections: SectionDraft[];
 };
 
@@ -185,6 +199,7 @@ function toDraft(state: FormState): unknown {
     // Empty is absent. A textarea an instructor cleared should read as no instructions
     // rather than as instructions that happen to be blank.
     submissionInstructions: state.submissionInstructions.trim() || null,
+    teamSetId: state.teamSetId,
   };
 
   if (state.kind === "REPO") {
@@ -372,6 +387,16 @@ function Editor({
           existingState: null,
         }),
   );
+
+  /**
+   * The chosen team set, for the readout under the select. Null for individual work.
+   *
+   * After `state` rather than beside `units`, which is where it started and where `.find` ran its
+   * callback while `state` was still in its temporal dead zone. TypeScript allows a closure to
+   * name a later `const`, and `.find` calls that closure immediately — so it typechecked and would
+   * have thrown on the first render.
+   */
+  const chosenTeamSet = context.teamSets.find((set) => set.id === state?.teamSetId) ?? null;
 
   // Held outside `state` because a kind can be chosen before the rest of the form is filled
   // in, and switching it rebuilds the draft into that kind's shape.
@@ -760,6 +785,83 @@ function Editor({
               }
             />
           </Field>
+
+          {/*
+            Whether a team hands this in, asked here because it belongs with "which assignment is
+            this" rather than with how the work arrives: a team hands in a document, a file, a link
+            or a repository, and which of those it is changes where the work lives rather than
+            whether it belongs to a team.
+
+            Frozen once published, and the hint says so — the same rule Kind above uses. Turning it
+            on afterwards would force a choice of whose work survives out of however many students
+            had already submitted separately; turning it off would leave every member but one
+            holding a grade whose feedback history belonged to somebody else's submission.
+          */}
+          {state && (
+            <Field
+              label="Handed in by"
+              findings={fieldFindings("teamSetId")}
+              hint={
+                context.teamSets.length === 0
+                  ? "Make a team set on the roster to hand an assignment in by teams."
+                  : existing?.distributedAt
+                    ? "Fixed once the assignment is published. Create a new one to change it."
+                    : "One piece of work per team, and one grade, shared by everybody on it."
+              }
+            >
+              <div className="flex flex-col gap-2">
+                <Select
+                  value={state.teamSetId ?? INDIVIDUAL_WORK}
+                  disabled={context.teamSets.length === 0 || Boolean(existing?.distributedAt)}
+                  onValueChange={(value) =>
+                    setState((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            teamSetId: !value || value === INDIVIDUAL_WORK ? null : String(value),
+                          }
+                        : prev,
+                    )
+                  }
+                  items={{
+                    [INDIVIDUAL_WORK]: "Each student, on their own",
+                    ...Object.fromEntries(context.teamSets.map((set) => [set.id, set.name])),
+                  }}
+                >
+                  <SelectTrigger className="w-full min-w-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={INDIVIDUAL_WORK}>Each student, on their own</SelectItem>
+                    {context.teamSets.map((set) => (
+                      <SelectItem key={set.id} value={set.id}>
+                        {set.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/*
+                  The readout, and the second number is the one that matters: a fellow on no team
+                  of this set has nothing to accept at all, and this is the last screen that can
+                  say so before students see the assignment.
+                */}
+                {chosenTeamSet && (
+                  <p className="text-xs text-muted-foreground">
+                    {chosenTeamSet.teamCount} {chosenTeamSet.teamCount === 1 ? "team" : "teams"} ·{" "}
+                    {chosenTeamSet.placedCount}{" "}
+                    {chosenTeamSet.placedCount === 1 ? "fellow" : "fellows"} placed
+                    {chosenTeamSet.unplacedCount > 0 && (
+                      <span className="text-amber-600 dark:text-amber-500">
+                        {" "}
+                        · {chosenTeamSet.unplacedCount} on no team, who will have nothing to accept
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
+            </Field>
+          )}
         </CardContent>
       </Card>
 
@@ -1573,6 +1675,9 @@ function blankDraft({
         ? existingState.acceptedFileTypes
         : ["pdf"],
     submissionInstructions: existingState?.submissionInstructions ?? "",
+    // Kept across a change of kind. A team hands in a document, a file, a link or a repository;
+    // which of those it is changes where the work lives, not whether it belongs to a team.
+    teamSetId: existingState?.teamSetId ?? null,
     /*
       A repository assignment starts with a section the model grades, and every other kind
       with one graded by hand — which is not a default but the only mode those kinds have, so
@@ -1606,6 +1711,7 @@ function fromDraft(draft: Draft): FormState {
     templateDriveUrl: draft.templateDriveUrl ?? "",
     acceptedFileTypes: (draft.acceptedFileTypes ?? []).filter(isUploadFileTypeKey),
     submissionInstructions: draft.submissionInstructions ?? "",
+    teamSetId: draft.teamSetId ?? null,
     sections: (draft.sections as SectionDraft[]) ?? [],
   };
 }

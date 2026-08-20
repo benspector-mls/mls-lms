@@ -129,6 +129,37 @@ export async function validateAssignmentDraft(
     error("courseUnitId", "That unit belongs to a different course.");
   }
 
+  /*
+    The team set, if this is team work.
+
+    The same failure as the unit above, and caught the same way: the composite foreign key on
+    `(teamSetId, courseId)` already makes another cohort's set unrepresentable, but a constraint
+    error reaching an instructor is not something they can act on. This is the sentence.
+
+    Whether a set has any teams is checked too, and it is a warning rather than an error: a set
+    with no teams is a real state — one is created and filled in two acts — and refusing to save
+    an assignment because the teams have not been made yet would order the work for the
+    instructor. The form says what would happen, and `publish` validates again.
+  */
+  if (spec.teamSetId) {
+    const teamSet = await db.teamSet.findUnique({
+      where: { id: spec.teamSetId },
+      select: { id: true, courseId: true, name: true, _count: { select: { teams: true } } },
+    });
+
+    if (!teamSet) {
+      error("teamSetId", "That team set does not exist. Make one on the roster first.");
+    } else if (teamSet.courseId !== input.courseId) {
+      error("teamSetId", "That team set belongs to a different course.");
+    } else if (teamSet._count.teams === 0) {
+      warn(
+        "teamSetId",
+        `"${teamSet.name}" has no teams in it yet, so nobody would be able to accept this. ` +
+          `Add teams to it on the roster.`,
+      );
+    }
+  }
+
   // ---- Names must not collide with another assignment in the same course ----
   if (spec.assignmentRepoName) {
     const collision = await db.assignment.findFirst({

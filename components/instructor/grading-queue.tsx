@@ -239,7 +239,16 @@ export function GradingQueue({
                   <SubmissionRow
                     key={row.id}
                     row={row}
-                    primary={displayNameOf(row.student, "Unknown student")}
+                    /*
+                      A team's row is headed by the team, because that is what the pile is a pile
+                      of: one piece of work per team, not one per member. Who is on it is left to
+                      the review header, so the line under the name goes on saying when the work
+                      last moved — which is what this list is ordered by and what an instructor
+                      reads it for.
+                    */
+                    primary={
+                      row.team ? row.team.name : displayNameOf(row.student, "Unknown student")
+                    }
                     active={selected?.id === row.id}
                     onSelect={() => select(row.id)}
                     now={now}

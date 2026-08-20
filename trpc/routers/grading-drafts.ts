@@ -60,6 +60,29 @@ const draftFields = {
   },
 } as const;
 
+/**
+ * Refuses a draft on one member's copy of their team's grade.
+ *
+ * Drafts hang off the row holding the work, so every procedure that *creates* one has to say so —
+ * generating a report, opening a hand-graded round, and correcting a released grade. Without it an
+ * instructor arriving from a mirror's gradebook cell opens a blank second round nobody will ever
+ * release, and `approveDraft` then refuses it with a message about a different screen.
+ *
+ * One function rather than three copies of the sentence, for the reason `lib/courses/membership.ts`
+ * gives about its own pair: the risk is not writing it differently, it is not noticing there was
+ * something to write.
+ */
+function refuseIfMirror(submission: { teamSubmissionId: string | null }, act: string): void {
+  if (submission.teamSubmissionId === null) return;
+
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      `This submission is one member's copy of their team's grade, so it is not where the work ` +
+      `is ${act}. Open the team's own submission instead.`,
+  });
+}
+
 export const gradingDraftsRouter = createTRPCRouter({
   /**
    * Generates a draft, awaited inside the request.
@@ -76,8 +99,16 @@ export const gradingDraftsRouter = createTRPCRouter({
         headSha: true,
         prNumber: true,
         repoFullName: true,
+        teamSubmissionId: true,
         assignment: { select: { id: true, title: true, courseId: true, sections: true } },
       });
+
+      /*
+        Before the rate limit, deliberately. `generateReportForSubmission` refuses a mirror too,
+        but reaching it would already have spent an attempt against the caller's limit — and what
+        that limit counts is spending, so a refusal that costs nothing must not count.
+      */
+      refuseIfMirror(submission, "graded");
 
       const actor = auditActor(ctx);
 
@@ -146,8 +177,11 @@ export const gradingDraftsRouter = createTRPCRouter({
         headSha: true,
         prNumber: true,
         repoFullName: true,
+        teamSubmissionId: true,
         assignment: { select: { id: true, title: true, courseId: true, sections: true } },
       });
+
+      refuseIfMirror(submission, "graded");
 
       const sections = manualSections(submission.assignment.sections);
 
@@ -248,7 +282,10 @@ export const gradingDraftsRouter = createTRPCRouter({
       const submission = await teachableSubmission(ctx, input.submissionId, {
         id: true,
         headSha: true,
+        teamSubmissionId: true,
       });
+
+      refuseIfMirror(submission, "corrected");
 
       /*
         An unapproved draft already is the round in progress, so it is returned rather than a
