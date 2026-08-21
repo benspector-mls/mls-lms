@@ -225,8 +225,11 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 has no submission, so it is not somewhere Next can go — the pane would have nothing
                 to open.
               */
-              ids={filtered.flatMap((row) => (row.submission ? [row.submission.id] : []))}
+              submissions={filtered.flatMap((row) =>
+                row.submission ? [{ id: row.submission.id, label: row.assignment.title }] : [],
+              )}
               currentId={selected?.submission?.id ?? null}
+              jumpLabel="Jump to an assignment"
               listLabel={
                 filter === "needs_review"
                   ? "To do"

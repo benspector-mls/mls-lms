@@ -4,6 +4,14 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
@@ -97,44 +105,51 @@ export function GradingModeButton({
 }
 
 /**
- * What is left of the list once it is gone: where you are in it, and the way to either side.
+ * What is left of the list once it is gone: where you are in it, the way to either side, and the
+ * way straight to one of them.
  *
- * **Movement follows the list as it is currently filtered.** The ids arrive in the order the rows
+ * **Movement follows the list as it is currently filtered.** The rows arrive in the order they
  * were drawn, so a search narrowed to one group, or the To do tab, is still in force here — Next
- * means the next one an instructor was actually looking at, not the next one in the cohort.
+ * means the next one an instructor was actually looking at, and the dropdown offers exactly the
+ * names that list holds. Which filter that is stays written beside the count, because a dropdown
+ * missing a student it does not explain reads as a fault rather than as a filter.
  *
  * Placed at the top of the submission pane with the movement on the right, directly above Approve
  * and release: approving and moving on are one gesture repeated all afternoon, and they belong
  * under the same hand.
  */
 export function GradingModeBar({
-  ids,
+  submissions,
   currentId,
   listLabel,
+  jumpLabel,
   onSelect,
   onExit,
 }: {
-  /** Every submission in the list, in the order it is drawn. */
-  ids: string[];
+  /** Every submission in the list, in the order it is drawn, under the name to reach it by. */
+  submissions: { id: string; label: string }[];
   /** The one open, which may not be in the list at all — see below. */
   currentId: string | null;
   /** What the list is currently showing, in the words its own tab uses. */
   listLabel: string;
+  /** What the dropdown is a list of, in this screen's own noun: a student, or an assignment. */
+  jumpLabel: string;
   onSelect: (id: string) => void;
   onExit: () => void;
 }) {
-  const at = currentId === null ? -1 : ids.indexOf(currentId);
+  const at = currentId === null ? -1 : submissions.findIndex((row) => row.id === currentId);
 
   /*
-    Nothing to move through, and both buttons say so.
+    Nothing to move through, and every control says so.
 
     A submission can legitimately be open and not in the list beside it: a student who has left the
     cohort, one outside the group selected, one member's copy of their team's grade. The pane says
-    which of those it is; this says only that Previous and Next have nowhere to go, which is the
-    honest answer and better than a button that jumps somewhere unrelated.
+    which of those it is; this says only that Previous and Next have nowhere to go and that the
+    dropdown is not showing what is open, which is the honest answer and better than a control that
+    names somebody else's work.
   */
-  const previous = at > 0 ? ids[at - 1] : null;
-  const next = at >= 0 && at < ids.length - 1 ? ids[at + 1] : null;
+  const previous = at > 0 ? submissions[at - 1] : null;
+  const next = at >= 0 && at < submissions.length - 1 ? submissions[at + 1] : null;
 
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-2">
@@ -143,16 +158,41 @@ export function GradingModeBar({
         Exit grading mode
       </Button>
 
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {/*
+          The list itself, folded into one control. Going three students back is otherwise three
+          presses of Previous, each one loading a submission nobody wanted to look at.
+        */}
+        <Select
+          value={at >= 0 ? currentId : null}
+          onValueChange={(id) => id && onSelect(id)}
+          items={Object.fromEntries(submissions.map((row) => [row.id, row.label]))}
+        >
+          <SelectTrigger size="sm" aria-label={jumpLabel} className="w-56 min-w-0">
+            <SelectValue placeholder={jumpLabel} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {submissions.map((row) => (
+                <SelectItem key={row.id} value={row.id}>
+                  {row.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
         <span className="text-xs text-muted-foreground tabular-nums">
-          {at >= 0 ? `${at + 1} of ${ids.length}` : `${ids.length} in the list`} · {listLabel}
+          {at >= 0 ? `${at + 1} of ${submissions.length}` : `${submissions.length} in the list`} ·{" "}
+          {listLabel}
         </span>
+
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
             size="sm"
             disabled={previous === null}
-            onClick={() => previous && onSelect(previous)}
+            onClick={() => previous && onSelect(previous.id)}
           >
             <ChevronLeft data-icon="inline-start" />
             Previous
@@ -161,7 +201,7 @@ export function GradingModeBar({
             variant="outline"
             size="sm"
             disabled={next === null}
-            onClick={() => next && onSelect(next)}
+            onClick={() => next && onSelect(next.id)}
           >
             Next
             <ChevronRight data-icon="inline-end" />

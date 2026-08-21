@@ -315,14 +315,22 @@ export function GradingReview({
             it, which is the whole point: reading the work and writing about it are the same task
             and were never on the screen at the same time. `items-start` is what lets the left
             column be its own height rather than the row's — a stretched column has nothing to
-            stick to. The cap keeps a large monitor from giving the feedback prose a measure nobody
-            can read a paragraph across.
+            stick to.
+
+            **Every pixel past the first thousand or so belongs to the document.** A score box and
+            a paragraph of feedback have a size they want and no use for more: below 26rem the
+            markdown box is too narrow to write in, and past 34rem the prose runs to a measure
+            nobody reads a paragraph across. So the grade is clamped between those two and the
+            document takes the rest, which is what makes a wider window show more of the work
+            rather than more white space beside it. 26rem is also exactly half the room at the
+            width the columns appear, so the grade is never squeezed below the document at the
+            point where they are both smallest.
           */}
           <div
             className={cn(
               "mx-auto flex max-w-5xl flex-col gap-5",
               readable &&
-                "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-2 @4xl:items-start @4xl:gap-6",
+                "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:items-start @4xl:gap-6",
             )}
           >
             {readable && (

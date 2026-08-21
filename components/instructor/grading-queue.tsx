@@ -284,8 +284,17 @@ export function GradingQueue({
         <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
           {grading.on && (
             <GradingModeBar
-              ids={filtered.map((row) => row.id)}
+              /*
+                Named the way the row beside it was named: a team's work is the team's, and
+                heading it with whichever member claimed it would name somebody the work is not
+                about.
+              */
+              submissions={filtered.map((row) => ({
+                id: row.id,
+                label: row.team ? row.team.name : displayNameOf(row.student, "Unknown student"),
+              }))}
               currentId={selected?.id ?? null}
+              jumpLabel="Jump to a student"
               listLabel={
                 filter === "needs_review"
                   ? "To do"
