@@ -113,7 +113,7 @@ const HeaderActionsSlot = React.createContext<HTMLElement | null>(null);
 const FeedbackBoxes = React.createContext<{
   open: readonly string[];
   setOpen: (sectionType: string, open: boolean) => void;
-}>({ open: [], setOpen: () => {} });
+}>({ open: [], setOpen: () => { } });
 
 type QueueSubmission = RouterOutputs["submissions"]["listForAssignment"]["submissions"][number];
 type DraftList = RouterOutputs["gradingDrafts"]["listForSubmission"];
@@ -389,17 +389,14 @@ export function GradingReview({
             className={cn(
               "mx-auto flex max-w-5xl flex-col gap-5",
               aside &&
-                "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:items-start @4xl:gap-6",
+              "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:items-start @4xl:gap-6",
             )}
           >
             {aside && (
               <div
                 className={cn(
                   "flex min-w-0 flex-col gap-5",
-                  // `top-5` rather than `top-0`, so it keeps the gap the scroller's own padding
-                  // gives it at rest, and a height of its own so a long suite output scrolls
-                  // beside the report rather than taking the report off the screen.
-                  "@4xl:sticky @4xl:top-5 @4xl:col-start-1 @4xl:row-start-1 @4xl:max-h-[calc(100svh-11rem)] @4xl:overflow-y-auto",
+                  "@4xl:sticky @4xl:col-start-1 @4xl:row-start-1 @4xl:max-h-[calc(100svh-11rem)] @4xl:overflow-y-auto",
                   evidenceAside && "order-last @4xl:order-none",
                 )}
               >
@@ -1191,22 +1188,6 @@ function BlankHandGrade({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">
-        {revision ? (
-          <>
-            This student handed in revised work and asked for another look. Read what they submitted
-            above, then write this round&apos;s score and feedback here. The report above is kept as
-            the record of the first round — the student keeps both.
-          </>
-        ) : (
-          <>
-            This assignment has nothing the pipeline can read, so it is graded by hand. Read the
-            student&apos;s work above, then write the score and the feedback here. Nothing reaches
-            the student until you release it.
-          </>
-        )}
-      </p>
-
       {failure && (
         <Alert variant="destructive">
           <AlertTriangle />
@@ -1459,9 +1440,8 @@ function DraftEditor({
             toast.success(
               result.team
                 ? `Released ${result.finalScore}/${result.finalScorePossible} to ${result.team.name} — ${result.team.memberCount} ${result.team.memberCount === 1 ? "fellow" : "fellows"}.`
-                : `Released ${result.finalScore}/${result.finalScorePossible} to ${
-                    submission.student.displayName ?? "the student"
-                  }.`,
+                : `Released ${result.finalScore}/${result.finalScorePossible} to ${submission.student.displayName ?? "the student"
+                }.`,
             );
           }
         },
@@ -1939,12 +1919,12 @@ function SectionEditor({
    * which is drawn beside this card or below it depending on the room.
    */
   section: Pick<Section, "sectionType" | "scorePossible"> &
-    Partial<
-      Pick<
-        Section,
-        "flags" | "instructorNotes" | "confidence" | "submissionProcessNote" | "editedAt"
-      >
-    >;
+  Partial<
+    Pick<
+      Section,
+      "flags" | "instructorNotes" | "confidence" | "submissionProcessNote" | "editedAt"
+    >
+  >;
   /** Null when this section has no score yet, which the empty box says and a 0 does not. */
   score: number | null;
   report: string;
