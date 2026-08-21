@@ -2173,7 +2173,7 @@ function ReleasedGradeCard({ draft, data }: { draft: Draft; data: DraftList }) {
               Released
             </CardTitle>
             <CardDescription>
-              Approved {formatDateTime(draft.approvedAt)}. The student can read this.
+              Approved {formatDateTime(draft.approvedAt)}.
             </CardDescription>
           </div>
 
