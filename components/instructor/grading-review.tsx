@@ -113,7 +113,7 @@ const HeaderActionsSlot = React.createContext<HTMLElement | null>(null);
 const FeedbackBoxes = React.createContext<{
   open: readonly string[];
   setOpen: (sectionType: string, open: boolean) => void;
-}>({ open: [], setOpen: () => { } });
+}>({ open: [], setOpen: () => {} });
 
 type QueueSubmission = RouterOutputs["submissions"]["listForAssignment"]["submissions"][number];
 type DraftList = RouterOutputs["gradingDrafts"]["listForSubmission"];
@@ -362,8 +362,18 @@ export function GradingReview({
           `@container`, so the two columns below turn on at a width of this pane rather than of the
           window. It is the pane that has to hold them, and what is left of the window after the
           360px queue list and the application sidebar is not something the window knows.
+
+          **In one column this is the scroller; in two it is not.** Two columns of different
+          lengths cannot share one scrollbar: the shorter one runs out and then sits there while
+          the longer one goes on, and its last card is left below the fold with nothing that will
+          bring it up. So each column scrolls itself, and this holds them.
         */}
-        <div className="@container min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <div
+          className={cn(
+            "@container min-h-0 flex-1 overflow-y-auto px-5 py-5",
+            aside && "@4xl:overflow-y-hidden",
+          )}
+        >
           {/*
             One column until there is both something to put beside the grade and the room to put it
             there, and two after that.
@@ -384,19 +394,28 @@ export function GradingReview({
 
             Each column is placed explicitly rather than by falling into the grid in order, which
             is what lets the same markup stack in one order and split in another.
+
+            **`h-full` is what gives each column a height to scroll inside, and it is why there is
+            no arithmetic here.** This pane's height is already known — it is what the window has
+            left after the application header, the review header and whatever sits between them —
+            and naming that in a `calc` against the viewport is a guess that is wrong on some
+            screen: too small and the column ends early, too large and its last card is below the
+            fold with no way to reach it.
           */}
           <div
             className={cn(
               "mx-auto flex max-w-5xl flex-col gap-5",
               aside &&
-              "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:items-start @4xl:gap-6",
+                "@4xl:grid @4xl:h-full @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:gap-6",
             )}
           >
             {aside && (
               <div
                 className={cn(
                   "flex min-w-0 flex-col gap-5",
-                  "@4xl:sticky @4xl:col-start-1 @4xl:row-start-1 @4xl:max-h-[calc(100svh-11rem)] @4xl:overflow-y-auto",
+                  // Its own scroll, so a rubric of ten questions and the suite output beneath it
+                  // can be read to the end without the report leaving the screen.
+                  "@4xl:col-start-1 @4xl:row-start-1 @4xl:min-h-0 @4xl:overflow-y-auto",
                   evidenceAside && "order-last @4xl:order-none",
                 )}
               >
@@ -404,7 +423,7 @@ export function GradingReview({
               </div>
             )}
 
-            <div className="flex min-w-0 flex-col gap-5 @4xl:col-start-2 @4xl:row-start-1">
+            <div className="flex min-w-0 flex-col gap-5 @4xl:col-start-2 @4xl:row-start-1 @4xl:min-h-0 @4xl:overflow-y-auto">
               {!documentAside && uploadedFile}
               {!linkAside && submittedLink}
 
@@ -1052,20 +1071,7 @@ type Written = { score: number | null; report: string };
  * round behind, and a score typed and then taken back out again opens none either. That is what
  * keeps triage counting work somebody actually started rather than work somebody glanced at.
  */
-function BlankHandGrade({
-  submission,
-  data,
-  revision = false,
-}: {
-  submission: QueueSubmission;
-  data: DraftList;
-  /**
-   * Whether this is a second round on work that has already been graded once, which changes what
-   * the form says above it. "Write the score and the feedback" on a submission with a released
-   * report below it says nothing about what happens to the feedback the student has already read.
-   */
-  revision?: boolean;
-}) {
+function BlankHandGrade({ submission, data }: { submission: QueueSubmission; data: DraftList }) {
   const trpc = useTRPC();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -1440,8 +1446,9 @@ function DraftEditor({
             toast.success(
               result.team
                 ? `Released ${result.finalScore}/${result.finalScorePossible} to ${result.team.name} — ${result.team.memberCount} ${result.team.memberCount === 1 ? "fellow" : "fellows"}.`
-                : `Released ${result.finalScore}/${result.finalScorePossible} to ${submission.student.displayName ?? "the student"
-                }.`,
+                : `Released ${result.finalScore}/${result.finalScorePossible} to ${
+                    submission.student.displayName ?? "the student"
+                  }.`,
             );
           }
         },
@@ -1919,12 +1926,12 @@ function SectionEditor({
    * which is drawn beside this card or below it depending on the room.
    */
   section: Pick<Section, "sectionType" | "scorePossible"> &
-  Partial<
-    Pick<
-      Section,
-      "flags" | "instructorNotes" | "confidence" | "submissionProcessNote" | "editedAt"
-    >
-  >;
+    Partial<
+      Pick<
+        Section,
+        "flags" | "instructorNotes" | "confidence" | "submissionProcessNote" | "editedAt"
+      >
+    >;
   /** Null when this section has no score yet, which the empty box says and a 0 does not. */
   score: number | null;
   report: string;
@@ -2172,9 +2179,7 @@ function ReleasedGradeCard({ draft, data }: { draft: Draft; data: DraftList }) {
               <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
               Released
             </CardTitle>
-            <CardDescription>
-              Approved {formatDateTime(draft.approvedAt)}.
-            </CardDescription>
+            <CardDescription>Approved {formatDateTime(draft.approvedAt)}.</CardDescription>
           </div>
 
           {data.grade?.finalScore != null && (
@@ -2266,7 +2271,7 @@ function ReleasedBody({
       */}
       {revised ? (
         data.manualOnly ? (
-          <BlankHandGrade submission={submission} data={data} revision />
+          <BlankHandGrade submission={submission} data={data} />
         ) : (
           <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
         )
