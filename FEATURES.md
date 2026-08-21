@@ -318,13 +318,13 @@ The grade and the feedback arrive on everybody's own page at the same moment, an
 
 **What the status means.** There are five words an assignment can carry, and between them they say whose move it is:
 
-| Status                      | What it means                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------ |
-| **Not started**             | Nothing has been handed in. If it is a code or Drive assignment, Accept first. |
-| **Accepted**                | You have your repository or your copy. Nothing has been handed in yet.         |
-| **Submitted**               | Your work is with your instructor.                                             |
-| **Awaiting another review** | You have asked for another look at revised work.                               |
-| **Graded**                  | Your feedback is ready to read.                                                |
+| Status          | What it means                                                                  |
+| --------------- | ------------------------------------------------------------------------------ |
+| **Not started** | Nothing has been handed in. If it is a code or Drive assignment, Accept first. |
+| **Accepted**    | You have your repository or your copy. Nothing has been handed in yet.         |
+| **Submitted**   | Your work is with your instructor.                                             |
+| **Resubmitted** | You have asked for another look at revised work.                               |
+| **Graded**      | Your feedback is ready to read.                                                |
 
 **Submitted covers four different things happening on your instructor's side, on purpose.** None of them is something you can act on, and being told that a grading run failed would invite a question you cannot answer. If something has gone wrong there, your instructor sees it and it is theirs to fix.
 

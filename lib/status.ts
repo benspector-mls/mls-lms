@@ -119,7 +119,7 @@ export const STUDENT_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
 
     The colour is the whole of the signal here, since the label already says "Accepted". What
     grey buys is the row not standing out on a list where the things that *are* waiting on
-    somebody — submitted, awaiting another review, graded — carry a colour each.
+    somebody — submitted, resubmitted, graded — carry a colour each.
   */
   ACCEPTED: {
     label: "Accepted",
@@ -147,7 +147,7 @@ export const STUDENT_STATUS_META: Record<SubmissionStatus, StatusMeta> = {
     description: "Your pull request is with your instructor.",
   },
   RESUBMITTED: {
-    label: "Awaiting another review",
+    label: "Resubmitted",
     tone: "review",
     description: "You have asked for another look.",
   },
