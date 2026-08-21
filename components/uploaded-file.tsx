@@ -154,7 +154,28 @@ export function UploadedFileRow({
                 </div>
               ) : previewKind === "pdf" ? (
                 <iframe
-                  src={previewUrl}
+                  /*
+                    Two instructions to the browser's own viewer, in the fragment.
+
+                    `toolbar=0` puts away the strip of buttons across the top. It is the whole
+                    strip or none of it — a page cannot choose which of those buttons it keeps —
+                    and the whole strip is the right answer here, because it has a minimum width
+                    of its own and side-scrolls the document out from under itself in a column
+                    beside the grade. Nothing on it is missed: **Download** is the button beside
+                    this preview, and drawing, printing and summarizing are not what an instructor
+                    came to this screen for.
+
+                    `view=FitH` opens the document fitted to the width of whatever column it is
+                    in, rather than at whatever zoom the viewer would have picked. That is what
+                    makes the buttons unnecessary rather than merely absent: scrolling moves
+                    through the pages and ctrl+scroll changes the size.
+
+                    **A fragment is never sent to the server**, so neither of these can affect the
+                    signature on the URL. Chrome honours them; Firefox and Safari ignore them and
+                    show their own toolbars, which is a difference in what an instructor sees and
+                    not in what they can do.
+                  */
+                  src={`${previewUrl}#toolbar=0&view=FitH`}
                   title={filename}
                   // Tall enough to read a page of a resume without scrolling the page itself,
                   // and viewport-relative so it is usable on a laptop and on a large monitor.
