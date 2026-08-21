@@ -484,18 +484,15 @@ function AssignmentRow({
         onClick={() => onOpen(assignment.id)}
         aria-expanded={isOpen}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-x-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/50",
+          "flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-left transition-colors hover:bg-accent/50 min-[800px]:flex-nowrap",
           // The open row stays marked while the panel is over it, so it is clear which of fifty
           // rows the panel is describing once the reader looks back at the list.
           isOpen && "bg-accent/60",
         )}
       >
-        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <RowSummary
           assignment={assignment}
           submission={submission}
-          // Rendered inside the left half rather than appended to the row, so a row with a
-          // button has the same right-hand columns as one without.
           action={
             awaitingAccept ? (
               /*
@@ -537,11 +534,27 @@ function AssignmentRow({
 /**
  * The scannable part of a row, identical whether or not the row opens.
  *
- * Two halves, and that is the whole point of the shape. The left half holds what varies in
- * length — the title, and a button on the rows that have one — and the right half holds the
- * three columns being scanned down. Laying all five out as siblings put the button in the
- * middle of the row, so every row with one shifted its status, score, and due date out of
- * line with the rows above it. Anything added to a row from now on belongs on the left.
+ * **Three siblings, and which of them grows is what holds the columns in line.** The title group
+ * grows; the Accept control and the group of three columns beside it do not. So the columns are
+ * anchored to the right edge of the row by the title having taken every remaining pixel, which
+ * makes their position independent of whether the row has a button at all. Laying the five out as
+ * siblings *without* that — which is how this started — put the button in the middle of the row
+ * and shifted the status, score, and due date out of line with the rows above it.
+ *
+ * The status pill is the one thing in that group whose width varies, which is why it is first:
+ * everything to its right is fixed-width and right-anchored, so those are the edges read down the
+ * list. The kind badge stays with the title rather than joining them, so nothing above 800 pixels
+ * looks any different from before.
+ *
+ * **Below 800 pixels it stacks instead**, and the whole point of that is the title. Three fixed
+ * widths plus a variable pill plus a button came to more than a phone has, so the title — which is
+ * what somebody is actually looking for — was squeezed to nothing. Given its own line it always
+ * has the row. The rest follows underneath, where there is room for all of it, including the two
+ * columns that used to be dropped at narrow widths.
+ *
+ * 800 rather than a named breakpoint because it is one measurement in one component: it is where
+ * the group of columns stops fitting beside a title long enough to read, and nothing else in the
+ * application has an opinion about that width.
  */
 function RowSummary({
   assignment,
@@ -550,7 +563,7 @@ function RowSummary({
 }: {
   assignment: Assignment;
   submission: Submission | null;
-  /** Sits beside the title. Absent on most rows. */
+  /** The Accept control, on the rows that have one. Its own sibling, so it moves when the row does. */
   action?: React.ReactNode;
 }) {
   const status = submission?.status ?? "NOT_STARTED";
@@ -561,27 +574,33 @@ function RowSummary({
 
   return (
     <>
-      <span className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+      {/*
+        The chevron travels with the title rather than sitting outside this group, which is what
+        lets the title claim a whole line: a group asking for 100% of the row cannot share that
+        line with anything, so anything meant to be beside the title has to be inside it.
+      */}
+      <span className="flex min-w-0 basis-full items-center gap-3 min-[800px]:basis-0 min-[800px]:flex-1">
+        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
         {/*
-          What they are handing in, which decides what they do next: push and open a pull
-          request, take a copy of a document, or upload a file. Worth knowing before the row is
-          opened, and hidden on the narrowest screens where the title needs the width more.
+          What they are handing in, which decides what they do next: push and open a pull request,
+          take a copy of a document, or upload a file. Beside the title, where it has always been,
+          and gone entirely once the row stacks — the title is meant to have that line to itself,
+          the presence of an Accept control says most of what the badge does, and the panel says
+          the rest.
         */}
-        <AssignmentKindBadge kind={assignment.kind} className="hidden sm:inline-flex" />
-        {/*
-          `shrink-0`, so a row with a button truncates its title rather than compressing the
-          button into the pill beside it. Without it the two overlapped on a narrow screen.
-        */}
-        {action && <span className="shrink-0">{action}</span>}
+        <AssignmentKindBadge
+          kind={assignment.kind}
+          className="hidden shrink-0 min-[800px]:inline-flex"
+        />
       </span>
 
       {/*
-        Fixed widths and right-aligned, so every boundary in this group lands in the same
-        place on every row. The badge's own width varies with its label — "Awaiting another
-        review" against "Graded" — so it is placed first, where the columns to its right pin
-        the edge that is read down the list.
+        `shrink-0`, so a long title truncates rather than the button compressing into the pill
+        beside it. A half-width button is unpressable; a truncated title is still readable.
       */}
+      {action && <span className="shrink-0">{action}</span>}
+
       <span className="flex shrink-0 items-center gap-x-2 sm:gap-x-3">
         <SubmissionStatusBadge status={status} audience="student" />
 
@@ -594,19 +613,9 @@ function RowSummary({
           out to a screen reader, because red against green is the one pair a colourblind
           student is least likely to distinguish.
         */}
-        {/*
-          No fixed width below `sm`. The width is what keeps the column in line down a list, and
-          on a phone there is no column to keep in line — the three fixed widths in this group
-          together came to more than a narrow screen has, which left the title with nothing and
-          made the row unreadable. It collapses to its content instead, and to nothing at all on
-          an ungraded row, where the content below is hidden.
-        */}
         <span
           className={cn(
-            "items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums sm:flex sm:w-28",
-            // Absent on a phone until there is a score, rather than present and empty: an empty
-            // flex item still takes its share of the group's gap, which is width the title wants.
-            graded ? "flex" : "hidden",
+            "flex items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums min-[800px]:w-28",
             verdict?.className,
           )}
         >
@@ -627,12 +636,6 @@ function RowSummary({
               </span>
             </>
           ) : (
-            /*
-              Shown from `sm` up only — the span around it is hidden below that. What an assignment
-              is worth is worth knowing and is not worth knowing *first*: it is in the panel a
-              press away, and unlike a score it is the same number for everybody. The score itself
-              is never hidden, because it is what a student opens this list to find.
-            */
             <span className="text-muted-foreground">{assignment.pointValue} pts</span>
           )}
         </span>
@@ -643,13 +646,14 @@ function RowSummary({
           start of the day or the end of it, and anything after the hour their instructor chose is
           recorded as late.
         */}
-        <span className="hidden w-36 text-right text-xs whitespace-nowrap text-muted-foreground sm:block">
+        <span className="text-right text-xs whitespace-nowrap text-muted-foreground min-[800px]:w-36">
           {assignment.dueAt ? `Due ${formatDueDateShort(assignment.dueAt)}` : "No due date"}
         </span>
       </span>
     </>
   );
 }
+
 /**
  * "2 of 5 complete · 3 resources", or what is true when a part of it is empty.
  *
