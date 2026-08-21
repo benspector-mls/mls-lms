@@ -921,16 +921,6 @@ function useGenerateReport() {
   );
 }
 
-/**
- * How long to wait after the last keystroke before the round is opened.
- *
- * Opening it replaces this form with the editor, which means new boxes: what has been typed is
- * written to the server first and comes back in them, but the caret does not. Waiting for a pause
- * keeps the swap out of the middle of a number being typed — "18" is two keystrokes, and the
- * first of them must not carry the score away.
- */
-const OPEN_AFTER_TYPING_MS = 700;
-
 /** What an instructor has typed into one section before there is a round to hold it. */
 type Written = { score: number | null; report: string };
 
@@ -941,10 +931,17 @@ type Written = { score: number | null; report: string };
  * be stored against it. But asking an instructor to press a button to bring one into being put a
  * step in front of the work that told them nothing they did not already know, so the form is on
  * the screen from the start: one card per section the assignment declares, an empty score box, and
- * an empty feedback box. Typing into either is what opens the round, and what was typed is written
- * onto the sections the moment they exist — so the round arrives holding the instructor's first
- * sentence rather than blank, and the score, the discard and the release appear in the header
+ * an empty feedback box. Filling in either one is what opens the round, and what was written is
+ * put onto the sections the moment they exist — so the round arrives holding the instructor's
+ * first score rather than blank, and the total, the discard and the release appear in the header
  * where they do for every other round.
+ *
+ * **A score is written when its box is left rather than as it is typed.** Opening the round
+ * replaces this form with the editor, which means new boxes: a round opened on the first keystroke
+ * of "18" would take away the box the second was meant for. Leaving the box — clicking elsewhere,
+ * tabbing on, moving to the next section — is the moment a score is finished, and it is also what
+ * happens on the way to anything else an instructor does next. A feedback box is different and
+ * opens the round on the click, because the box being asked for belongs to the round.
  *
  * **Reading the screen creates nothing.** A submission opened, looked at and left alone leaves no
  * round behind, and a score typed and then taken back out again opens none either. That is what
@@ -995,14 +992,6 @@ function BlankHandGrade({
   */
   const latest = React.useRef(written);
   const started = React.useRef(false);
-  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  React.useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
 
   /**
    * Creates the round and writes what has been typed onto it.
@@ -1015,7 +1004,6 @@ function BlankHandGrade({
   async function openRound() {
     if (started.current) return;
     started.current = true;
-    if (timer.current) clearTimeout(timer.current);
     setOpening(true);
     setFailure(null);
 
@@ -1060,17 +1048,21 @@ function BlankHandGrade({
     const next = { ...latest.current, [sectionType]: { ...current, ...patch } };
     latest.current = next;
     setWritten(next);
+  }
 
-    if (timer.current) clearTimeout(timer.current);
-
-    // A score typed and cleared again, or a sentence deleted back to nothing, opens no round:
-    // there is nothing left for one to hold.
-    const anything = Object.values(next).some(
+  /**
+   * A score box left behind, which is when a score is finished being typed.
+   *
+   * Nothing happens where nothing was written: a box tabbed through, or a score typed and then
+   * cleared out again, leaves no round behind, because there is nothing for one to hold. Nothing
+   * happens while a refusal is standing either — that one is asked again by its own button.
+   */
+  function scoreSettled() {
+    const anything = Object.values(latest.current).some(
       (entry) => entry.score !== null || entry.report.trim() !== "",
     );
     if (!anything || failure !== null) return;
-
-    timer.current = setTimeout(() => void openRound(), OPEN_AFTER_TYPING_MS);
+    void openRound();
   }
 
   /*
@@ -1135,6 +1127,7 @@ function BlankHandGrade({
           score={written[section.label]?.score ?? null}
           report={written[section.label]?.report ?? ""}
           onScore={(value) => write(section.label, { score: value })}
+          onScoreBlur={scoreSettled}
           onReport={(value) => write(section.label, { report: value })}
           startsOpen={boxes.open.includes(section.label)}
           onEditingChange={(open) => {
@@ -1808,6 +1801,7 @@ function SectionEditor({
   score,
   report,
   onScore,
+  onScoreBlur,
   onReport,
   onReset,
   unsaved = false,
@@ -1839,6 +1833,13 @@ function SectionEditor({
   score: number | null;
   report: string;
   onScore: (value: number | null) => void;
+  /**
+   * Told when the score box loses focus, which is the moment a typed score is finished.
+   *
+   * The blank hand-graded form opens its round from this rather than from the keystrokes — see
+   * `BlankHandGrade`, the only caller with anything to do at that moment.
+   */
+  onScoreBlur?: () => void;
   onReport: (value: string) => void;
   onReset?: () => void;
   /** True when this section differs from what is stored. */
@@ -1918,6 +1919,7 @@ function SectionEditor({
                   if (Number.isNaN(parsed)) return;
                   onScore(Math.max(0, Math.min(possible, parsed)));
                 }}
+                onBlur={() => onScoreBlur?.()}
                 className="h-9 w-20 text-right tabular-nums"
                 aria-label={`${sectionLabel(section.sectionType)} score`}
               />
