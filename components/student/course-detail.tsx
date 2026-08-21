@@ -469,8 +469,15 @@ function AssignmentRow({
 
   return (
     <div className="flex items-center">
-      {/* Not wrapping: the two halves keep their columns in line, and a wrap would let the
-          right-hand group drop under the title on one row and not the next. */}
+      {/*
+        Not wrapping: the two halves keep their columns in line, and a wrap would let the
+        right-hand group drop under the title on one row and not the next.
+
+        Which is why the right-hand group gives up its fixed widths below `sm` rather than the row
+        giving up its shape. **The title is the one thing that is never dropped**, since every
+        other column here is a press away inside the panel and the title is what a student is
+        looking for in the list.
+      */}
       <button
         id={assignmentRowId(assignment.id)}
         type="button"
@@ -554,7 +561,7 @@ function RowSummary({
 
   return (
     <>
-      <span className="flex min-w-0 flex-1 items-center gap-3">
+      <span className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
         {/*
           What they are handing in, which decides what they do next: push and open a pull
@@ -562,7 +569,11 @@ function RowSummary({
           opened, and hidden on the narrowest screens where the title needs the width more.
         */}
         <AssignmentKindBadge kind={assignment.kind} className="hidden sm:inline-flex" />
-        {action}
+        {/*
+          `shrink-0`, so a row with a button truncates its title rather than compressing the
+          button into the pill beside it. Without it the two overlapped on a narrow screen.
+        */}
+        {action && <span className="shrink-0">{action}</span>}
       </span>
 
       {/*
@@ -571,7 +582,7 @@ function RowSummary({
         review" against "Graded" — so it is placed first, where the columns to its right pin
         the edge that is read down the list.
       */}
-      <span className="flex shrink-0 items-center gap-x-3">
+      <span className="flex shrink-0 items-center gap-x-2 sm:gap-x-3">
         <SubmissionStatusBadge status={status} audience="student" />
 
         {/*
@@ -583,9 +594,19 @@ function RowSummary({
           out to a screen reader, because red against green is the one pair a colourblind
           student is least likely to distinguish.
         */}
+        {/*
+          No fixed width below `sm`. The width is what keeps the column in line down a list, and
+          on a phone there is no column to keep in line — the three fixed widths in this group
+          together came to more than a narrow screen has, which left the title with nothing and
+          made the row unreadable. It collapses to its content instead, and to nothing at all on
+          an ungraded row, where the content below is hidden.
+        */}
         <span
           className={cn(
-            "flex w-24 items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums sm:w-28",
+            "items-center justify-end gap-1 text-right text-sm whitespace-nowrap tabular-nums sm:flex sm:w-28",
+            // Absent on a phone until there is a score, rather than present and empty: an empty
+            // flex item still takes its share of the group's gap, which is width the title wants.
+            graded ? "flex" : "hidden",
             verdict?.className,
           )}
         >
@@ -606,6 +627,12 @@ function RowSummary({
               </span>
             </>
           ) : (
+            /*
+              Shown from `sm` up only — the span around it is hidden below that. What an assignment
+              is worth is worth knowing and is not worth knowing *first*: it is in the panel a
+              press away, and unlike a score it is the same number for everybody. The score itself
+              is never hidden, because it is what a student opens this list to find.
+            */
             <span className="text-muted-foreground">{assignment.pointValue} pts</span>
           )}
         </span>
@@ -616,7 +643,7 @@ function RowSummary({
           start of the day or the end of it, and anything after the hour their instructor chose is
           recorded as late.
         */}
-        <span className="w-36 text-right text-xs whitespace-nowrap text-muted-foreground">
+        <span className="hidden w-36 text-right text-xs whitespace-nowrap text-muted-foreground sm:block">
           {assignment.dueAt ? `Due ${formatDueDateShort(assignment.dueAt)}` : "No due date"}
         </span>
       </span>

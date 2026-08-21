@@ -216,7 +216,15 @@ function PanelHeader({
 
       <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span>{assignment.courseUnit.name}</span>
-        <span aria-hidden="true">·</span>
+        {/*
+          The separator is only drawn where the two sit on one line. Wrapped — which on a phone is
+          every long unit name — it was left stranded at the end of the first line with nothing
+          after it, which reads as data that failed to load rather than as punctuation. The gap
+          separates them once they stack.
+        */}
+        <span aria-hidden="true" className="hidden sm:inline">
+          ·
+        </span>
         <span>{assignment.dueAt ? `Due ${formatDueDate(assignment.dueAt)}` : "No due date"}</span>
       </SheetDescription>
 
