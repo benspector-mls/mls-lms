@@ -5,6 +5,11 @@ import * as React from "react";
 import { Inbox, Search, UserMinus, Users } from "lucide-react";
 
 import { BatchGenerate } from "@/components/instructor/batch-generate";
+import {
+  GradingModeBar,
+  GradingModeButton,
+  useGradingMode,
+} from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { GroupPicker } from "@/components/instructor/group-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
@@ -51,6 +56,7 @@ export function GradingQueue({
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("submission");
+  const grading = useGradingMode();
 
   /*
     All, and it is the first tab as well as the opening one — a leftmost tab that is not the one
@@ -149,8 +155,21 @@ export function GradingQueue({
   */
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
-        <aside className="flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0">
+      {/*
+        In grading mode the list is not narrowed, it is put away: what an instructor wanted from it
+        is two buttons, and those are on the other side of the divider. Hidden rather than
+        unmounted, so it comes back holding the search text, the tab and the scroll it was left
+        with.
+      */}
+      <div
+        className={cn("grid min-h-0 flex-1 grid-cols-1", !grading.on && "lg:grid-cols-[360px_1fr]")}
+      >
+        <aside
+          className={cn(
+            "flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0",
+            grading.on && "hidden",
+          )}
+        >
           <div className="flex flex-col gap-3 border-b border-border p-3">
             {/*
               Above the search box and the tabs, because it decides what those two are searching
@@ -220,6 +239,8 @@ export function GradingQueue({
               warmFirst
               onStateChange={setBatch}
             />
+
+            <GradingModeButton onEnter={grading.enter} />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -261,6 +282,22 @@ export function GradingQueue({
         </aside>
 
         <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
+          {grading.on && (
+            <GradingModeBar
+              ids={filtered.map((row) => row.id)}
+              currentId={selected?.id ?? null}
+              listLabel={
+                filter === "needs_review"
+                  ? "To do"
+                  : filter === "graded"
+                    ? "Graded"
+                    : "All students"
+              }
+              onSelect={select}
+              onExit={grading.exit}
+            />
+          )}
+
           {/*
             Said before the work rather than left to be noticed. This submission is not in the
             list beside it, and an instructor who read a report and approved it without knowing

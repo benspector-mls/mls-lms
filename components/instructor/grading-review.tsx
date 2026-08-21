@@ -57,6 +57,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { statedScoreInText } from "@/lib/grade/report-text";
+import { previewKindOf } from "@/lib/uploads/file-types";
 import {
   completionMeta,
   draftStatusAddsSomething,
@@ -256,6 +257,40 @@ export function GradingReview({
     />
   ) : null;
 
+  /*
+    The student's uploaded file, built once and placed in whichever column it belongs to.
+
+    Reading it is what an instructor came to this screen to do, and every card below is about it —
+    so on a graded submission the document is above, or beside, the grade it was given. It is also
+    the analogue of test evidence for work with no suite: the thing the grade rests on.
+
+    Outside the grading form rather than inside it, because the form is replaced by the editor the
+    moment a round is opened and the file is most needed while the feedback is being written.
+  */
+  const uploadedFile = submission.uploadFilename ? (
+    <UploadedFileRow
+      submissionId={submission.id}
+      filename={submission.uploadFilename}
+      sizeBytes={submission.uploadSizeBytes}
+      isLate={submission.isLate ?? false}
+      label="What the student uploaded"
+      // Open on arrival. Reading the work is why the instructor is on this screen, and a cohort of
+      // resumes graded by downloading each one in turn is most of the work of grading them.
+      previewByDefault
+    />
+  ) : null;
+
+  /*
+    Whether this submission has a document the browser can show, which is what decides whether the
+    pane is worth splitting.
+
+    `previewKindOf` is the same function the preview itself asks, so the two cannot disagree about
+    what can be embedded. A `.docx` or a submitted link answers null and the pane stays in one
+    column: half a screen holding a two-line link box is worse than the column it replaced.
+  */
+  const readable =
+    submission.uploadFilename !== null && previewKindOf(submission.uploadFilename) !== null;
+
   return (
     <div className="flex h-full flex-col">
       <ReviewHeader
@@ -266,71 +301,79 @@ export function GradingReview({
       />
 
       <HeaderActionsSlot.Provider value={actionsSlot}>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          <div className="mx-auto flex max-w-5xl flex-col gap-5">
-            {/*
-              The work itself, first.
+        {/*
+          `@container`, so the two columns below turn on at a width of this pane rather than of the
+          window. It is the pane that has to hold them, and what is left of the window after the
+          360px queue list and the application sidebar is not something the window knows.
+        */}
+        <div className="@container min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {/*
+            One column until there is both a document to read and the room to put it beside the
+            grade, and two after that.
 
-              Reading it is what an instructor came to this screen to do, and every card below is
-              about it — so on a graded submission the document sits above the grade it was given,
-              which is the order the two are read in. It is also the analogue of test evidence for
-              work with no suite: the thing the grade rests on.
-
-              Above the grading form rather than inside it, because the form is replaced by the
-              editor the moment a round is opened and the file is most needed while the feedback
-              is being written.
-            */}
-            {submission.uploadFilename && (
-              <UploadedFileRow
-                submissionId={submission.id}
-                filename={submission.uploadFilename}
-                sizeBytes={submission.uploadSizeBytes}
-                isLate={submission.isLate ?? false}
-                label="What the student uploaded"
-                // Open on arrival. Reading the work is why the instructor is on this screen, and
-                // a cohort of resumes graded by downloading each one in turn is most of the work
-                // of grading them.
-                previewByDefault
-              />
+            The document holds its place while the score, the feedback and the evidence scroll past
+            it, which is the whole point: reading the work and writing about it are the same task
+            and were never on the screen at the same time. `items-start` is what lets the left
+            column be its own height rather than the row's — a stretched column has nothing to
+            stick to. The cap keeps a large monitor from giving the feedback prose a measure nobody
+            can read a paragraph across.
+          */}
+          <div
+            className={cn(
+              "mx-auto flex max-w-5xl flex-col gap-5",
+              readable &&
+                "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-2 @4xl:items-start @4xl:gap-6",
+            )}
+          >
+            {readable && (
+              // `top-5` rather than `top-0`, so the document keeps at rest the gap the scroller's
+              // own padding gives it.
+              <div className="@4xl:sticky @4xl:top-5">{uploadedFile}</div>
             )}
 
-            {/*
-              The link a student handed in, beside the uploaded file and above everything about
-              the grade, because the work is most needed while the feedback is being written and
-              the cards below it change as a round is opened and released. An instructor reading
-              the document keeps the way to it for the whole of the grading.
+            <div className="flex min-w-0 flex-col gap-5">
+              {!readable && uploadedFile}
 
-              The address is shown rather than hidden behind the button, which is what
-              `SubmittedLinkRow` exists for.
-            */}
-            {submission.submittedUrl && (
-              <SubmittedLinkRow
-                url={submission.submittedUrl}
-                label="What the student submitted"
-                isLate={submission.isLate ?? false}
-              />
-            )}
+              {/*
+                The link a student handed in, beside the uploaded file and above everything about
+                the grade, because the work is most needed while the feedback is being written and
+                the cards below it change as a round is opened and released. An instructor reading
+                the document keeps the way to it for the whole of the grading.
 
-            <CommentRecoveryNotice submission={submission} grade={data.grade} />
+                The address is shown rather than hidden behind the button, which is what
+                `SubmittedLinkRow` exists for.
+              */}
+              {submission.submittedUrl && (
+                <SubmittedLinkRow
+                  url={submission.submittedUrl}
+                  label="What the student submitted"
+                  isLate={submission.isLate ?? false}
+                />
+              )}
 
-            {/*
-              The provider sits here rather than around the whole pane because this is everything
-              that reads it: the section cards are inside, and a card that opens its feedback box
-              is rebuilt around a round a moment later.
-            */}
-            <FeedbackBoxes.Provider value={feedbackBoxes}>
-              <DraftBody
-                key={draft?.id ?? "none"}
-                submission={submission}
-                assignmentTitle={assignmentTitle}
-                completionThreshold={completionThreshold}
-                draft={draft}
-                data={data}
-                testEvidence={testEvidence}
-              />
-            </FeedbackBoxes.Provider>
+              <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
-            {history.length > 1 && <DraftHistory drafts={history} activeId={draft?.id} now={now} />}
+              {/*
+                The provider sits here rather than around the whole pane because this is everything
+                that reads it: the section cards are inside, and a card that opens its feedback box
+                is rebuilt around a round a moment later.
+              */}
+              <FeedbackBoxes.Provider value={feedbackBoxes}>
+                <DraftBody
+                  key={draft?.id ?? "none"}
+                  submission={submission}
+                  assignmentTitle={assignmentTitle}
+                  completionThreshold={completionThreshold}
+                  draft={draft}
+                  data={data}
+                  testEvidence={testEvidence}
+                />
+              </FeedbackBoxes.Provider>
+
+              {history.length > 1 && (
+                <DraftHistory drafts={history} activeId={draft?.id} now={now} />
+              )}
+            </div>
           </div>
         </div>
       </HeaderActionsSlot.Provider>

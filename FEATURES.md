@@ -191,6 +191,10 @@ Triage is one cohort at a time, on purpose: what you should do next depends on w
 
 Open an assignment to get its **queue**: every student down one side, the work and the review pane on the other. Tabs for All, To do, and Graded. From a student's name anywhere you get the other axis — **one student's whole record in this cohort**, every assignment including the ones they never started.
 
+**Reading the work beside the grade.** Where a student handed in a PDF or an image, the document sits in its own column and holds its place while the score, the feedback and the test evidence scroll past it — reading the work and writing about it are one task, and they belong on the screen together. It happens on its own, when the review pane is wide enough to hold both, and the screen returns to a single column when it is not. There is no setting: the pane either has the room or it does not, and the preview's own **Hide the document** is there for when you would rather have the width.
+
+**Grading mode** is the way to give it that room on a laptop. It puts away the application sidebar and the list of students, leaving **Previous** and **Next** and your place in the list — which is what the list was for once you have settled in to go down a cohort one at a time. Movement follows whatever the search box, the group picker and the tabs are showing. Leaving it puts everything back the way you had it.
+
 **Running the tests.** For a code assignment, **Run tests** executes *your* tests, from the template repository, against the student's code, in a sandbox with no network access and no credentials in it. Students never have write access to the template, so the tests cannot be edited by the person being graded. The result is a pass rate and every failure's name and message. **A run that errored or timed out is never turned into a score of zero** — the screen says which happened.
 
 **Generating a report.** **Generate report** gives the model the rubric, your answer keys, the student's code, and the verified test results, and it writes one report per gradable section. **It is always a draft.** Nothing is posted and nothing counts as graded until you approve it.

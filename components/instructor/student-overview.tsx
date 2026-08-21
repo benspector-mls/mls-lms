@@ -6,6 +6,11 @@ import * as React from "react";
 import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from "lucide-react";
 
 import { BatchGenerate } from "@/components/instructor/batch-generate";
+import {
+  GradingModeBar,
+  GradingModeButton,
+  useGradingMode,
+} from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +54,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("submission");
+  const grading = useGradingMode();
 
   const [filter, setFilter] = React.useState<Filter>("all");
 
@@ -99,8 +105,21 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
       <StudentHeader data={data} name={name} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
-        <aside className="flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0">
+      {/*
+        In grading mode the list is not narrowed, it is put away: what an instructor wanted from it
+        is two buttons, and those are on the other side of the divider. Hidden rather than
+        unmounted, so it comes back holding the search text, the tab and the scroll it was left
+        with.
+      */}
+      <div
+        className={cn("grid min-h-0 flex-1 grid-cols-1", !grading.on && "lg:grid-cols-[360px_1fr]")}
+      >
+        <aside
+          className={cn(
+            "flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0",
+            grading.on && "hidden",
+          )}
+        >
           <div className="border-b border-border p-3">
             <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(
@@ -155,6 +174,8 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               warmFirst={false}
               onStateChange={setBatch}
             />
+
+            <GradingModeButton onEnter={grading.enter} className="mt-3" />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -197,6 +218,29 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
         </aside>
 
         <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
+          {grading.on && (
+            <GradingModeBar
+              /*
+                Only rows there is something to grade on. An assignment the student has not started
+                has no submission, so it is not somewhere Next can go — the pane would have nothing
+                to open.
+              */
+              ids={filtered.flatMap((row) => (row.submission ? [row.submission.id] : []))}
+              currentId={selected?.submission?.id ?? null}
+              listLabel={
+                filter === "needs_review"
+                  ? "To do"
+                  : filter === "graded"
+                    ? "Graded"
+                    : filter === "not_started"
+                      ? "Not started"
+                      : "All assignments"
+              }
+              onSelect={select}
+              onExit={grading.exit}
+            />
+          )}
+
           {/*
             `min-h-0 flex-1` because the review pane sizes itself with `h-full` and scrolls inside.
             Without it the header above would push the approve button off the screen.
@@ -367,7 +411,6 @@ function NotStartedRow({ row }: { row: Row }) {
     </li>
   );
 }
-
 
 /**
  * What sits under an assignment's title in one student's record: the unit it belongs to, and what
