@@ -5,7 +5,7 @@ import { linkHost } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 /**
- * A link a student handed in: where it goes, written out, and a way to open it.
+ * What a submitted link says about itself: where it goes, written out, and a way to open it.
  *
  * **The URL itself is the feature.** This used to be a button reading "Open what the student
  * submitted" and nothing else, which asks an instructor to click into an address they have not
@@ -23,8 +23,80 @@ import { cn } from "@/lib/utils";
  * address underneath in a monospace face that wraps rather than truncates — a URL cut off at the
  * width of a column hides its own tail, which is exactly where a wrong one differs.
  *
+ * **Its own component because two cards need it identically.** `SubmittedLinkRow` below is the
+ * whole card for an address this application cannot show; `SubmittedDocumentRow` puts a frame
+ * under this same heading for one it can. Sharing the markup is what stops the two from drifting
+ * into looking like different kinds of thing, when they are one fact about a submission — and it
+ * is what guarantees the address stays on screen even once the document is there to read.
+ */
+export function SubmittedLinkHeading({
+  url,
+  label,
+  isLate = false,
+  icon: Icon = Link2,
+}: {
+  url: string;
+  /** What this link is to the reader — the student's own work, or a student's. */
+  label: string;
+  isLate?: boolean;
+  /** Overridden where the link turns out to be a document, so the row is headed like one. */
+  icon?: React.ElementType;
+}) {
+  const host = linkHost(url);
+
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start gap-2">
+        <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-sm font-medium">
+            {label}
+            {isLate ? " (late)" : ""}
+          </span>
+          {/*
+            `break-all` rather than truncation. A URL is read left to right and a wrong one
+            usually differs at the end — the document id, the `/template` where a `/edit`
+            should be — so an ellipsis hides the part worth checking. Wrapping costs a line
+            and shows the whole address.
+          */}
+          <span className="font-mono text-xs break-all text-muted-foreground">{url}</span>
+        </div>
+      </div>
+
+      {/*
+        **No anchor at all unless `linkHost` accepted the address**, which is what keeps a
+        `javascript:` submission from becoming a script that runs on an instructor's signed-in
+        page. Refusing at the point the element is created is the version of this that cannot be
+        got wrong later — a check that only greyed the button out would still leave the href in
+        the document.
+      */}
+      {host && (
+        <a
+          href={url}
+          target="_blank"
+          /*
+            `noopener` as well as `noreferrer`, and it is not decoration here: this is a link a
+            student chose, and without it the page it opens gets a handle on this one through
+            `window.opener` and can navigate it somewhere else.
+          */
+          rel="noreferrer noopener"
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+        >
+          Open
+          <ExternalLink data-icon="inline-end" />
+        </a>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A link a student handed in that this application cannot show: the address, and a way to open it.
+ *
  * The counterpart of `UploadedFileRow`, deliberately the same shape and the same position on both
- * screens: the two are the same fact about a submission for the two kinds that carry it.
+ * screens: the two are the same fact about a submission for the two kinds that carry it. Where the
+ * address turns out to be a document — a Google Doc, a Sheet, a deck — `SubmittedDocumentRow`
+ * takes over and puts the document itself under this heading.
  */
 export function SubmittedLinkRow({
   url,
@@ -33,7 +105,6 @@ export function SubmittedLinkRow({
   className,
 }: {
   url: string;
-  /** What this link is to the reader — the student's own work, or a student's. */
   label: string;
   isLate?: boolean;
   className?: string;
@@ -47,48 +118,7 @@ export function SubmittedLinkRow({
         className,
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2">
-          <Link2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-medium">
-              {label}
-              {isLate ? " (late)" : ""}
-            </span>
-            {/*
-              `break-all` rather than truncation. A URL is read left to right and a wrong one
-              usually differs at the end — the document id, the `/template` where a `/edit`
-              should be — so an ellipsis hides the part worth checking. Wrapping costs a line
-              and shows the whole address.
-            */}
-            <span className="font-mono text-xs break-all text-muted-foreground">{url}</span>
-          </div>
-        </div>
-
-        {/*
-          **No anchor at all unless `linkHost` accepted the address**, which is what keeps a
-          `javascript:` submission from becoming a script that runs on an instructor's signed-in
-          page. Refusing at the point the element is created is the version of this that cannot be
-          got wrong later — a check that only greyed the button out would still leave the href in
-          the document.
-        */}
-        {host && (
-          <a
-            href={url}
-            target="_blank"
-            /*
-              `noopener` as well as `noreferrer`, and it is not decoration here: this is a link a
-              student chose, and without it the page it opens gets a handle on this one through
-              `window.opener` and can navigate it somewhere else.
-            */
-            rel="noreferrer noopener"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-          >
-            Open
-            <ExternalLink data-icon="inline-end" />
-          </a>
-        )}
-      </div>
+      <SubmittedLinkHeading url={url} label={label} isLate={isLate} />
 
       {host ? (
         <p className="text-xs text-muted-foreground">

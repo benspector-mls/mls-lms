@@ -596,6 +596,28 @@ export const CONFIDENCE_META: Record<"HIGH" | "LOW", StatusMeta> = {
 };
 
 /**
+ * What happened to one file in a pull request.
+ *
+ * Here rather than in the panel that draws it, beside every other record of this shape, because
+ * that is where a reader looks for the words and the colour the interface uses for a state.
+ *
+ * Added is green and removed is red, matching the tint on the lines themselves so the badge and
+ * the body of a file say the same thing. Modified is neutral: it is the ordinary case and the
+ * commonest one, and colouring the ordinary case leaves nothing for the badge to distinguish.
+ * Renamed is informational rather than a warning — moving a file is a normal thing to do and
+ * frequently the point of the exercise.
+ */
+export const DIFF_KIND_META: Record<
+  "added" | "modified" | "removed" | "renamed",
+  Omit<StatusMeta, "description">
+> = {
+  added: { label: "Added", tone: "success" },
+  modified: { label: "Modified", tone: "neutral" },
+  removed: { label: "Removed", tone: "danger" },
+  renamed: { label: "Renamed", tone: "info" },
+};
+
+/**
  * Sections.
  *
  * An assignment can carry more than one gradable section, each scored and reported

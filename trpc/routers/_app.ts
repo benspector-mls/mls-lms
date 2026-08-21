@@ -10,6 +10,7 @@ import { coursesRouter } from "./courses";
 import { enrollmentsRouter } from "./enrollments";
 import { gradingDraftsRouter } from "./grading-drafts";
 import { groupsRouter } from "./groups";
+import { pullRequestsRouter } from "./pull-requests";
 import { courseUnitsRouter } from "./course-units";
 import { resourcesRouter } from "./resources";
 import { staffRouter } from "./staff";
@@ -164,6 +165,7 @@ export const appRouter = createTRPCRouter({
   resources: resourcesRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
+  pullRequests: pullRequestsRouter,
   testRuns: testRunsRouter,
   gradingDrafts: gradingDraftsRouter,
   staff: staffRouter,

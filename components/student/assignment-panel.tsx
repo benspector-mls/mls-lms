@@ -22,7 +22,7 @@ import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
 import { EmptyState } from "@/components/list-states";
 import { Markdown } from "@/components/markdown";
 import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
-import { SubmittedLinkRow } from "@/components/submitted-link";
+import { SubmittedDocumentRow } from "@/components/submitted-document";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -465,12 +465,17 @@ function SubmissionTab({
         )}
 
       {submission?.submittedUrl && (
-        <SubmittedLinkRow
+        <SubmittedDocumentRow
           url={submission.submittedUrl}
           label={
             assignment.kind === "GOOGLE_DRIVE" ? "The file you submitted" : "The work you submitted"
           }
           isLate={submission.isLate ?? false}
+          /*
+            Closed on arrival, unlike the review screen. A student knows what they handed in and
+            came here to check that it arrived, which the address answers on its own — and the
+            document is one click away for the times they want to look.
+          */
         />
       )}
 
