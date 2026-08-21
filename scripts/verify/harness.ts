@@ -157,12 +157,25 @@ export async function refusal(work: () => Promise<unknown>): Promise<string> {
  * duplicate-name check cannot share one with the checks that follow it. Found by doing it wrong:
  * the first duplicate refused as expected and took eleven unrelated checks down with it.
  */
-export async function inOwnTransaction(db: Db, work: (tx: Tx) => Promise<void>): Promise<void> {
+export async function inOwnTransaction(
+  db: Db,
+  work: (tx: Tx) => Promise<void>,
+  /**
+   * How long the transaction may take, where Prisma's five-second default is not enough.
+   *
+   * Most callers provoke one constraint and need nothing. A group that drives whole procedures
+   * does, and the failure without it is the misleading kind: the transaction expires and every
+   * check after it reports `INTERNAL_SERVER_ERROR` from whatever statement happened to be in
+   * flight, which looks like several broken guards rather than one slow block. The scripts that
+   * hand `db.$transaction` their own options were already passing a generous one for this reason.
+   */
+  options?: { timeout?: number },
+): Promise<void> {
   try {
     await db.$transaction(async (tx) => {
       await work(tx);
       throw new Error("ROLLBACK");
-    });
+    }, options);
   } catch (err) {
     if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
   }
