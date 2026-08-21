@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import type { Prisma } from "@/lib/generated/prisma/client";
 import type { Db } from "@/lib/prisma";
 
 import {
@@ -71,6 +72,82 @@ const assignmentFields = {
   teamSetId: true,
   teamSet: { select: { id: true, name: true } },
 } as const;
+
+/**
+ * What a student sees of the work itself, wherever the row holding it is.
+ *
+ * Selected twice — once on the student's own row and once through `teamSubmission` — and then
+ * flattened, so the panel is handed one shape whether the work is theirs alone or their team's.
+ * One definition rather than two, because the failure otherwise is a member of a team seeing less
+ * of their own grade than the member who happens to hold the row: no round-by-round feedback, no
+ * link to the work, and nothing on the screen to say why.
+ */
+const studentWorkSelect = {
+  repoUrl: true,
+  prUrl: true,
+  // Where the work is when there is no repository: the student's own copy of a document, or the
+  // name and size of the file they uploaded. A student should be able to see what they handed in,
+  // which is also how they notice they sent the wrong file.
+  submittedUrl: true,
+  uploadFilename: true,
+  uploadSizeBytes: true,
+  headSha: true,
+  gradedHeadSha: true,
+  /*
+    Earlier rounds of feedback, oldest first. A student who resubmits gets a second report
+    describing different work rather than an edit of the first, and reading them in order is what
+    shows what changed. Collapsed in the interface, never discarded.
+
+    Read through the team's row for a member who does not hold it. Drafts hang off the row holding
+    the work, so without this every member but one would see a single undifferentiated block of
+    feedback instead of the record — silently, since the block is real and says nothing about
+    being incomplete.
+  */
+  gradingDrafts: {
+    where: { status: "APPROVED" as const },
+    orderBy: { approvedAt: "asc" as const },
+    select: {
+      id: true,
+      approvedAt: true,
+      headSha: true,
+      sections: {
+        select: {
+          sectionType: true,
+          reportMarkdown: true,
+          scoreEarned: true,
+          scorePossible: true,
+          // Both columns, because what the student is owed is the instructor's revision where one
+          // exists. They are collapsed below and never leave this procedure separately.
+          editedReportMarkdown: true,
+          editedScoreEarned: true,
+        },
+      },
+    },
+  },
+  /*
+    Whether an instructor has this open and is writing feedback about it, which is what decides
+    whether the student may still replace what they handed in.
+
+    **A count rather than the draft, and a count of exactly the states `assertCanHandIn` refuses
+    on**, so the form the screen offers and the mutation behind it cannot disagree about whether
+    handing in again is allowed. A student shown an Update box that is then refused has been told
+    to do something the server will not accept.
+
+    One number and no statuses. Which state a grading draft is in is not a student's business —
+    `STUDENT_STATUS_META` collapses the queue for the same reason — and "somebody is looking at
+    this" is the only fact the screen needs.
+  */
+  _count: {
+    select: {
+      gradingDrafts: {
+        where: {
+          approvedAt: null,
+          status: { in: ["GENERATING" as const, "READY" as const, "NEEDS_MANUAL_REVIEW" as const] },
+        },
+      },
+    },
+  },
+} satisfies Prisma.SubmissionSelect;
 
 /** Refuses a draft that would not grade correctly, naming the fields. */
 function refuseOnErrors(findings: ValidationFinding[]): void {
@@ -254,21 +331,18 @@ export const assignmentsRouter = createTRPCRouter({
             where: { studentId: ctx.profile.id },
             select: {
               id: true,
+              /*
+                The columns that are this student's own, whether or not a team did the work.
+                Status, when the work was handed in and whether that was late are all copied onto
+                every member's row, so they are read here rather than through the relation; the
+                grade is copied for the same reason.
+              */
               status: true,
-              repoUrl: true,
-              prUrl: true,
-              // Where the work is when there is no repository: the student's own copy of a
-              // document, or the name and size of the file they uploaded. A student should be
-              // able to see what they handed in, which is also how they notice they sent the
-              // wrong file.
-              submittedUrl: true,
-              uploadFilename: true,
-              uploadSizeBytes: true,
               submittedAt: true,
               isLate: true,
-              // The grade, read straight from the submission. Approving is what makes
-              // these non-null, and this page shows them from that moment — there is
-              // no separate publish step for a student to wait on.
+              // The grade, read straight from the submission. Approving is what makes these
+              // non-null, and this page shows them from that moment — there is no separate
+              // publish step for a student to wait on.
               finalScore: true,
               finalScorePossible: true,
               isComplete: true,
@@ -276,60 +350,45 @@ export const assignmentsRouter = createTRPCRouter({
               gradedAt: true,
               // Read against `gradedAt` rather than for null — see `feedbackIsUnread`. Both
               // columns travel because the panel decides whether to offer the button, and the
-              // question needs the pair.
+              // question needs the pair. **Never copied between a team's rows**, which is what
+              // keeps a read receipt each member's own answer.
               feedbackReviewedAt: true,
-              headSha: true,
-              gradedHeadSha: true,
-              // Earlier rounds of feedback, oldest first. A student who resubmits gets
-              // a second report describing different work rather than an edit of the
-              // first, and reading them in order is what shows what changed. Collapsed
-              // in the interface, never discarded.
-              gradingDrafts: {
-                where: { status: "APPROVED" },
-                orderBy: { approvedAt: "asc" },
+              /*
+                The team, who is on it, and which of them handed in the version now standing.
+
+                **This is the first read in this application that shows one student anything about
+                another**, so what travels is deliberately narrow: a display name and an id, for
+                the members of the caller's *own* team in the set this assignment names. Not their
+                email, not their GitHub handle, not their scores, not their read receipts, and
+                nobody on any other team. `personSelect` carries the first two and is deliberately
+                not reused here.
+
+                Resolved from the caller's own row rather than from anything they could pass in, so
+                there is no id to substitute. Active memberships only, as every other read of a
+                cohort is: somebody who has left is no longer on the team.
+              */
+              handedInBy: { select: { id: true, displayName: true } },
+              teamSubmissionId: true,
+              team: {
                 select: {
                   id: true,
-                  approvedAt: true,
-                  headSha: true,
-                  sections: {
+                  name: true,
+                  teamSet: { select: { name: true } },
+                  memberships: {
+                    where: { enrollment: { status: "ACTIVE" } },
                     select: {
-                      sectionType: true,
-                      reportMarkdown: true,
-                      scoreEarned: true,
-                      scorePossible: true,
-                      // Both columns, because what the student is owed is the instructor's
-                      // revision where one exists. They are collapsed below and never
-                      // leave this procedure separately.
-                      editedReportMarkdown: true,
-                      editedScoreEarned: true,
+                      enrollment: {
+                        select: { student: { select: { id: true, displayName: true } } },
+                      },
                     },
                   },
                 },
               },
-              /*
-                Whether an instructor has this open and is writing feedback about it, which is
-                what decides whether the student may still replace what they handed in.
-
-                **A count rather than the draft, and a count of exactly the states
-                `assertCanHandIn` refuses on**, so the form the screen offers and the mutation
-                behind it cannot disagree about whether handing in again is allowed. A student
-                shown an Update box that is then refused has been told to do something the
-                server will not accept.
-
-                One number and no statuses. Which state a grading draft is in is not a student's
-                business — `STUDENT_STATUS_META` collapses the queue for the same reason — and
-                "somebody is looking at this" is the only fact the screen needs.
-              */
-              _count: {
-                select: {
-                  gradingDrafts: {
-                    where: {
-                      approvedAt: null,
-                      status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
-                    },
-                  },
-                },
-              },
+              // The work, on this row when the student did it alone.
+              ...studentWorkSelect,
+              // And on their team's row when they did not. Flattened below, so the panel never
+              // has to know which of the two it is looking at.
+              teamSubmission: { select: studentWorkSelect },
             },
           },
         },
@@ -370,20 +429,61 @@ export const assignmentsRouter = createTRPCRouter({
       */
       return assignments.map((assignment) => ({
         ...assignment,
-        submissions: assignment.submissions.map(({ _count, ...submission }) => ({
-          ...submission,
+        submissions: assignment.submissions.map((submission) => {
+          const { _count, teamSubmission, team, gradingDrafts, ...own } = submission;
+
           /*
-            Flattened to the question it answers, so the browser never has to know it was a
-            filtered count — the same reason `activeDraft` is flattened off its relation in the
-            submissions router. It also means the number itself does not travel: how many drafts
-            an instructor has open is not something a student's screen should be able to render.
+            Where the work is: this row when the student did it alone, their team's row when they
+            did not. Resolved once, here, so nothing downstream branches on it — the panel asks
+            for a link and gets one, and a member who does not hold the row sees exactly what the
+            member who does sees.
           */
-          instructorHasStarted: _count.gradingDrafts > 0,
-          gradingDrafts: submission.gradingDrafts.map((draft) => ({
-            ...draft,
-            sections: draft.sections.map(effectiveSection),
-          })),
-        })),
+          const work = teamSubmission ?? {
+            repoUrl: own.repoUrl,
+            prUrl: own.prUrl,
+            submittedUrl: own.submittedUrl,
+            uploadFilename: own.uploadFilename,
+            uploadSizeBytes: own.uploadSizeBytes,
+            headSha: own.headSha,
+            gradedHeadSha: own.gradedHeadSha,
+            gradingDrafts,
+            _count,
+          };
+
+          return {
+            ...own,
+            repoUrl: work.repoUrl,
+            prUrl: work.prUrl,
+            submittedUrl: work.submittedUrl,
+            uploadFilename: work.uploadFilename,
+            uploadSizeBytes: work.uploadSizeBytes,
+            headSha: work.headSha,
+            gradedHeadSha: work.gradedHeadSha,
+            /*
+              Flattened to the question it answers, so the browser never has to know it was a
+              filtered count — the same reason `activeDraft` is flattened off its relation in the
+              submissions router. It also means the number itself does not travel: how many drafts
+              an instructor has open is not something a student's screen should be able to render.
+            */
+            instructorHasStarted: work._count.gradingDrafts > 0,
+            gradingDrafts: work.gradingDrafts.map((draft) => ({
+              ...draft,
+              sections: draft.sections.map(effectiveSection),
+            })),
+            /*
+              The team as one object, with the members' names already pulled off their enrollments
+              so the browser is handed people rather than a shape it has to walk.
+            */
+            team: team
+              ? {
+                  id: team.id,
+                  name: team.name,
+                  setName: team.teamSet.name,
+                  members: team.memberships.map((membership) => membership.enrollment.student),
+                }
+              : null,
+          };
+        }),
       }));
     }),
 

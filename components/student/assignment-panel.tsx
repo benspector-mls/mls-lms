@@ -15,6 +15,7 @@ import {
   Lock,
   MessageSquare,
   RotateCcw,
+  Users,
 } from "lucide-react";
 
 import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
@@ -219,6 +220,32 @@ function PanelHeader({
         <span>{assignment.dueAt ? `Due ${formatDueDate(assignment.dueAt)}` : "No due date"}</span>
       </SheetDescription>
 
+      {/*
+        Who this is handed in with, said before anything else about the work.
+
+        A student opening a team assignment needs to know two things at once: that one piece of
+        work is expected rather than one each, and who else it belongs to. Both are here rather
+        than in the submission tab, because they change what every part of the panel below means —
+        the score is the team's, the feedback is the team's, and the Update box replaces something
+        a teammate may have handed in.
+
+        `team` is null on individual work and on a team assignment nobody has accepted yet, so this
+        is absent rather than saying "no team", which would read as something being wrong.
+      */}
+      {submission?.team && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+          <Users className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="font-medium">{submission.team.name}</span>
+          <span className="text-muted-foreground">
+            {submission.team.members.length === 1
+              ? "— just you, for now"
+              : `— ${submission.team.members
+                  .map((member) => member.displayName ?? "a teammate")
+                  .join(", ")}`}
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <SubmissionStatusBadge status={status} audience="student" />
         <AssignmentKindBadge kind={assignment.kind} />
@@ -408,6 +435,27 @@ function SubmissionTab({
         the link they pasted is the one they meant. That catches the mistake this whole feature
         exists for at the point it can still be fixed silently.
       */}
+      {/*
+        Which member handed in what is standing.
+
+        Phrased as "handed in by" rather than naming the reader in the second person, because the
+        panel does not know which member is reading it — and the sentence is true and useful either
+        way. It sits above the work rather than beside the Update box, because what it explains is
+        the work: a member who did not hand this in needs to know that before they consider
+        replacing it.
+      */}
+      {submission?.team &&
+        submission.handedInBy &&
+        (submission.submittedUrl || submission.uploadFilename || submission.prUrl) && (
+          <p className="text-sm text-muted-foreground">
+            Handed in by{" "}
+            <span className="font-medium text-foreground">
+              {submission.handedInBy.displayName ?? "a teammate"}
+            </span>
+            . Anybody on the team can replace it.
+          </p>
+        )}
+
       {submission?.submittedUrl && (
         <SubmittedLinkRow
           url={submission.submittedUrl}

@@ -407,6 +407,86 @@ async function main() {
       0,
     );
 
+    /*
+      --- what each member's own page shows -------------------------------
+
+      The check this half of the feature exists for. Every member holds their own row, and the
+      failure that would go unnoticed is a member seeing *less* of their own grade than the member
+      who happens to hold the work: no round-by-round feedback, no link to what was handed in, and
+      nothing on the screen saying why.
+    */
+    const pageFor = async (studentId: string) => {
+      const caller = createCaller({ db: tx, user: { id: studentId } } as never);
+      const assignments = await caller.assignments.listForCourse({ courseId });
+      const entry = assignments.find((row) => row.id === assignmentId);
+      return entry?.submissions[0] ?? null;
+    };
+
+    const [alicePage, bobPage] = await Promise.all([
+      pageFor(alice.studentId),
+      pageFor(bob.studentId),
+    ]);
+
+    check(
+      "every member's page reads the same grade",
+      [alicePage?.finalScore, bobPage?.finalScore],
+      [10, 10],
+    );
+    check(
+      "and the same round-by-round feedback rather than one undifferentiated block",
+      [alicePage?.gradingDrafts.length, bobPage?.gradingDrafts.length],
+      [1, 1],
+    );
+    check(
+      "and the same link to the work, whichever of them holds the row",
+      [alicePage?.submittedUrl, bobPage?.submittedUrl],
+      ["https://example.com/a", "https://example.com/a"],
+    );
+    check(
+      "and the same team, with everybody on it",
+      [
+        alicePage?.team?.name,
+        alicePage?.team?.members.length,
+        bobPage?.team?.name,
+        bobPage?.team?.members.length,
+      ],
+      ["Team 1", 3, "Team 1", 3],
+    );
+    check(
+      "and who handed it in",
+      [alicePage?.handedInBy?.id, bobPage?.handedInBy?.id],
+      [alice.studentId, alice.studentId],
+    );
+
+    /*
+      A read receipt is each member's own. `feedbackReviewedAt` is the one column a release
+      deliberately does not copy, and this is what would fail if it ever were: one member marking
+      the feedback read would mark it read for everybody.
+    */
+    const { feedbackIsUnread } = await import("../lib/status");
+
+    check(
+      "the feedback starts unread for every member",
+      [feedbackIsUnread(alicePage!), feedbackIsUnread(bobPage!)],
+      [true, true],
+    );
+
+    await createCaller({
+      db: tx,
+      user: { id: alice.studentId },
+    } as never).submissions.markFeedbackReviewed({ submissionId: alicePage!.id });
+
+    const [aliceRead, bobStill] = await Promise.all([
+      pageFor(alice.studentId),
+      pageFor(bob.studentId),
+    ]);
+
+    check(
+      "and one member reading it leaves it unread for the others",
+      [feedbackIsUnread(aliceRead!), feedbackIsUnread(bobStill!)],
+      [false, true],
+    );
+
     // --- and the four refusals -------------------------------------------
     const aMirror = mirrors[0]!.id;
 
