@@ -627,6 +627,17 @@ export const submissionsRouter = createTRPCRouter({
           },
           // Whether this row is one member's copy of their team's grade, which the bucket reads.
           teamSubmissionId: true,
+          /*
+            The team, and the rest of it. A row handed in by a team is work belonging to several
+            people, and the subtext under an assignment's title exists so an instructor can scan
+            for whether a particular student is in the pile — which naming only the member holding
+            the row answers wrongly for everybody else on it.
+
+            Narrower than `personSelect` for the same reason the student select above is: a pile of
+            work to grade names people and does not need their handles.
+          */
+          teamId: true,
+          mirrors: { select: { student: { select: { displayName: true, email: true } } } },
           // `sections` for the grading mode: an assignment the pipeline cannot grade lands
           // in a different bucket, because the action waiting on the instructor is
           // different and generating a report is not one of the things they can do.
@@ -695,7 +706,7 @@ export const submissionsRouter = createTRPCRouter({
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
-      const rows = submissions.map(({ gradingDrafts, assignment, ...submission }) => {
+      const rows = submissions.map(({ gradingDrafts, assignment, mirrors, ...submission }) => {
         const draft = gradingDrafts[0] ?? null;
         // Read for the bucket and then dropped: the section mapping is what decides how
         // this row is graded, and nothing on the screen renders it.
@@ -709,6 +720,15 @@ export const submissionsRouter = createTRPCRouter({
         return {
           ...submission,
           assignment: assignmentFields,
+          /*
+            Everybody this row is waiting on, with the member holding it first. Null for work a
+            student did alone, which is what `rowNames` branches on — so a row that is not team
+            work carries no empty team object for a reader to have to interpret.
+          */
+          team:
+            submission.teamId === null
+              ? null
+              : { members: [submission.student, ...mirrors.map((mirror) => mirror.student)] },
           bucket: triageBucket(submission.status, draft, {
             draftIsStale,
             hasUndeliveredApproval: undeliveredIds.has(submission.id),

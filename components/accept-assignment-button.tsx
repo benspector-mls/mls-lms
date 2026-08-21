@@ -62,9 +62,7 @@ export function AcceptAssignmentButton({
           ? kind === "GOOGLE_DRIVE"
             ? "Opening Google Drive…"
             : "Creating repository…"
-          : kind === "GOOGLE_DRIVE"
-            ? "Accept and take your copy"
-            : "Accept"}
+          : "Accept"}
       </Button>
 
       {copyUrl && (

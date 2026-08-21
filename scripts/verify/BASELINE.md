@@ -9,7 +9,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms-test
 | `verify:modules` | 35 | the database |
 | `verify:groups` | 46 | the database |
 | `verify:team-sets` | 32 | the database |
-| `verify:team-work` | 50 | the database |
+| `verify:team-work` | 51 | the database |
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
 | `verify:approve` | 48 → **53** | the database |

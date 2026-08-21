@@ -1,6 +1,7 @@
 import {
   groupByAssignment,
   nameSubtext,
+  rowNames,
   triageStudentName,
   type GroupableRow,
 } from "@/lib/grade/triage-groups";
@@ -20,7 +21,79 @@ function row(
   };
 }
 
+/** One row handed in by a team, with the member holding it first, as the payload builds it. */
+function teamRow(id: string, assignmentId: string, title: string, members: string[]): GroupableRow {
+  return {
+    ...row(id, assignmentId, title, { displayName: members[0] }),
+    team: {
+      members: members.map((name) => ({ displayName: name, email: `${name}@example.com` })),
+    },
+  };
+}
+
+describe("who a row is waiting on", () => {
+  it("is the student, for work they did alone", () => {
+    expect(rowNames(row("1", "a1", "Recursion", { displayName: "Ada" }))).toEqual(["Ada"]);
+  });
+
+  it("is every member, for work a team handed in", () => {
+    // The whole point. Naming only the member holding the row answers "is Liz in the pile?"
+    // wrongly for everybody else on the team — and which member holds it is an accident of who
+    // pressed Accept first.
+    expect(rowNames(teamRow("1", "a1", "Project", ["Ben Spector", "Liz Treacy"]))).toEqual([
+      "Ben Spector",
+      "Liz Treacy",
+    ]);
+  });
+
+  it("falls back the same way for a member with no display name", () => {
+    expect(
+      rowNames({
+        ...row("1", "a1", "Project"),
+        team: { members: [{ displayName: null, email: "liz@example.com" }] },
+      }),
+    ).toEqual(["liz@example.com"]);
+  });
+
+  it("treats a null team as work done alone", () => {
+    expect(
+      rowNames({ ...row("1", "a1", "Recursion", { displayName: "Ada" }), team: null }),
+    ).toEqual(["Ada"]);
+  });
+});
+
 describe("grouping a bucket by assignment", () => {
+  it("names every member of a team under the assignment's title", () => {
+    const groups = groupByAssignment([
+      teamRow("1", "a1", "Project", ["Ben Spector", "Liz Treacy"]),
+    ]);
+
+    expect(groups[0]!.studentNames).toEqual(["Ben Spector", "Liz Treacy"]);
+    // One row, two people: the count of work and the count of names are different questions.
+    expect(groups[0]!.rows).toHaveLength(1);
+  });
+
+  it("gathers the members of several teams on one assignment", () => {
+    const groups = groupByAssignment([
+      teamRow("1", "a1", "Project", ["Ada", "Grace"]),
+      teamRow("2", "a1", "Project", ["Katherine", "Dorothy"]),
+    ]);
+
+    expect(groups[0]!.studentNames).toEqual(["Ada", "Grace", "Katherine", "Dorothy"]);
+    expect(nameSubtext(groups[0]!.studentNames)).toBe("Ada, Grace, Katherine and 1 more");
+  });
+
+  it("does not name somebody twice", () => {
+    // A set is a partition, so two rows for one assignment cannot share a member — but a subtext
+    // naming the same person twice would read as two people with the same name.
+    const groups = groupByAssignment([
+      teamRow("1", "a1", "Project", ["Ada", "Grace"]),
+      teamRow("2", "a1", "Project", ["Ada", "Katherine"]),
+    ]);
+
+    expect(groups[0]!.studentNames).toEqual(["Ada", "Grace", "Katherine"]);
+  });
+
   it("puts every row of one assignment in one group", () => {
     const groups = groupByAssignment([
       row("1", "a1", "Recursion"),

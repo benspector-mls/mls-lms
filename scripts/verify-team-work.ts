@@ -224,6 +224,30 @@ async function main() {
     check("a team is one item in the grading pile, not one per member", forThis.length, 1);
     check("and the item is the row holding the work", forThis[0]?.id, work.id);
 
+    /*
+      One item, and every member named under it. The row belongs to whichever member claimed it,
+      which is an accident of who pressed Accept first — so naming only them answers "is Liz in
+      the pile?" wrongly for everybody else on the team.
+
+      Compared against the members' own names rather than a literal, because the fixture borrows
+      whichever students the seeded cohort has.
+    */
+    const { groupByAssignment, nameSubtext, triageStudentName } =
+      await import("../lib/grade/triage-groups");
+    const expectedNames = await tx.profile.findMany({
+      where: { id: { in: [alice.studentId, bob.studentId] } },
+      select: { id: true, displayName: true, email: true },
+    });
+    const inRowOrder = [alice.studentId, bob.studentId].map((id) =>
+      expectedNames.find((profile) => profile.id === id)!,
+    );
+
+    check(
+      "and it names every member of the team, not just the one holding it",
+      nameSubtext(groupByAssignment(forThis)[0]?.studentNames ?? []),
+      inRowOrder.map(triageStudentName).join(", "),
+    );
+
     const queue = await asInstructor.submissions.listForAssignment({ assignmentId });
     check("the queue lists the team once", queue.submissions.length, 1);
     check(

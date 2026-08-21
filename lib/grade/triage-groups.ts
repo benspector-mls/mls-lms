@@ -14,11 +14,22 @@
  * rows, not a new reading of them.
  */
 
+/** What somebody is called, wherever a name comes from. */
+type Named = { displayName: string | null; email: string | null };
+
 /** The parts of a triage row this reads. Structural, so a test can build a queue in a few lines. */
 export type GroupableRow = {
   id: string;
   assignment: { id: string; courseId: string; title: string };
-  student: { displayName: string | null; email: string | null };
+  student: Named;
+  /**
+   * The team this work was handed in by, with every member on it. Absent or null for work a
+   * student did alone.
+   *
+   * Optional so a caller with no teams to describe passes nothing, which is what keeps the tests
+   * that build a queue in three lines building it in three lines.
+   */
+  team?: { members: Named[] } | null;
 };
 
 export type AssignmentGroup<R extends GroupableRow> = {
@@ -32,14 +43,34 @@ export type AssignmentGroup<R extends GroupableRow> = {
    *
    * A student can hold two rows in one bucket only if they have two submissions against one
    * assignment, which the schema forbids — but the deduplication is here anyway, because a
-   * subtext that named somebody twice would read as two people with the same name.
+   * subtext that named somebody twice would read as two people with the same name. A team's row
+   * contributes every member, and a set is a partition, so no two rows for one assignment can
+   * name the same person either.
    */
   studentNames: string[];
 };
 
 /** What a student is called in the subtext, falling back the way every other screen does. */
-export function triageStudentName(student: GroupableRow["student"]): string {
+export function triageStudentName(student: Named): string {
   return student.displayName ?? student.email ?? "Unknown student";
+}
+
+/**
+ * Everybody one row is waiting on: one student, or every member of a team.
+ *
+ * **A team's row is work belonging to several people, so it names all of them.** The subtext
+ * exists for recognition — an instructor scanning for whether a particular student is in the pile
+ * — and naming only the member who happens to hold the team's row answers that question wrongly
+ * for everybody else on it. It is also the member the pile is least about: which of them claimed
+ * the row is an accident of who pressed Accept first.
+ *
+ * The team's own name is deliberately not among them. It belongs on the queue and the review
+ * header, where the question is which piece of work this is; here the question is who, and three
+ * names is already the budget.
+ */
+export function rowNames(row: GroupableRow): string[] {
+  if (!row.team) return [triageStudentName(row.student)];
+  return row.team.members.map(triageStudentName);
 }
 
 /**
@@ -60,8 +91,9 @@ export function groupByAssignment<R extends GroupableRow>(
 
     if (existing) {
       existing.rows.push(row);
-      const name = triageStudentName(row.student);
-      if (!existing.studentNames.includes(name)) existing.studentNames.push(name);
+      for (const name of rowNames(row)) {
+        if (!existing.studentNames.includes(name)) existing.studentNames.push(name);
+      }
       continue;
     }
 
@@ -70,7 +102,7 @@ export function groupByAssignment<R extends GroupableRow>(
       courseId: row.assignment.courseId,
       title: row.assignment.title,
       rows: [row],
-      studentNames: [triageStudentName(row.student)],
+      studentNames: rowNames(row),
     });
   }
 
