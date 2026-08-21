@@ -102,6 +102,10 @@ A module cannot be removed while an assignment is still in it. Move or remove th
 
 **Four kinds, and the kind cannot be changed once the assignment exists**, because changing it would change what its existing submissions are.
 
+**Handed in by** is the other choice that cannot be taken back. Leave it on **Each student, on their own** for ordinary work, or pick a **team set** and the assignment becomes one piece of work per team, with one grade shared by everybody on it. Any kind can be team work — a repository, a document, a file, a link. The readout under the picker says how many teams the set holds and how many fellows are on none of them, because a fellow on no team has nothing to accept.
+
+It is editable up to the moment you publish and fixed afterwards. Turning it on later would mean deciding whose work survives among students who had already handed in separately; turning it off would leave everybody but one member holding a grade whose feedback belonged to somebody else's submission. Neither is a decision this form should make quietly, so it makes neither.
+
 | Kind             | How it reaches the student                                                                                | How they hand it back                                              | How it is graded                        |
 | ---------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------- |
 | **Repository**   | You name a template repository; pressing Accept generates a copy for that student                         | A pull request                                                     | A drafted report you review, or by hand |
@@ -139,6 +143,12 @@ If a link goes astray, **regenerate** it. Everybody already in stays in, and the
 **Removing a student** takes them out of your lists and stops them handing anything else in. **It does not take their work back** — they keep reading the feedback they were given, and their graded work moves to a "Removed students" table at the bottom of the gradebook rather than vanishing from it. **Restore** puts them back.
 
 **Groups** name a subset of the cohort. Create one, put students in it, and the group picker narrows triage, the gradebook, the assignments list, and a queue to just those students. If you and a co-teacher split a cohort, set your grading group once and your screens default to your half.
+
+**Team sets** are the other thing on this screen, and they are not groups. A group is a filter you pick and students never see; a **team** hands in one piece of work and receives one grade, and everybody on it can see who else is on it. Make a set — "Unit 3 project teams" — say how many teams it holds, and place each fellow on one. **Distribute evenly** deals the roster round-robin if you have no particular arrangement in mind. Make one set per project: the same cohort divided differently for each, with last term's arrangements sitting in their own set rather than cluttering anything.
+
+The collapsed row tells you what you need before publishing: how many teams, how many fellows are placed, and — in amber — **how many are on no team**. Somebody on no team of the set an assignment is handed in by has nothing to accept at all, and this is the last screen that can say so before they notice it themselves.
+
+A set an assignment is handed in through cannot be removed, and neither can a team that has handed work in: their submissions name them and carry released grades. Move the members instead.
 
 ### Attendance
 
@@ -294,6 +304,10 @@ Pressing any row opens a panel over the list, with the instructions, what you ha
 Accepting needs your GitHub account to be connected. If it is not, the course page says so.
 
 **Handing in a code assignment.** Work on the **`draft`** branch, then open a pull request into **`main`** and add your instructor as a reviewer. **That pull request is the hand-in — there is no submit button.** Pushing more commits to an open pull request does not hand in again; it just updates what your instructor will read.
+
+**Working as a team.** Some assignments are handed in by a team, and the panel says so at the top: your team's name and who else is on it. There is **one piece of work between you and one grade shared by all of you**, so the panel shows who handed in what is standing — and **anybody on the team can replace it**, which is worth agreeing on before two of you do. A code assignment gives the team one repository, named after the team, that every member can push to.
+
+The grade and the feedback arrive on everybody's own page at the same moment, and reading it is still your own: marking your feedback read does not mark it read for your teammates. If your instructor is part-way through reading your team's work, nobody can replace it until they are done — the panel says so rather than letting somebody try.
 
 **Handing in everything else.** A Drive or link assignment takes a link; a file assignment takes a file. The form tells you which of four things you are doing:
 
