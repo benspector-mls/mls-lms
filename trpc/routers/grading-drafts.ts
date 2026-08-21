@@ -61,6 +61,19 @@ const draftFields = {
 } as const;
 
 /**
+ * What opening a hand-graded round hands back: the round, and the sections it just created.
+ *
+ * The sections are the point of it. The review screen has the score and the feedback typed into
+ * it before the round exists, and it writes them onto the sections the moment they do, matching
+ * each one up by its own label — so a round returned without its sections would leave an
+ * instructor's first sentence with nowhere to go.
+ */
+const openedManualDraft = {
+  id: true,
+  sections: { select: { id: true, sectionType: true } },
+} as const;
+
+/**
  * Refuses a draft on one member's copy of their team's grade.
  *
  * Drafts hang off the row holding the work, so every procedure that *creates* one has to say so —
@@ -211,7 +224,7 @@ export const gradingDraftsRouter = createTRPCRouter({
           modelMetadata: { equals: Prisma.DbNull },
         },
         orderBy: { createdAt: "desc" },
-        select: { id: true },
+        select: openedManualDraft,
       });
 
       if (open) return open;
@@ -245,7 +258,7 @@ export const gradingDraftsRouter = createTRPCRouter({
             })),
           },
         },
-        select: { id: true },
+        select: openedManualDraft,
       });
     }),
 
@@ -508,6 +521,17 @@ export const gradingDraftsRouter = createTRPCRouter({
         manualOnly,
         /** Whether an empty draft can be opened to write a grade into. */
         canGradeByHand: manualOnly && manualSections(submission.assignment.sections).length > 0,
+        /**
+         * The sections a person scores by hand: what each is called and what it is out of.
+         *
+         * Sent so the review screen can draw the form before any round exists. Grading by hand
+         * means typing into boxes, and the boxes are the assignment's own sections — reading them
+         * from a round would mean creating a round first, which is the button this replaces.
+         *
+         * Empty on an assignment the pipeline grades, where the sections a report is written
+         * against are not something a person fills in.
+         */
+        handSections: manualOnly ? manualSections(submission.assignment.sections) : [],
         /**
          * True when there is something to grade. A submission with no pull request,
          * or an assignment with no sections mapping, cannot produce a report — and

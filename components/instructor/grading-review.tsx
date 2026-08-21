@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import {
@@ -97,6 +98,22 @@ import type { RouterOutputs } from "@/trpc/types";
  */
 const HeaderActionsSlot = React.createContext<HTMLElement | null>(null);
 
+/**
+ * Which sections have their feedback box open, held above the card that owns the box.
+ *
+ * On a hand-graded assignment, opening the box is also what creates the round: a draft appears,
+ * and everything below the header is rebuilt around it. State kept inside the section card would
+ * go with it and close the box the click had just opened, so which boxes are open is remembered
+ * out here, where nothing about the round can reach it.
+ *
+ * Keyed by the section's own label, which is what a hand-graded section has instead of a type
+ * and is the same string the round is created with.
+ */
+const FeedbackBoxes = React.createContext<{
+  open: readonly string[];
+  setOpen: (sectionType: string, open: boolean) => void;
+}>({ open: [], setOpen: () => {} });
+
 type QueueSubmission = RouterOutputs["submissions"]["listForAssignment"]["submissions"][number];
 type DraftList = RouterOutputs["gradingDrafts"]["listForSubmission"];
 type Draft = DraftList["drafts"][number];
@@ -139,6 +156,22 @@ export function GradingReview({
 }) {
   const trpc = useTRPC();
   const [actionsSlot, setActionsSlot] = React.useState<HTMLDivElement | null>(null);
+  const [openBoxes, setOpenBoxes] = React.useState<readonly string[]>([]);
+
+  const feedbackBoxes = React.useMemo(
+    () => ({
+      open: openBoxes,
+      setOpen: (sectionType: string, open: boolean) =>
+        setOpenBoxes((prev) =>
+          open
+            ? prev.includes(sectionType)
+              ? prev
+              : [...prev, sectionType]
+            : prev.filter((entry) => entry !== sectionType),
+        ),
+    }),
+    [openBoxes],
+  );
 
   /*
     Test evidence exists only where a template repository does. The suite comes from the
@@ -243,8 +276,9 @@ export function GradingReview({
               which is the order the two are read in. It is also the analogue of test evidence for
               work with no suite: the thing the grade rests on.
 
-              Here rather than inside the hand-grading card, because that card is gone once a
-              draft exists and the file is most needed while the feedback is being written.
+              Above the grading form rather than inside it, because the form is replaced by the
+              editor the moment a round is opened and the file is most needed while the feedback
+              is being written.
             */}
             {submission.uploadFilename && (
               <UploadedFileRow
@@ -261,11 +295,10 @@ export function GradingReview({
             )}
 
             {/*
-              The link a student handed in, beside the uploaded file and for the same reason it
-              sits here rather than in the hand-grading card: that card disappears the moment a
-              draft exists, and the work is most needed while the feedback is being written. It
-              was only ever in that card, so an instructor who pressed "Start grading" lost the
-              way to the document they were about to grade.
+              The link a student handed in, beside the uploaded file and above everything about
+              the grade, because the work is most needed while the feedback is being written and
+              the cards below it change as a round is opened and released. An instructor reading
+              the document keeps the way to it for the whole of the grading.
 
               The address is shown rather than hidden behind the button, which is what
               `SubmittedLinkRow` exists for.
@@ -280,15 +313,22 @@ export function GradingReview({
 
             <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
-            <DraftBody
-              key={draft?.id ?? "none"}
-              submission={submission}
-              assignmentTitle={assignmentTitle}
-              completionThreshold={completionThreshold}
-              draft={draft}
-              data={data}
-              testEvidence={testEvidence}
-            />
+            {/*
+              The provider sits here rather than around the whole pane because this is everything
+              that reads it: the section cards are inside, and a card that opens its feedback box
+              is rebuilt around a round a moment later.
+            */}
+            <FeedbackBoxes.Provider value={feedbackBoxes}>
+              <DraftBody
+                key={draft?.id ?? "none"}
+                submission={submission}
+                assignmentTitle={assignmentTitle}
+                completionThreshold={completionThreshold}
+                draft={draft}
+                data={data}
+                testEvidence={testEvidence}
+              />
+            </FeedbackBoxes.Provider>
 
             {history.length > 1 && <DraftHistory drafts={history} activeId={draft?.id} now={now} />}
           </div>
@@ -624,7 +664,7 @@ function DraftBody({
     return (
       <>
         {data.manualOnly ? (
-          <HandGradePanel submission={submission} data={data} />
+          <BlankHandGrade submission={submission} data={data} />
         ) : (
           <GeneratePanel submission={submission} data={data} label="Generate report" />
         )}
@@ -882,14 +922,35 @@ function useGenerateReport() {
 }
 
 /**
- * Opens an empty draft to write a grade into.
+ * How long to wait after the last keystroke before the round is opened.
  *
- * The counterpart to `GeneratePanel` for work the pipeline cannot read. It creates the same
- * kind of record — a draft with a section per declared section — so everything after this
- * point is the editor and the approval an AI-graded submission goes through, rather than a
- * separate path with its own way of being wrong.
+ * Opening it replaces this form with the editor, which means new boxes: what has been typed is
+ * written to the server first and comes back in them, but the caret does not. Waiting for a pause
+ * keeps the swap out of the middle of a number being typed — "18" is two keystrokes, and the
+ * first of them must not carry the score away.
  */
-function HandGradePanel({
+const OPEN_AFTER_TYPING_MS = 700;
+
+/** What an instructor has typed into one section before there is a round to hold it. */
+type Written = { score: number | null; report: string };
+
+/**
+ * The hand-graded round, before there is a round.
+ *
+ * A grade written by hand is a `GradingDraft` like any other and has to exist before a score can
+ * be stored against it. But asking an instructor to press a button to bring one into being put a
+ * step in front of the work that told them nothing they did not already know, so the form is on
+ * the screen from the start: one card per section the assignment declares, an empty score box, and
+ * an empty feedback box. Typing into either is what opens the round, and what was typed is written
+ * onto the sections the moment they exist — so the round arrives holding the instructor's first
+ * sentence rather than blank, and the score, the discard and the release appear in the header
+ * where they do for every other round.
+ *
+ * **Reading the screen creates nothing.** A submission opened, looked at and left alone leaves no
+ * round behind, and a score typed and then taken back out again opens none either. That is what
+ * keeps triage counting work somebody actually started rather than work somebody glanced at.
+ */
+function BlankHandGrade({
   submission,
   data,
   revision = false,
@@ -897,61 +958,204 @@ function HandGradePanel({
   submission: QueueSubmission;
   data: DraftList;
   /**
-   * Whether this is a second round on work that has already been graded once, which changes
-   * every word on the card. "Grade this by hand" on a submission with a released report below it
-   * reads as an instruction to do the thing that has already been done, and says nothing about
-   * what happens to the feedback the student has already read.
+   * Whether this is a second round on work that has already been graded once, which changes what
+   * the form says above it. "Write the score and the feedback" on a submission with a released
+   * report below it says nothing about what happens to the feedback the student has already read.
    */
   revision?: boolean;
 }) {
   const trpc = useTRPC();
-  const settled = useServerMutation();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const boxes = React.useContext(FeedbackBoxes);
 
-  const start = useMutation(trpc.gradingDrafts.startManual.mutationOptions(settled()));
+  const start = useMutation(trpc.gradingDrafts.startManual.mutationOptions());
+  const updateSection = useMutation(trpc.gradingDrafts.updateSection.mutationOptions());
+
+  const sections = data.handSections;
+
+  const [written, setWritten] = React.useState<Record<string, Written>>({});
+  const [opening, setOpening] = React.useState(false);
+  /*
+    A refusal, kept on the screen rather than in a toast that goes away.
+
+    Two of them are real: this submission is one member's copy of their team's grade and is not
+    where the work is graded, and the request did not arrive. Both leave an instructor typing into
+    a form that is saving nothing, so the news has to stay in front of them — and while it is
+    there, typing stops asking again, because a paragraph written against a refusal that will not
+    change is one refusal repeated at every pause.
+  */
+  const [failure, setFailure] = React.useState<string | null>(null);
+
+  /*
+    The same values, readable from outside a render.
+
+    What is written to the server is sent after a round trip, and what it has to send is what has
+    been typed by then rather than what had been typed when the write was scheduled.
+  */
+  const latest = React.useRef(written);
+  const started = React.useRef(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  /**
+   * Creates the round and writes what has been typed onto it.
+   *
+   * Once, however many times it is called: the timer and a click on Edit can both arrive, and two
+   * rounds for one submission would leave an instructor choosing between forms, one of which their
+   * writing is not in. `startManual` refuses to open a second one as well — this is the half of
+   * that rule which does not need a request to enforce it.
+   */
+  async function openRound() {
+    if (started.current) return;
+    started.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    setOpening(true);
+    setFailure(null);
+
+    try {
+      const draft = await start.mutateAsync({ submissionId: submission.id });
+
+      // Matched by label, which is the section's own name and the one thing both sides hold.
+      for (const section of draft.sections) {
+        const typed = latest.current[section.sectionType];
+        if (!typed) continue;
+
+        const report = typed.report.trim();
+        if (typed.score === null && report === "") continue;
+
+        await updateSection.mutateAsync({
+          sectionId: section.id,
+          reportMarkdown: report === "" ? null : typed.report,
+          scoreEarned: typed.score,
+        });
+      }
+
+      /*
+        Both, for the reason `useServerMutation` gives: the round is read through a query in this
+        pane and through the server-rendered queue beside it, and a submission that has just
+        acquired a round is in a different triage bucket than it was a moment ago.
+      */
+      void queryClient.invalidateQueries();
+      router.refresh();
+    } catch (error) {
+      // Nothing was opened, so another attempt is allowed — asked for by the button the refusal
+      // below carries, rather than by the next keystroke.
+      started.current = false;
+      setOpening(false);
+      setFailure(
+        error instanceof Error ? error.message : "This round of feedback could not be opened.",
+      );
+    }
+  }
+
+  function write(sectionType: string, patch: Partial<Written>) {
+    const current = latest.current[sectionType] ?? { score: null, report: "" };
+    const next = { ...latest.current, [sectionType]: { ...current, ...patch } };
+    latest.current = next;
+    setWritten(next);
+
+    if (timer.current) clearTimeout(timer.current);
+
+    // A score typed and cleared again, or a sentence deleted back to nothing, opens no round:
+    // there is nothing left for one to hold.
+    const anything = Object.values(next).some(
+      (entry) => entry.score !== null || entry.report.trim() !== "",
+    );
+    if (!anything || failure !== null) return;
+
+    timer.current = setTimeout(() => void openRound(), OPEN_AFTER_TYPING_MS);
+  }
+
+  /*
+    An assignment that says it is graded by hand and declares nothing to score by hand. Said
+    rather than shown as a form with no boxes in it, because the fix is to the assignment and
+    nobody reading a blank screen would know that.
+  */
+  if (sections.length === 0) {
+    return (
+      <StateCard
+        icon={PencilLine}
+        tone="warning"
+        title="There is nothing here to score"
+        description="This assignment is graded by hand, but none of its sections carries both a name and a point value, so there is nothing to score out of. Correct the assignment's sections, then grade this."
+      />
+    );
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <PencilLine className="size-4 text-violet-600 dark:text-violet-400" />
-          {revision ? "Grade the revised work" : "Grade this by hand"}
-        </CardTitle>
-        <CardDescription>
-          {revision ? (
-            <>
-              This student handed in revised work and asked for another look. Read what they
-              submitted above, then write this round&apos;s feedback and score. The report below is
-              kept as the record of the first round — the student keeps both.
-            </>
-          ) : (
-            <>
-              This assignment has nothing the pipeline can read, so there is no report to generate.
-              Open the student&apos;s work, then write the feedback and the score here. Nothing
-              reaches the student until you release it.
-            </>
-          )}
-        </CardDescription>
-      </CardHeader>
-      {/*
-        Only the button that starts grading. The student's work is drawn above this card by
-        `SubmittedLinkRow` and `UploadedFileRow`, which stay on the screen once a draft exists —
-        a second way to reach the same document from here would be one that disappears at the
-        moment it is most wanted, and it named the link without showing it.
-      */}
-      <CardContent className="flex flex-wrap items-center gap-3">
-        <Button
-          disabled={!data.canGradeByHand || start.isPending}
-          onClick={() => start.mutate({ submissionId: submission.id })}
-        >
-          {start.isPending ? (
-            <Loader2 data-icon="inline-start" className="animate-spin" />
-          ) : (
-            <PencilLine data-icon="inline-start" />
-          )}
-          {start.isPending ? "Opening…" : revision ? "Start the next round" : "Start grading"}
-        </Button>
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        {revision ? (
+          <>
+            This student handed in revised work and asked for another look. Read what they submitted
+            above, then write this round&apos;s score and feedback here. The report above is kept as
+            the record of the first round — the student keeps both.
+          </>
+        ) : (
+          <>
+            This assignment has nothing the pipeline can read, so it is graded by hand. Read the
+            student&apos;s work above, then write the score and the feedback here. Nothing reaches
+            the student until you release it.
+          </>
+        )}
+      </p>
+
+      {failure && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertTitle>This round of feedback could not be opened</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-3">
+            <p>
+              {failure} Nothing has been recorded. What you have written is still on the screen, and
+              it is saved as soon as the round opens.
+            </p>
+            <Button size="sm" variant="outline" disabled={opening} onClick={() => void openRound()}>
+              {opening ? (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <RotateCcw data-icon="inline-start" />
+              )}
+              {opening ? "Opening…" : "Try again"}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {sections.map((section) => (
+        <SectionEditor
+          key={section.label}
+          section={{ sectionType: section.label, scorePossible: section.pointValue }}
+          score={written[section.label]?.score ?? null}
+          report={written[section.label]?.report ?? ""}
+          onScore={(value) => write(section.label, { score: value })}
+          onReport={(value) => write(section.label, { report: value })}
+          startsOpen={boxes.open.includes(section.label)}
+          onEditingChange={(open) => {
+            boxes.setOpen(section.label, open);
+            /*
+              Opened on the click rather than on the first keystroke, and this is the one case
+              that cannot wait for a pause: the box being asked for belongs to the round, and one
+              that has to be replaced mid-sentence would take the sentence with it. Closing a box
+              opens nothing.
+            */
+            if (open) void openRound();
+          }}
+          /*
+            Only the card whose box was asked for. A score typed into another section opens the
+            round too, and replacing every report on the screen while it happens would announce
+            something about sections nobody touched.
+          */
+          busy={opening && boxes.open.includes(section.label)}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1108,6 +1312,7 @@ function DraftEditor({
   const settled = useServerMutation();
   const queryClient = useQueryClient();
   const actionsSlot = React.useContext(HeaderActionsSlot);
+  const boxes = React.useContext(FeedbackBoxes);
 
   /*
     Null where a section has no score yet, which is a different thing from a score of zero and
@@ -1150,8 +1355,9 @@ function DraftEditor({
             toast.success(
               result.team
                 ? `Released ${result.finalScore}/${result.finalScorePossible} to ${result.team.name} — ${result.team.memberCount} ${result.team.memberCount === 1 ? "fellow" : "fellows"}.`
-                : `Released ${result.finalScore}/${result.finalScorePossible} to ${submission.student.displayName ?? "the student"
-                }.`,
+                : `Released ${result.finalScore}/${result.finalScorePossible} to ${
+                    submission.student.displayName ?? "the student"
+                  }.`,
             );
           }
         },
@@ -1299,6 +1505,13 @@ function DraftEditor({
               setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? "" }));
             }}
             unsaved={changedSections.some((changed) => changed.id === section.id)}
+            /*
+              A box opened before this round existed is still open now. Grading by hand opens the
+              round from the box itself, so the card the instructor clicked is rebuilt around a
+              draft a moment later — and it has to come back the way they left it.
+            */
+            startsOpen={boxes.open.includes(section.sectionType)}
+            onEditingChange={(open) => boxes.setOpen(section.sectionType, open)}
           />
         ))}
       </div>
@@ -1597,21 +1810,56 @@ function SectionEditor({
   onScore,
   onReport,
   onReset,
-  unsaved,
+  unsaved = false,
+  startsOpen = false,
+  onEditingChange,
+  busy = false,
 }: {
-  section: Section;
+  /**
+   * Enough of a section to read and to score: what it is called and what it is out of.
+   *
+   * The rest is what a run produced — a rubric breakdown, flags, a confidence, notes — and it is
+   * optional because two callers have none of it. A grade written by hand was produced by a
+   * person, and this same card is drawn from the assignment's declared sections before any round
+   * exists at all, when there is no row to read a flag off.
+   */
+  section: Pick<Section, "sectionType" | "scorePossible"> &
+    Partial<
+      Pick<
+        Section,
+        | "rubricItems"
+        | "flags"
+        | "instructorNotes"
+        | "confidence"
+        | "submissionProcessNote"
+        | "editedAt"
+      >
+    >;
   /** Null when this section has no score yet, which the empty box says and a 0 does not. */
   score: number | null;
   report: string;
   onScore: (value: number | null) => void;
   onReport: (value: string) => void;
-  onReset: () => void;
+  onReset?: () => void;
   /** True when this section differs from what is stored. */
-  unsaved: boolean;
+  unsaved?: boolean;
+  /** Whether the feedback box is open on arrival — see `FeedbackBoxes`. */
+  startsOpen?: boolean;
+  /** Told whenever the box is opened or closed, so the answer outlives this card. */
+  onEditingChange?: (editing: boolean) => void;
+  /**
+   * True while the round this card belongs to is being created.
+   *
+   * The feedback box is not offered until it exists, because a box that is about to be replaced
+   * would take whatever was typed into it away with it.
+   */
+  busy?: boolean;
 }) {
-  const [editing, setEditing] = React.useState(false);
+  const [editing, setEditing] = React.useState(startsOpen);
   const possible = section.scorePossible ?? 0;
   const rubricItems = readRubricItems(section.rubricItems);
+  const flags = section.flags ?? [];
+  const instructorNotes = section.instructorNotes ?? [];
 
   return (
     <>
@@ -1637,7 +1885,7 @@ function SectionEditor({
                   </Badge>
                 )}
                 {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
-                {section.flags.map((flag) => (
+                {flags.map((flag) => (
                   <FlagBadge key={flag} code={flag} />
                 ))}
               </div>
@@ -1685,24 +1933,43 @@ function SectionEditor({
                 What the student will read
               </span>
               <div className="flex items-center gap-1">
-                {unsaved && (
+                {unsaved && onReset && (
                   <Button size="sm" variant="ghost" onClick={onReset}>
                     <Undo2 data-icon="inline-start" />
                     Undo
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setEditing((value) => !value)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    const next = !editing;
+                    setEditing(next);
+                    onEditingChange?.(next);
+                  }}
+                >
                   <Pencil data-icon="inline-start" />
                   {editing ? "Preview" : "Edit"}
                 </Button>
               </div>
             </div>
 
-            {editing ? (
+            {busy ? (
+              <p className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Opening this round of feedback…
+              </p>
+            ) : editing ? (
               <Textarea
                 value={report}
                 onChange={(event) => onReport(event.target.value)}
                 rows={16}
+                /*
+                  Focused on opening, which is what a box asked for by a click wants — and the one
+                  thing the swap from the blank form to the round cannot carry across on its own.
+                */
+                autoFocus
                 className="font-mono text-xs"
               />
             ) : report.trim() ? (
@@ -1716,12 +1983,12 @@ function SectionEditor({
             )}
           </div>
 
-          {section.instructorNotes.length > 0 && (
+          {instructorNotes.length > 0 && (
             <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
               <span className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
                 For you, never shown to the student
               </span>
-              {section.instructorNotes.map((note, index) => (
+              {instructorNotes.map((note, index) => (
                 <p key={index} className="text-xs text-amber-800 dark:text-amber-200">
                   {note}
                 </p>
@@ -1896,7 +2163,7 @@ function ReleasedBody({
       */}
       {revised ? (
         data.manualOnly ? (
-          <HandGradePanel submission={submission} data={data} revision />
+          <BlankHandGrade submission={submission} data={data} revision />
         ) : (
           <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
         )
