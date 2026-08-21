@@ -371,7 +371,7 @@ export function GradingReview({
         <div
           className={cn(
             "@container min-h-0 flex-1 overflow-y-auto px-5 py-5",
-            aside && "@4xl:overflow-y-hidden",
+            aside && "@4xl:flex @4xl:flex-col @4xl:overflow-y-hidden",
           )}
         >
           {/*
@@ -392,21 +392,25 @@ export function GradingReview({
             columns appear, so the grade is never squeezed below the work at the point where they
             are both smallest.
 
-            Each column is placed explicitly rather than by falling into the grid in order, which
-            is what lets the same markup stack in one order and split in another.
+            **A row of flex children rather than grid columns, and `order` rather than placement.**
+            Stacked, this is a column and the evidence sits last; split, it is a row and the
+            evidence is the left of the two. One piece of markup reads in both orders because
+            `order-last` is undone above the breakpoint.
 
-            **`h-full` is what gives each column a height to scroll inside, and it is why there is
-            no arithmetic here.** This pane's height is already known — it is what the window has
-            left after the application header, the review header and whatever sits between them —
-            and naming that in a `calc` against the viewport is a guess that is wrong on some
-            screen: too small and the column ends early, too large and its last card is below the
-            fold with no way to reach it.
+            **Where each column's height comes from is the whole of why it can scroll.** It is
+            `min-h-0 flex-1` down from the pane, which is the same chain the queue's own list uses
+            three files away and the only one this application has ever relied on: the pane knows
+            its height, the row takes it, and a child of the row is exactly as tall as the row is.
+            Nothing here is a `calc` against the viewport — that is a guess about what sits above
+            the pane, which differs between the queue, a student's record and grading mode, and it
+            is wrong on some screen by construction. Too small and a column ends early; too large
+            and its last card is below the fold with nothing that will bring it up.
           */}
           <div
             className={cn(
               "mx-auto flex max-w-5xl flex-col gap-5",
               aside &&
-                "@4xl:grid @4xl:h-full @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:gap-6",
+                "@4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-6",
             )}
           >
             {aside && (
@@ -415,7 +419,7 @@ export function GradingReview({
                   "flex min-w-0 flex-col gap-5",
                   // Its own scroll, so a rubric of ten questions and the suite output beneath it
                   // can be read to the end without the report leaving the screen.
-                  "@4xl:col-start-1 @4xl:row-start-1 @4xl:min-h-0 @4xl:overflow-y-auto",
+                  "@4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto",
                   evidenceAside && "order-last @4xl:order-none",
                 )}
               >
@@ -423,7 +427,7 @@ export function GradingReview({
               </div>
             )}
 
-            <div className="flex min-w-0 flex-col gap-5 @4xl:col-start-2 @4xl:row-start-1 @4xl:min-h-0 @4xl:overflow-y-auto">
+            <div className="flex min-w-0 flex-col gap-5 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto">
               {!documentAside && uploadedFile}
               {!linkAside && submittedLink}
 
