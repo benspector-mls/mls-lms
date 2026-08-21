@@ -978,15 +978,11 @@ function CorrectionPanel({ submission }: { submission: QueueSubmission }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Pencil className="size-4 text-muted-foreground" />
-          Correct this grade
+          Provide new feedback
         </CardTitle>
         <CardDescription>
-          Opens a new round already holding what was sent, so a wrong score is one edit rather than
-          a rewrite. Nothing reaches the student until you release it, and the round is added beside
-          this one rather than replacing it
-          {submission.prUrl
-            ? " — releasing posts a second comment, because the first cannot be unsaid."
-            : "."}
+          Opens a new round of feedback. The current feedback can be viewed in the feedback history.
+          {submission.prUrl && " Releasing posts a second comment to the PR thread."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1154,9 +1150,8 @@ function DraftEditor({
             toast.success(
               result.team
                 ? `Released ${result.finalScore}/${result.finalScorePossible} to ${result.team.name} — ${result.team.memberCount} ${result.team.memberCount === 1 ? "fellow" : "fellows"}.`
-                : `Released ${result.finalScore}/${result.finalScorePossible} to ${
-                    submission.student.displayName ?? "the student"
-                  }.`,
+                : `Released ${result.finalScore}/${result.finalScorePossible} to ${submission.student.displayName ?? "the student"
+                }.`,
             );
           }
         },
