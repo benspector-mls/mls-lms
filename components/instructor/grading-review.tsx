@@ -363,17 +363,15 @@ export function GradingReview({
           window. It is the pane that has to hold them, and what is left of the window after the
           360px queue list and the application sidebar is not something the window knows.
 
-          **In one column this is the scroller; in two it is not.** Two columns of different
-          lengths cannot share one scrollbar: the shorter one runs out and then sits there while
-          the longer one goes on, and its last card is left below the fold with nothing that will
-          bring it up. So each column scrolls itself, and this holds them.
+          **Nothing on this element may carry an `@4xl:` class of its own.** An element cannot
+          answer its own container query — a `@4xl:` class here asks about the nearest container
+          *above* this one, of which there is none, so it silently never applies. Everything that
+          changes at the breakpoint therefore lives on the children below, and this element is
+          written once and for both widths: a flex column that scrolls, which is what stacked
+          needs, and which split leaves with nothing to scroll because its one child is then
+          exactly as tall as it is.
         */}
-        <div
-          className={cn(
-            "@container min-h-0 flex-1 overflow-y-auto px-5 py-5",
-            aside && "@4xl:flex @4xl:flex-col @4xl:overflow-y-hidden",
-          )}
-        >
+        <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
           {/*
             One column until there is both something to put beside the grade and the room to put it
             there, and two after that.
@@ -405,6 +403,18 @@ export function GradingReview({
             the pane, which differs between the queue, a student's record and grading mode, and it
             is wrong on some screen by construction. Too small and a column ends early; too large
             and its last card is below the fold with nothing that will bring it up.
+
+            **What scrolls and what stacks the cards are two elements, not one.** A flex column
+            with a height of its own shrinks its children to fit rather than overflowing, which
+            leaves every card drawn smaller than the content inside it — so the scrolling box is a
+            plain one and the cards are stacked in a column within it. The same shape the queue's
+            list has: a box that scrolls, holding a column that does not.
+
+            **And the scrolling box is padded, which is not decoration.** A card's outline is
+            `ring-1`, and a ring is a shadow drawn *outside* the element rather than a border drawn
+            on it — so against the edge of a scroll container it falls outside the scrollport and
+            is clipped away, leaving cards with their sides and top missing. The padding is what
+            keeps the outline inside the box that clips it.
           */}
           <div
             className={cn(
@@ -416,44 +426,47 @@ export function GradingReview({
             {aside && (
               <div
                 className={cn(
-                  "flex min-w-0 flex-col gap-5",
+                  "min-w-0",
                   // Its own scroll, so a rubric of ten questions and the suite output beneath it
-                  // can be read to the end without the report leaving the screen.
-                  "@4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto",
+                  // can be read to the end without the report leaving the screen. The padding is
+                  // there for the cards' outlines — see below.
+                  "@4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1",
                   evidenceAside && "order-last @4xl:order-none",
                 )}
               >
-                {aside}
+                <div className="flex min-w-0 flex-col gap-5">{aside}</div>
               </div>
             )}
 
-            <div className="flex min-w-0 flex-col gap-5 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto">
-              {!documentAside && uploadedFile}
-              {!linkAside && submittedLink}
+            <div className="min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
+              <div className="flex min-w-0 flex-col gap-5">
+                {!documentAside && uploadedFile}
+                {!linkAside && submittedLink}
 
-              <CommentRecoveryNotice submission={submission} grade={data.grade} />
+                <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
-              {/*
+                {/*
                 The provider sits here rather than around the whole pane because this is everything
                 that reads it: the section cards are inside, and a card that opens its feedback box
                 is rebuilt around a round a moment later.
               */}
-              <FeedbackBoxes.Provider value={feedbackBoxes}>
-                <DraftBody
-                  key={draft?.id ?? "none"}
-                  submission={submission}
-                  assignmentTitle={assignmentTitle}
-                  completionThreshold={completionThreshold}
-                  draft={draft}
-                  data={data}
-                  testEvidence={evidenceAside ? null : testEvidence}
-                  rubricInAside={evidenceAside}
-                />
-              </FeedbackBoxes.Provider>
+                <FeedbackBoxes.Provider value={feedbackBoxes}>
+                  <DraftBody
+                    key={draft?.id ?? "none"}
+                    submission={submission}
+                    assignmentTitle={assignmentTitle}
+                    completionThreshold={completionThreshold}
+                    draft={draft}
+                    data={data}
+                    testEvidence={evidenceAside ? null : testEvidence}
+                    rubricInAside={evidenceAside}
+                  />
+                </FeedbackBoxes.Provider>
 
-              {history.length > 1 && (
-                <DraftHistory drafts={history} activeId={draft?.id} now={now} />
-              )}
+                {history.length > 1 && (
+                  <DraftHistory drafts={history} activeId={draft?.id} now={now} />
+                )}
+              </div>
             </div>
           </div>
         </div>
