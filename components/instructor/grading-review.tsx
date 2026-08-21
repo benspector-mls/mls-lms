@@ -261,8 +261,7 @@ export function GradingReview({
     The student's uploaded file, built once and placed in whichever column it belongs to.
 
     Reading it is what an instructor came to this screen to do, and every card below is about it —
-    so on a graded submission the document is above, or beside, the grade it was given. It is also
-    the analogue of test evidence for work with no suite: the thing the grade rests on.
+    so on a graded submission the document is above, or beside, the grade it was given.
 
     Outside the grading form rather than inside it, because the form is replaced by the editor the
     moment a round is opened and the file is most needed while the feedback is being written.
@@ -281,15 +280,73 @@ export function GradingReview({
   ) : null;
 
   /*
-    Whether this submission has a document the browser can show, which is what decides whether the
-    pane is worth splitting.
+    The link a student handed in.
 
-    `previewKindOf` is the same function the preview itself asks, so the two cannot disagree about
-    what can be embedded. A `.docx` or a submitted link answers null and the pane stays in one
-    column: half a screen holding a two-line link box is worse than the column it replaced.
+    The address is shown rather than hidden behind the button, which is what `SubmittedLinkRow`
+    exists for.
   */
-  const readable =
+  const submittedLink = submission.submittedUrl ? (
+    <SubmittedLinkRow
+      url={submission.submittedUrl}
+      label="What the student submitted"
+      isLate={submission.isLate ?? false}
+    />
+  ) : null;
+
+  /*
+    The score's working: one card per section, and never anything the student sees.
+
+    Read straight from the draft rather than from inside the editor, because where these belong
+    depends on the room there is — see the column below.
+  */
+  const rubricSections = draft
+    ? draft.sections.filter((section) => readRubricItems(section.rubricItems).length > 0)
+    : [];
+
+  /*
+    **What goes in the column beside the grade, and which of the three kinds of thing it is.**
+
+    One kind at a time, and never two, because the kinds of assignment are what decide it: work
+    collected as a file has no pull request to run a suite against and no report a model wrote,
+    and work collected as a pull request has no document to embed. So the column holds whichever
+    of these the submission actually has, and where a submission has none of them the pane stays
+    in one column rather than splitting to show an empty half.
+
+      - A document the browser can show. `previewKindOf` is the same function the preview itself
+        asks, so the two cannot disagree about what can be embedded — a `.docx` answers null and
+        stays in the one column, where it is a row with a download button and nothing to read.
+      - The address a student handed in, which is small, but is what they submitted and belongs
+        on the same side as the document would be.
+      - The working behind the score: the rubric breakdown and the suite output. Not what the
+        student handed in — that is on GitHub — but what the grade rests on, which is the same
+        question asked of a repository.
+
+    The last of those is the one that stacks *after* the grade rather than before it: on a narrow
+    screen an instructor reads the feedback the student will read and then scrolls to what backs
+    it up, which is the order that has always been on this screen. A document is the opposite: it
+    is the work, and it is read first.
+  */
+  const documentAside =
     submission.uploadFilename !== null && previewKindOf(submission.uploadFilename) !== null;
+  const linkAside = !documentAside && submittedLink !== null;
+  const evidenceAside =
+    !documentAside &&
+    !linkAside &&
+    canHaveTests &&
+    (rubricSections.length > 0 || (testRuns.data?.runs.length ?? 0) > 0);
+
+  const aside = documentAside ? (
+    uploadedFile
+  ) : linkAside ? (
+    submittedLink
+  ) : evidenceAside ? (
+    <>
+      {rubricSections.map((section) => (
+        <RubricBreakdown key={section.id} section={section} />
+      ))}
+      {testEvidence}
+    </>
+  ) : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -308,56 +365,51 @@ export function GradingReview({
         */}
         <div className="@container min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {/*
-            One column until there is both a document to read and the room to put it beside the
-            grade, and two after that.
+            One column until there is both something to put beside the grade and the room to put it
+            there, and two after that.
 
-            The document holds its place while the score, the feedback and the evidence scroll past
-            it, which is the whole point: reading the work and writing about it are the same task
-            and were never on the screen at the same time. `items-start` is what lets the left
+            What is beside the grade holds its place while the score, the feedback and the history
+            scroll past it, which is the whole point: reading the work and writing about it are the
+            same task and were never on the screen at the same time. `items-start` is what lets the
             column be its own height rather than the row's — a stretched column has nothing to
             stick to.
 
-            **Every pixel past the first thousand or so belongs to the document.** A score box and
-            a paragraph of feedback have a size they want and no use for more: below 26rem the
+            **Every pixel past the first thousand or so belongs to the work.** A score box and a
+            paragraph of feedback have a size they want and no use for more: below 26rem the
             markdown box is too narrow to write in, and past 34rem the prose runs to a measure
             nobody reads a paragraph across. So the grade is clamped between those two and the
-            document takes the rest, which is what makes a wider window show more of the work
-            rather than more white space beside it. 26rem is also exactly half the room at the
-            width the columns appear, so the grade is never squeezed below the document at the
-            point where they are both smallest.
+            other column takes the rest. 26rem is also exactly half the room at the width the
+            columns appear, so the grade is never squeezed below the work at the point where they
+            are both smallest.
+
+            Each column is placed explicitly rather than by falling into the grid in order, which
+            is what lets the same markup stack in one order and split in another.
           */}
           <div
             className={cn(
               "mx-auto flex max-w-5xl flex-col gap-5",
-              readable &&
+              aside &&
                 "@4xl:grid @4xl:max-w-[100rem] @4xl:grid-cols-[minmax(0,1fr)_clamp(26rem,40%,34rem)] @4xl:items-start @4xl:gap-6",
             )}
           >
-            {readable && (
-              // `top-5` rather than `top-0`, so the document keeps at rest the gap the scroller's
-              // own padding gives it.
-              <div className="@4xl:sticky @4xl:top-5">{uploadedFile}</div>
+            {aside && (
+              <div
+                className={cn(
+                  "flex min-w-0 flex-col gap-5",
+                  // `top-5` rather than `top-0`, so it keeps the gap the scroller's own padding
+                  // gives it at rest, and a height of its own so a long suite output scrolls
+                  // beside the report rather than taking the report off the screen.
+                  "@4xl:sticky @4xl:top-5 @4xl:col-start-1 @4xl:row-start-1 @4xl:max-h-[calc(100svh-11rem)] @4xl:overflow-y-auto",
+                  evidenceAside && "order-last @4xl:order-none",
+                )}
+              >
+                {aside}
+              </div>
             )}
 
-            <div className="flex min-w-0 flex-col gap-5">
-              {!readable && uploadedFile}
-
-              {/*
-                The link a student handed in, beside the uploaded file and above everything about
-                the grade, because the work is most needed while the feedback is being written and
-                the cards below it change as a round is opened and released. An instructor reading
-                the document keeps the way to it for the whole of the grading.
-
-                The address is shown rather than hidden behind the button, which is what
-                `SubmittedLinkRow` exists for.
-              */}
-              {submission.submittedUrl && (
-                <SubmittedLinkRow
-                  url={submission.submittedUrl}
-                  label="What the student submitted"
-                  isLate={submission.isLate ?? false}
-                />
-              )}
+            <div className="flex min-w-0 flex-col gap-5 @4xl:col-start-2 @4xl:row-start-1">
+              {!documentAside && uploadedFile}
+              {!linkAside && submittedLink}
 
               <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
@@ -374,7 +426,8 @@ export function GradingReview({
                   completionThreshold={completionThreshold}
                   draft={draft}
                   data={data}
-                  testEvidence={testEvidence}
+                  testEvidence={evidenceAside ? null : testEvidence}
+                  rubricInAside={evidenceAside}
                 />
               </FeedbackBoxes.Provider>
 
@@ -684,6 +737,7 @@ function DraftBody({
   draft,
   data,
   testEvidence,
+  rubricInAside,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
@@ -692,6 +746,8 @@ function DraftBody({
   data: DraftList;
   /** The test evidence card, or null on an assignment that cannot have a suite. */
   testEvidence: React.ReactNode;
+  /** True when the column beside the reports is drawing the rubric breakdowns. */
+  rubricInAside: boolean;
 }) {
   if (!draft) {
     if (submission.status === "NOT_STARTED" || submission.status === "ACCEPTED") {
@@ -808,6 +864,7 @@ function DraftBody({
           approvalBlocked={stale}
           manualOnly={data.manualOnly}
           testEvidence={testEvidence}
+          rubricInAside={rubricInAside}
         />
       ) : (
         <>
@@ -1340,6 +1397,7 @@ function DraftEditor({
   approvalBlocked,
   manualOnly,
   testEvidence,
+  rubricInAside,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
@@ -1351,6 +1409,8 @@ function DraftEditor({
   manualOnly: boolean;
   /** Rendered below the sections: the reports come first, the evidence behind them second. */
   testEvidence: React.ReactNode;
+  /** True when the column beside the reports is drawing the rubric breakdowns. */
+  rubricInAside: boolean;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -1537,33 +1597,42 @@ function DraftEditor({
 
       <div className="flex flex-col gap-4">
         {draft.sections.map((section) => (
-          <SectionEditor
-            key={section.id}
-            section={section}
-            score={scores[section.id] ?? null}
-            report={reports[section.id] ?? ""}
-            onScore={(value) => setScores((prev) => ({ ...prev, [section.id]: value }))}
-            onReport={(value) => setReports((prev) => ({ ...prev, [section.id]: value }))}
-            onReset={() => {
-              setScores((prev) => ({ ...prev, [section.id]: effectiveScore(section) }));
-              setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? "" }));
-            }}
-            unsaved={changedSections.some((changed) => changed.id === section.id)}
-            /*
-              A box opened before this round existed is still open now. Grading by hand opens the
-              round from the box itself, so the card the instructor clicked is rebuilt around a
-              draft a moment later — and it has to come back the way they left it.
-            */
-            startsOpen={boxes.open.includes(section.sectionType)}
-            onEditingChange={(open) => boxes.setOpen(section.sectionType, open)}
-          />
+          <React.Fragment key={section.id}>
+            <SectionEditor
+              section={section}
+              score={scores[section.id] ?? null}
+              report={reports[section.id] ?? ""}
+              onScore={(value) => setScores((prev) => ({ ...prev, [section.id]: value }))}
+              onReport={(value) => setReports((prev) => ({ ...prev, [section.id]: value }))}
+              onReset={() => {
+                setScores((prev) => ({ ...prev, [section.id]: effectiveScore(section) }));
+                setReports((prev) => ({ ...prev, [section.id]: effectiveReport(section) ?? "" }));
+              }}
+              unsaved={changedSections.some((changed) => changed.id === section.id)}
+              /*
+                A box opened before this round existed is still open now. Grading by hand opens
+                the round from the box itself, so the card the instructor clicked is rebuilt
+                around a draft a moment later — and it has to come back the way they left it.
+              */
+              startsOpen={boxes.open.includes(section.sectionType)}
+              onEditingChange={(open) => boxes.setOpen(section.sectionType, open)}
+            />
+            {/*
+              Directly under the report it explains, which is where it belongs while the two are
+              in one column. Where the pane is wide enough to hold two, the breakdown is drawn in
+              that one instead — see `evidenceAside` — and this stays silent rather than drawing
+              it twice.
+            */}
+            {!rubricInAside && <RubricBreakdown section={section} />}
+          </React.Fragment>
         ))}
       </div>
 
       {/*
         After the reports, because it is what their claims rest on rather than the thing being
         reviewed. An instructor reads the feedback the student will read, then scrolls to the
-        rubric breakdown and the suite output to see whether it holds up.
+        rubric breakdown and the suite output to see whether it holds up. Null where the column
+        beside the reports is holding it instead.
       */}
       {testEvidence}
 
@@ -1863,21 +1932,17 @@ function SectionEditor({
   /**
    * Enough of a section to read and to score: what it is called and what it is out of.
    *
-   * The rest is what a run produced — a rubric breakdown, flags, a confidence, notes — and it is
-   * optional because two callers have none of it. A grade written by hand was produced by a
-   * person, and this same card is drawn from the assignment's declared sections before any round
-   * exists at all, when there is no row to read a flag off.
+   * The rest is what a run produced — flags, a confidence, notes — and it is optional because two
+   * callers have none of it. A grade written by hand was produced by a person, and this same card
+   * is drawn from the assignment's declared sections before any round exists at all, when there is
+   * no row to read a flag off. The score's working is not here at all: it is `RubricBreakdown`,
+   * which is drawn beside this card or below it depending on the room.
    */
   section: Pick<Section, "sectionType" | "scorePossible"> &
     Partial<
       Pick<
         Section,
-        | "rubricItems"
-        | "flags"
-        | "instructorNotes"
-        | "confidence"
-        | "submissionProcessNote"
-        | "editedAt"
+        "flags" | "instructorNotes" | "confidence" | "submissionProcessNote" | "editedAt"
       >
     >;
   /** Null when this section has no score yet, which the empty box says and a 0 does not. */
@@ -1909,196 +1974,201 @@ function SectionEditor({
 }) {
   const [editing, setEditing] = React.useState(startsOpen);
   const possible = section.scorePossible ?? 0;
-  const rubricItems = readRubricItems(section.rubricItems);
   const flags = section.flags ?? [];
   const instructorNotes = section.instructorNotes ?? [];
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex flex-col gap-1.5">
-              <CardTitle className="text-base">
-                Section Report — {sectionLabel(section.sectionType)}
-              </CardTitle>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {unsaved && (
-                  <Badge
-                    variant="outline"
-                    className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-                  >
-                    Unsaved
-                  </Badge>
-                )}
-                {section.editedAt && !unsaved && (
-                  <Badge variant="outline" className="font-normal text-muted-foreground">
-                    Edited by you
-                  </Badge>
-                )}
-                {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
-                {flags.map((flag) => (
-                  <FlagBadge key={flag} code={flag} />
-                ))}
-              </div>
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-col gap-1.5">
+            <CardTitle className="text-base">
+              Section Report — {sectionLabel(section.sectionType)}
+            </CardTitle>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {unsaved && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+                >
+                  Unsaved
+                </Badge>
+              )}
+              {section.editedAt && !unsaved && (
+                <Badge variant="outline" className="font-normal text-muted-foreground">
+                  Edited by you
+                </Badge>
+              )}
+              {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
+              {flags.map((flag) => (
+                <FlagBadge key={flag} code={flag} />
+              ))}
             </div>
+          </div>
 
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="number"
-                min={0}
-                max={possible}
-                step="any"
-                /*
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="number"
+              min={0}
+              max={possible}
+              step="any"
+              /*
                   Empty for a section with no score yet, rather than a 0 nobody typed. A hand-
                   written draft opens with every box empty, which is what asks to be filled in —
                   a box reading 0 looks like a score that has already been decided.
                 */
-                value={score ?? ""}
-                onChange={(event) => {
-                  const raw = event.target.value;
-                  /*
+              value={score ?? ""}
+              onChange={(event) => {
+                const raw = event.target.value;
+                /*
                     Clearing the box means "not scored", not zero. `Number("")` is 0, so without
                     this the two are the same keystroke — and they are the distinction the whole
                     form now rests on.
                   */
-                  if (raw.trim() === "") {
-                    onScore(null);
-                    return;
-                  }
-                  const parsed = Number(raw);
-                  if (Number.isNaN(parsed)) return;
-                  onScore(Math.max(0, Math.min(possible, parsed)));
+                if (raw.trim() === "") {
+                  onScore(null);
+                  return;
+                }
+                const parsed = Number(raw);
+                if (Number.isNaN(parsed)) return;
+                onScore(Math.max(0, Math.min(possible, parsed)));
+              }}
+              onBlur={() => onScoreBlur?.()}
+              className="h-9 w-20 text-right tabular-nums"
+              aria-label={`${sectionLabel(section.sectionType)} score`}
+            />
+            <span className="text-sm text-muted-foreground">/ {possible}</span>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              What the student will read
+            </span>
+            <div className="flex items-center gap-1">
+              {unsaved && onReset && (
+                <Button size="sm" variant="ghost" onClick={onReset}>
+                  <Undo2 data-icon="inline-start" />
+                  Undo
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  const next = !editing;
+                  setEditing(next);
+                  onEditingChange?.(next);
                 }}
-                onBlur={() => onScoreBlur?.()}
-                className="h-9 w-20 text-right tabular-nums"
-                aria-label={`${sectionLabel(section.sectionType)} score`}
-              />
-              <span className="text-sm text-muted-foreground">/ {possible}</span>
+              >
+                <Pencil data-icon="inline-start" />
+                {editing ? "Preview" : "Edit"}
+              </Button>
             </div>
           </div>
-        </CardHeader>
 
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                What the student will read
-              </span>
-              <div className="flex items-center gap-1">
-                {unsaved && onReset && (
-                  <Button size="sm" variant="ghost" onClick={onReset}>
-                    <Undo2 data-icon="inline-start" />
-                    Undo
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    const next = !editing;
-                    setEditing(next);
-                    onEditingChange?.(next);
-                  }}
-                >
-                  <Pencil data-icon="inline-start" />
-                  {editing ? "Preview" : "Edit"}
-                </Button>
-              </div>
-            </div>
-
-            {busy ? (
-              <p className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Opening this round of feedback…
-              </p>
-            ) : editing ? (
-              <Textarea
-                value={report}
-                onChange={(event) => onReport(event.target.value)}
-                rows={16}
-                /*
+          {busy ? (
+            <p className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Opening this round of feedback…
+            </p>
+          ) : editing ? (
+            <Textarea
+              value={report}
+              onChange={(event) => onReport(event.target.value)}
+              rows={16}
+              /*
                   Focused on opening, which is what a box asked for by a click wants — and the one
                   thing the swap from the blank form to the round cannot carry across on its own.
                 */
-                autoFocus
-                className="font-mono text-xs"
-              />
-            ) : report.trim() ? (
-              <div className="rounded-md border border-border bg-muted/20 p-4">
-                <Markdown content={report} />
-              </div>
-            ) : (
-              <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
-                No report was written for this section.
-              </p>
-            )}
-          </div>
-
-          {instructorNotes.length > 0 && (
-            <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-              <span className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
-                For you, never shown to the student
-              </span>
-              {instructorNotes.map((note, index) => (
-                <p key={index} className="text-xs text-amber-800 dark:text-amber-200">
-                  {note}
-                </p>
-              ))}
+              autoFocus
+              className="font-mono text-xs"
+            />
+          ) : report.trim() ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <Markdown content={report} />
             </div>
+          ) : (
+            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
+              No report was written for this section.
+            </p>
           )}
+        </div>
 
-          {section.submissionProcessNote && (
-            <p className="text-xs text-muted-foreground">{section.submissionProcessNote}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/*
-        The score, line by line, in a card of its own below the report.
-
-        These are two different things read in two different ways: the report is the feedback
-        the student receives and the instructor may rewrite, and this is the arithmetic behind
-        the number beside it. Nothing in this card is ever shown to the student.
-      */}
-      {rubricItems.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ListChecks className="size-4 text-muted-foreground" />
-              How this score was reached — {sectionLabel(section.sectionType)}
-            </CardTitle>
-            <CardDescription>
-              One row per rubric criterion, summing to the section score. For you, never shown to
-              the student.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {rubricItems.map((item, index) => (
-              <div
-                key={index}
-                className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 px-3 py-2"
-              >
-                <div className="flex min-w-0 flex-col">
-                  <span className="text-sm font-medium">{item.label}</span>
-                  {item.criterion && (
-                    <span className="text-xs text-muted-foreground">{item.criterion}</span>
-                  )}
-                  {item.note && (
-                    <span className="mt-1 text-xs text-muted-foreground">{item.note}</span>
-                  )}
-                </div>
-                <span className="shrink-0 text-sm font-medium tabular-nums">
-                  {item.scoreEarned}
-                  <span className="text-muted-foreground"> / {item.scorePossible}</span>
-                </span>
-              </div>
+        {instructorNotes.length > 0 && (
+          <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+            <span className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
+              For you, never shown to the student
+            </span>
+            {instructorNotes.map((note, index) => (
+              <p key={index} className="text-xs text-amber-800 dark:text-amber-200">
+                {note}
+              </p>
             ))}
-          </CardContent>
-        </Card>
-      )}
-    </>
+          </div>
+        )}
+
+        {section.submissionProcessNote && (
+          <p className="text-xs text-muted-foreground">{section.submissionProcessNote}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The score, line by line, in a card of its own.
+ *
+ * Two different things read in two different ways: the report is the feedback the student
+ * receives and the instructor may rewrite, and this is the arithmetic behind the number beside
+ * it. Nothing in this card is ever shown to the student.
+ *
+ * Its own component rather than part of the section card, because where it belongs depends on
+ * the room there is. Beneath the report in one column; in the column beside it, with the test
+ * output, where the pane is wide enough to hold two — the working and the writing, each on its
+ * own side.
+ */
+function RubricBreakdown({ section }: { section: Pick<Section, "sectionType" | "rubricItems"> }) {
+  const rubricItems = readRubricItems(section.rubricItems);
+  if (rubricItems.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ListChecks className="size-4 text-muted-foreground" />
+          How this score was reached — {sectionLabel(section.sectionType)}
+        </CardTitle>
+        <CardDescription>
+          One row per rubric criterion, summing to the section score. For you, never shown to the
+          student.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {rubricItems.map((item, index) => (
+          <div
+            key={index}
+            className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 px-3 py-2"
+          >
+            <div className="flex min-w-0 flex-col">
+              <span className="text-sm font-medium">{item.label}</span>
+              {item.criterion && (
+                <span className="text-xs text-muted-foreground">{item.criterion}</span>
+              )}
+              {item.note && <span className="mt-1 text-xs text-muted-foreground">{item.note}</span>}
+            </div>
+            <span className="shrink-0 text-sm font-medium tabular-nums">
+              {item.scoreEarned}
+              <span className="text-muted-foreground"> / {item.scorePossible}</span>
+            </span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
