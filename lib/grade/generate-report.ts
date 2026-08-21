@@ -467,7 +467,18 @@ export async function generateReportForSubmission(submissionId: string): Promise
         user: buildUserPrompt({
           assets,
           context: {
-            studentGithubUsername: submission.student.githubUsername,
+            /*
+              Everybody the report is written to: this row's own student, and every teammate who
+              holds a mirror of it. One entry for work a student did alone, which reads exactly as
+              it did before, so existing reports stay comparable.
+            */
+            addressees: [
+              { githubUsername: submission.student.githubUsername },
+              ...submission.mirrors.map((mirror) => ({
+                githubUsername: mirror.student.githubUsername,
+              })),
+            ],
+            teamName: submission.team?.name ?? null,
             assignmentTitle: submission.assignment.title,
             pointValue: sectionPointValue,
             readme,
@@ -585,7 +596,12 @@ export async function generateReportForSubmission(submissionId: string): Promise
  * Bumped whenever the prompt builders change in a way that could alter output.
  * Recorded on every draft, so a report can be traced to the prompt that produced it.
  */
-const PROMPT_VERSION = "2026-08-02.3";
+/*
+  Bumped when the prompt changes in a way that changes what comes back, so a stored report can be
+  traced to the wording that produced it. `.4` is the team address block: an individual
+  submission's prompt is byte-identical to what `.3` produced, and a team's is not.
+*/
+const PROMPT_VERSION = "2026-08-20.4";
 
 /**
  * Narrows the suite to the tests that count toward one section.

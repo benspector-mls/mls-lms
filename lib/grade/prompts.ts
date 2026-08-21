@@ -275,7 +275,21 @@ export function buildSystemPrompt(params: {
 }
 
 export type SubmissionContext = {
-  studentGithubUsername: string | null;
+  /**
+   * Who the report is written to: one student, or every member of a team.
+   *
+   * A list rather than a single handle, because a team's report is addressed to all of them and
+   * goes to all of them. One entry is individual work and reads exactly as it did before, so
+   * existing reports stay comparable.
+   *
+   * **Handles only, and no display names.** The report is posted as a pull request comment and
+   * rendered on every member's own page, so a legal name written into model-generated prose is
+   * published — a new class of mistake for no benefit. An entry with no handle is somebody the
+   * model is told about without being able to name.
+   */
+  addressees: { githubUsername: string | null }[];
+  /** The team's name, for the one line that says who this is for. Null for individual work. */
+  teamName: string | null;
   assignmentTitle: string;
   /**
    * The assignment's recorded maximum, or null when it has none.
@@ -316,6 +330,92 @@ function fence(path: string, content: string): string {
 }
 
 /**
+ * Who the report is written to, as the sentences that say so.
+ *
+ * **In the user half, never the system half.** `buildSystemPrompt` is the one cacheable prefix,
+ * and putting team-ness in it would give every section type two prefixes; putting a member list in
+ * it would give every *team* its own, so every request would be a cache write. A team assignment
+ * is five to eight submissions — far too few to warm a prefix of its own inside the cache's
+ * lifetime — where team and individual work sharing one prefix costs nothing.
+ *
+ * Exported so it can be tested without building a whole prompt, which is what makes the
+ * cache-safety check above possible to state as an assertion.
+ *
+ * A team of one collapses to the individual wording. A cohort with an odd headcount produces
+ * one-member teams routinely, and "do not single anybody out" is nonsense addressed to one person.
+ */
+export function addressBlock(context: SubmissionContext): string[] {
+  const handles = context.addressees
+    .map((addressee) => addressee.githubUsername)
+    .filter((handle): handle is string => Boolean(handle));
+
+  if (context.addressees.length <= 1) {
+    const handle = handles[0];
+    return [
+      handle
+        ? `Address the student as @${handle}.`
+        : `The student has no GitHub username on record — address them as "you" without a handle.`,
+    ];
+  }
+
+  const named =
+    handles.length > 1
+      ? `${handles
+          .slice(0, -1)
+          .map((handle) => `@${handle}`)
+          .join(", ")} and @${handles[handles.length - 1]}`
+      : handles.length === 1
+        ? `@${handles[0]}`
+        : "";
+
+  const lines: string[] = [];
+
+  lines.push(
+    named
+      ? `This is team work. ${named} share one repository and one submission, and every one of ` +
+          `them receives this report.`
+      : `This is team work. ${context.addressees.length} students share one repository and one ` +
+          `submission, and every one of them receives this report.`,
+  );
+  lines.push(
+    `Address them together: "you" is the team and "your code" is the team's code. Write in the ` +
+      `second person plural.`,
+  );
+  /*
+    The instruction that stops the report guessing. Commit authorship is a git config field, pair
+    programming on one machine is ordinary here, and nothing in this prompt shows who wrote what —
+    so a report crediting or blaming a member is an accusation built on nothing.
+  */
+  lines.push(
+    `Do not attribute any part of the work to a particular member, and do not guess from commit ` +
+      `history — you have not been shown who wrote what, and a report that credits or blames the ` +
+      `wrong person is worse than one that names nobody.`,
+  );
+  /*
+    Load-bearing. `rubricItems[].criterion` is free text, so a model told "four students" invents
+    a row per member. Those rows still sum, so `crossCheck` passes them, and a per-member
+    breakdown reaches the students under one shared score.
+  */
+  lines.push(
+    `One score for the submission. It is recorded as the same grade for every member, so do not ` +
+      `produce per-member scores and do not add rubric items naming a member.`,
+  );
+
+  if (handles.length < context.addressees.length) {
+    lines.push(
+      `Not every member has a GitHub handle on record. The handles above are the ones there are — ` +
+        `address the team as a whole rather than naming who is missing.`,
+    );
+  }
+
+  if (context.teamName) {
+    lines.push(`They are working as "${context.teamName}".`);
+  }
+
+  return lines;
+}
+
+/**
  * The varying half. Everything here changes per submission, which is why it comes
  * after the cache breakpoint rather than before it.
  */
@@ -328,11 +428,7 @@ export function buildUserPrompt(params: {
 
   parts.push(`# Submission: ${context.assignmentTitle}`);
   parts.push("");
-  parts.push(
-    context.studentGithubUsername
-      ? `Address the student as @${context.studentGithubUsername}.`
-      : `The student has no GitHub username on record — address them as "you" without a handle.`,
-  );
+  parts.push(...addressBlock(context));
   parts.push("");
 
   parts.push(

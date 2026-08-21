@@ -212,7 +212,8 @@ async function main() {
       user: buildUserPrompt({
         assets,
         context: {
-          studentGithubUsername: "sample-student",
+          addressees: [{ githubUsername: "sample-student" }],
+          teamName: null,
           assignmentTitle: `short response calibration sample ${pair.n}`,
           pointValue: expected.total?.possible ?? 15,
           // The sample file carries the questions as well as the answers, so it is
