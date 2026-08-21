@@ -69,13 +69,12 @@ export function GroupManager({
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="size-4 text-muted-foreground" />
-              Groups
+              Grading Groups
             </CardTitle>
             <CardDescription className="mt-1">
               A named set of this cohort&apos;s students. Pick one from the filter on triage, an
               assignment&apos;s queue, the gradebook, or the assignments list to work only their
-              submissions — which is how a cohort is split between two instructors without either of
-              them grading the same work twice. A student can be in more than one.
+              submissions.
             </CardDescription>
           </div>
           {!creating && (
@@ -217,7 +216,7 @@ function GroupRow({
         */
         toast.success(
           `Removed "${removed.name}". Its ${removed.memberCount} ` +
-            `${removed.memberCount === 1 ? "student stays" : "students stay"} in the cohort.`,
+          `${removed.memberCount === 1 ? "student stays" : "students stay"} in the cohort.`,
         );
         onChanged();
       },
@@ -230,7 +229,7 @@ function GroupRow({
       onSuccess: (result) => {
         toast.success(
           `"${group.name}" now holds ${result.memberCount} ` +
-            `${result.memberCount === 1 ? "student" : "students"}.`,
+          `${result.memberCount === 1 ? "student" : "students"}.`,
         );
         onChanged();
       },

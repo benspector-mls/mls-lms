@@ -5,7 +5,7 @@ import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 import { isGithubAppConfigured } from "@/lib/github/app-client";
 import { verifyGithubSignature } from "@/lib/github/webhook-verify";
 import { handInState, handInStatus } from "@/lib/submissions/hand-in";
-import { recordActivity, recordHandIn } from "@/lib/submissions/team";
+import { recordActivity, recordHandIn, syncTeamRows } from "@/lib/submissions/team";
 
 /**
  * GitHub webhook receiver.
@@ -238,6 +238,21 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
       },
     });
   }
+
+  /*
+    Every member's row brought into agreement with the one just written, and a row created for any
+    member who has none.
+
+    Here as well as on the two paths that create rows, because this is the one that runs while a
+    team is working: `synchronize` is not a hand-in, so it writes no status, and without this a
+    mirror that had fallen behind for any reason stayed behind until the next hand-in or release —
+    which for a team working through one long pull request is days. It also covers a member added
+    to the team after the repository was made, who would otherwise have no row until somebody
+    accepted or handed in again.
+
+    A no-op for work a student did alone, so there is no branch here.
+  */
+  await syncTeamRows(db, { submissionId: submission.id });
 
   // Phase 2 adds the grading job here. On `synchronize` it must also mark any
   // existing grading draft for this submission as SUPERSEDED, so an instructor's

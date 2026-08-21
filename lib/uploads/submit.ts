@@ -8,7 +8,7 @@ import type { db as globalDb } from "../prisma";
 import { handInState } from "../submissions/hand-in";
 import {
   claimTeamWork,
-  ensureTeamRows,
+  syncTeamRows,
   recordHandIn,
   teamForStudent,
   teamSubmissionFor,
@@ -368,12 +368,7 @@ export async function storeAndRecordUpload(
   });
 
   if (team) {
-    await ensureTeamRows(db, {
-      assignmentId: params.assignment.id,
-      teamId: team.id,
-      teamSetId: team.teamSetId,
-      teamSubmissionId: submission.id,
-    });
+    await syncTeamRows(db, { submissionId: submission.id });
   }
 
   /*

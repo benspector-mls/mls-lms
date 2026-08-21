@@ -17,7 +17,7 @@ import { linkHost } from "@/lib/status";
 import { handInState } from "@/lib/submissions/hand-in";
 import {
   claimTeamWork,
-  ensureTeamRows,
+  syncTeamRows,
   recordHandIn,
   recordResubmissionDeclared,
 } from "@/lib/submissions/team";
@@ -335,12 +335,7 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       if (team) {
-        await ensureTeamRows(ctx.db, {
-          assignmentId: assignment.id,
-          teamId: team.id,
-          teamSetId: team.teamSetId,
-          teamSubmissionId: target.id,
-        });
+        await syncTeamRows(ctx.db, { submissionId: target.id });
       }
 
       /*

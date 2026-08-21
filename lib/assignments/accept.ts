@@ -14,7 +14,7 @@ import {
   waitForRepoContent,
 } from "../github/repos";
 import type { Tx } from "../prisma";
-import { claimTeamWork, ensureTeamRows, type ResolvedTeam } from "../submissions/team";
+import { claimTeamWork, syncTeamRows, type ResolvedTeam } from "../submissions/team";
 import {
   copyUrlFromTemplate,
   NotRepositoryBackedError,
@@ -138,12 +138,7 @@ export async function acceptDriveAssignment(
       team,
       statusIfNew: "ACCEPTED",
     });
-    await ensureTeamRows(db, {
-      assignmentId: assignment.id,
-      teamId: team.id,
-      teamSetId: team.teamSetId,
-      teamSubmissionId: submissionId,
-    });
+    await syncTeamRows(db, { submissionId: submissionId });
 
     return {
       submission: await ownRow(db, assignment.id, studentId),
@@ -326,12 +321,7 @@ export async function acceptRepoAssignment(
           permission: "push",
         });
       }
-      await ensureTeamRows(db, {
-        assignmentId: assignment.id,
-        teamId: team.id,
-        teamSetId: team.teamSetId,
-        teamSubmissionId: claim.submissionId,
-      });
+      await syncTeamRows(db, { submissionId: claim.submissionId });
       return { submission: await ownRow(db, assignment.id, student.id), copyUrl: null };
     }
   } else {
@@ -553,12 +543,7 @@ export async function acceptRepoAssignment(
       repository exists, so a mirror never appears for work there is nowhere to do.
     */
     await db.submission.update({ where: { id: teamSubmissionId }, data: where });
-    await ensureTeamRows(db, {
-      assignmentId: assignment.id,
-      teamId: team.id,
-      teamSetId: team.teamSetId,
-      teamSubmissionId,
-    });
+    await syncTeamRows(db, { submissionId: teamSubmissionId });
 
     return { submission: await ownRow(db, assignment.id, student.id), copyUrl: null };
   }

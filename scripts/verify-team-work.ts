@@ -12,7 +12,7 @@
  * Driven through the tRPC callers inside a transaction that is rolled back, with an
  * `EXTERNAL_URL` assignment created inside it. That kind is chosen because it needs no GitHub, no
  * sandbox and no model, and because it exercises the same `claimTeamWork` / `recordHandIn` /
- * `ensureTeamRows` path a repository assignment does — the difference between them is where the
+ * `syncTeamRows` path a repository assignment does — the difference between them is where the
  * work is, which is exactly the part that never reaches a mirror.
  *
  * Two groups run in their own transactions, because a refusal that comes from a constraint aborts
@@ -240,6 +240,46 @@ async function main() {
       "a mirror is waiting on nobody",
       queue.asideSubmissions.map((row) => row.bucket),
       [null],
+    );
+
+    /*
+      --- a mirror that has fallen behind --------------------------------
+
+      Put behind by hand, because the point is not how it got there. A fan-out that missed a row,
+      a row written by an older version of this application, a member restored to the cohort — all
+      of them leave the same state, and what matters is that the next thing to touch the team
+      repairs it rather than leaving somebody reading "Accepted" about work that was handed in.
+
+      A push to an open pull request is the case that matters most: it is deliberately not a
+      hand-in, so it writes no status at all, and before `syncTeamRows` ran here a mirror could
+      stay behind for as long as the team kept working in one pull request.
+    */
+    await tx.submission.updateMany({
+      where: { teamSubmissionId: work.id },
+      data: { status: "ACCEPTED", submittedAt: null, isLate: null },
+    });
+
+    const behind = await rowsFor(tx, assignmentId);
+    check(
+      "a mirror can fall behind the row it copies",
+      behind.filter((row) => row.teamSubmissionId !== null).map((row) => row.status),
+      ["ACCEPTED"],
+    );
+
+    const { recordActivity, syncTeamRows } = await import("../lib/submissions/team");
+    await recordActivity(tx, { submissionId: work.id, at: new Date("2026-09-02T10:00:00Z") });
+    await syncTeamRows(tx, { submissionId: work.id });
+
+    const caught = await rowsFor(tx, assignmentId);
+    check(
+      "and a push that hands nothing in catches it up",
+      new Set(caught.map((row) => row.status)),
+      new Set(["SUBMITTED"]),
+    );
+    check(
+      "without inventing a hand-in time it did not have",
+      caught.map((row) => row.submittedAt?.toISOString()),
+      caught.map(() => work.submittedAt?.toISOString()),
     );
 
     // --- a member placed on the team after it handed in --------------------

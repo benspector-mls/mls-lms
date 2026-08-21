@@ -184,7 +184,13 @@ export async function recordActivity(
  * so opening one here would fail outright for every caller already inside one — which is every
  * check script. And doing without one is safe because these are not halves of a value: the row
  * holding the work is the record, and a mirror that missed an update reads as one round behind
- * rather than as something that never happened. The next write, or the approval, catches it up.
+ * rather than as something that never happened.
+ *
+ * **What catches it up is `syncTeamRows`**, which every caller of these acts calls afterwards,
+ * including the webhook on a push that hands nothing in. That is what makes the sentence above a
+ * guarantee rather than a hope: on its own, a fan-out that missed a row would leave it behind
+ * until the next hand-in or release, which for a team working through one long pull request is
+ * days.
  *
  * **Individual work takes the same path.** Its `updateMany` matches nothing, because no row points
  * at it, so there is one code path rather than a branch that could be taken wrongly.
@@ -406,38 +412,65 @@ export async function claimTeamWork(
 }
 
 /**
- * Gives every active member of a team a row, mirroring the one that holds the work.
+ * Brings a team's rows into agreement with the row holding its work.
  *
- * Called after the work's own row exists, and again whenever a member turns up who has none — a
- * fellow placed on the team after it started, or one restored to the cohort. Idempotent, so the
- * caller does not have to know which of those it is.
+ * Two things, because they are one question asked about different rows: **every active member has
+ * a row, and every one of those rows says what the work says.** Creating and reconciling were
+ * separate once, and the split was wrong — a member added to the team got an accurate row while a
+ * member who was already there could sit stale indefinitely.
  *
- * `createMany` with `skipDuplicates`, not an upsert loop. `@@unique([assignmentId, studentId])`
- * is what makes the skip correct: a member who already holds a row for this assignment keeps it,
- * whatever it says. That is deliberate rather than convenient — somebody who handed the work in
- * alone before the assignment became team work has a row with their own repository in it, and
- * overwriting it is not this function's decision to make.
+ * Called wherever something is already being written to a team: accepting, each of the three
+ * hand-in paths, and the webhook — including on a push to a pull request that is already open,
+ * which is the case that made the gap visible. A push is deliberately not a hand-in, so it writes
+ * no status; before this, a mirror that had fallen behind for any reason stayed behind until the
+ * next hand-in or release, which on a team working through one long pull request could be days.
  *
- * It also cannot create a second row holding the work, because every row it writes names
- * `teamSubmissionId`.
+ * **A mirror is a copy, so a mirror that disagrees with what it copies is simply wrong**, and the
+ * cheapest correct thing is to make it agree whenever we are writing anyway. That is what makes
+ * the note on `write` below true rather than nearly true.
+ *
+ * Idempotent, and a no-op for work a student did alone — which is why every caller can call it
+ * without asking whether there is a team.
  */
-export async function ensureTeamRows(
+export async function syncTeamRows(
   db: Tx,
-  params: {
-    assignmentId: string;
-    teamId: string;
-    teamSetId: string;
-    /** The row holding the work. Every row created here points at it. */
-    teamSubmissionId: string;
-  },
-): Promise<number> {
+  params: { submissionId: string },
+): Promise<{ created: number; reconciled: number }> {
+  const work = await db.submission.findUniqueOrThrow({
+    where: { id: params.submissionId },
+    select: {
+      assignmentId: true,
+      teamId: true,
+      teamSetId: true,
+      teamSubmissionId: true,
+      ...MIRRORED_COLUMNS,
+    },
+  });
+
+  const { assignmentId, teamId, teamSetId, teamSubmissionId, ...mirrored } = work;
+
+  /*
+    Nothing to do for individual work, and nothing to do if a caller handed in a mirror — the
+    second is defensive rather than expected, but reconciling *from* a mirror would copy one
+    member's stale row onto their teammates', which is worse than doing nothing.
+  */
+  if (teamId === null || teamSetId === null || teamSubmissionId !== null) {
+    return { created: 0, reconciled: 0 };
+  }
+
+  // Existing mirrors first, so the rows created below are not written twice.
+  const reconciled = await db.submission.updateMany({
+    where: { teamSubmissionId: params.submissionId },
+    data: mirrored,
+  });
+
   const members = await db.teamMembership.findMany({
-    where: { teamId: params.teamId, enrollment: { status: "ACTIVE" } },
+    where: { teamId, enrollment: { status: "ACTIVE" } },
     select: { enrollment: { select: { studentId: true } } },
   });
 
   const held = await db.submission.findMany({
-    where: { assignmentId: params.assignmentId },
+    where: { assignmentId },
     select: { studentId: true },
   });
   const alreadyHasARow = new Set(held.map((row) => row.studentId));
@@ -446,7 +479,7 @@ export async function ensureTeamRows(
     .map((membership) => membership.enrollment.studentId)
     .filter((studentId) => !alreadyHasARow.has(studentId));
 
-  if (missing.length === 0) return 0;
+  if (missing.length === 0) return { created: 0, reconciled: reconciled.count };
 
   /*
     **A mirror is born carrying whatever it is a copy of.** Read from the row holding the work
@@ -455,25 +488,26 @@ export async function ensureTeamRows(
     member placed on a team mid-project would see, and what every screen keyed by student would
     then report about them.
 
-    It also makes the order of writes stop mattering: called before a hand-in the rows are
-    accurate, and called after it they are too.
-  */
-  const holdsTheWork = await db.submission.findUniqueOrThrow({
-    where: { id: params.teamSubmissionId },
-    select: MIRRORED_COLUMNS,
-  });
+    `createMany` with `skipDuplicates`, not an upsert loop. `@@unique([assignmentId, studentId])`
+    is what makes the skip correct: a member who already holds a row for this assignment keeps it,
+    whatever it says. That is deliberate rather than convenient — somebody who handed the work in
+    alone before the assignment became team work has a row with their own repository in it, and
+    overwriting it is not this function's decision to make.
 
+    It also cannot create a second row holding the work, because every row it writes names
+    `teamSubmissionId`.
+  */
   const created = await db.submission.createMany({
     data: missing.map((studentId) => ({
-      ...holdsTheWork,
-      assignmentId: params.assignmentId,
+      ...mirrored,
+      assignmentId,
       studentId,
-      teamId: params.teamId,
-      teamSetId: params.teamSetId,
-      teamSubmissionId: params.teamSubmissionId,
+      teamId,
+      teamSetId,
+      teamSubmissionId: params.submissionId,
     })),
     skipDuplicates: true,
   });
 
-  return created.count;
+  return { created: created.count, reconciled: reconciled.count };
 }
