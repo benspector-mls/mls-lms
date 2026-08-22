@@ -730,20 +730,34 @@ function UserMenu({
         render={
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-md p-1.5 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring"
+            /*
+              Collapsed, this is one 32-pixel square and nothing else — the same shape the brand
+              above it and every navigation item take, and the same shape the footer has room
+              for. The icon-width sidebar is 3rem with 8 pixels of footer padding on each side,
+              which leaves exactly the width of the avatar: the horizontal padding has to go, or
+              the square is pushed 6 pixels past the sidebar on both sides and reads as being
+              oversized rather than as overflowing.
+            */
+            className="flex w-full items-center gap-2 rounded-md p-1.5 text-left outline-none transition-colors group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring"
           />
         }
       >
-        <Avatar className="size-8 rounded-md">
+        <Avatar className="size-8 shrink-0 rounded-md">
           <AvatarFallback className="rounded-md bg-primary/10 text-xs font-medium text-primary">
             {initials(name)}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0 flex-1">
+        {/*
+          The name, the address and the chevron are all gone when collapsed, for the reason the
+          brand's wordmark is: there is no width for them. The chevron in particular has nothing
+          to shrink into — it is `shrink-0`, so it does not compress, it simply hangs outside the
+          sidebar's right edge.
+        */}
+        <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
           <p className="truncate text-sm font-medium text-sidebar-foreground">{name}</p>
           <p className="truncate text-xs text-muted-foreground">{person.email}</p>
         </div>
-        <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+        <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-(--anchor-width) min-w-56" side="top" align="start">
         <DropdownMenuGroup>
