@@ -3,7 +3,7 @@
  *
  *   npm run tests:run                      # the most recently active submission
  *   npm run tests:run -- <submission-id>
- *   npm run tests:run -- <repo-full-name>  # e.g. marcy-lms-test/swe-1-4-loops-benspector3
+ *   npm run tests:run -- <repo-full-name>  # e.g. marcy-lms/swe-1-4-loops-benspector3
  *
  * Why this exists: the tRPC mutation is the real entry point, but reaching it
  * needs a signed-in instructor session, and a failure inside the sandbox is far

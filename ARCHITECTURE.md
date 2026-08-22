@@ -131,8 +131,8 @@ Settled; not revisited.
 - **The acts that decide who sees whose work are recorded and cannot be rewritten.** `audit_events` is append-only, enforced by triggers rather than grants because Prisma owns the table. The actor is always the real signed-in person, never a test student being viewed as.
 - **The two operations that cost money are capped per person per hour** — grading drafts and test runs. See [a ceiling on what a mistake can spend](#a-ceiling-on-what-a-mistake-can-spend).
 - **The sandbox never holds a GitHub token.**
-- **Verification runs against the `marcy-lms-test` organization**, never production, until a flow is proven.
-- **Production gets a new GitHub organization.** What matters is each template's provenance: Classroom wrote `.github/workflows/classroom.yml` into templates it managed, so a template forked or transferred from there carries it and one created fresh does not.
+- **`marcy-lms` is the one GitHub organization.** Student repositories are created there, and the `verify:` scripts and user-testing sessions generate real repositories in it rather than in a sandbox beside it. What protects a real cohort is that a check or a session uses a cohort created for it and test students, not a separate organization.
+- **What matters about a template is its provenance.** Classroom wrote `.github/workflows/classroom.yml` into the templates it managed, so a template forked or transferred from that era carries it and one created fresh does not. That is the rule to hold when adding a template to the organization.
 
 ---
 
@@ -468,7 +468,7 @@ A published course cannot be checked from the outside: the Modules screen shows 
 
 - **The App.** Permissions: Administration (read/write, for repository generation and collaborators), Contents (read/write), Pull requests (read/write), Members (write), Metadata (read). Webhook events: `pull_request` only — no `push` subscription, because the pull request is the submission signal.
 - **`lib/github/`** — `app-client.ts` mints installation tokens and provides a lazy Octokit instance; `repos.ts` holds `generateRepoFromTemplate`, `getRepo`, `addCollaborator`, `removeClassroomWorkflow`; `prs.ts` holds `getPullRequestFiles` and `postOrUpdatePrComment`; `archives.ts` fetches tarballs; `files.ts` reads individual files; `webhook-verify.ts` verifies `X-Hub-Signature-256`.
-- **A GitHub App is installed per organization.** The grading guides are in `The-Marcy-Lab-School` and student repositories in `marcy-lms-test`, and the installation covering one cannot read the other. Install it on every organization holding grading assets; which installation reads a repository is resolved from that repository's owner, with no per-organization variable. `scripts/list-installations.ts` prints the ids.
+- **A GitHub App is installed per organization.** The grading guides are in `The-Marcy-Lab-School` and student repositories in `marcy-lms`, and the installation covering one cannot read the other. Install it on every organization holding grading assets; which installation reads a repository is resolved from that repository's owner, with no per-organization variable. `scripts/list-installations.ts` prints the ids.
 
 **`assignments.accept`** authorizes, loads, then branches on the kind with a `switch` over all four, so a fifth is a compile error rather than a request falling through to the repository path. The two kinds that have an accept live in `lib/assignments/accept.ts` rather than the procedure, and take a client rather than reaching for one, so a check script can drive the act inside a transaction it then rolls back.
 
@@ -1176,14 +1176,14 @@ Role changes; invitations created, revoked, and redeemed; roster entries added a
 
 ## What is verified, and how
 
-Every claim below was checked against real repositories in the `marcy-lms-test` organization, not asserted from reading the code. The re-runnable parts are `npm test` and the `verify:` scripts in [Scripts](README.md#scripts); what remains outstanding is in [ROADMAP.md](ROADMAP.md).
+Every claim below was checked against real repositories in the `marcy-lms` organization, not asserted from reading the code. The re-runnable parts are `npm test` and the `verify:` scripts in [Scripts](README.md#scripts); what remains outstanding is in [ROADMAP.md](ROADMAP.md).
 
 The counts quoted are what each script reported when its section was written. **`scripts/verify/BASELINE.md` is the number to compare a run against**, not these — a script grows and the prose does not.
 
 **Provisioning and the webhook.**
 
 - `accept` creates a repository from the template with the student and instructors as collaborators; run a second time it reuses the repository rather than failing.
-- **The `classroom.yml` removal is not among the verified claims.** No repository in `marcy-lms-test` has one, or any workflow, so `removeClassroomWorkflow` reports `absent` every time and has never removed anything. It is written for templates that came from GitHub Classroom, which matters more in Phase 2, since an instructor can name any public template and many public templates carry autograding. What *is* verified is that it can tell "there is no such file" from "the copy has not landed".
+- **The `classroom.yml` removal is not among the verified claims.** No repository in `marcy-lms` has one, or any workflow, so `removeClassroomWorkflow` reports `absent` every time and has never removed anything. It is written for templates that came from GitHub Classroom, which matters more in Phase 2, since an instructor can name any public template and many public templates carry autograding. What *is* verified is that it can tell "there is no such file" from "the copy has not landed".
 - A real pull request from `draft` into `main` fires the webhook, the signature verifies, and the submission becomes `SUBMITTED` with `isLate` computed. An invalid signature is rejected with a 401.
 
 **The sandbox**, on `swe-1-4-loops-benspector3` and `swe-1-3-node-modules-benspector3`.

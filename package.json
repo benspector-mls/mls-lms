@@ -20,6 +20,7 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "grant:admin": "tsx --conditions=react-server scripts/grant-admin.ts",
+    "rename:org": "tsx --conditions=react-server scripts/rename-github-org.ts",
     "db:studio": "prisma studio",
     "verify:authoring": "tsx --conditions=react-server scripts/verify-authoring.ts",
     "verify:curriculum": "tsx --conditions=react-server scripts/verify-curriculum.ts",

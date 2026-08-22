@@ -102,9 +102,9 @@ const repoSpec = {
   courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
   answerKeyRepo: "The-Marcy-Lab-School/swe-assignment-grading-guides",
   answerKeyDir: "answer-keys/mod-1-js-fundamentals/swe-1-4-loops",
-  templateRepo: "marcy-lms-test/swe-1-4-loops",
+  templateRepo: "marcy-lms/swe-1-4-loops",
   assignmentRepoName: "swe-1-4-loops",
-  githubOrg: "marcy-lms-test",
+  githubOrg: "marcy-lms",
   runnerPreset: "node-jest",
   sections: [codingSection],
 };
@@ -119,9 +119,9 @@ check(
   "a pasted template URL is stored as owner/repo",
   parseAssignmentSpec({
     ...repoSpec,
-    templateRepo: "https://github.com/marcy-lms-test/swe-1-4-loops/tree/main",
+    templateRepo: "https://github.com/marcy-lms/swe-1-4-loops/tree/main",
   }).templateRepo,
-  "marcy-lms-test/swe-1-4-loops",
+  "marcy-lms/swe-1-4-loops",
 );
 check(
   "a pasted answer key URL is too",
@@ -499,7 +499,7 @@ check(
 );
 check(
   "a Google Drive assignment may not name a repository",
-  rejects({ ...docSpec, templateRepo: "marcy-lms-test/whatever" }),
+  rejects({ ...docSpec, templateRepo: "marcy-lms/whatever" }),
   ["templateRepo"],
 );
 check("an unknown kind is refused", rejects({ ...repoSpec, kind: "SLACK_MESSAGE" }), ["kind"]);
@@ -790,15 +790,15 @@ check(
   "repositorySource narrows a REPO row",
   repositorySource({
     kind: AssignmentKind.REPO,
-    templateRepo: "marcy-lms-test/swe-1-4-loops",
+    templateRepo: "marcy-lms/swe-1-4-loops",
     assignmentRepoName: "swe-1-4-loops",
-    githubOrg: "marcy-lms-test",
+    githubOrg: "marcy-lms",
     templateRef: null,
   }),
   {
-    templateRepo: "marcy-lms-test/swe-1-4-loops",
+    templateRepo: "marcy-lms/swe-1-4-loops",
     assignmentRepoName: "swe-1-4-loops",
-    githubOrg: "marcy-lms-test",
+    githubOrg: "marcy-lms",
     templateRef: null,
   },
 );
@@ -848,7 +848,7 @@ let misconfigured = "",
 try {
   repositorySource({
     kind: AssignmentKind.REPO,
-    templateRepo: "marcy-lms-test/swe-1-4-loops",
+    templateRepo: "marcy-lms/swe-1-4-loops",
     assignmentRepoName: "swe-1-4-loops",
     githubOrg: null,
   });
@@ -1065,7 +1065,7 @@ async function procedures() {
   const badRepo = await asInstructor.assignments.validateDraft({
     courseId: seeded.courseId,
     assignmentId: seeded.id,
-    draft: { ...draftFromSeed, templateRepo: "marcy-lms-test/does-not-exist-anywhere" },
+    draft: { ...draftFromSeed, templateRepo: "marcy-lms/does-not-exist-anywhere" },
   });
   check(
     "an unreachable template repository is refused",
@@ -1077,7 +1077,7 @@ async function procedures() {
     A repository that exists and is readable but is not a template.
 
     Refused here because `generate` refuses it too, at the moment a student presses Accept —
-    and with a message about the API rather than about the assignment. `marcy-lms-test`
+    and with a message about the API rather than about the assignment. `marcy-lms`
     itself is an organization rather than a repository, so this uses one that is genuinely
     an ordinary repository: an easy mistake, since it looks and reads exactly right.
   */

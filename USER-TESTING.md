@@ -31,7 +31,7 @@ Each task is written as a goal rather than as steps, because the thing being mea
 
 **Every task has a real artefact behind it.** Ask them to bring an assignment they actually teach — its template repository, its answer keys, its rubric — rather than inventing one during the session. An instructor authoring a fake assignment authors it carelessly, and careless authoring does not find the traps in the form.
 
-**Never test against the production GitHub organization.** Repositories get generated for real during these sessions. Use `marcy-lms-test` and a cohort created for the session.
+**Repositories get generated for real during these sessions.** There is one GitHub organization, `marcy-lms`, so a session's repositories land beside a real cohort's rather than in a sandbox. Create a cohort for the session and enrol into it, so that what the session generates belongs to something disposable even though the organization is not.
 
 **Use test students rather than real student work.** Grades and feedback are about real people; a session is not a reason to move that data. The one exception is an instructor grading their *own* past cohort's work, which they already have access to.
 

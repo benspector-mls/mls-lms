@@ -1,6 +1,6 @@
 # What the `verify:` scripts reported before the refactor pass
 
-Recorded 8 August 2026, against the development database and the `marcy-lms-test` organization, immediately before the shared harness was extracted. Every phase of the refactor is gated on reproducing these numbers rather than merely exiting zero — a script that silently stops checking something exits zero too.
+Recorded 8 August 2026, against the development database and the `marcy-lms` organization, immediately before the shared harness was extracted. Every phase of the refactor is gated on reproducing these numbers rather than merely exiting zero — a script that silently stops checking something exits zero too.
 
 | Script | `ok` | Needs |
 | --- | --- | --- |

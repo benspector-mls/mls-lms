@@ -106,6 +106,7 @@ Everything below it is a script, because everything below it needs something rea
 | `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                                                                               |
 | `npm run approve`             | Approves a draft from the terminal                                                                                                                                                               |
 | `npm run accept`              | Runs the accept flow from the terminal                                                                                                                                                           |
+| `npm run rename:org`          | Points the database at a GitHub organization's new name after it has been renamed on GitHub — the webhook matches `repo_full_name` exactly, so nothing else recovers those rows. Reports by default; `--write` makes the change    |
 | `npm run setup:storage`       | Creates the private uploads bucket, or brings its size limit and type allow-list back into step with the code                                                                                    |
 | `npm run db:diff`             | Generates a migration — see [Data model](ARCHITECTURE.md#data-model), and never `migrate dev`                                                                                                    |
 

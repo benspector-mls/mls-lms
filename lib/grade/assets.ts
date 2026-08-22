@@ -135,7 +135,7 @@ function splitRepo(repoFullName: string, describeField: string): { owner: string
  * Which installation can read this repository.
  *
  * A GitHub App is installed per organization, each with its own id and its own token, and
- * the installation that can see `marcy-lms-test` can see nothing in
+ * the installation that can see `marcy-lms` can see nothing in
  * `The-Marcy-Lab-School`. So the installation follows from the owner of the repository
  * being read rather than from a variable naming one of them — which is what allows an
  * assignment to keep its answer keys anywhere the App has been installed.

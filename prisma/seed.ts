@@ -70,7 +70,7 @@ const INSTRUCTOR_EMAIL = process.env.SEED_INSTRUCTOR_EMAIL ?? "benj.spector@gmai
 const STUDENT_EMAIL = process.env.SEED_STUDENT_EMAIL ?? "ben@marcylabschool.org";
 
 /** Use the sandbox organization, never the production one, until verified. */
-const GITHUB_ORG = process.env.SEED_GITHUB_ORG ?? "marcy-lms-test";
+const GITHUB_ORG = process.env.SEED_GITHUB_ORG ?? "marcy-lms";
 const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO
   ? `${GITHUB_ORG}/${process.env.SEED_TEMPLATE_REPO}`
   : `${GITHUB_ORG}/swe-1-4-loops`;
