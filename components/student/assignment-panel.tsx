@@ -420,6 +420,18 @@ function SubmissionTab({
         <div className="rounded-lg border border-border bg-background p-4">
           <p className="mb-2 text-sm font-medium">How to submit</p>
           <ol className="ml-4 list-decimal text-sm text-muted-foreground [&>li]:mt-1">
+            {/*
+              First, because nothing below it is possible until the invitation is accepted, and
+              the invitation is the step a student is most likely to miss — it arrives by email
+              rather than on this screen, and GitHub cancels it after 7 days. The warning shown
+              when Accept is pressed is a toast that goes away; this is where a student who came
+              back a day later reads the same thing.
+            */}
+            <li>
+              Accept the GitHub invitation to your repository, which GitHub emails you and also
+              shows when you open the repository. It expires 7 days after you accept the assignment,
+              and your instructor has to send a new one after that.
+            </li>
             <li>
               Commit and push your work to the <code>draft</code> branch of your repository.
             </li>

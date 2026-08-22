@@ -3,6 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,27 @@ export function AcceptAssignmentButton({
             const opened = window.open(result.copyUrl, "_blank", "noopener,noreferrer");
             if (opened) opened.focus();
           }
+
+          /*
+            Accepting a repository assignment invites the student to their new repository as a
+            collaborator, and GitHub expires an invitation nobody has accepted after 7 days. A
+            student who never opens it is left with a repository they cannot push to, which
+            reads as the accept having failed rather than as an invitation having lapsed.
+
+            Said in a toast rather than printed under the button, because the refresh below
+            replaces the Accept control with the accepted row — a message rendered here would
+            appear for an instant and then leave with the button that held it. A toast is
+            outside this component, so it stays up long enough to be read and acted on.
+          */
+          if (kind === "REPO") {
+            toast.warning(
+              "GitHub has emailed you an invitation to your new repository. You have 7 days to " +
+                "accept it before the invitation expires — after that, your instructor has to " +
+                "invite you again. You can also accept it by opening the repository on GitHub.",
+              { duration: 15_000 },
+            );
+          }
+
           // `useServerMutation` re-renders the server component after this, so the row picks
           // up its new status and its repository or document link.
         },
