@@ -317,7 +317,7 @@ function CodeLine({
         <span className="text-center text-muted-foreground select-none">
           {LINE_MARKER[line.kind]}
         </span>
-        <code className="diff-code pr-3 whitespace-pre">
+        <code className="shiki-code pr-3 whitespace-pre">
           {tokens
             ? tokens.map((token, index) => (
                 <span key={index} style={token.htmlStyle as React.CSSProperties}>

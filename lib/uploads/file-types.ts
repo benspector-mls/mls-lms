@@ -19,6 +19,16 @@
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /**
+ * The most text this application will read into a page, which is a far smaller number.
+ *
+ * 25MB is a sensible limit on what a student may store and a terrible amount of text to put in
+ * a page, so the code view has a ceiling of its own. Above it the file is offered as a download
+ * and nothing is read — said as a sentence about the file rather than as an error, because a
+ * large file is not a failed one.
+ */
+export const MAX_INLINE_TEXT_BYTES = 512 * 1024;
+
+/**
  * What a `FILE_UPLOAD` assignment may accept.
  *
  * **Each type maps its extensions to the content type they are stored under**, rather than
@@ -70,6 +80,23 @@ export const UPLOAD_FILE_TYPES = {
   notebook: {
     label: "Jupyter notebooks",
     extensions: { ".ipynb": "application/x-ipynb+json" },
+  },
+  /**
+   * One Python script, which is what a single-file exercise is handed in as.
+   *
+   * `text/x-python` rather than `text/plain`, for two reasons. The `document` key already claims
+   * `text/plain` for `.txt`, and `contentTypeFor` returns the first key whose extensions contain
+   * the one it was given — so an extension belonging to exactly one key is an invariant that
+   * function depends on, and one type shared across two keys makes it harder to see. And no
+   * browser renders `text/x-python` as a document, which is the right answer here: the code view
+   * reads the text and colours it, rather than asking the browser to display the file.
+   *
+   * `.py` only, and no `.js` or `.sql` beside it. An assignment asking for a Python script should
+   * accept Python scripts, by the same rule that ticking PDF does not also accept Word.
+   */
+  python: {
+    label: "Python",
+    extensions: { ".py": "text/x-python" },
   },
 } as const satisfies Record<string, { label: string; extensions: Record<string, string> }>;
 
@@ -143,24 +170,32 @@ export function extensionOf(filename: string): string | null {
 }
 
 /**
- * What a browser can display in place, rather than only download.
+ * What can be shown in place rather than only downloaded, and by which of the two routes.
+ *
+ * **There are two routes, and the answer says which one.** A `.pdf` and an image are handed to
+ * the browser, which has a viewer for each; `"code"` is this application reading the text and
+ * colouring it itself. Both are the same promise to the reader — the work is on the screen they
+ * are already looking at — and they are built differently enough that the caller has to know.
  *
  * Decided from the extension rather than the stored content type, for the same reason
  * `checkUpload` is: the content type is what the browser claimed at upload time, and a `.pdf`
  * that arrived as `application/octet-stream` on one student's machine would be the one
  * submission an instructor still has to download.
  *
- * Word documents, spreadsheets, and notebooks are absent because no browser renders one. They
- * are downloaded, which is the honest answer rather than an empty frame. A notebook is the one
- * that costs something — it is the most-read of these and the download-and-open-elsewhere loop
- * that embedding a PDF exists to remove is exactly what a grader is left with. Rendering one is
- * a real dependency and its own decision.
+ * Word documents and spreadsheets are absent because nothing here renders one, and they are
+ * downloaded, which is the honest answer rather than an empty frame. A notebook is absent for a
+ * narrower reason now that code is not: it is JSON describing cells with their outputs, so
+ * showing one means rendering that structure rather than colouring a text, which is its own
+ * decision. `.txt` and `.md` are absent deliberately as well — the same machinery would serve
+ * them, and Markdown in particular wants rendering rather than colouring, so widening this is a
+ * decision to make on purpose rather than one to arrive at by adding an extension here.
  */
-export function previewKindOf(filename: string): "pdf" | "image" | null {
+export function previewKindOf(filename: string): "pdf" | "image" | "code" | null {
   const extension = extensionOf(filename);
   if (extension === null) return null;
   if (extension === ".pdf") return "pdf";
   if (Object.hasOwn(UPLOAD_FILE_TYPES.image.extensions, extension)) return "image";
+  if (Object.hasOwn(UPLOAD_FILE_TYPES.python.extensions, extension)) return "code";
   return null;
 }
 
@@ -178,9 +213,15 @@ export type UploadCheck =
  * machines and not others, which is the worst kind of rule. The extension is what the
  * student sees and what the instructor opens.
  *
- * This is not a security boundary and is not meant to be one. Nothing executes, unpacks, or
- * parses an uploaded file; it is stored in a private bucket and handed back to an instructor
- * through a signed link. The check exists so an assignment asking for one PDF gets PDFs.
+ * This is not a security boundary and is not meant to be one. The check exists so an assignment
+ * asking for one PDF gets PDFs.
+ *
+ * **Nothing executes, unpacks, or parses an uploaded file, and an accepted `.py` does not change
+ * that** — which is worth saying outright, because a reader who sees Python on the accepted list
+ * will ask. A Python file here is bytes to store and text to display. The sandbox in
+ * `lib/sandbox/` runs code from a cloned repository and there is no path to it from an upload.
+ * Every stored file lives in a private bucket and is handed back to an instructor through a
+ * signed link.
  */
 export function checkUpload(params: {
   filename: string;

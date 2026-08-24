@@ -6,11 +6,12 @@ import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { UploadedCode } from "@/components/uploaded-code";
 import { useTRPC } from "@/trpc/client";
 import { formatBytes, previewKindOf } from "@/lib/uploads/file-types";
 
 /**
- * One uploaded file: what it is, a preview where a browser can show one, and a download.
+ * One uploaded file: what it is, a view of it where there is one to give, and a download.
  *
  * The reason neither the preview nor the download can be a plain link is the same: **the bucket
  * is private, so there is no URL that keeps working.** Both are signed for one request by a
@@ -23,6 +24,11 @@ import { formatBytes, previewKindOf } from "@/lib/uploads/file-types";
  * work part of the same screen as writing the feedback. It is the browser's own PDF viewer in an
  * iframe rather than a bundled one: no dependency, no worker file to serve, and it is the viewer
  * the instructor already knows.
+ *
+ * **Code takes the other route, and that is why `previewKindOf` says which.** No browser has a
+ * viewer for a Python script, so `UploadedCode` reads the text through a procedure of its own and
+ * colours it — which means no signed URL is minted for it, and the effect below is skipped. The
+ * download button is the same button either way.
  */
 export function UploadedFileRow({
   submissionId,
@@ -49,6 +55,14 @@ export function UploadedFileRow({
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
 
   const previewKind = previewKindOf(filename);
+
+  /*
+    Whether a link to the bytes is what shows this file. A PDF and an image are handed to the
+    browser and need one; code is read as text by `UploadedCode`, which asks for its own, so
+    minting a signed URL for it would be an unused thirty-minute link in the page.
+  */
+  const framed = previewKind === "pdf" || previewKind === "image";
+
   const [open, setOpen] = React.useState(previewByDefault && previewKind !== null);
 
   const download = useMutation(
@@ -85,13 +99,13 @@ export function UploadedFileRow({
     each time would restart a large PDF's loading.
   */
   React.useEffect(() => {
-    if (!open || previewKind === null) return;
+    if (!open || !framed) return;
     if (previewUrl !== null || preview.isPending) return;
     preview.mutate({ submissionId, disposition: "inline" });
     // Deliberately keyed on what decides whether a fetch is owed, not on the mutation object,
     // which is a new reference on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, previewKind, previewUrl, submissionId]);
+  }, [open, framed, previewUrl, submissionId]);
 
   const heading = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -142,12 +156,19 @@ export function UploadedFileRow({
               aria-hidden="true"
               className="size-3.5 transition-transform group-data-[panel-open]:rotate-90"
             />
-            {open ? "Hide" : "Show"} {previewKind === "pdf" ? "the document" : "the image"}
+            {open ? "Hide" : "Show"}{" "}
+            {previewKind === "pdf"
+              ? "the document"
+              : previewKind === "code"
+                ? "the code"
+                : "the image"}
           </CollapsibleTrigger>
 
           <CollapsibleContent>
             <div className="mt-2">
-              {previewUrl === null ? (
+              {previewKind === "code" ? (
+                <UploadedCode submissionId={submissionId} filename={filename} />
+              ) : previewUrl === null ? (
                 <div className="flex h-24 items-center justify-center rounded-md border border-border text-sm text-muted-foreground">
                   <Loader2 className="mr-2 size-4 animate-spin" />
                   Opening…

@@ -9,7 +9,7 @@ import { extensionOf } from "@/lib/uploads/file-types";
  * grammars come to roughly 126 kilobytes gzipped between them, and a typical submission loads
  * two of them.
  *
- * The grammar loaders in `components/instructor/diff-highlighter.ts` are keyed by this union with
+ * The grammar loaders in `components/code-highlighter.ts` are keyed by this union with
  * `satisfies`, so adding a member here without a way to load it fails to compile rather than
  * failing to colour.
  */

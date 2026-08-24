@@ -169,6 +169,26 @@ export async function signedDownloadUrl(params: {
 }
 
 /**
+ * The bytes of one stored object.
+ *
+ * For the code view, which needs the text itself rather than a link to it. The caller checks the
+ * size it recorded at upload time *before* asking, because this reads the whole object into
+ * memory and `MAX_INLINE_TEXT_BYTES` is far below what the bucket will hold.
+ *
+ * The service role key is what reaches the object, as everywhere else in this module, so the
+ * authorization is the procedure that called this and there is no second description of it.
+ */
+export async function readSubmissionUpload(path: string): Promise<Buffer> {
+  const { data, error } = await storageClient().from(SUBMISSION_UPLOAD_BUCKET).download(path);
+
+  if (error || !data) {
+    throw new UploadStorageError(`Could not read ${path}: ${error?.message ?? "no data returned"}`);
+  }
+
+  return Buffer.from(await data.arrayBuffer());
+}
+
+/**
  * Whether the object is actually there.
  *
  * Used by the verification script, and worth having because "the row says there is a file"

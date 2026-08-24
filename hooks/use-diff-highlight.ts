@@ -40,7 +40,7 @@ export function useDiffHighlight(
 
     void (async () => {
       try {
-        const { highlightDiffLines } = await import("@/components/instructor/diff-highlighter");
+        const { highlightDiffLines } = await import("@/components/code-highlighter");
         const next = await highlightDiffLines(hunks, language);
         if (active) setTokens(next);
       } catch {

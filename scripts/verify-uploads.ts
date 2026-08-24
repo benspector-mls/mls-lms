@@ -25,6 +25,7 @@ async function main() {
     extensionOf,
     formatBytes,
     isUploadFileTypeKey,
+    MAX_INLINE_TEXT_BYTES,
     MAX_UPLOAD_BYTES,
     mimeTypesFor,
     previewKindOf,
@@ -160,6 +161,28 @@ async function main() {
     ),
     true,
   );
+  /*
+    An extension may belong to one type and no more, which `contentTypeFor` depends on rather
+    than merely prefers: it returns the first key whose extensions contain the one it was given,
+    so a second claim on the same extension is a stored content type decided by the order the
+    table happens to be written in. Nothing in the types catches that, so this does.
+  */
+  check(
+    "no extension belongs to two types",
+    (() => {
+      const seen = new Map<string, string>();
+      const doubled: string[] = [];
+      for (const key of UPLOAD_FILE_TYPE_KEYS) {
+        for (const extension of extensionsOf(key)) {
+          const held = seen.get(extension);
+          if (held) doubled.push(`${extension} is in both ${held} and ${key}`);
+          else seen.set(extension, key);
+        }
+      }
+      return doubled;
+    })(),
+    [],
+  );
   check(
     "a notebook is stored as a notebook, whatever the browser said",
     contentTypeFor(".ipynb"),
@@ -207,6 +230,32 @@ async function main() {
     false,
   );
 
+  // --- Python, the type that is read on the screen rather than downloaded ---
+  check(
+    "a Python file is accepted where the assignment asks for one",
+    checkUpload({ filename: "main.py", sizeBytes: 512, acceptedTypes: ["python"] }),
+    { ok: true, type: "python", extension: ".py", contentType: "text/x-python" },
+  );
+  check(
+    "...and refused where it does not",
+    checkUpload({ filename: "main.py", sizeBytes: 512, acceptedTypes: ["pdf"] }).ok,
+    false,
+  );
+  /*
+    The reason the key holds `.py` alone. An assignment asking for a Python script accepts Python
+    scripts, by the same rule that ticking PDF does not also accept Word — so a `code` key holding
+    every language would have been the wrong shape, however many fewer tick boxes it draws.
+  */
+  check(
+    "ticking Python does not also accept JavaScript",
+    checkUpload({ filename: "app.js", sizeBytes: 512, acceptedTypes: ["python"] }).ok,
+    false,
+  );
+  check("a Python file is stored as Python", contentTypeFor(".py"), "text/x-python");
+  check("...whatever case it was named in", contentTypeFor(".PY"), "text/x-python");
+  check("the file input asks for .py and nothing else", acceptAttributeFor(["python"]), ".py");
+  check("and the student is told the word", describeAcceptedTypes(["python"]), "Python");
+
   check("bytes are formatted for a person", formatBytes(MAX_UPLOAD_BYTES), "25.0 MB");
   check("...and small files are not reported as 0.0 MB", formatBytes(2048), "2 KB");
 
@@ -239,7 +288,20 @@ async function main() {
     previewKindOf("analysis.ipynb"),
     null,
   );
-  check("nor plain text, which has no viewer worth framing", previewKindOf("notes.txt"), null);
+  /*
+    Code is shown by the other of the two routes: read as text through `submissions.uploadText`
+    and coloured here, rather than handed to a browser that has no viewer for it.
+  */
+  check("a Python file is shown as code", previewKindOf("main.py"), "code");
+  check("...whatever case it was named in", previewKindOf("MAIN.PY"), "code");
+  /*
+    Plain text and Markdown are not, and that is a decision rather than an omission: the same
+    machinery would serve them, and Markdown in particular wants rendering rather than colouring,
+    so widening this is something to do on purpose. Checked so that widening it by accident —
+    which is what returning "code" for everything `languageForPath` knows would be — fails here.
+  */
+  check("plain text is not, which keeps this to one type", previewKindOf("notes.txt"), null);
+  check("nor Markdown", previewKindOf("README.md"), null);
   check("nor a file with no extension", previewKindOf("resume"), null);
 
   // --- the path bytes go to -------------------------------------------------
@@ -427,14 +489,70 @@ async function main() {
     await removeSubmissionUpload(notebookStored.path);
   }
 
+  /*
+    And the same for Python, which is newer still. This is the check that fails in an environment
+    where `npm run setup:storage` has not been re-run since the type was added — the route would
+    accept a `.py` file and the bucket would refuse to store it, on a real student's hand-in and
+    nowhere else.
+  */
+  const pythonType = contentTypeFor(".py")!;
+  let pythonStored: { path: string } | null = null;
+  try {
+    pythonStored = await storeSubmissionUpload({
+      submissionId: `verify-${Date.now()}`,
+      extension: ".py",
+      contentType: pythonType,
+      bytes: Buffer.from("def main():\n    print('hello')\n"),
+    });
+    check("the bucket accepts Python too", true, true);
+  } catch (err) {
+    check(
+      "the bucket accepts Python too",
+      `${pythonType} refused — run npm run setup:storage against this environment ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
+      true,
+    );
+  }
+  if (pythonStored) {
+    check(
+      "...and hands it back as itself",
+      (
+        await fetch(
+          await signedDownloadUrl({
+            path: pythonStored.path,
+            filename: "main.py",
+            disposition: "inline",
+          }),
+        )
+      ).headers.get("content-type"),
+      pythonType,
+    );
+    await removeSubmissionUpload(pythonStored.path);
+  }
+
   // --- who may hand in, and who may read ------------------------------------
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
   const { assertCanHandIn, storeAndRecordUpload } = await import("../lib/uploads/submit");
 
+  /*
+    A course that satisfies all four requirements at once, rather than the first active one.
+
+    Asking for the first active course and then asking whether it happens to have an instructor, a
+    module and a bound student is how this whole group came to be skipped on a database that has
+    exactly what it needs: the first course in the list is a prework shell with nobody enrolled,
+    and one course further down has all three. A skip reports as "nothing failed", so the checks
+    below — which are the only test of who may read another student's work — quietly stopped
+    running and nothing said so.
+  */
   const course = await db.course.findFirst({
-    where: { archivedAt: null },
+    where: {
+      archivedAt: null,
+      instructors: { some: {} },
+      courseUnits: { some: {} },
+      enrollments: { some: {} },
+    },
     select: { id: true },
   });
   const instructor = course
@@ -444,11 +562,8 @@ async function main() {
       })
     : null;
   /*
-    `studentId` is nullable until a student's first GitHub login binds it, so an enrollment that
-    nobody has claimed yet cannot stand in for a student here.
-
-    Any status, though. Handing work in needs an *active* student, and this lifecycle does hand work
-    in — so the enrollment is restored inside the transaction below rather than required to be
+    Any status, deliberately. Handing work in needs an *active* student and this lifecycle does hand
+    work in, so the enrollment is restored inside the transaction below rather than required to be
     active here. Requiring it meant that removing a student in the running application silently
     stopped this whole group of checks, while the script went on reporting a pass.
   */
@@ -481,226 +596,332 @@ async function main() {
   const strays: string[] = [];
 
   try {
-    await db.$transaction(async (tx) => {
-      const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-      const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
+    /*
+      A timeout of its own, following the other `verify:*` scripts. Prisma allows an interactive
+      transaction five seconds by default, and this one stores two real objects in the bucket and
+      reads them back — network round trips to Supabase, not queries — so the default is not a
+      budget that means anything here. When it is exceeded every check after the first slow call
+      fails with a transaction error, which reads as a broken procedure rather than a slow one.
+    */
+    await db.$transaction(
+      async (tx) => {
+        const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
+        const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
 
-      // Inside the transaction, so it is undone with everything else. Handing work in needs an
-      // active student, and the seeded one may have been removed in the running application.
-      if (enrollment!.status !== "ACTIVE") {
-        await asInstructor.enrollments.restore({ enrollmentId: enrollment!.id });
-      }
+        // Inside the transaction, so it is undone with everything else. Handing work in needs an
+        // active student, and the seeded one may have been removed in the running application.
+        if (enrollment!.status !== "ACTIVE") {
+          await asInstructor.enrollments.restore({ enrollmentId: enrollment!.id });
+        }
 
-      const { assignment } = await asInstructor.assignments.create({
-        courseId: course.id,
-        draft: {
-          kind: "FILE_UPLOAD",
-          title: "Resume, first draft (verify:uploads)",
-          courseUnitId,
-          dueAt: null,
-          acceptedFileTypes: ["pdf"],
-          submissionInstructions: "One PDF, named after you.",
-          sections: [{ grading: "manual", label: "Resume", pointValue: 20 }],
-        },
-      });
-      check("a file upload assignment can be authored", assignment.pointValue, 20);
+        const { assignment } = await asInstructor.assignments.create({
+          courseId: course.id,
+          draft: {
+            kind: "FILE_UPLOAD",
+            title: "Resume, first draft (verify:uploads)",
+            courseUnitId,
+            dueAt: null,
+            acceptedFileTypes: ["pdf"],
+            submissionInstructions: "One PDF, named after you.",
+            sections: [{ grading: "manual", label: "Resume", pointValue: 20 }],
+          },
+        });
+        check("a file upload assignment can be authored", assignment.pointValue, 20);
 
-      // Before publishing, an unpublished assignment is not something a student can hand in to
-      // — and NOT_FOUND rather than FORBIDDEN, because whether a draft exists is not theirs
-      // to learn.
-      check(
-        "an unpublished assignment cannot be handed in to",
-        await refusal(() =>
-          assertCanHandIn(tx as never, {
-            profileId: studentId,
-            assignmentId: assignment.id,
-            expect: "file",
-          }),
-        ),
-        "NOT_FOUND",
-      );
+        // Before publishing, an unpublished assignment is not something a student can hand in to
+        // — and NOT_FOUND rather than FORBIDDEN, because whether a draft exists is not theirs
+        // to learn.
+        check(
+          "an unpublished assignment cannot be handed in to",
+          await refusal(() =>
+            assertCanHandIn(tx as never, {
+              profileId: studentId,
+              assignmentId: assignment.id,
+              expect: "file",
+            }),
+          ),
+          "NOT_FOUND",
+        );
 
-      await asInstructor.assignments.publish({ assignmentId: assignment.id });
+        await asInstructor.assignments.publish({ assignmentId: assignment.id });
 
-      /*
+        /*
         The upload IS the submission for this kind, so the procedure that submits a link must
         refuse it. Without this refusal a student could mark work handed in with nothing behind
         it, and two things would be authorities on the same columns.
       */
-      check(
-        "submitWork refuses a file upload assignment",
-        await refusal(() =>
-          asStudent.submissions.submitWork({
-            assignmentId: assignment.id,
-            submittedUrl: "https://example.com/not-a-file",
-          }),
-        ),
-        "BAD_REQUEST",
-      );
-
-      const handIn = await assertCanHandIn(tx as never, {
-        profileId: studentId,
-        assignmentId: assignment.id,
-        expect: "file",
-      });
-      check("a published assignment can be handed in to", handIn.acceptedFileTypes, ["pdf"]);
-
-      // The wrong kind of file is refused before anything is stored.
-      check(
-        "a type the assignment does not accept is refused",
-        await refusal(() =>
-          storeAndRecordUpload(tx as never, {
-            profileId: studentId,
-            assignment: handIn,
-            filename: "screenshot.png",
-            bytes: Buffer.from("not a pdf"),
-          }),
-        ),
-        "BAD_REQUEST",
-      );
-
-      const submission = await storeAndRecordUpload(tx as never, {
-        profileId: studentId,
-        assignment: handIn,
-        filename: "Ben Spector resume.pdf",
-        bytes: body,
-      });
-
-      check(
-        "uploading is what enters the queue",
-        [submission.status, submission.isLate, submission.submittedAt !== null],
-        ["SUBMITTED", false, true],
-      );
-      check(
-        "the filename the student chose is kept",
-        submission.uploadFilename,
-        "Ben Spector resume.pdf",
-      );
-      check("and the size with it", submission.uploadSizeBytes, body.byteLength);
-
-      const row = await tx.submission.findUniqueOrThrow({
-        where: { id: submission.id },
-        select: { uploadPath: true },
-      });
-      if (row.uploadPath) strays.push(row.uploadPath);
-      check(
-        "the stored path is keyed by the submission",
-        row.uploadPath?.startsWith(`${submission.id}/`),
-        true,
-      );
-      check(
-        "the file is really in the bucket",
-        await submissionUploadExists(row.uploadPath!),
-        true,
-      );
-
-      // --- the triage bucket it lands in ------------------------------------
-      const queued = await asInstructor.submissions.listForAssignment({
-        assignmentId: assignment.id,
-      });
-      const queueRow = queued.submissions.find((entry) => entry.id === submission.id);
-      check("an uploaded submission waits on a person", queueRow?.bucket, "needs_manual_grade");
-      check(
-        "the queue carries the filename so it can be offered for download",
-        queueRow?.uploadFilename,
-        "Ben Spector resume.pdf",
-      );
-
-      // --- who may read the bytes ------------------------------------------
-      //
-      // This is the whole of the access control on stored files. The bucket has no policies, so
-      // if these checks are wrong there is nothing behind them.
-      const ownLink = await asStudent.submissions.uploadUrl({ submissionId: submission.id });
-      check(
-        "the student who uploaded it can fetch their own",
-        ownLink.url.includes("token="),
-        true,
-      );
-
-      const instructorLink = await asInstructor.submissions.uploadUrl({
-        submissionId: submission.id,
-      });
-      check(
-        "the instructor who teaches the course can fetch it",
-        instructorLink.url.includes("token="),
-        true,
-      );
-
-      const otherStudent = await tx.profile.findFirst({
-        where: { id: { notIn: [studentId, instructor.userId] }, role: "STUDENT" },
-        select: { id: true },
-      });
-
-      if (otherStudent) {
-        const asOther = createCaller({ db: tx, user: { id: otherStudent.id } } as never);
         check(
-          "another student cannot",
-          await refusal(() => asOther.submissions.uploadUrl({ submissionId: submission.id })),
-          "FORBIDDEN",
+          "submitWork refuses a file upload assignment",
+          await refusal(() =>
+            asStudent.submissions.submitWork({
+              assignmentId: assignment.id,
+              submittedUrl: "https://example.com/not-a-file",
+            }),
+          ),
+          "BAD_REQUEST",
         );
-      } else {
-        console.log("skip  another student cannot — only one student profile is seeded");
-      }
 
-      // --- work made somewhere else ---------------------------------------
-      //
-      // Handed in as a link like a Drive file, and distributed like nothing at all. What is
-      // checked here is that the two halves land on the right side of each rule.
-      const { assignment: linkAssignment } = await asInstructor.assignments.create({
-        courseId: course.id,
-        draft: {
-          kind: "EXTERNAL_URL",
-          title: "Personal site on Canva (verify:uploads)",
-          courseUnitId,
-          dueAt: null,
-          submissionInstructions: "Make it in Canva, then share the link.",
-          sections: [{ grading: "manual", label: "Total", pointValue: 15 }],
-        },
-      });
-      await asInstructor.assignments.publish({ assignmentId: linkAssignment.id });
+        const handIn = await assertCanHandIn(tx as never, {
+          profileId: studentId,
+          assignmentId: assignment.id,
+          expect: "file",
+        });
+        check("a published assignment can be handed in to", handIn.acceptedFileTypes, ["pdf"]);
 
-      // Nothing to hand out, so there is no Accept — the same as a file upload.
-      check(
-        "an external-url assignment cannot be accepted",
-        await refusal(() => asStudent.assignments.accept({ assignmentId: linkAssignment.id })),
-        "PRECONDITION_FAILED",
-      );
+        // The wrong kind of file is refused before anything is stored.
+        check(
+          "a type the assignment does not accept is refused",
+          await refusal(() =>
+            storeAndRecordUpload(tx as never, {
+              profileId: studentId,
+              assignment: handIn,
+              filename: "screenshot.png",
+              bytes: Buffer.from("not a pdf"),
+            }),
+          ),
+          "BAD_REQUEST",
+        );
 
-      // And it is NOT the upload route's business, which is the half that would be easy to get
-      // wrong once two kinds submit a link.
-      check(
-        "it cannot be handed in as a file",
-        await refusal(() =>
-          assertCanHandIn(tx as never, {
-            profileId: studentId,
-            assignmentId: linkAssignment.id,
-            expect: "file",
-          }),
-        ),
-        "BAD_REQUEST",
-      );
+        const submission = await storeAndRecordUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "Ben Spector resume.pdf",
+          bytes: body,
+        });
 
-      const linkSubmitted = await asStudent.submissions.submitWork({
-        assignmentId: linkAssignment.id,
-        submittedUrl: "https://www.canva.com/design/DAF123/view",
-      });
-      check(
-        "submitting the link is what enters the queue",
-        [linkSubmitted.status, linkSubmitted.submittedUrl],
-        ["SUBMITTED", "https://www.canva.com/design/DAF123/view"],
-      );
+        check(
+          "uploading is what enters the queue",
+          [submission.status, submission.isLate, submission.submittedAt !== null],
+          ["SUBMITTED", false, true],
+        );
+        check(
+          "the filename the student chose is kept",
+          submission.uploadFilename,
+          "Ben Spector resume.pdf",
+        );
+        check("and the size with it", submission.uploadSizeBytes, body.byteLength);
 
-      const linkQueue = await asInstructor.submissions.listForAssignment({
-        assignmentId: linkAssignment.id,
-      });
-      check(
-        "and it waits on a person, like every hand-graded kind",
-        linkQueue.submissions.find((entry) => entry.id === linkSubmitted.id)?.bucket,
-        "needs_manual_grade",
-      );
+        const row = await tx.submission.findUniqueOrThrow({
+          where: { id: submission.id },
+          select: { uploadPath: true },
+        });
+        if (row.uploadPath) strays.push(row.uploadPath);
+        check(
+          "the stored path is keyed by the submission",
+          row.uploadPath?.startsWith(`${submission.id}/`),
+          true,
+        );
+        check(
+          "the file is really in the bucket",
+          await submissionUploadExists(row.uploadPath!),
+          true,
+        );
 
-      throw new Error("ROLLBACK");
-    });
+        // --- the triage bucket it lands in ------------------------------------
+        const queued = await asInstructor.submissions.listForAssignment({
+          assignmentId: assignment.id,
+        });
+        const queueRow = queued.submissions.find((entry) => entry.id === submission.id);
+        check("an uploaded submission waits on a person", queueRow?.bucket, "needs_manual_grade");
+        check(
+          "the queue carries the filename so it can be offered for download",
+          queueRow?.uploadFilename,
+          "Ben Spector resume.pdf",
+        );
+
+        // --- who may read the bytes ------------------------------------------
+        //
+        // This is the whole of the access control on stored files. The bucket has no policies, so
+        // if these checks are wrong there is nothing behind them.
+        const ownLink = await asStudent.submissions.uploadUrl({ submissionId: submission.id });
+        check(
+          "the student who uploaded it can fetch their own",
+          ownLink.url.includes("token="),
+          true,
+        );
+
+        const instructorLink = await asInstructor.submissions.uploadUrl({
+          submissionId: submission.id,
+        });
+        check(
+          "the instructor who teaches the course can fetch it",
+          instructorLink.url.includes("token="),
+          true,
+        );
+
+        const otherStudent = await tx.profile.findFirst({
+          where: { id: { notIn: [studentId, instructor.userId] }, role: "STUDENT" },
+          select: { id: true },
+        });
+
+        if (otherStudent) {
+          const asOther = createCaller({ db: tx, user: { id: otherStudent.id } } as never);
+          check(
+            "another student cannot",
+            await refusal(() => asOther.submissions.uploadUrl({ submissionId: submission.id })),
+            "FORBIDDEN",
+          );
+        } else {
+          console.log("skip  another student cannot — only one student profile is seeded");
+        }
+
+        // --- work made somewhere else ---------------------------------------
+        //
+        // Handed in as a link like a Drive file, and distributed like nothing at all. What is
+        // checked here is that the two halves land on the right side of each rule.
+        const { assignment: linkAssignment } = await asInstructor.assignments.create({
+          courseId: course.id,
+          draft: {
+            kind: "EXTERNAL_URL",
+            title: "Personal site on Canva (verify:uploads)",
+            courseUnitId,
+            dueAt: null,
+            submissionInstructions: "Make it in Canva, then share the link.",
+            sections: [{ grading: "manual", label: "Total", pointValue: 15 }],
+          },
+        });
+        await asInstructor.assignments.publish({ assignmentId: linkAssignment.id });
+
+        // Nothing to hand out, so there is no Accept — the same as a file upload.
+        check(
+          "an external-url assignment cannot be accepted",
+          await refusal(() => asStudent.assignments.accept({ assignmentId: linkAssignment.id })),
+          "PRECONDITION_FAILED",
+        );
+
+        // And it is NOT the upload route's business, which is the half that would be easy to get
+        // wrong once two kinds submit a link.
+        check(
+          "it cannot be handed in as a file",
+          await refusal(() =>
+            assertCanHandIn(tx as never, {
+              profileId: studentId,
+              assignmentId: linkAssignment.id,
+              expect: "file",
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+
+        const linkSubmitted = await asStudent.submissions.submitWork({
+          assignmentId: linkAssignment.id,
+          submittedUrl: "https://www.canva.com/design/DAF123/view",
+        });
+        check(
+          "submitting the link is what enters the queue",
+          [linkSubmitted.status, linkSubmitted.submittedUrl],
+          ["SUBMITTED", "https://www.canva.com/design/DAF123/view"],
+        );
+
+        const linkQueue = await asInstructor.submissions.listForAssignment({
+          assignmentId: linkAssignment.id,
+        });
+        check(
+          "and it waits on a person, like every hand-graded kind",
+          linkQueue.submissions.find((entry) => entry.id === linkSubmitted.id)?.bucket,
+          "needs_manual_grade",
+        );
+
+        // --- a Python script, and who may read its text ----------------------
+        //
+        // The second procedure that reaches stored bytes, so the same four questions the signed URL
+        // is asked have to be asked of it. The bucket has no policies; if these are wrong there is
+        // nothing behind them.
+        const { assignment: pyAssignment } = await asInstructor.assignments.create({
+          courseId: course.id,
+          draft: {
+            kind: "FILE_UPLOAD",
+            title: "Temperature converter (verify:uploads)",
+            courseUnitId,
+            dueAt: null,
+            acceptedFileTypes: ["python"],
+            submissionInstructions: "One .py file.",
+            sections: [{ grading: "manual", label: "Script", pointValue: 10 }],
+          },
+        });
+        await asInstructor.assignments.publish({ assignmentId: pyAssignment.id });
+
+        const pyHandIn = await assertCanHandIn(tx as never, {
+          profileId: studentId,
+          assignmentId: pyAssignment.id,
+          expect: "file",
+        });
+        check("an assignment can ask for Python", pyHandIn.acceptedFileTypes, ["python"]);
+        check(
+          "a PDF is refused where the assignment asks for Python",
+          await refusal(() =>
+            storeAndRecordUpload(tx as never, {
+              profileId: studentId,
+              assignment: pyHandIn,
+              filename: "resume.pdf",
+              bytes: Buffer.from("%PDF-1.4"),
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+
+        const pySource = "def to_celsius(f):\n    return (f - 32) * 5 / 9\n";
+        const pySubmission = await storeAndRecordUpload(tx as never, {
+          profileId: studentId,
+          assignment: pyHandIn,
+          filename: "converter.py",
+          bytes: Buffer.from(pySource),
+        });
+        const pyRow = await tx.submission.findUniqueOrThrow({
+          where: { id: pySubmission.id },
+          select: { uploadPath: true },
+        });
+        if (pyRow.uploadPath) strays.push(pyRow.uploadPath);
+
+        check(
+          "the student who uploaded it can read their own text",
+          (await asStudent.submissions.uploadText({ submissionId: pySubmission.id })).text,
+          pySource,
+        );
+        check(
+          "the instructor who teaches the course can read it",
+          (await asInstructor.submissions.uploadText({ submissionId: pySubmission.id })).text,
+          pySource,
+        );
+
+        if (otherStudent) {
+          const asOther = createCaller({ db: tx, user: { id: otherStudent.id } } as never);
+          check(
+            "another student cannot read it",
+            await refusal(() => asOther.submissions.uploadText({ submissionId: pySubmission.id })),
+            "FORBIDDEN",
+          );
+        } else {
+          console.log("skip  another student cannot read it — only one student profile is seeded");
+        }
+
+        // A submission that was handed in as a link has no bytes at all, which is a different answer
+        // from being refused them.
+        check(
+          "a submission with no file has no text",
+          await refusal(() => asStudent.submissions.uploadText({ submissionId: linkSubmitted.id })),
+          "NOT_FOUND",
+        );
+
+        /*
+        The size ceiling, exercised by writing the column the guard reads rather than by uploading
+        half a megabyte to prove a comparison. The guard is deliberately built on the recorded size
+        precisely so it can refuse before fetching anything, and this is the same question it asks.
+      */
+        await tx.submission.update({
+          where: { id: pySubmission.id },
+          data: { uploadSizeBytes: MAX_INLINE_TEXT_BYTES + 1 },
+        });
+        check(
+          "a file too long to show is refused before it is read",
+          await refusal(() => asStudent.submissions.uploadText({ submissionId: pySubmission.id })),
+          "PAYLOAD_TOO_LARGE",
+        );
+
+        throw new Error("ROLLBACK");
+      },
+      { timeout: 60_000 },
+    );
   } catch (err) {
     if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
   } finally {

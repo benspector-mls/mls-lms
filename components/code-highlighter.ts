@@ -4,7 +4,13 @@ import type { DiffHunk } from "@/lib/diff/patch";
 import type { DiffLanguage } from "@/lib/diff/languages";
 
 /**
- * Syntax colours for the lines of one file's diff, in the browser.
+ * Syntax colours for code, in the browser — for a pull request's diff and for an uploaded file.
+ *
+ * **One module for both, because the highlighter and the set of grammars already fetched are
+ * module-level state.** A second module would build a second highlighter and download the same
+ * grammar again, so a screen showing a Python upload beside a Python diff would pay twice for
+ * one language. It sits outside `components/instructor/` because an uploaded file is shown to the
+ * student who handed it in as well as to the instructor reading it.
  *
  * **In the browser and not on the server, because tokens are far larger than the text they
  * describe.** A themed token is about ninety bytes of JSON carrying a few characters, and there
@@ -53,6 +59,25 @@ const GRAMMARS = {
 let highlighterPromise: Promise<Awaited<ReturnType<typeof create>>> | null = null;
 const loaded = new Set<DiffLanguage>();
 
+/**
+ * The highlighter, with this language's grammar fetched.
+ *
+ * Both entry points go through here, so a grammar is downloaded once however it is first asked
+ * for — a Python upload read beside a Python diff pays for one.
+ */
+async function withLanguage(language: DiffLanguage) {
+  highlighterPromise ??= create();
+  const highlighter = await highlighterPromise;
+
+  if (!loaded.has(language)) {
+    const grammar = await GRAMMARS[language]();
+    await highlighter.loadLanguage((grammar as { default: never }).default);
+    loaded.add(language);
+  }
+
+  return highlighter;
+}
+
 async function create() {
   const [{ createHighlighterCore }, { createJavaScriptRawEngine }, light, dark] = await Promise.all(
     [
@@ -93,14 +118,7 @@ export async function highlightDiffLines(
   hunks: DiffHunk[],
   language: DiffLanguage,
 ): Promise<(ThemedToken[] | null)[]> {
-  highlighterPromise ??= create();
-  const highlighter = await highlighterPromise;
-
-  if (!loaded.has(language)) {
-    const grammar = await GRAMMARS[language]();
-    await highlighter.loadLanguage((grammar as { default: never }).default);
-    loaded.add(language);
-  }
+  const highlighter = await withLanguage(language);
 
   /*
     Which rendered line each side's text came from, recorded on the way, so mapping the tokens
@@ -121,13 +139,7 @@ export async function highlightDiffLines(
     return { side: "head" as const, index: head.push(text) - 1 };
   });
 
-  const options = {
-    lang: language,
-    themes: { light: "github-light", dark: "github-dark" },
-    // So the colour lives in the two custom properties rather than being baked into one, which is
-    // what lets the stylesheet decide which theme is painted.
-    defaultColor: false,
-  } as const;
+  const options = themeOptions(language);
 
   const tokensBySide = {
     base: base.length > 0 ? highlighter.codeToTokens(base.join("\n"), options).tokens : [],
@@ -135,4 +147,39 @@ export async function highlightDiffLines(
   };
 
   return source.map(({ side, index }) => tokensBySide[side][index] ?? null);
+}
+
+/**
+ * The options both entry points tokenize with.
+ *
+ * `defaultColor: false` is the part that matters: it puts the colour in the two custom properties
+ * `--shiki-light` and `--shiki-dark` rather than baking one theme into the markup, which is what
+ * lets the three rules on `.shiki-code` in `app/globals.css` decide which theme is painted.
+ */
+function themeOptions(language: DiffLanguage) {
+  return {
+    lang: language,
+    themes: { light: "github-light", dark: "github-dark" },
+    defaultColor: false,
+  } as const;
+}
+
+/**
+ * Tokens for every line of one whole file, in order.
+ *
+ * The counterpart to `highlightDiffLines`, and much the simpler of the two: a file is a text that
+ * exists, so it is tokenized in one pass and needs none of the base-and-head reconstruction a
+ * diff needs to avoid handing a grammar two versions of the same line at once.
+ *
+ * The returned array is one entry per line of `text` split on newlines, which is the same
+ * splitting the caller renders by — `codeToTokens` returns one token list per line — so mapping a
+ * rendered row to its colours is an index lookup.
+ */
+export async function highlightFileLines(
+  text: string,
+  language: DiffLanguage,
+): Promise<(ThemedToken[] | null)[]> {
+  const highlighter = await withLanguage(language);
+
+  return highlighter.codeToTokens(text, themeOptions(language)).tokens;
 }

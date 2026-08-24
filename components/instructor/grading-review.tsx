@@ -231,9 +231,11 @@ export function GradingReview({
     where `DraftEditor` draws it by default. Where a submission has none of the four the pane
     stays in one column rather than splitting to show an empty half.
 
-      - A file the browser can show. `previewKindOf` is the same function the preview itself
-        asks, so the two cannot disagree about what can be embedded — a `.docx` answers null and
-        stays in the one column, where it is a row with a download button and nothing to read.
+      - A file that can be shown, by either of the two routes there are: handed to the browser,
+        which has a viewer for a PDF and an image, or read as text and coloured here, which is
+        what a Python script gets. `previewKindOf` is the same function the view itself asks, so
+        the two cannot disagree about what can be shown — a `.docx` answers null and stays in the
+        one column, where it is a row with a download button and nothing to read.
       - The address a student handed in. Where that address is a Google document,
         `SubmittedDocumentRow` frames the document under it and this column holds the work; where
         it is anything else, it holds the address, which is small but is still what they

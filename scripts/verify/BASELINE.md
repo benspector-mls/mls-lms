@@ -13,7 +13,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
 | `verify:approve` | 48 → **53** | the database |
-| `verify:uploads` | 88 | the database, and the storage bucket |
+| `verify:uploads` | 88 → **109** | the database, and the storage bucket |
 | `verify:authoring` | 156 | the database, and GitHub |
 | `verify:enrollment` | 200 → **209** | the database |
 | `verify:app` | 16 | GitHub |
@@ -25,6 +25,10 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:dashboard` | 27 | the database |
 | `verify:attendance` | 59 | the database |
 | `verify:calendar` | 28 | the database, and the application answering over HTTP |
+
+**`verify:uploads` went from 88 to 109 when Python became an accepted file type**, and the twenty-one is worth breaking down because most of it is new coverage rather than the new type: eleven checks about the type itself and what can be shown in place, two about the bucket accepting `text/x-python`, seven about who may read an uploaded file's text through `submissions.uploadText`, and one more line of the rollback check, which now names two stored objects instead of one.
+
+**The same change fixed a skip that this file exists to catch.** The script chose the first non-archived course and then asked whether it happened to have an instructor, a module and an enrolled student; on a database whose first course is a prework shell with nobody enrolled, the whole lifecycle group — including every check on who may read another student's work — reported a skip. It now asks the database for a course that satisfies all three at once. The transaction also has a timeout of its own, following the other scripts here: it stores two real objects in the bucket and reads them back, and Prisma's five-second default is not a budget that means anything for network round trips.
 
 **`verify:attendance` postdates this file** and is recorded here for the reason the file exists. Its 59 need a cohort with an instructor and **at least two active students**, which is a real requirement rather than a convenience: half the checks are about one fellow being unaffected by what another does, and with one student "the record count did not change" passes for the wrong reason. Short of two it reports a skip and exits non-zero rather than quietly measuring less.
 

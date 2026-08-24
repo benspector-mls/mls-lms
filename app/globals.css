@@ -165,7 +165,7 @@
 }
 
 /*
-  Highlighted code in a pull request's diff.
+  Highlighted code, in a pull request's diff and in an uploaded file.
 
   Two palettes come from the two themes the highlighter loads, and each token carries both as
   custom properties — `--shiki-light` and `--shiki-dark` — so which one is painted is decided
@@ -178,16 +178,19 @@
   reader who has never touched the toggle — has no class on the root at all and is decided by the
   media query. Without the third rule, code in a diff would be painted for a light page inside a
   dark one for most readers.
+
+  One class for both readers rather than one each: the three rules are the whole of the
+  arrangement, and two copies of them is how one copy comes to be missing the third.
 */
 @layer components {
-  .diff-code span {
+  .shiki-code span {
     color: var(--shiki-light);
   }
-  .dark .diff-code span {
+  .dark .shiki-code span {
     color: var(--shiki-dark);
   }
   @media (prefers-color-scheme: dark) {
-    :root:not(.light) .diff-code span {
+    :root:not(.light) .shiki-code span {
       color: var(--shiki-dark);
     }
   }
