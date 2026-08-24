@@ -383,7 +383,6 @@ function Editor({
             githubOrg: context.defaultGithubOrg,
             answerKeyRepo: context.defaultAnswerKeyRepo,
           },
-          rubrics: context.rubrics,
           existingState: null,
         }),
   );
@@ -670,7 +669,6 @@ function Editor({
                         githubOrg: context.defaultGithubOrg,
                         answerKeyRepo: context.defaultAnswerKeyRepo,
                       },
-                      rubrics: context.rubrics,
                       existingState: state,
                     }),
                   );
@@ -1187,11 +1185,12 @@ function Editor({
                 section can only ever be added in the mode this assignment is already in.
 
                 Which leaves the other mode to offer as a *switch* rather than as an addition,
-                and a repository assignment is offered both directions. Hand grading is always
-                available for one — a repository nobody wants a report on is still a repository
-                — and an instructor should not have to delete the model-graded section to
-                discover that. So the button says what it does: it replaces the sections above
-                with a single one the instructor scores, and the button beside it goes back.
+                and a repository assignment is offered both directions. It starts graded by
+                hand — a repository nobody wants a report on is still a repository, and that is
+                the more common of the two — so the switch an instructor reaches for is the one
+                that asks the model to grade it. Each button says what it does: it replaces the
+                sections above with a single one in the other mode, and the button beside it
+                goes back.
 
                 A kind with no repository has nothing for the pipeline to read, so hand grading
                 is its only mode and no switch is offered.
@@ -1638,14 +1637,12 @@ function blankDraft({
   kind,
   courseUnitId,
   defaults,
-  rubrics,
   existingState,
 }: {
   kind: Kind;
   /** The unit it goes in, kept across a change of kind. */
   courseUnitId: string;
   defaults: { githubOrg: string | null; answerKeyRepo: string | null };
-  rubrics: { id: string; name: string }[];
   existingState: FormState | null;
 }): FormState {
   const repo = kind === "REPO";
@@ -1679,14 +1676,19 @@ function blankDraft({
     // which of those it is changes where the work lives, not whether it belongs to a team.
     teamSetId: existingState?.teamSetId ?? null,
     /*
-      A repository assignment starts with a section the model grades, and every other kind
-      with one graded by hand — which is not a default but the only mode those kinds have, so
-      offering the other would be offering something the schema refuses.
+      Every kind starts with a section graded by hand. For a document, a file or a link that is
+      not a default but the only mode the kind has, so offering the other would be offering
+      something the schema refuses. For a repository it is a choice: an instructor who wants a
+      report asks for one with the button below, and one who does not is never handed a
+      model-graded section to delete.
+
+      Sections already typed carry across a change of kind whenever the new kind allows them,
+      which for a repository is either mode and for every other kind is hand grading alone.
     */
     sections: repo
-      ? existingState?.sections.every((section) => section.grading === "ai")
+      ? existingState && existingState.sections.length > 0
         ? existingState.sections
-        : [aiSection({ rubrics })]
+        : [manualSection()]
       : existingState?.sections.every((section) => section.grading === "manual")
         ? existingState.sections
         : [manualSection()],
