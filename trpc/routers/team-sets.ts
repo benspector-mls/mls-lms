@@ -101,7 +101,14 @@ export const teamSetsRouter = createTRPCRouter({
           _count: { select: { assignments: true } },
         },
       }),
-      ctx.db.enrollment.count({ where: { courseId: input.courseId, status: "ACTIVE" } }),
+      ctx.db.enrollment.count({
+        where: {
+          // The program's roster, reached through the course. A team divides the fellows of a
+          // matriculation for one of its courses' projects, so the count is of the roster.
+          program: { courses: { some: { id: input.courseId } } },
+          status: "ACTIVE",
+        },
+      }),
     ]);
 
     return {
@@ -148,9 +155,21 @@ export const teamSetsRouter = createTRPCRouter({
     .input(z.object({ name: teamSetName, teamCount }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const course = await ctx.db.course.findUniqueOrThrow({
+          where: { id: input.courseId },
+          select: { programId: true },
+        });
+
         return await ctx.db.teamSet.create({
           data: {
             courseId: input.courseId,
+            /*
+              Carried so a membership can hold a set and an enrollment to the same matriculation at
+              once — see `TeamSet.programId`. Read from the course rather than taken from input,
+              which is what keeps it equal to the course's own program; the composite foreign key
+              refuses anything else, and this is what stops that refusal ever being reached.
+            */
+            programId: course.programId,
             name: input.name,
             /*
               `courseId` is deliberately absent from each team. `Team.teamSet` is a composite
@@ -233,7 +252,7 @@ export const teamSetsRouter = createTRPCRouter({
   addTeam: instructorProcedure
     .input(z.object({ teamSetId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const set = await teachableTeamSet(ctx, input.teamSetId, { id: true, courseId: true });
+      const set = await teachableTeamSet(ctx, input.teamSetId, { id: true, courseId: true, programId: true });
 
       /*
         Named and positioned from the highest position rather than from the count, so a set whose
@@ -344,7 +363,7 @@ export const teamSetsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const set = await teachableTeamSet(ctx, input.teamSetId, { id: true, courseId: true });
+      const set = await teachableTeamSet(ctx, input.teamSetId, { id: true, courseId: true, programId: true });
 
       /*
         Last wins, rather than refusing a repeated enrollment. Two entries for one fellow is a
@@ -357,9 +376,9 @@ export const teamSetsRouter = createTRPCRouter({
 
       const [validEnrollments, validTeams] = await Promise.all([
         ctx.db.enrollment.findMany({
-          // Active only. Placing somebody who has left the cohort onto a team would put them in
+          // Active only. Placing somebody who has left the program onto a team would put them in
           // line for work they will not hand in, and nothing would ever clear it.
-          where: { id: { in: [...wanted.keys()] }, courseId: set.courseId, status: "ACTIVE" },
+          where: { id: { in: [...wanted.keys()] }, programId: set.programId, status: "ACTIVE" },
           select: { id: true },
         }),
         ctx.db.team.findMany({
@@ -426,7 +445,7 @@ export const teamSetsRouter = createTRPCRouter({
           data: toAdd.map(([enrollmentId, teamId]) => ({
             teamId: teamId as string,
             teamSetId: set.id,
-            courseId: set.courseId,
+            programId: set.programId,
             enrollmentId,
           })),
           skipDuplicates: true,

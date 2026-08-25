@@ -1,5 +1,5 @@
 import {
-  cohortRate,
+  programRate,
   countsAsAttended,
   driftList,
   DRIFT_RULE,
@@ -292,7 +292,7 @@ describe("driftList", () => {
   });
 });
 
-describe("cohortRate", () => {
+describe("programRate", () => {
   it("is over the fellows who count", () => {
     const summaries = summarize(
       sessions(2),
@@ -301,10 +301,10 @@ describe("cohortRate", () => {
     );
 
     // The test student's perfect record does not lift the cohort's figure.
-    expect(cohortRate(summaries)).toBe(0.5);
+    expect(programRate(summaries)).toBe(0.5);
   });
 
   it("is null when nothing has closed yet", () => {
-    expect(cohortRate(summarize(sessions(2, 2), [fellow()], []))).toBeNull();
+    expect(programRate(summarize(sessions(2, 2), [fellow()], []))).toBeNull();
   });
 });

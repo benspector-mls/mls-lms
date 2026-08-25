@@ -11,10 +11,11 @@ import {
   useGradingMode,
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
-import { GroupPicker } from "@/components/instructor/group-picker";
+import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { studentHref } from "@/lib/links";
+import type { CohortChoice } from "@/lib/programs/cohorts";
 import { displayNameOf } from "@/lib/people";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -36,20 +37,13 @@ type Filter = "needs_review" | "graded" | "all";
 
 export function GradingQueue({
   data,
-  courseId,
-  groups,
+  cohorts,
   completionThreshold,
   now,
 }: {
   data: Data;
-  /** For the picker, which records a selection against a course rather than an assignment. */
-  courseId: string;
-  /** The picker's options and the selection this queue was built for, from `resolveGroup`. */
-  groups: {
-    group: string;
-    groups: { id: string; name: string; memberCount: number }[];
-    ungroupedCount: number;
-  };
+  /** The picker's options and the selection this queue was built for, from `resolveCohort`. */
+  cohorts: CohortChoice;
   completionThreshold: number;
   now: Date;
 }) {
@@ -123,7 +117,7 @@ export function GradingQueue({
     quietly swap the student being read.
 
     `asideSubmissions` is searched too, and only here. It holds the work this queue never lists —
-    a student who has left the cohort, a student outside the group currently selected, and one
+    a fellow who has left the program, a fellow outside the cohort currently selected, and one
     member's copy of their team's grade — and all three are things a link can legitimately name. The gradebook's Removed table links straight to
     one, and a colleague's link or a stale tab names the other. Falling through to `filtered[0]`
     for either would show a different student's report under a URL that named one, which is worse
@@ -173,16 +167,10 @@ export function GradingQueue({
           <div className="flex flex-col gap-3 border-b border-border p-3">
             {/*
               Above the search box and the tabs, because it decides what those two are searching
-              and counting. The three tabs beneath it count the group, not the cohort — which is
+              and counting. The three tabs beneath it count the cohort, not the roster — which is
               why it cannot sit somewhere a reader might not have noticed it.
             */}
-            <GroupPicker
-              courseId={courseId}
-              value={groups.group}
-              groups={groups.groups}
-              ungroupedCount={groups.ungroupedCount}
-              className="w-full"
-            />
+            <CohortPicker choice={cohorts} className="w-full" />
             <div className="relative">
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -310,10 +298,10 @@ export function GradingQueue({
           {/*
             Said before the work rather than left to be noticed. This submission is not in the
             list beside it, and an instructor who read a report and approved it without knowing
-            the student had left the cohort would be grading somebody who is not there.
+            the fellow had left the program would be grading somebody who is not there.
 
             The three reasons are told apart because they are different kinds of fact. Leaving
-            the cohort is about the student; being outside the group currently selected is about
+            the program is about the fellow; being outside the cohort currently selected is about
             the picker, which the sentence names so the fix is obvious; and being one member's
             copy of their team's work is about neither — there is nothing to fix, and what the
             instructor wants is a way to the row the work is actually on.
@@ -333,7 +321,7 @@ export function GradingQueue({
                     "This student"}
                 </span>{" "}
                 {asideReason === "removed" ? (
-                  "has been removed from this cohort, so this is not in the queue beside it. Their work stays readable here and in the gradebook."
+                  "has been removed from this program, so this is not in the queue beside it. Their work stays readable here and in the gradebook."
                 ) : asideReason === "team_mirror" ? (
                   <>
                     has a copy of their team&apos;s grade here. The work, the report, and the rounds
@@ -355,7 +343,7 @@ export function GradingQueue({
                     )}
                   </>
                 ) : (
-                  "is not in the group you are filtered to, so this is not in the queue beside it. Switch to All students to work it alongside the rest."
+                  "is not in the cohort you are filtered to, so this is not in the queue beside it. Switch to All fellows to work it alongside the rest."
                 )}
               </p>
             </div>

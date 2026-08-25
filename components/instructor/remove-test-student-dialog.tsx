@@ -20,13 +20,14 @@ import { useServerMutation } from "@/hooks/use-server-mutation";
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Deleting a test student outright: its account, its work in every cohort, and its repositories.
+ * Deleting a test student outright: its account, its work in every program, and its repositories.
  *
  * **Wider than the roster's Remove**, and the difference is the reason this is a separate control.
- * Remove takes somebody out of one cohort and keeps everything they submitted, which is what an
- * instructor wants for a real student. This deletes the identity itself, so it reaches every cohort
- * the test student is in, not only the one whose roster the button was pressed on. The dialog names
- * those cohorts, because a roster is a per-course screen and this is not a per-course act.
+ * Remove takes somebody off one roster and keeps everything they submitted, which is what an
+ * instructor wants for a real fellow. This deletes the identity itself, so it reaches every
+ * matriculation the test student is on, not only the one whose roster the button was pressed on.
+ * The dialog names those matriculations, because a roster belongs to one of them and this is not an
+ * act on one of them.
  *
  * **No typed confirmation**, unlike removing an assignment. That check exists there because the
  * work being destroyed is a student's own and cannot be recreated. Everything here was made to be
@@ -86,7 +87,7 @@ export function RemoveTestStudentDialog({
         <DialogHeader>
           <DialogTitle>Delete {name}?</DialogTitle>
           <DialogDescription>
-            The account goes, along with everything it accepted or submitted in every cohort, and
+            The account goes, along with everything it accepted or submitted in every program, and
             the repositories it generated are deleted from GitHub. Its number is never reused.
           </DialogDescription>
         </DialogHeader>
@@ -101,13 +102,13 @@ export function RemoveTestStudentDialog({
           </Alert>
         ) : (
           <div className="flex min-w-0 flex-col gap-3">
-            {preview.data.courses.length > 1 && (
+            {preview.data.programs.length > 1 && (
               <Alert variant="destructive">
                 <AlertTriangle />
-                <AlertTitle>It is in more than one cohort</AlertTitle>
+                <AlertTitle>It is on more than one roster</AlertTitle>
                 <AlertDescription>
-                  Deleting it removes it from all of them: {preview.data.courses.join(", ")}. To
-                  take it out of this cohort alone, use Remove on its row instead.
+                  Deleting it removes it from all of them: {preview.data.programs.join(", ")}. To
+                  take it off this roster alone, use Remove on its row instead.
                 </AlertDescription>
               </Alert>
             )}

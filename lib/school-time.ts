@@ -185,6 +185,67 @@ export function formatSchoolTime(at: Date): string {
   });
 }
 
+/**
+ * Which weekday a school day falls on, 0 for Sunday through 6 for Saturday.
+ *
+ * **Read from the civil date rather than from any instant**, which is the whole reason it is here
+ * rather than written out at the two call sites that want it. A check-in a few minutes after
+ * midnight is a `Timestamptz` whose weekday in the school's zone is the previous day's, so deriving
+ * the weekday from the arrival time would file that morning under Sunday. The session's `date` column
+ * is the day the school means, and this reads that.
+ *
+ * `getUTCDay` rather than `getDay`, for the reason `schoolDayFromColumn` reads the UTC parts: the
+ * `Date` this builds is UTC midnight of a bare date, and the local reading would be the day before on
+ * every machine west of UTC — which is every machine this runs on.
+ */
+export function weekdayOf(day: SchoolDay): number {
+  return dateColumnFor(day).getUTCDay();
+}
+
+/** A weekday as a person would say it. "Monday". */
+export function formatWeekday(weekday: number): string {
+  // The 4th of January 1970 was a Sunday, so adding the weekday lands on the day wanted.
+  return new Date(Date.UTC(1970, 0, 4 + weekday)).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    weekday: "long",
+  });
+}
+
+/** Every weekday, Monday first, because that is the order a school week is read in. */
+export const SCHOOL_WEEK: readonly number[] = [1, 2, 3, 4, 5, 6, 0];
+
+/**
+ * How far into the school's day an instant falls, in minutes after midnight.
+ *
+ * The form an average of arrival times has to be computed in: minutes are a number that can be
+ * meaned, where a `Date` is not and a `"09:04"` string is not. It goes through `schoolClockOf` rather
+ * than reading the parts itself, so there is one definition of what time it is in Brooklyn.
+ */
+export function minutesAfterMidnight(at: Date): number {
+  const [hours, minutes] = schoolClockOf(at).split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+/**
+ * The inverse, for printing an average. 620 becomes "10:20 AM".
+ *
+ * **It formats a duration rather than an instant, which is why it does not go through
+ * `formatSchoolTime`.** An average arrival time is not a moment that happened — nobody arrived at
+ * 10:20 — so there is no instant to convert, and building one out of an arbitrary date only to format
+ * it back would introduce a timezone into a number that has none.
+ *
+ * Rounded to the nearest minute on the way in, because a mean of clock times is fractional and
+ * "10:20 AM" is what somebody can act on where "10:20:34.8 AM" is noise.
+ */
+export function formatClockMinutes(minutes: number): string {
+  const total = Math.round(minutes);
+  const hours24 = Math.floor(total / 60) % 24;
+  const mins = total % 60;
+  const suffix = hours24 < 12 ? "AM" : "PM";
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  return `${hours12}:${String(mins).padStart(2, "0")} ${suffix}`;
+}
+
 /** The same, without the weekday, for a column heading where the day is one of many. */
 export function formatSchoolDayShort(day: SchoolDay): string {
   return dateColumnFor(day).toLocaleDateString("en-US", {

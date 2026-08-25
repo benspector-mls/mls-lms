@@ -64,17 +64,24 @@ export const personNameSelect = {
 export { displayNameOf } from "@/lib/people";
 
 /**
- * A cohort, as every screen that names one reads it.
+ * A course, as every screen that names one reads it.
  *
- * `archivedAt` is in it rather than optional because *every* reader has to know: an archived
- * cohort is readable, is in the course list, and takes nothing new — and a screen that fetched
- * the name without it would render a finished term as a live one.
+ * `archivedAt` is in it rather than optional because *every* reader has to know: an archived course
+ * is readable, is in the course list, and takes nothing new — and a screen that fetched the name
+ * without it would render a finished term as a live one. `publishedAt` is in it for the mirror of
+ * that reason: an unpublished course is one no fellow can see, and an instructor's screen has to say
+ * so rather than leave them wondering why nobody has submitted.
+ *
+ * The program comes with it because a course's name does not identify it on its own — a program runs
+ * the same courses every term, so "Fullstack Software Engineering" needs the matriculation beside it
+ * before anybody knows which one they are looking at.
  */
 export const courseHeaderSelect = {
   id: true,
   name: true,
-  cohortTerm: true,
+  publishedAt: true,
   archivedAt: true,
+  program: { select: { id: true, name: true, matriculation: true } },
 } satisfies Prisma.CourseSelect;
 
 /**

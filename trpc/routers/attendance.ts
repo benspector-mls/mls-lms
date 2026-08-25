@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auditActor } from "@/lib/audit/record";
 import { recordEvent } from "@/lib/audit/record";
 import { assertWithinRate, type RateLimit } from "@/lib/audit/rate-limit";
+import { arrivalAverages, type Arrival } from "@/lib/attendance/arrival";
 import { codeFor, codeMatches, newSessionSecret, type CodeSession } from "@/lib/attendance/code";
 import { weekColumns, weekRange } from "@/lib/attendance/calendar";
 import { gridCounts, gridRows, type GridEnrollment, type GridRecord } from "@/lib/attendance/grid";
@@ -16,7 +17,7 @@ import {
   statusForCheckIn,
   type WindowSession,
 } from "@/lib/attendance/window";
-import { assertActiveStudent, assertCourseMember, enrollmentsIn } from "@/lib/courses/membership";
+import { assertActiveInProgram, assertProgramMember, enrollmentsIn } from "@/lib/courses/membership";
 import { teachableAttendanceSession } from "@/lib/courses/scope";
 import { displayNameOf } from "@/lib/people";
 import { inTransaction, type Tx } from "@/lib/prisma";
@@ -27,7 +28,7 @@ import {
   schoolDaySchema,
   type SchoolDay,
 } from "@/lib/school-time";
-import { createTRPCRouter, courseProcedure, instructorProcedure, profileProcedure } from "../init";
+import { createTRPCRouter, programProcedure, instructorProcedure, profileProcedure } from "../init";
 import { personSelect, personNameSelect } from "../selects";
 
 /**
@@ -44,7 +45,7 @@ import { personSelect, personNameSelect } from "../selects";
  * and is idempotent in all of them.
  *
  * **What is guarded, and by what.** Instructor procedures whose input names a course use
- * `courseProcedure`; the ones naming a session use `teachableAttendanceSession`, which loads and
+ * `programProcedure`; the ones naming a session use `teachableAttendanceSession`, which loads and
  * authorizes in one query. The fellow's use `assertActiveStudent`, except reading their own
  * history, which uses `assertCourseMember` so a removed fellow keeps their record for the same
  * reason they keep their feedback.
@@ -78,7 +79,7 @@ const CHECK_IN_SESSION_ATTEMPTS = 20;
 /** The columns every read of a session needs, minus the one nothing may return. */
 const sessionSelect = {
   id: true,
-  courseId: true,
+  programId: true,
   date: true,
   startedAt: true,
   endsAt: true,
@@ -93,7 +94,7 @@ const sessionWithSecretSelect = { ...sessionSelect, codeSecret: true } as const;
 
 type SessionRow = {
   id: string;
-  courseId: string;
+  programId: string;
   date: Date;
   startedAt: Date;
   endsAt: Date;
@@ -132,24 +133,24 @@ function publicSession(session: SessionRow, now: Date) {
 /**
  * Write the absences a session left implicit, and record that it happened.
  *
- * Called when an instructor ends a session, and again by `start` for any older session of the
- * same course that nobody ended. **Idempotent through `@@unique([sessionId, enrollmentId])`** —
+ * Called when an instructor ends a session, and again by `start` for any older session of the same
+ * program that nobody ended. **Idempotent through `@@unique([sessionId, enrollmentId])`** —
  * `skipDuplicates` lets the constraint decide who already had a row, so running it twice writes
  * nothing the second time and a fellow who checked in is never overwritten.
  *
  * Only active enrollments. A fellow removed before this morning is not absent from it; they are
  * not expected at it, which is a different fact and not one to write down.
  */
-async function finalize(tx: Tx, session: { id: string; courseId: string }, endedAt: Date) {
+async function finalize(tx: Tx, session: { id: string; programId: string }, endedAt: Date) {
   const enrollments = await tx.enrollment.findMany({
-    where: { courseId: session.courseId, status: "ACTIVE" },
+    where: { programId: session.programId, status: "ACTIVE" },
     select: { id: true },
   });
 
   const written = await tx.attendanceRecord.createMany({
     data: enrollments.map((enrollment) => ({
       sessionId: session.id,
-      courseId: session.courseId,
+      programId: session.programId,
       enrollmentId: enrollment.id,
       status: "ABSENT" as const,
       source: "FINALIZED" as const,
@@ -198,7 +199,7 @@ export const attendanceRouter = createTRPCRouter({
    * this transaction. Tomorrow's attendance closes yesterday's books, so nobody has to remember —
    * and the ninety-minute backstop means the code was already dead long before this ran.
    */
-  start: courseProcedure
+  start: programProcedure
     .input(
       z.object({
         /** Defaults to today. Given only when writing up a session after the fact. */
@@ -218,22 +219,22 @@ export const attendanceRouter = createTRPCRouter({
         });
       }
 
-      const course = await ctx.db.course.findUniqueOrThrow({
-        where: { id: input.courseId },
+      const program = await ctx.db.program.findUniqueOrThrow({
+        where: { id: input.programId },
         select: { id: true, name: true, archivedAt: true, attendanceLateAfterMinutes: true },
       });
 
-      if (course.archivedAt !== null) {
+      if (program.archivedAt !== null) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${course.name} has finished, so attendance cannot be taken in it.`,
+          message: `${program.name} has finished, so attendance cannot be taken in it.`,
         });
       }
 
       return inTransaction(ctx.db, async (tx) => {
         const stale = await tx.attendanceSession.findMany({
-          where: { courseId: course.id, endedAt: null, date: { lt: dateColumnFor(day) } },
-          select: { id: true, courseId: true, date: true },
+          where: { programId: program.id, endedAt: null, date: { lt: dateColumnFor(day) } },
+          select: { id: true, programId: true, date: true },
         });
 
         const swept: SchoolDay[] = [];
@@ -263,11 +264,11 @@ export const attendanceRouter = createTRPCRouter({
         const inserted = await tx.attendanceSession.createMany({
           data: [
             {
-              courseId: course.id,
+              programId: program.id,
               date: dateColumnFor(day),
               startedAt: now,
               endsAt: defaultEndsAt(now),
-              lateAfterMinutes: course.attendanceLateAfterMinutes,
+              lateAfterMinutes: program.attendanceLateAfterMinutes,
               codeSecret: newSessionSecret(),
               startedById: ctx.profile.id,
               note: input.note ?? null,
@@ -279,7 +280,7 @@ export const attendanceRouter = createTRPCRouter({
         const started = inserted.count === 1;
 
         const session: SessionRow = await tx.attendanceSession.findUniqueOrThrow({
-          where: { courseId_date: { courseId: course.id, date: dateColumnFor(day) } },
+          where: { programId_date: { programId: program.id, date: dateColumnFor(day) } },
           select: sessionSelect,
         });
 
@@ -288,7 +289,7 @@ export const attendanceRouter = createTRPCRouter({
             action: "ATTENDANCE_SESSION_STARTED",
             actor: auditActor(ctx),
             subject: { id: session.id, label: day },
-            course: { id: course.id, label: course.name },
+            program: { id: program.id, label: program.name },
             detail: {
               day,
               startedAt: now.toISOString(),
@@ -324,7 +325,7 @@ export const attendanceRouter = createTRPCRouter({
       const now = new Date();
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionWithSecretSelect,
-        course: { select: { id: true, name: true } },
+        program: { select: { id: true, name: true } },
       });
 
       const open = sessionStateOf(session, now) === "open";
@@ -333,12 +334,12 @@ export const attendanceRouter = createTRPCRouter({
         ctx.db.attendanceRecord.count({
           where: { sessionId: session.id, source: "SELF_CHECK_IN" },
         }),
-        ctx.db.enrollment.count({ where: { courseId: session.courseId, status: "ACTIVE" } }),
+        ctx.db.enrollment.count({ where: { programId: session.programId, status: "ACTIVE" } }),
       ]);
 
       return {
         session: publicSession(session, now),
-        courseName: session.course.name,
+        courseName: session.program.name,
         code: open ? codeFor(session as CodeSession) : null,
         checkedIn,
         expected,
@@ -359,23 +360,23 @@ export const attendanceRouter = createTRPCRouter({
    * a count that is wrong about the room while looking entirely correct. Attendance is taken for
    * everybody in the room, so it reads everybody.
    */
-  grid: courseProcedure
+  grid: programProcedure
     .input(z.object({ day: schoolDaySchema.optional() }))
     .query(async ({ ctx, input }) => {
       const now = new Date();
       const day = input.day ?? schoolDayOf(now);
 
-      const [course, session, enrollments] = await Promise.all([
-        ctx.db.course.findUniqueOrThrow({
-          where: { id: input.courseId },
+      const [program, session, enrollments] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: input.programId },
           select: { id: true, name: true, archivedAt: true, attendanceLateAfterMinutes: true },
         }),
         ctx.db.attendanceSession.findUnique({
-          where: { courseId_date: { courseId: input.courseId, date: dateColumnFor(day) } },
+          where: { programId_date: { programId: input.programId, date: dateColumnFor(day) } },
           select: sessionSelect,
         }),
         ctx.db.enrollment.findMany({
-          where: { ...enrollmentsIn(input.courseId), status: "ACTIVE" },
+          where: { ...enrollmentsIn(input.programId), status: "ACTIVE" },
           select: { id: true, student: { select: personSelect } },
         }),
       ]);
@@ -413,7 +414,7 @@ export const attendanceRouter = createTRPCRouter({
       const rows = gridRows(roster, attached, session, now);
 
       return {
-        course: { id: course.id, name: course.name, archived: course.archivedAt !== null },
+        program: { id: program.id, name: program.name, archived: program.archivedAt !== null },
         day,
         isToday: day === schoolDayOf(now),
         session: session ? publicSession(session, now) : null,
@@ -445,20 +446,20 @@ export const attendanceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         id: true,
-        courseId: true,
+        programId: true,
         date: true,
-        course: { select: { name: true } },
+        program: { select: { name: true } },
       });
 
       const enrollment = await ctx.db.enrollment.findFirst({
-        where: { id: input.enrollmentId, courseId: session.courseId },
+        where: { id: input.enrollmentId, programId: session.programId },
         select: { id: true, student: { select: { id: true, ...personNameSelect } } },
       });
 
       if (!enrollment) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "That student is not in this cohort.",
+          message: "That fellow is not on this program's roster.",
         });
       }
 
@@ -478,7 +479,7 @@ export const attendanceRouter = createTRPCRouter({
           },
           create: {
             sessionId: session.id,
-            courseId: session.courseId,
+            programId: session.programId,
             enrollmentId: enrollment.id,
             status: input.status,
             source: "INSTRUCTOR",
@@ -501,7 +502,7 @@ export const attendanceRouter = createTRPCRouter({
             id: enrollment.student.id,
             label: displayNameOf(enrollment.student, "a student"),
           },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           detail: {
             day,
             from: before?.status ?? null,
@@ -537,7 +538,7 @@ export const attendanceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
-        course: { select: { name: true } },
+        program: { select: { name: true } },
       });
 
       const startedAt = input.startedAt ?? session.startedAt;
@@ -587,7 +588,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_SESSION_UPDATED",
           actor: auditActor(ctx),
           subject: { id: session.id, label: schoolDayFromColumn(session.date) },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           detail: {
             day: schoolDayFromColumn(session.date),
             startedAt:
@@ -618,7 +619,7 @@ export const attendanceRouter = createTRPCRouter({
       const now = new Date();
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
-        course: { select: { name: true } },
+        program: { select: { name: true } },
       });
 
       if (session.endedAt !== null) {
@@ -639,7 +640,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_SESSION_UPDATED",
           actor: auditActor(ctx),
           subject: { id: session.id, label: schoolDayFromColumn(session.date) },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           detail: {
             day: schoolDayFromColumn(session.date),
             extended: true,
@@ -664,7 +665,7 @@ export const attendanceRouter = createTRPCRouter({
       const now = new Date();
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
-        course: { select: { name: true } },
+        program: { select: { name: true } },
       });
 
       if (session.endedAt !== null) {
@@ -689,7 +690,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_SESSION_ENDED",
           actor: auditActor(ctx),
           subject: { id: session.id, label: schoolDayFromColumn(session.date) },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           detail: {
             day: schoolDayFromColumn(session.date),
             markedAbsent: absent,
@@ -722,13 +723,13 @@ export const attendanceRouter = createTRPCRouter({
       const now = new Date();
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
-        course: { select: { name: true, archivedAt: true } },
+        program: { select: { name: true, archivedAt: true } },
       });
 
-      if (session.course.archivedAt !== null) {
+      if (session.program.archivedAt !== null) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${session.course.name} has finished, so its attendance cannot be reopened.`,
+          message: `${session.program.name} has finished, so its attendance cannot be reopened.`,
         });
       }
 
@@ -750,7 +751,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_SESSION_REOPENED",
           actor: auditActor(ctx),
           subject: { id: session.id, label: schoolDayFromColumn(session.date) },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           detail: {
             day: schoolDayFromColumn(session.date),
             absencesRemoved: removed.count,
@@ -781,7 +782,7 @@ export const attendanceRouter = createTRPCRouter({
       const now = new Date();
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
-        course: { select: { name: true } },
+        program: { select: { name: true } },
       });
 
       if (!isAcceptingCheckIns(session, now)) {
@@ -802,7 +803,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_CODE_ROTATED",
           actor: auditActor(ctx),
           subject: { id: session.id, label: schoolDayFromColumn(session.date) },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           // Never the code and never the secret. The log is readable by anyone who can read the
           // table, and a code written into it outlives the session it belonged to.
           detail: { day: schoolDayFromColumn(session.date) },
@@ -825,9 +826,9 @@ export const attendanceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const session = await teachableAttendanceSession(ctx, input.sessionId, {
         id: true,
-        courseId: true,
+        programId: true,
         date: true,
-        course: { select: { name: true } },
+        program: { select: { name: true } },
       });
 
       const selfRecorded = await ctx.db.attendanceRecord.count({
@@ -853,7 +854,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_SESSION_DELETED",
           actor: auditActor(ctx),
           subject: { id: session.id, label: day },
-          course: { id: session.courseId, label: session.course.name },
+          program: { id: session.programId, label: session.program.name },
           detail: { day },
         });
 
@@ -868,27 +869,27 @@ export const attendanceRouter = createTRPCRouter({
    * payload, so the file somebody downloads cannot describe a different cohort from the screen
    * they downloaded it on. Same reasoning as `lib/gradebook/csv.ts`.
    */
-  history: courseProcedure.query(async ({ ctx, input }) => {
+  history: programProcedure.query(async ({ ctx, input }) => {
     const now = new Date();
 
-    const [course, sessions, enrollments] = await Promise.all([
-      ctx.db.course.findUniqueOrThrow({
-        where: { id: input.courseId },
-        select: { id: true, name: true, cohortSlug: true, cohortTerm: true, archivedAt: true },
+    const [program, sessions, enrollments] = await Promise.all([
+      ctx.db.program.findUniqueOrThrow({
+        where: { id: input.programId },
+        select: { id: true, name: true, matriculation: true, archivedAt: true },
       }),
       ctx.db.attendanceSession.findMany({
-        where: { courseId: input.courseId },
+        where: { programId: input.programId },
         orderBy: { date: "asc" },
         select: sessionSelect,
       }),
       ctx.db.enrollment.findMany({
-        where: enrollmentsIn(input.courseId),
+        where: enrollmentsIn(input.programId),
         select: { id: true, status: true, createdAt: true, student: { select: personSelect } },
       }),
     ]);
 
     const records = await ctx.db.attendanceRecord.findMany({
-      where: { courseId: input.courseId },
+      where: { programId: input.programId },
       select: {
         enrollmentId: true,
         sessionId: true,
@@ -923,21 +924,54 @@ export const attendanceRouter = createTRPCRouter({
       status: record.status,
     }));
 
+    /*
+      When each fellow actually arrives, which is what taking attendance once a day gave up and this
+      gives back — see `lib/attendance/arrival.ts`.
+
+      Only records carrying a `checkedInAt` count, and the weekday comes from the session's day rather
+      than from the arrival instant. Both rules live in that module; this supplies the pairs.
+    */
+    const dayBySession = new Map(summarySessions.map((session) => [session.id, session.day]));
+    const arrivalsByEnrollment = new Map<string, Arrival[]>();
+    for (const record of records) {
+      if (!record.checkedInAt) continue;
+      const day = dayBySession.get(record.sessionId);
+      if (!day) continue;
+      const bucket = arrivalsByEnrollment.get(record.enrollmentId);
+      const arrival = { day, checkedInAt: record.checkedInAt };
+      if (bucket) bucket.push(arrival);
+      else arrivalsByEnrollment.set(record.enrollmentId, [arrival]);
+    }
+
+    const arrivals = Object.fromEntries(
+      enrollments.map((enrollment) => [
+        enrollment.id,
+        arrivalAverages(arrivalsByEnrollment.get(enrollment.id) ?? []),
+      ]),
+    );
+
     const active = enrollments.filter((enrollment) => enrollment.status === "ACTIVE");
     const removed = enrollments.filter((enrollment) => enrollment.status !== "ACTIVE");
 
     return {
-      course: {
-        id: course.id,
-        name: course.name,
-        cohortSlug: course.cohortSlug,
-        cohortTerm: course.cohortTerm,
-        archived: course.archivedAt !== null,
+      program: {
+        id: program.id,
+        name: program.name,
+        matriculation: program.matriculation,
+        archived: program.archivedAt !== null,
       },
       sessions: sessions.map((session) => publicSession(session, now)),
       openSessions: summarySessions.filter((session) => session.open).map((session) => session.day),
       active: summarize(summarySessions, active.map(toFellow), summaryRecords),
       removed: summarize(summarySessions, removed.map(toFellow), summaryRecords),
+      /**
+       * One fellow's arrival averages, by enrollment id, for every fellow on the roster.
+       *
+       * Keyed by enrollment rather than returned on each summary row, because the summary shape is
+       * shared with the fellow's own screen — and a field present on one caller's rows and absent on
+       * the other's is the kind of near-miss that typechecks.
+       */
+      arrivals,
       records,
     };
   }),
@@ -947,11 +981,12 @@ export const attendanceRouter = createTRPCRouter({
   // =====================================================================================
 
   /**
-   * Whatever a fellow can check into right now, across every cohort they are in.
+   * Whatever a fellow can check into right now, across every matriculation they are in.
    *
-   * A list rather than one session, because a fellow belongs to a program and takes several
-   * courses inside it — three of them could be meeting on a Tuesday. The dashboard is the only
-   * cross-course screen, and this is what its card reads.
+   * A list rather than one session, because somebody repeating a year is on two rosters at once and
+   * both could have opened a morning. It is one session per matriculation rather than one per course,
+   * which is the change attendance moving up made: a fellow taking three courses that all meet on a
+   * Tuesday types one code.
    *
    * **Returns nothing at all when no session is open**, rather than an entry saying so. The card
    * renders on absence of data, so an empty list is silence on a Saturday instead of a false
@@ -962,10 +997,10 @@ export const attendanceRouter = createTRPCRouter({
     const day = schoolDayOf(now);
 
     const enrollments = await ctx.db.enrollment.findMany({
-      where: { studentId: ctx.profile.id, status: "ACTIVE", course: { archivedAt: null } },
+      where: { studentId: ctx.profile.id, status: "ACTIVE", program: { archivedAt: null } },
       select: {
         id: true,
-        course: { select: { id: true, name: true } },
+        program: { select: { id: true, name: true } },
       },
     });
 
@@ -973,7 +1008,7 @@ export const attendanceRouter = createTRPCRouter({
 
     const sessions = await ctx.db.attendanceSession.findMany({
       where: {
-        courseId: { in: enrollments.map((enrollment) => enrollment.course.id) },
+        programId: { in: enrollments.map((enrollment) => enrollment.program.id) },
         date: dateColumnFor(day),
       },
       select: sessionSelect,
@@ -994,12 +1029,12 @@ export const attendanceRouter = createTRPCRouter({
     });
 
     return sessions.map((session) => {
-      const enrollment = enrollments.find((row) => row.course.id === session.courseId)!;
+      const enrollment = enrollments.find((row) => row.program.id === session.programId)!;
       const record = mine.find((row) => row.sessionId === session.id) ?? null;
 
       return {
-        courseId: session.courseId,
-        courseName: enrollment.course.name,
+        programId: session.programId,
+        programName: enrollment.program.name,
         session: publicSession(session, now),
         record: record
           ? {
@@ -1029,26 +1064,26 @@ export const attendanceRouter = createTRPCRouter({
    * whether they are in the right course at all.
    */
   checkIn: profileProcedure
-    .input(z.object({ courseId: z.string().uuid(), code: z.string().regex(/^\d{4}$/) }))
+    .input(z.object({ programId: z.string().uuid(), code: z.string().regex(/^\d{4}$/) }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
       const day = schoolDayOf(now);
 
-      await assertActiveStudent(ctx, input.courseId);
+      await assertActiveInProgram(ctx, input.programId);
 
-      const [course, enrollment] = await Promise.all([
-        ctx.db.course.findUniqueOrThrow({
-          where: { id: input.courseId },
+      const [program, enrollment] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: input.programId },
           select: { id: true, name: true },
         }),
         ctx.db.enrollment.findUniqueOrThrow({
-          where: { courseId_studentId: { courseId: input.courseId, studentId: ctx.profile.id } },
+          where: { programId_studentId: { programId: input.programId, studentId: ctx.profile.id } },
           select: { id: true },
         }),
       ]);
 
       const session = await ctx.db.attendanceSession.findUnique({
-        where: { courseId_date: { courseId: input.courseId, date: dateColumnFor(day) } },
+        where: { programId_date: { programId: input.programId, date: dateColumnFor(day) } },
         select: sessionWithSecretSelect,
       });
 
@@ -1056,7 +1091,7 @@ export const attendanceRouter = createTRPCRouter({
         throw new TRPCError({
           code: "NOT_FOUND",
           message:
-            `Check-in has not been opened for ${course.name} today. Your instructor starts it ` +
+            `Check-in has not been opened for ${program.name} today. Your instructor starts it ` +
             `at the beginning of class.`,
         });
       }
@@ -1086,7 +1121,7 @@ export const attendanceRouter = createTRPCRouter({
         };
       }
 
-      if (!isAcceptingCheckIns(session, now)) refuseClosed(session, course.name, now);
+      if (!isAcceptingCheckIns(session, now)) refuseClosed(session, program.name, now);
 
       const actor = auditActor(ctx);
 
@@ -1122,7 +1157,7 @@ export const attendanceRouter = createTRPCRouter({
             action: "ATTENDANCE_CHECK_IN_FAILED",
             actor,
             subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a student") },
-            course: { id: course.id, label: course.name },
+            program: { id: program.id, label: program.name },
             detail: { day, reason: "wrong-code" },
           }),
         );
@@ -1139,7 +1174,7 @@ export const attendanceRouter = createTRPCRouter({
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message:
-            `That is not the code for today's ${course.name} session. If your instructor replaced ` +
+            `That is not the code for today's ${program.name} session. If your instructor replaced ` +
             `the code, ask them for the new one.`,
         });
       }
@@ -1150,7 +1185,7 @@ export const attendanceRouter = createTRPCRouter({
         const record = await tx.attendanceRecord.create({
           data: {
             sessionId: session.id,
-            courseId: course.id,
+            programId: program.id,
             enrollmentId: enrollment.id,
             status,
             source: "SELF_CHECK_IN",
@@ -1163,7 +1198,7 @@ export const attendanceRouter = createTRPCRouter({
           action: "ATTENDANCE_CHECKED_IN",
           actor,
           subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a student") },
-          course: { id: course.id, label: course.name },
+          program: { id: program.id, label: program.name },
           detail: {
             day,
             status,
@@ -1176,22 +1211,26 @@ export const attendanceRouter = createTRPCRouter({
     }),
 
   /**
-   * A fellow's own week, across every cohort they are in.
+   * A fellow's own week, across every matriculation they are in.
    *
-   * The second cross-course read here after `today`, and it takes that one's scoping rather than
-   * `myHistory`'s: active enrollments in cohorts that are still running. A fellow removed from a
-   * cohort keeps *reading* their record, which is why `myHistory` lets them through — but they
+   * **One row per matriculation rather than one per course**, which is the whole change attendance
+   * moving up made here: a fellow taking three courses that all meet on a Tuesday had three rows of
+   * squares and three codes to type, and the three said the same thing.
+   *
+   * The second cross-program read here after `today`, and it takes that one's scoping rather than
+   * `myHistory`'s: active enrollments in programs that are still running. A fellow removed from a
+   * program keeps *reading* their record, which is why `myHistory` lets them through — but they
    * have no week in it, and a row on the dashboard would be telling them to turn up.
    *
    * **The week is reported as days and the rate as a term.** A weekly percentage would be a
    * confident wrong number: a session exists only because an instructor pressed start, so a
-   * morning nobody opened is indistinguishable from a morning the cohort did not meet, and a
+   * morning nobody opened is indistinguishable from a morning the program did not meet, and a
    * forgotten Tuesday would read as a full week. Squares say what happened on each day and invent
    * nothing for the days with no session. The figure beside them is cumulative, where the
    * denominator is a real one.
    *
-   * **`summarize` computes that figure, the same function the course's own attendance screen
-   * reads.** It costs this procedure the term's sessions per course rather than the week's. That
+   * **`summarize` computes that figure, the same function the program's own attendance screen
+   * reads.** It costs this procedure the term's sessions per program rather than the week's. That
    * is the price of the two screens being unable to disagree about a fellow's rate, and it is
    * worth paying — the progress bar learnt this the expensive way, and the note on
    * `verify-student-dashboard` records how.
@@ -1202,23 +1241,23 @@ export const attendanceRouter = createTRPCRouter({
     const week = weekRange(today);
 
     const enrollments = await ctx.db.enrollment.findMany({
-      where: { studentId: ctx.profile.id, status: "ACTIVE", course: { archivedAt: null } },
+      where: { studentId: ctx.profile.id, status: "ACTIVE", program: { archivedAt: null } },
       select: {
         id: true,
         createdAt: true,
-        course: { select: { id: true, name: true } },
+        program: { select: { id: true, name: true } },
       },
-      orderBy: { course: { name: "asc" } },
+      orderBy: { program: { name: "asc" } },
     });
 
-    if (enrollments.length === 0) return { week, columns: [], courses: [] };
+    if (enrollments.length === 0) return { week, columns: [], programs: [] };
 
-    const courseIds = enrollments.map((enrollment) => enrollment.course.id);
+    const programIds = enrollments.map((enrollment) => enrollment.program.id);
     const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
 
     const [sessions, records] = await Promise.all([
       ctx.db.attendanceSession.findMany({
-        where: { courseId: { in: courseIds } },
+        where: { programId: { in: programIds } },
         orderBy: { date: "asc" },
         select: sessionSelect,
       }),
@@ -1235,15 +1274,15 @@ export const attendanceRouter = createTRPCRouter({
 
     const summarySessions = sessions.map((session) => ({
       id: session.id,
-      courseId: session.courseId,
+      programId: session.programId,
       day: schoolDayFromColumn(session.date),
       open: sessionStateOf(session, now) === "open",
     }));
 
     /*
-      One column set for every course, so three rows of squares line up under one row of headings.
-      A Saturday session in any cohort widens all of them, which is right: the columns are days of
-      the week, not days of a course.
+      One column set for every matriculation, so two rows of squares line up under one row of
+      headings. A Saturday session in any of them widens all of them, which is right: the columns
+      are days of the week, not days of a program.
     */
     const columns = weekColumns(
       week,
@@ -1254,9 +1293,9 @@ export const attendanceRouter = createTRPCRouter({
 
     const byId = new Map(sessions.map((session) => [session.id, session]));
 
-    const courses = enrollments.map((enrollment) => {
+    const programs = enrollments.map((enrollment) => {
       const enrolledFrom = schoolDayOf(enrollment.createdAt);
-      const mine = summarySessions.filter((session) => session.courseId === enrollment.course.id);
+      const mine = summarySessions.filter((session) => session.programId === enrollment.program.id);
       const myRecords = records.filter((record) => record.enrollmentId === enrollment.id);
 
       const [summary] = summarize(
@@ -1292,7 +1331,7 @@ export const attendanceRouter = createTRPCRouter({
       const openRecord = openToday ? (statusBySession.get(openToday.id) ?? null) : null;
 
       return {
-        course: enrollment.course,
+        program: enrollment.program,
         enrolledFrom,
         summary: {
           eligible: summary.eligible,
@@ -1318,35 +1357,35 @@ export const attendanceRouter = createTRPCRouter({
       };
     });
 
-    return { week, columns, courses };
+    return { week, columns, programs };
   }),
 
   /**
-   * A fellow's own attendance in one course.
+   * A fellow's own attendance in one matriculation.
    *
-   * `assertCourseMember` rather than `assertActiveStudent`: somebody removed from a cohort keeps
+   * `assertProgramMember` rather than `assertActiveInProgram`: somebody removed from a program keeps
    * reading their own record, for the same reason they keep reading the feedback they were given.
    */
   myHistory: profileProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
+    .input(z.object({ programId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const now = new Date();
-      await assertCourseMember(ctx, input.courseId);
+      await assertProgramMember(ctx, input.programId);
 
-      const [course, enrollment] = await Promise.all([
-        ctx.db.course.findUniqueOrThrow({
-          where: { id: input.courseId },
+      const [program, enrollment] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: input.programId },
           select: { id: true, name: true },
         }),
         ctx.db.enrollment.findUniqueOrThrow({
-          where: { courseId_studentId: { courseId: input.courseId, studentId: ctx.profile.id } },
+          where: { programId_studentId: { programId: input.programId, studentId: ctx.profile.id } },
           select: { id: true, createdAt: true },
         }),
       ]);
 
       const [sessions, records] = await Promise.all([
         ctx.db.attendanceSession.findMany({
-          where: { courseId: input.courseId },
+          where: { programId: input.programId },
           orderBy: { date: "desc" },
           select: sessionSelect,
         }),
@@ -1391,10 +1430,25 @@ export const attendanceRouter = createTRPCRouter({
 
       const byId = new Map(records.map((record) => [record.sessionId, record]));
 
+      /*
+        Their own arrival averages, from the same function the instructor's screens read — so a fellow
+        and their instructor cannot be shown different answers about when they turn up.
+      */
+      const dayById = new Map(summarySessions.map((session) => [session.id, session.day]));
+      const arrivals = arrivalAverages(
+        records.flatMap((record) => {
+          if (!record.checkedInAt) return [];
+          const day = dayById.get(record.sessionId);
+          return day ? [{ day, checkedInAt: record.checkedInAt }] : [];
+        }),
+      );
+
       return {
-        course,
+        program,
         enrolledFrom: schoolDayOf(enrollment.createdAt),
         summary,
+        /** When they actually arrive, overall and by weekday. See `lib/attendance/arrival.ts`. */
+        arrivals,
         days: sessions.map((session) => {
           const record = byId.get(session.id) ?? null;
           return {

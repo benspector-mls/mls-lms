@@ -98,7 +98,7 @@ model Profile {
 
   user AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  instructorOf         CourseInstructor[]
+  programsInstructing  ProgramInstructor[]
   enrollments          Enrollment[]
   submissions          Submission[]
   gradedSubmissions    Submission[]          @relation("GradedBy")
@@ -163,6 +163,194 @@ model InstructorInvite {
 }
 
 // ===========================================================================
+// Programs: the matriculation a fellow is admitted to, and what it owns
+// ===========================================================================
+
+/// One matriculation of a program — "Software Engineering Fellowship", starting "Fall 2026".
+///
+/// **The thing a fellow is admitted to, and the thing a morning belongs to.** A program owns its
+/// courses, one roster, one set of attendance days, its cohorts, and its instructors. A course goes
+/// on owning its curriculum, its assignments, its gradebook, and its team sets, and owns neither
+/// attendance nor enrollment.
+///
+/// **Attendance is what made the missing layer visible.** Before this, `Course` was the only
+/// cohort-shaped thing in the schema, so a fellow taking three courses that all met on a Tuesday
+/// had three sessions to check into and three codes to type. Once the layer above the course exists
+/// the rest of the duplication is visible too: the same roster was entered once per course, the same
+/// fellow joined by one link per course, and the division of that roster between co-teaching
+/// instructors was rebuilt inside each course as its own set of groups.
+///
+/// **One row is one *run*.** "Software Engineering Fellowship" starting "Fall 2026" and the same
+/// program starting "Fall 2027" are two rows, which is what `@@unique([name, matriculation])` says.
+/// A second table holding the name once would be a third level in every URL, every query, and every
+/// guard for the sake of one string. A run is created empty; carrying a term forward is
+/// `courses.create` copying a previous course, once per course.
+model Program {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// What the program is called, repeated by every matriculation of it. See above for why that
+  /// repetition is preferred to a table holding it once.
+  name String
+
+  /// When this matriculation begins, as a person says it — "Fall 2026".
+  ///
+  /// **Free text, and nothing parses it.** There are no term dates and no record of which weekdays
+  /// the program meets, so a morning nobody opened stays indistinguishable from a morning the
+  /// program did not meet, and no warning fires about a forgotten Tuesday. It is displayed, it is
+  /// half of the identity, and it is an input to a course's suggested short name. See
+  /// `AttendanceSession` for what the absence of a calendar costs and why the cost is accepted.
+  matriculation String
+
+  /// The one link that enrolls a fellow in this program, and so in every published course of it.
+  ///
+  /// Moved up from the course, which is most of what this table is for: a fellow used to be sent one
+  /// link per course and to arrive on one roster per course. **Necessary and not sufficient** —
+  /// `RosterEntry` is the allowlist, so holding the link admits nobody who is not already expected
+  /// by name. Random rather than derived from the id, because the id appears in URLs, and replacing
+  /// it is the only control over who can still use it.
+  joinToken String @unique @map("join_token")
+
+  /// The link that makes whoever opens it an instructor of this program.
+  ///
+  /// The counterpart to `joinToken`, and the reason it is a second column rather than a reuse: the
+  /// two grant opposite things. One admits somebody to the roster; this one admits them to
+  /// authoring, to the gradebook, and to every fellow's grades in every course of the program.
+  /// Reusable, like the join link and unlike an `InstructorInvite`, because a program gains
+  /// co-teachers one at a time over a term.
+  ///
+  /// **Redeeming it never raises a role.** Only an account that already holds INSTRUCTOR or ADMIN
+  /// can use it, and a student is refused rather than promoted. Becoming staff at all stays with
+  /// `InstructorInvite` and an admin, so this grants a program and nothing more.
+  instructorToken String @unique @map("instructor_token")
+
+  /// Set when a matriculation finishes. The program leaves every active list and stays readable to
+  /// the people who were in it; nothing new can be submitted in it. Reversible, because a tidying
+  /// action that cannot be undone gets avoided instead of used. A course carries its own, because
+  /// courses inside one program finish at different times.
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  /// How long after a day's check-in opens a fellow may still arrive and count as on time.
+  ///
+  /// The program's own norm rather than each course's, because there is one morning now rather than
+  /// one per course. Copied onto each session when it starts rather than read at grading time — see
+  /// `AttendanceSession.lateAfterMinutes` for why editing this must never rewrite a past morning.
+  attendanceLateAfterMinutes Int @default(5) @map("attendance_late_after_minutes")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  courses            Course[]
+  instructors        ProgramInstructor[]
+  cohorts            Cohort[]
+  enrollments        Enrollment[]
+  rosterEntries      RosterEntry[]
+  attendanceSessions AttendanceSession[]
+
+  /// One "Software Engineering Fellowship (Fall 2026)".
+  @@unique([name, matriculation])
+  @@map("programs")
+  @@schema("public")
+}
+
+/// One instructor of one program, and the row that grants everything an instructor can do.
+///
+/// **An instructor of a program may act in every course of it.** Authoring, grading, approving, and
+/// reading every fellow's work are granted here rather than per course, which is what makes
+/// `CourseInstructor` a statement about who teaches what rather than a permission. The reasoning is
+/// the one that also left a cohort free of any instructor relation: a co-teacher covering for
+/// somebody must be able to approve their drafts, and a rule that stops them is a rule people work
+/// around rather than obey.
+///
+/// `isPrimary` marks the program's owner — whoever created it, or whoever it has since been handed
+/// to. Everybody who teaches can author and grade; the owner can additionally archive the program,
+/// delete it, decide who teaches which course, remove another instructor, and replace either link.
+/// At most one row per program holds it, which a hand-written partial unique index says, because
+/// Prisma cannot express a partial index.
+model ProgramInstructor {
+  id        String  @id @default(uuid()) @db.Uuid
+  programId String  @map("program_id") @db.Uuid
+  userId    String  @map("user_id") @db.Uuid
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  /// Which cohort of this program's roster this instructor is currently working.
+  ///
+  /// A remembered filter and nothing more: it does not say who may grade, it grants and withholds
+  /// nothing, and any instructor can change it at any moment from any screen showing the picker.
+  /// **One value for the whole program**, which is the duplication this table removes — the fact it
+  /// records is "I grade these fifteen fellows" and never "in this course I grade these fifteen".
+  ///
+  /// NULL is All Fellows, so the default is the behaviour that existed before cohorts. A plain
+  /// foreign key with `onDelete: SetNull` rather than a composite one against `(id, programId)`:
+  /// `SET NULL` on a two-column key nulls both columns, and `programId` is NOT NULL. `setCohort`
+  /// checks the cohort belongs to the program instead, and storing a foreign one would only produce
+  /// a permanently empty screen that reads as being caught up.
+  cohortId String? @map("cohort_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  program Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user    Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cohort  Cohort?            @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  /// The courses this instructor is assigned to teach. Present so that removing somebody from the
+  /// program takes those rows with them rather than leaving them behind.
+  teaches CourseInstructor[]
+
+  @@unique([programId, userId])
+  @@index([cohortId])
+  @@map("program_instructors")
+  @@schema("public")
+}
+
+/// A named division of one program's roster — "Cohort A".
+///
+/// **What this code called a grading group.** A cohort is a set and nothing else: it has no
+/// instructor, grants no permission, and decides nothing about who may grade. An instructor picks
+/// one and the screens that answer "what is left" narrow to it. Splitting a roster between
+/// co-teachers is what it is for, and that works because the piles stop overlapping rather than
+/// because anything is enforced — a co-teacher covering for somebody must still be able to approve
+/// their drafts.
+///
+/// **It belongs to the program rather than to a course**, which is the whole reason it moved. The
+/// division of a roster between instructors was never a per-course fact, so rebuilding it inside
+/// each course of a term was work that produced identical answers.
+///
+/// **A fellow is in at most one, and that is a column rather than a join table.**
+/// `Enrollment.cohortId` says it, so the partition is true by construction rather than by a unique
+/// constraint on a membership row, and "which cohort is this fellow in" has exactly one answer —
+/// which is what "Instructor A grades Cohort A" needs it to have.
+///
+/// There is no "All Fellows" row. That is the picker's unfiltered option, so no membership exists
+/// for it, no enrollment path has to remember to write one, and no instructor can rename or empty
+/// it — which is what makes "every fellow is in the default view" true by construction.
+model Cohort {
+  id        String   @id @default(uuid()) @db.Uuid
+  programId String   @map("program_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  program    Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  /// The fellows in this cohort. Their side of the key is `Restrict`, so `cohorts.remove` clears
+  /// them inside the transaction that deletes it rather than the database emptying or cascading.
+  fellows    Enrollment[]
+  /// The instructors currently filtered to this cohort. Present so that deleting one can null their
+  /// column rather than orphan it.
+  filteredBy ProgramInstructor[]
+
+  /// One "Cohort A" per program. Ordered by name in the picker, which is why there is no position
+  /// column: a list of four entries does not need reordering.
+  @@unique([programId, name])
+  /// Redundant against the primary key, and bought for one thing: `Enrollment` points at
+  /// `(cohortId, programId)` together, which is what makes a fellow assigned to another program's
+  /// cohort unrepresentable rather than merely refused by the procedure that writes it. A composite
+  /// foreign key needs a unique index to reference.
+  @@unique([id, programId])
+  @@map("cohorts")
+  @@schema("public")
+}
+
+// ===========================================================================
 // Courses, enrollment, and assignments
 //
 // Ported from marcy-lms/db/schema.ts. Field names and semantics are unchanged;
@@ -170,175 +358,119 @@ model InstructorInvite {
 // old standalone users table).
 // ===========================================================================
 
+/// One course of a program: its curriculum, its assignments, its gradebook, and its team sets.
+///
+/// **A course no longer holds attendance or enrollment.** Both belong to the `Program` above it, so
+/// there is one roster and one morning rather than one of each per course. What a course still owns
+/// is everything about the work: `CourseUnit`, `Assignment`, `Submission` and everything beneath
+/// them, and the `TeamSet` rows that divide the program's fellows for this course's projects.
 model Course {
-  id           String    @id @default(uuid()) @db.Uuid
-  name         String
-  cohortTerm   String    @map("cohort_term")
-  /// The cohort's short name, which prefixes every repository it generates:
-  /// `{cohortSlug}-{assignmentRepoName}-{github login}`.
-  ///
-  /// This is what makes two cohorts of the same program distinct on GitHub —
-  /// `f26-swe-1-4-loops-benspector3` beside `s26-swe-1-4-loops-benspector3`. Without it the
-  /// name carries no cohort, so a student repeating a module would want the repository their
-  /// previous cohort already holds, and copying a course to test it would collide with the
-  /// original for anybody in both.
-  ///
-  /// Suggested from the course name **and** `cohortTerm`, then editable — "Software Engineering
-  /// Fellowship" starting "Fall 2026" offers `sef-f26`, which an instructor may edit to
-  /// `swe-f26`. Both halves are in the suggestion because neither is unique on its own: every
-  /// program a school runs starts in the fall, so a term-only slug would be the short name of
-  /// whichever course was created first and a refusal for the rest.
-  ///
-  /// Frozen once anybody in the course has accepted anything: their repositories are already
-  /// named after it, and renaming here would not rename theirs.
-  ///
-  /// Unique across every course, archived ones included — their repositories still exist. The
-  /// constraint is what guarantees it; naming both halves only makes collisions rare.
-  cohortSlug   String    @unique @map("cohort_slug")
-  /// The one link that enrolls a student in this course.
-  ///
-  /// An instructor copies it and sends it however they already talk to their students;
-  /// opening it and signing in with GitHub creates the enrollment. There is no per-student
-  /// invite and no email is sent by this application.
-  ///
-  /// **Regenerating it is the only control over who can use it.** Anyone holding the link
-  /// joins immediately, so a link that reached the wrong person is invalidated by replacing
-  /// it, and the wrongly-enrolled student is removed from the roster. Random rather than
-  /// derived from the id, because the id appears in URLs.
-  joinToken    String    @unique @map("join_token")
-  /// The link that makes whoever opens it a co-instructor of this course.
-  ///
-  /// The counterpart to `joinToken`, and the reason it is a second column rather than a reuse:
-  /// the two grant opposite things. One admits somebody to a cohort as a student; this one
-  /// admits them to authoring, to the gradebook, and to every student's grades in it.
-  ///
-  /// **Redeeming it never raises a role.** Only an account that already holds INSTRUCTOR or
-  /// ADMIN can use it, and a student is refused rather than promoted — a course-level link that
-  /// granted staff access would be a second path to it with no admin involved, which is what
-  /// `InstructorInvite` and `adminProcedure` exist to control. So this grants a *course*, and
-  /// becoming staff at all stays where it was.
-  ///
-  /// Reusable, like the join link and unlike an `InstructorInvite`: a cohort gains co-teachers
-  /// one at a time over a term, and the role check is what bounds it rather than the token
-  /// being single use. Replacing it is the only control, the same as the join link.
-  coTeachToken String    @unique @map("co_teach_token")
-  /// Set when a cohort finishes. The course leaves every active list and stays readable to
-  /// the people who were in it; nothing new can be submitted. Reversible, because a tidying
-  /// action that cannot be undone gets avoided instead of used.
-  archivedAt   DateTime? @map("archived_at") @db.Timestamptz(6)
+  id        String @id @default(uuid()) @db.Uuid
+  programId String @map("program_id") @db.Uuid
+  name      String
 
-  /// How long after an attendance session starts a fellow may still arrive and count as on time.
+  /// The course's short name, which prefixes every repository it generates:
+  /// `{slug}-{assignmentRepoName}-{github login}`.
   ///
-  /// A cohort's own norm, because it is one: a course that starts with fifteen minutes of standup
-  /// and one that starts with a quiz disagree about when the door closes, and neither is wrong.
-  /// Copied onto each session when it starts rather than read at grading time — see
-  /// `AttendanceSession.lateAfterMinutes` for why editing this must never rewrite a past morning.
-  attendanceLateAfterMinutes Int @default(5) @map("attendance_late_after_minutes")
+  /// This is what makes two matriculations of one course distinct on GitHub —
+  /// `swe-f26-swe-1-4-loops-benspector3` beside `swe-s27-swe-1-4-loops-benspector3`. Without it the
+  /// name carries no term, so a fellow repeating a program would want the repository their previous
+  /// matriculation already holds, and copying a course to test it would collide with the original
+  /// for anybody in both.
+  ///
+  /// **On the course rather than on the program**, deliberately. A program-level prefix would make
+  /// an assignment's repository name have to be unique across the whole program, so two courses of
+  /// one matriculation could not both hold an assignment named `project-1`.
+  /// `@@unique([courseId, assignmentRepoName])` on `Assignment` is what keeps that free.
+  ///
+  /// Suggested from the course name **and** the program's `matriculation`, then editable — a course
+  /// called "Fullstack Software Engineering" in a program starting "Fall 2026" offers `fse-f26`,
+  /// which an instructor may edit to `swe-f26`. Both halves are in the suggestion because neither is
+  /// unique on its own: every program a school runs starts in the fall, so a term-only slug would be
+  /// the short name of whichever course was created first and a refusal for the rest.
+  ///
+  /// Frozen once anybody in the course has accepted anything: their repositories are already named
+  /// after it, and renaming here would not rename theirs.
+  ///
+  /// Unique across every course of every program, archived ones included — their repositories still
+  /// exist. The constraint is what guarantees it; naming both halves only makes collisions rare.
+  slug String @unique
+
+  /// Null until an instructor publishes the course, and what stops a fellow meeting a course that
+  /// begins in March on the day they join the program.
+  ///
+  /// **The lever this replaces was not enrolling anybody yet.** Being on a program's roster now
+  /// makes somebody a student of its courses, so that lever is gone, and `archivedAt` says
+  /// "finished" rather than "not started". This is one nullable timestamp meaning exactly what
+  /// `Assignment.distributedAt` means: instructors see the course and author in it, and fellows do
+  /// not see it at all.
+  ///
+  /// **Three readers must agree about it, which is why one of them is a shared function.**
+  /// `courses.listMine` filters a fellow's list on it, `assertCourseMember` refuses a fellow an
+  /// unpublished course while admitting every instructor of its program, and `distributedToStudent`
+  /// in lib/assignments/scope.ts carries the condition for both `assignments.listMine` and the
+  /// calendar feed. Two of the three agreeing and the third not is how somebody gets a deadline in
+  /// their calendar for a course they cannot open; `verify:calendar` is the check that catches it.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+
+  /// Set when this course finishes, which is not when its program does — a program runs nine months
+  /// and its courses end at different points inside that. The course leaves every active list and
+  /// stays readable to the people who were in it; nothing new can be submitted. Reversible, because
+  /// a tidying action that cannot be undone gets avoided instead of used.
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  instructors        CourseInstructor[]
-  enrollments        Enrollment[]
-  rosterEntries      RosterEntry[]
-  assignments        Assignment[]
-  courseUnits        CourseUnit[]
-  groups             CourseGroup[]
-  teamSets           TeamSet[]
-  attendanceSessions AttendanceSession[]
+  program     Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  instructors CourseInstructor[]
+  assignments Assignment[]
+  courseUnits CourseUnit[]
+  teamSets    TeamSet[]
 
+  /// Redundant against the primary key, and bought for two readers: `CourseInstructor` and
+  /// `TeamSet` both point at `(courseId, programId)` together, which is what makes a course of one
+  /// program being taught by another program's instructor, or holding another program's team set,
+  /// unrepresentable rather than merely refused.
+  @@unique([id, programId])
+  @@index([programId])
   @@map("courses")
   @@schema("public")
 }
 
-/// Join table supporting multiple instructors per course. Every instructor here
-/// is added as a collaborator on every generated student repository, so no
-/// repository ever needs manual permission changes.
+/// Who teaches one course, which is a statement about work rather than a permission.
+///
+/// **This row grants nothing.** Authority comes from `ProgramInstructor`: an instructor of a program
+/// may author, grade, and approve in every course of it. What this decides is whose name is on the
+/// course, who is added as a collaborator on every repository it generates — so no repository ever
+/// needs a manual permission change — and which course an instructor's screens open on.
+///
+/// **Two composite foreign keys hold one fact, and they share `programId`.** `(courseId, programId)`
+/// says the course belongs to the program, and `(programId, userId)` says the person is an instructor
+/// of it. There is no value `programId` could hold that satisfies both while naming somebody who is
+/// not an instructor of that course's program, so the mistake is unrepresentable rather than refused
+/// by whichever procedure happened to be asked.
+///
+/// The second key also removes a cleanup step: it cascades, so taking somebody off a program takes
+/// every course they were teaching in it with them.
+///
+/// There is deliberately no `isPrimary` here. Ownership is a program fact — see
+/// `ProgramInstructor.isPrimary` — because the actions it gates (archiving, deleting, deciding who
+/// teaches what) are about the matriculation rather than about one of its courses.
 model CourseInstructor {
-  id             String   @id @default(uuid()) @db.Uuid
-  courseId       String   @map("course_id") @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  isPrimary      Boolean  @default(false) @map("is_primary")
-  /// Which group of this course's students this instructor is currently working.
-  ///
-  /// A remembered filter and nothing more: it does not say who may grade, it grants and
-  /// withholds nothing, and any instructor can change it at any moment from any of the four
-  /// screens that show the picker. One value rather than one per screen, because the fact it
-  /// records is "I grade these fifteen" and not "on the gradebook I look at these fifteen".
-  ///
-  /// NULL is All Students, so the default is the behaviour that existed before groups and
-  /// nothing had to be backfilled. `onDelete: SetNull` returns whoever was filtered to a
-  /// deleted group to the unfiltered view rather than to an id that no longer resolves.
-  gradingGroupId String?  @map("grading_group_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  user         Profile      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  gradingGroup CourseGroup? @relation(fields: [gradingGroupId], references: [id], onDelete: SetNull)
-
-  @@unique([courseId, userId])
-  @@map("course_instructors")
-  @@schema("public")
-}
-
-/// A named set of this course's students.
-///
-/// A group is a set and nothing else. It has no instructor, grants no permission, and
-/// decides nothing about who may grade — an instructor picks one and the screens that answer
-/// "what is left" narrow to it. Splitting a cohort between co-teachers is what it is for, and
-/// that works because the piles stop overlapping rather than because anything is enforced: a
-/// co-teacher covering for somebody else must still be able to approve their drafts.
-///
-/// Deliberately free of any instructor relation, which is what leaves it usable for the two
-/// things it is not yet: a project team, and the audience of an assignment given to part of a
-/// cohort. Both are the same shape.
-///
-/// There is no "All Students" row. That is the picker's unfiltered option, so no membership
-/// rows exist for it, no enrollment path has to remember to write one, and no instructor can
-/// rename or empty it — which is what makes "every student is in the default view" true by
-/// construction rather than by maintenance.
-model CourseGroup {
   id        String   @id @default(uuid()) @db.Uuid
   courseId  String   @map("course_id") @db.Uuid
-  name      String
+  programId String   @map("program_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  memberships GroupMembership[]
-  /// The instructors currently filtered to this group. Present so that deleting a group can
-  /// null their column rather than orphan it.
-  filteredBy  CourseInstructor[]
+  course            Course            @relation(fields: [courseId, programId], references: [id, programId], onDelete: Cascade)
+  programInstructor ProgramInstructor @relation(fields: [programId, userId], references: [programId, userId], onDelete: Cascade)
 
-  /// One "Squad 1" per course. Ordered by name in the picker, which is why there is no
-  /// position column: a list of four entries does not need reordering.
-  @@unique([courseId, name])
-  @@map("course_groups")
-  @@schema("public")
-}
-
-/// One student's membership of one group.
-///
-/// Joined to the **enrollment** rather than to the profile, so the foreign key is what
-/// guarantees a group's members are students of that group's course. The alternative is a
-/// validation rule, and a validation rule is something a second caller can forget.
-///
-/// A removed student keeps their memberships. Removal is a status rather than a deleted row,
-/// so restoring somebody returns them to the groups they were in — and every group-filtered
-/// read applies `activeStudentWork` anyway, so their work stays out of the pile until then.
-model GroupMembership {
-  id           String   @id @default(uuid()) @db.Uuid
-  groupId      String   @map("group_id") @db.Uuid
-  enrollmentId String   @map("enrollment_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  group      CourseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  enrollment Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, enrollmentId])
-  @@index([enrollmentId])
-  @@map("group_memberships")
+  @@unique([courseId, userId])
+  @@index([programId, userId])
+  @@map("course_instructors")
   @@schema("public")
 }
 
@@ -356,32 +488,63 @@ enum EnrollmentStatus {
   @@schema("public")
 }
 
-/// One student in one course.
+/// One fellow in one program, and so in every published course of it.
 ///
-/// The row is created *by* a student redeeming the course's join link, so it never exists
-/// without a student — which is why `studentId` is NOT NULL and why there is no "invited"
-/// state. `@@unique([courseId, studentId])` is what makes redeeming a link twice return the
-/// enrollment that exists rather than adding another.
+/// **There is no per-course enrollment**, and removing it is the point of the program. Being on a
+/// program's roster is being a student of its courses, so there is one roster, one join link, one
+/// cohort, and one attendance day per fellow rather than one of each per course. A course a fellow
+/// should not yet see is a course that has not been published — see `Course.publishedAt` — rather
+/// than a fellow who has not been enrolled.
+///
+/// **A fellow who repeats, repeats the program.** They enroll in the next matriculation and take
+/// every course in it. There is no way to join a single course, and that is deliberate rather than
+/// an oversight: it is what gives the roster, the cohort, and the morning exactly one answer each.
+///
+/// The row is created *by* a fellow redeeming the program's join link, so it never exists without
+/// one — which is why `studentId` is NOT NULL and why there is no "invited" state.
+/// `@@unique([programId, studentId])` is what makes redeeming a link twice return the enrollment
+/// that exists rather than adding a second.
 model Enrollment {
-  id        String           @id @default(uuid()) @db.Uuid
-  courseId  String           @map("course_id") @db.Uuid
-  studentId String           @map("student_id") @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  programId String @map("program_id") @db.Uuid
+  studentId String @map("student_id") @db.Uuid
+
+  /// Which cohort of this program's roster the fellow is in. NULL is unassigned, and it is what the
+  /// picker's "No cohort" entry selects.
+  ///
+  /// **A column rather than a membership table, because a cohort is a partition.** A fellow is in at
+  /// most one, so this says it by construction; a join table would need a unique constraint to say
+  /// the same thing and would still allow the question two answers between two writes.
+  ///
+  /// **The composite key is what holds this to a cohort of the fellow's own program.** Before
+  /// cohorts moved up, the equivalent was a plain key plus a check inside `setMembers`, whose own
+  /// comment said the key alone would accept another course's enrollment. The pair makes the mistake
+  /// unrepresentable and deletes the check. It is `MATCH SIMPLE`, so a NULL `cohortId` satisfies it
+  /// whatever `programId` holds, which is exactly what unassigned needs.
+  ///
+  /// `onDelete: Restrict` rather than `SetNull`, and not by preference: `SET NULL` on a two-column
+  /// key nulls both columns, and `programId` is NOT NULL. So `cohorts.remove` clears its fellows
+  /// inside the transaction that deletes the cohort, and the database refuses if that is ever
+  /// missed.
+  cohortId String? @map("cohort_id") @db.Uuid
+
   status    EnrollmentStatus @default(ACTIVE)
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course           Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  student          Profile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  groupMemberships GroupMembership[]
-  teamMemberships  TeamMembership[]
-  attendance       AttendanceRecord[]
+  program         Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  student         Profile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohort          Cohort?            @relation(fields: [cohortId, programId], references: [id, programId], onDelete: Restrict)
+  teamMemberships TeamMembership[]
+  attendance      AttendanceRecord[]
 
-  @@unique([courseId, studentId])
-  /// Redundant on its own — `id` is already the primary key — and bought for one thing:
-  /// `AttendanceRecord` points at `(enrollmentId, courseId)` together, which is what makes a
-  /// record against another cohort's student unrepresentable rather than merely refused by the
-  /// procedure that writes it. A composite foreign key needs a unique index to reference.
-  @@unique([id, courseId])
+  @@unique([programId, studentId])
+  /// Redundant on its own — `id` is already the primary key — and bought for two readers:
+  /// `AttendanceRecord` and `TeamMembership` both point at `(enrollmentId, programId)` together,
+  /// which is what makes a row written against another program's fellow unrepresentable rather than
+  /// merely refused by the procedure that writes it.
+  @@unique([id, programId])
+  @@index([cohortId])
   @@map("enrollments")
   @@schema("public")
 }
@@ -390,49 +553,63 @@ model Enrollment {
 // Teams, and work handed in by one
 // ===========================================================================
 
-/// A named, reusable collection of the teams a course's students work in — "Unit 3 project
-/// teams".
+/// A named, reusable collection of the teams one course's fellows work in — "Unit 3 project teams".
 ///
-/// **A second mechanism beside `CourseGroup`, deliberately not an extension of it.** A group
-/// divides a cohort between co-teachers: it is a filter, students never see it, and it decides
-/// nothing about the work. A team hands in one piece of work and receives one grade, and its
-/// members can see each other. Keeping them apart is what stops a finished project's teams from
-/// crowding the grading-split picker, and it is why nothing about groups had to change.
+/// **A second mechanism beside `Cohort`, deliberately not an extension of it.** A cohort divides a
+/// program's roster between co-teachers: it is a filter, fellows never see it, and it decides
+/// nothing about the work. A team hands in one piece of work and receives one grade, and its members
+/// can see each other. Keeping them apart is what stops a finished project's teams from crowding the
+/// grading-split picker.
 ///
-/// A set rather than a flat list of teams, because a course runs several projects and each wants
-/// its own division of the same cohort. An assignment names a set, not the teams in it, so
-/// pointing the second and third assignments of one project at the same teams is one choice
-/// rather than a list re-picked each time.
+/// **A set belongs to one course**, because a project belongs to one course, while the fellows on
+/// its teams belong to the program. A set rather than a flat list of teams, because a course runs
+/// several projects and each wants its own division of the same fellows. An assignment names a set,
+/// not the teams in it, so pointing the second and third assignments of one project at the same
+/// teams is one choice rather than a list re-picked each time.
 model TeamSet {
-  id        String   @id @default(uuid()) @db.Uuid
-  courseId  String   @map("course_id") @db.Uuid
+  id       String @id @default(uuid()) @db.Uuid
+  courseId String @map("course_id") @db.Uuid
+
+  /// The program this set's course belongs to, carried rather than read through the course.
+  ///
+  /// **It exists so `TeamMembership` can hold a set and an enrollment to the same program at once.**
+  /// A set is scoped to a course and an enrollment to a program, so without this column the two ends
+  /// of a membership share no column and the chain of keys proves nothing. The composite key below
+  /// is what keeps it equal to the course's own program, so the fact is asserted once here rather
+  /// than once per fellow per project.
+  programId String @map("program_id") @db.Uuid
+
   name      String
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course      Course           @relation(fields: [courseId, programId], references: [id, programId], onDelete: Cascade)
   teams       Team[]
   memberships TeamMembership[]
   assignments Assignment[]
 
   /// One "Unit 3 project teams" per course.
   @@unique([courseId, name])
-  /// Redundant against the primary key, and bought for the same reason `Enrollment` buys one:
-  /// `TeamMembership` points at `(teamSetId, courseId)` together, which is what makes a
-  /// membership joining another cohort's student unrepresentable rather than merely refused.
+  /// For `Team` and `Assignment`, both of which point at `(id, courseId)` so a team or an assignment
+  /// of another course cannot name this set.
   @@unique([id, courseId])
+  /// For `TeamMembership`, which points at `(id, programId)` so a membership joining another
+  /// program's fellow is unrepresentable rather than merely unlikely.
+  @@unique([id, programId])
+  @@index([programId])
   @@map("team_sets")
   @@schema("public")
 }
 
 /// One team inside a set: the students who hand in together and receive one grade.
 ///
-/// `position` exists though `CourseGroup` deliberately has none, because a set is created by
-/// asking how many teams it holds. The rows are born in order and stay in it, so "Team 4" does
-/// not sort after "Team 12" the way a list ordered by name would.
+/// `position` exists though `Cohort` deliberately has none, because a set is created by asking how
+/// many teams it holds. The rows are born in order and stay in it, so "Team 4" does not sort after
+/// "Team 12" the way a list ordered by name would.
 ///
-/// `courseId` is carried rather than read through the set, so a membership can be held to one
-/// course from both ends at once. See `TeamMembership`.
+/// `courseId` is carried rather than read through the set, so the key below can hold a team to a set
+/// of the same course. A membership reaches the program through the set's own `programId` instead —
+/// see `TeamMembership`, which carries no course at all.
 model Team {
   id        String   @id @default(uuid()) @db.Uuid
   teamSetId String   @map("team_set_id") @db.Uuid
@@ -457,36 +634,37 @@ model Team {
   @@schema("public")
 }
 
-/// One student's place on one team.
+/// One fellow's place on one team.
 ///
-/// Joined to the **enrollment** rather than to the profile, following `GroupMembership` and for
-/// the same reason: the foreign key is what guarantees a team's members are students of that
-/// team's course, where a validation rule is something a second caller can forget.
+/// Joined to the **enrollment** rather than to the profile, so a foreign key guarantees a team's
+/// members are fellows of the program whose course owns that team's set — where a validation rule is
+/// something a second caller can forget.
 ///
-/// **Three foreign keys hold one fact.** `(teamId, teamSetId)` says the team belongs to the set,
-/// `(teamSetId, courseId)` says the set belongs to the course, and `(enrollmentId, courseId)`
-/// says the student is enrolled in it. There is no `courseId` a row could hold that satisfies
-/// all three while naming another cohort's student, so the mistake is unrepresentable rather
-/// than refused.
+/// **Three foreign keys hold one fact, and they share `programId`.** `(teamId, teamSetId)` says the
+/// team belongs to the set, `(teamSetId, programId)` says the set belongs to a course of this
+/// program, and `(enrollmentId, programId)` says the fellow is enrolled in it. There is no value
+/// `programId` could hold that satisfies all three while naming another program's fellow, so the
+/// mistake is unrepresentable rather than refused. The course is reached through the set, which
+/// carries `programId` for exactly this reason.
 ///
-/// **`@@unique([teamSetId, enrollmentId])` is what makes a set a partition.** A student is on at
-/// most one team of any one set, which is what "which team are you on for this project" needs to
-/// have a single answer. They may be on a team in every other set, which is what makes a set
-/// reusable across projects.
+/// **`@@unique([teamSetId, enrollmentId])` is what makes a set a partition.** A fellow is on at most
+/// one team of any one set, which is what "which team are you on for this project" needs to have a
+/// single answer. They may be on a team in every other set, which is what makes a set reusable
+/// across projects.
 ///
-/// A removed student keeps their memberships, as they keep their group memberships: removal is a
-/// status rather than a deleted row, so restoring somebody returns them to the team they were on.
+/// A removed fellow keeps their memberships, as they keep their cohort: removal is a status rather
+/// than a deleted row, so restoring somebody returns them to the team they were on.
 model TeamMembership {
   id           String   @id @default(uuid()) @db.Uuid
   teamId       String   @map("team_id") @db.Uuid
   teamSetId    String   @map("team_set_id") @db.Uuid
-  courseId     String   @map("course_id") @db.Uuid
+  programId    String   @map("program_id") @db.Uuid
   enrollmentId String   @map("enrollment_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   team       Team       @relation(fields: [teamId, teamSetId], references: [id, teamSetId], onDelete: Cascade)
-  teamSet    TeamSet    @relation(fields: [teamSetId, courseId], references: [id, courseId], onDelete: Cascade)
-  enrollment Enrollment @relation(fields: [enrollmentId, courseId], references: [id, courseId], onDelete: Cascade)
+  teamSet    TeamSet    @relation(fields: [teamSetId, programId], references: [id, programId], onDelete: Cascade)
+  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
 
   @@unique([teamSetId, enrollmentId])
   @@index([enrollmentId])
@@ -795,9 +973,10 @@ model Assignment {
   /// have no reference solutions at all. Recognisable binaries are skipped and the file count
   /// is capped, both reported rather than silent — see lib/grade/assets.ts.
   answerKeyDir       String? @map("answer_key_dir")
-  /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories
-  /// are named `{cohortSlug}-{assignmentRepoName}-{student github login}`, where the slug
-  /// comes from the course — see `Course.cohortSlug`.
+  /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories are named
+  /// `{slug}-{assignmentRepoName}-{student github login}`, where the slug comes from the course —
+  /// see `Course.slug`. **The uniqueness below is per course rather than per program**, which is
+  /// what lets two courses of one matriculation both hold an assignment named `project-1`.
   assignmentRepoName String? @map("assignment_repo_name")
   githubOrg          String? @map("github_org")
   /// Which template commit the tests come from. Null means the template's
@@ -1413,8 +1592,15 @@ model AuditEvent {
   subjectId    String? @map("subject_id") @db.Uuid
   subjectLabel String? @map("subject_label")
 
-  /// The cohort this happened in, where it happened in one. Lets an instructor be shown their
-  /// own courses' events later without widening what they can read.
+  /// The program this happened in, where it happened in one — which is most acts, since enrollment,
+  /// the roster, cohorts, and attendance all belong to a program now.
+  programId    String? @map("program_id") @db.Uuid
+  programLabel String? @map("program_label")
+
+  /// The course this happened in, for the acts that are about one: a released grade, an assignment
+  /// published, a course archived. **Both pairs exist rather than one replacing the other**, because
+  /// "which matriculation was this" and "which course was this" are different questions and a
+  /// released grade is the only thing in this log that answers the second.
   courseId    String? @map("course_id") @db.Uuid
   courseLabel String? @map("course_label")
 
@@ -1424,45 +1610,49 @@ model AuditEvent {
 
   @@index([occurredAt(sort: Desc)])
   @@index([actorId, occurredAt(sort: Desc)])
+  @@index([programId, occurredAt(sort: Desc)])
   @@index([courseId, occurredAt(sort: Desc)])
   @@index([action, occurredAt(sort: Desc)])
   @@map("audit_events")
   @@schema("public")
 }
 
-/// Somebody expected in a cohort, recorded before they ever sign in.
+/// Somebody expected in a program, recorded before they ever sign in.
 ///
-/// **The allowlist half of joining a course.** A join link is unguessable but not private: an
-/// instructor sends it however they already talk to their students, which means into a group
-/// chat, an email thread, or a message somebody forwards. Before this table the link was the
-/// whole credential — `enrollments.ts` said so — and the controls were after the fact: rotate the
-/// link, remove whoever got in. This makes the link necessary and not sufficient. Holding it
-/// admits nobody who is not already expected by name.
+/// **The allowlist half of joining.** A join link is unguessable but not private: whoever runs the
+/// program sends it however they already talk to their fellows, which means into a group chat, an
+/// email thread, or a message somebody forwards. Without this table the link would be the whole
+/// credential and the controls would all be after the fact: replace the link, remove whoever got in.
+/// This makes the link necessary and not sufficient. Holding it admits nobody who is not already
+/// expected by name.
 ///
-/// **Matched on GitHub login or email, either one.** Two keys rather than one because each fails
-/// in a way the other covers. A student who renames their GitHub account between the roster being
-/// entered and their first sign-in no longer matches by login; a student whose GitHub email is
-/// private presents a `users.noreply.github.com` address and never matched by email to begin
-/// with. Requiring one and accepting either is what makes the roster survive contact with real
-/// accounts. Both are stored lowercased — GitHub logins are case-insensitive, and the handle the
-/// signup trigger captures preserves whatever casing GitHub had.
+/// **One roster for the whole program**, which is one of the duplications the program removes: the
+/// same list of expected people used to be entered once per course.
+///
+/// **Matched on GitHub login or email, either one.** Two keys rather than one because each fails in a
+/// way the other covers. Somebody who renames their GitHub account between the roster being entered
+/// and their first sign-in no longer matches by login; somebody whose GitHub email is private
+/// presents a `users.noreply.github.com` address and never matched by email to begin with. Requiring
+/// one and accepting either is what makes the roster survive contact with real accounts. Both are
+/// stored lowercased — GitHub logins are case-insensitive, and the handle the signup trigger
+/// captures preserves whatever casing GitHub had.
 ///
 /// **One entry admits one person, once.** `claimedById` is set in the same transaction as the
-/// enrollment, so a second person who somehow matched the same entry finds it taken. A student
-/// who is removed and later restored still matches their own claimed entry, which is why the
-/// check is "unclaimed, or claimed by you" rather than "unclaimed".
+/// enrollment, so a second person who somehow matched the same entry finds it taken. A fellow who is
+/// removed and later restored still matches their own claimed entry, which is why the check is
+/// "unclaimed, or claimed by you" rather than "unclaimed".
 model RosterEntry {
-  id       String @id @default(uuid()) @db.Uuid
-  courseId String @map("course_id") @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  programId String @map("program_id") @db.Uuid
 
-  /// GitHub login, lowercased. Null when the instructor only had an address.
+  /// GitHub login, lowercased. Null when whoever entered it only had an address.
   githubUsername String? @map("github_username")
-  /// Email, lowercased. Null when the instructor only had a handle.
+  /// Email, lowercased. Null when they only had a handle.
   email          String?
 
   /// Who this is meant to be, in an instructor's words. Not matched on — it exists so a roster of
-  /// unclaimed entries reads as a list of people rather than a list of handles, which is what
-  /// makes a typo in one of the two keys above findable.
+  /// unclaimed entries reads as a list of people rather than a list of handles, which is what makes a
+  /// typo in one of the two keys above findable.
   note String?
 
   /// The profile that matched this entry and joined on it. Null until somebody does.
@@ -1472,17 +1662,17 @@ model RosterEntry {
   addedById String?  @map("added_by_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
   claimedBy Profile? @relation("RosterClaimed", fields: [claimedById], references: [id], onDelete: SetNull)
   addedBy   Profile? @relation("RosterAdded", fields: [addedById], references: [id], onDelete: SetNull)
 
-  /// One entry per person per cohort, on whichever key was given. Two entries naming the same
-  /// student by different keys would each admit them once, which is one enrollment and two
-  /// claimed rows — harmless, and confusing enough on the screen to be worth preventing at the
-  /// point of entry rather than here.
-  @@unique([courseId, githubUsername])
-  @@unique([courseId, email])
-  @@index([courseId])
+  /// One entry per person per program, on whichever key was given. Two entries naming the same
+  /// fellow by different keys would each admit them once, which is one enrollment and two claimed
+  /// rows — harmless, and confusing enough on the screen to be worth preventing at the point of entry
+  /// rather than here.
+  @@unique([programId, githubUsername])
+  @@unique([programId, email])
+  @@index([programId])
   @@map("roster_entries")
   @@schema("public")
 }
@@ -1515,114 +1705,113 @@ enum AttendanceSource {
   @@schema("public")
 }
 
-/// One meeting of one course, on one civil day.
+/// One day of one program, on one civil date.
 ///
-/// **The first thing in this schema that models a calendar, and deliberately the smallest one that
-/// works.** There is no term, no timetable, and no notion of which days a cohort is supposed to
-/// meet. A session exists because an instructor pressed start. That is the same trade `CourseGroup`
-/// makes — a set and nothing else — and it has the same consequence, worth writing down rather
-/// than discovering: **a morning nobody opened is indistinguishable from a morning the cohort did
-/// not meet.** Nothing here can detect a forgotten Tuesday, and nothing tries: without term dates
-/// a warning would fire on Saturdays and over winter break, and a warning wrong twice a week is
-/// one people stop seeing. The denominator is sessions that happened, which is also the more
-/// honest figure — a forgotten morning should not read as a cohort-wide absence.
+/// **A program day rather than a course meeting**, which is the change this whole layer exists for. A
+/// fellow takes several courses inside one matriculation and arrives at the building once, so there
+/// is one session to check into and one code to type. Before the program existed, `Course` was the
+/// only cohort-shaped thing in the schema and a fellow in three courses had three of each.
 ///
-/// **Attendance belongs to a course, not to the program above it.** A fellow belongs to a program
-/// and a cohort and takes several courses inside one, but `Course` is the only cohort-shaped thing
-/// that exists here, so a fellow in three courses has three sessions to check into on a Tuesday.
-/// That is the honest version of what is modelled rather than a limitation being worked around.
+/// **The smallest calendar that works, and still deliberately not a calendar.** There is no term, no
+/// timetable, and no notion of which days a program is supposed to meet. A session exists because an
+/// instructor pressed start. That has a consequence worth writing down rather than discovering: **a
+/// morning nobody opened is indistinguishable from a morning the program did not meet.** Nothing here
+/// can detect a forgotten Tuesday, and nothing tries: without term dates a warning would fire on
+/// Saturdays and over winter break, and a warning wrong twice a week is one people stop seeing. The
+/// denominator is sessions that happened, which is also the more honest figure — a forgotten morning
+/// should not read as a program-wide absence.
 ///
-/// **`date` is a civil date and not an instant**, and it is the only `@db.Date` in this schema.
-/// The unique constraint below is the whole reason: two instructors pressing start at 9:00 and
-/// 9:01 must collide, and they only collide if the key is the *day* rather than a timestamp that
-/// happens to fall inside it. A timestamptz holding "midnight in New York" is unique only if every
-/// writer computes that instant identically, and a caller who used UTC midnight, a caller who used
-/// the current time, and a daylight-saving boundary each produce a second row for the same day
-/// while the constraint sits there satisfied. See `lib/school-time.ts` for the conversion — and
-/// never send this column to a browser as a `Date`, because Prisma hands it back as UTC midnight
-/// and a reader in Brooklyn renders it as the day before.
+/// **`date` is a civil date and not an instant**, and it is the only `@db.Date` in this schema
+/// besides `gcf_attempts.taken_on`. The unique constraint below is the whole reason: two instructors
+/// pressing start at 9:00 and 9:01 must collide, and they only collide if the key is the *day* rather
+/// than a timestamp that happens to fall inside it. A timestamptz holding "midnight in New York" is
+/// unique only if every writer computes that instant identically, and a caller who used UTC midnight,
+/// a caller who used the current time, and a daylight-saving boundary each produce a second row for
+/// the same day while the constraint sits there satisfied. See `lib/school-time.ts` for the
+/// conversion — and never send this column to a browser as a `Date`, because Prisma hands it back as
+/// UTC midnight and a reader in Brooklyn renders it as the day before.
 model AttendanceSession {
-  id       String   @id @default(uuid()) @db.Uuid
-  courseId String   @map("course_id") @db.Uuid
-  date     DateTime @db.Date
+  id        String   @id @default(uuid()) @db.Uuid
+  programId String   @map("program_id") @db.Uuid
+  date      DateTime @db.Date
 
-  /// When check-in opened. Also the anchor the rotating code counts its slots from, which is why
-  /// editing it after the fact recomputes every self check-in's lateness.
+  /// When check-in opened. Also what lateness is measured from, which is why editing it after the
+  /// fact recomputes every self check-in's status.
   startedAt   DateTime @map("started_at") @db.Timestamptz(6)
   startedById String?  @map("started_by_id") @db.Uuid
 
-  /// When the code stops working on its own. `startedAt + 90 minutes` at first, pushed forward
-  /// half an hour at a time by Extend.
+  /// When the code stops working on its own. `startedAt + 90 minutes` at first, pushed forward half
+  /// an hour at a time by Extend.
   ///
-  /// **Two columns for ending, because they answer different questions.** This one is when the
-  /// code dies; `endedAt` is when a person said the class was over. A session is open while
-  /// `endedAt` is null *and* now is before this — so the backstop needs nothing to run at the
-  /// ninety-minute mark, which matters because there is no scheduler in this project and no
-  /// prospect of one. It is a comparison, like every other time rule here.
+  /// **Two columns for ending, because they answer different questions.** This one is when the code
+  /// dies; `endedAt` is when a person said the day was over. A session is open while `endedAt` is
+  /// null *and* now is before this — so the backstop needs nothing to run at the ninety-minute mark,
+  /// which matters because there is no scheduler in this project and no prospect of one. It is a
+  /// comparison, like every other time rule here.
   ///
-  /// Without it, a session nobody ended keeps a working code alive until the next class, and a
-  /// fellow could mark themselves present at eight in the evening for a nine o'clock morning. The
-  /// sweep in `start` closes the books eventually; this is what stops the code before it does.
+  /// Without it, a session nobody ended keeps a working code alive until the next day, and a fellow
+  /// could mark themselves present at eight in the evening for a nine o'clock morning. The sweep in
+  /// `start` closes the books eventually; this is what stops the code before it does.
   endsAt DateTime @map("ends_at") @db.Timestamptz(6)
 
-  /// Set when a person ended the session. Null until then, including after the backstop has
-  /// lapsed — collapsing the two would mean either the backstop overwrote a person's decision or
-  /// a person's decision looked like a timeout, and the log could no longer tell them apart.
+  /// Set when a person ended the session. Null until then, including after the backstop has lapsed —
+  /// collapsing the two would mean either the backstop overwrote a person's decision or a person's
+  /// decision looked like a timeout, and the log could no longer tell them apart.
   endedAt DateTime? @map("ended_at") @db.Timestamptz(6)
 
-  /// Copied from `Course.attendanceLateAfterMinutes` when the session starts.
+  /// Copied from `Program.attendanceLateAfterMinutes` when the session starts.
   ///
   /// **Copied rather than read through**, and that is the point of the column existing twice. A
-  /// stored status decided against a live setting would let an instructor loosen the rule in
-  /// November and silently convert a term of LATEs into PRESENTs, so no report would agree with
-  /// any report printed before it. Copying is what makes the course setting editable at all.
+  /// stored status decided against a live setting would let somebody loosen the rule in November and
+  /// silently convert a term of LATEs into PRESENTs, so no report would agree with any report printed
+  /// before it. Copying is what makes the program's setting editable at all.
   lateAfterMinutes Int @map("late_after_minutes")
 
-  /// The HMAC key the rotating code derives from. 64 hex characters, 256 bits, random per session.
+  /// The HMAC key the check-in code derives from. 64 hex characters, 256 bits, random per session.
   ///
-  /// **On the row rather than in the environment**, for reasons that are all operational: it
-  /// survives a deploy, so a restart at 9:03 does not lock a cohort out; two instructor screens
-  /// derive the same code because neither holds state; a code that leaks is worthless tomorrow
-  /// without anybody doing anything; and rotating after a leak is a button rather than a deploy.
+  /// **On the row rather than in the environment**, for reasons that are all operational: it survives
+  /// a deploy, so a restart at 9:03 does not lock a program out; two instructor screens derive the
+  /// same code because neither holds state; a code that leaks is worthless tomorrow without anybody
+  /// doing anything; and rotating after a leak is a button rather than a deploy.
   ///
-  /// **Never selected into a payload.** The same rule as `Course.joinToken` and sharper — that one
-  /// admits somebody to a cohort, this one lets them mark themselves present from bed. Only
+  /// **Never selected into a payload.** The same rule as `Program.joinToken` and sharper — that one
+  /// admits somebody to a roster, this one lets them mark themselves present from bed. Only
   /// `lib/attendance/code.ts` reads it.
   codeSecret String @map("code_secret")
 
-  /// Free text about the meeting — "guest speaker", "half day". Not matched on.
+  /// Free text about the day — "guest speaker", "half day". Not matched on.
   note String?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  course    Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  program   Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
   startedBy Profile?           @relation("AttendanceStarted", fields: [startedById], references: [id], onDelete: SetNull)
   records   AttendanceRecord[]
 
-  /// **What makes starting a session idempotent.** Two instructors pressing the button in the same
-  /// minute produce one session, and the loser of the race is handed the one that exists rather
-  /// than a second one with a different code. A course that ever meets twice in a day needs a
-  /// third column here; nothing else in the design changes.
-  @@unique([courseId, date])
-  @@index([courseId, date(sort: Desc)])
+  /// **What makes starting a day idempotent.** Two instructors pressing the button in the same minute
+  /// produce one session, and the loser of the race is handed the one that exists rather than a
+  /// second one with a different code. A program that ever meets twice in a day needs a third column
+  /// here; nothing else in the design changes.
+  @@unique([programId, date])
+  @@index([programId, date(sort: Desc)])
   @@map("attendance_sessions")
   @@schema("public")
 }
 
-/// What one fellow did at one session.
+/// What one fellow did on one program day.
 ///
-/// **Keyed on the enrollment, following `GroupMembership`**, because the enrollment is what says
-/// "a student *of this course*" — the thing attendance is actually about. And because removal is a
-/// status rather than a deleted row, a fellow who leaves in week 4 and is restored in week 7 keeps
-/// one enrollment and therefore one continuous history.
+/// **Keyed on the enrollment**, because the enrollment is what says "a fellow *of this program*" —
+/// the thing attendance is actually about. And because removal is a status rather than a deleted row,
+/// a fellow who leaves in week 4 and is restored in week 7 keeps one enrollment and therefore one
+/// continuous history.
 ///
 /// **The enrollment relation is composite on purpose.** `setStatus` takes an enrollment id from
-/// input, and pointing at `(enrollmentId, courseId)` together is what makes an instructor of one
-/// cohort writing a record against another cohort's student unrepresentable rather than merely
-/// refused by the procedure. `courseId` is copied from the session the server just loaded, never
-/// taken from input, and it pays for itself twice — the compliance export reads one table instead
-/// of joining through the session to ask which cohort a row belongs to.
+/// input, and pointing at `(enrollmentId, programId)` together is what makes an instructor of one
+/// program writing a record against another program's fellow unrepresentable rather than merely
+/// refused by the procedure. `programId` is copied from the session the server just loaded, never
+/// taken from input, and it pays for itself twice — the compliance export reads one table instead of
+/// joining through the session to ask which matriculation a row belongs to.
 ///
 /// **`@@unique([sessionId, enrollmentId])` is what makes checking in twice harmless.** A fellow who
 /// types the code, sees nothing happen, and types it again gets the record they already have:
@@ -1634,12 +1823,13 @@ model AttendanceSession {
 /// overwriting an EXCUSED their instructor set for them by typing a code they overheard.
 ///
 /// `checkedInAt` survives an override, so an instructor calling a 9:07 arrival PRESENT leaves a row
-/// saying both the time they arrived and the decision made about it. That is what turns correcting
-/// a session somebody started five minutes early into a recomputation rather than a guess.
+/// saying both the time they arrived and the decision made about it. That is what turns correcting a
+/// session somebody started five minutes early into a recomputation rather than a guess — and it is
+/// also what the arrival averages in `lib/attendance/arrival.ts` are computed from.
 model AttendanceRecord {
   id           String @id @default(uuid()) @db.Uuid
   sessionId    String @map("session_id") @db.Uuid
-  courseId     String @map("course_id") @db.Uuid
+  programId    String @map("program_id") @db.Uuid
   enrollmentId String @map("enrollment_id") @db.Uuid
 
   status AttendanceStatus
@@ -1653,20 +1843,20 @@ model AttendanceRecord {
   /// person must not delete the record of what they decided.
   recordedById String? @map("recorded_by_id") @db.Uuid
 
-  /// Why, in words. The whole of what EXCUSED means is in here, and it is also where a fellow's
-  /// own account of a missed morning ends up once an instructor acts on it.
+  /// Why, in words. The whole of what EXCUSED means is in here, and it is also where a fellow's own
+  /// account of a missed morning ends up once an instructor acts on it.
   note String?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   session    AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  enrollment Enrollment        @relation(fields: [enrollmentId, courseId], references: [id, courseId], onDelete: Cascade)
+  enrollment Enrollment        @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
   recordedBy Profile?          @relation("AttendanceRecorded", fields: [recordedById], references: [id], onDelete: SetNull)
 
   @@unique([sessionId, enrollmentId])
   @@index([enrollmentId])
-  @@index([courseId, status])
+  @@index([programId, status])
   @@map("attendance_records")
   @@schema("public")
 }

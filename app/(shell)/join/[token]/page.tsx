@@ -1,10 +1,10 @@
 import { Suspense } from "react";
 
-import { JoinCourse } from "@/components/student/join-course";
+import { JoinProgram } from "@/components/student/join-program";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * Where a course's join link lands.
+ * Where a matriculation's join link lands.
  *
  * Inside `(shell)`, so it is behind the same authentication as every other page: the proxy
  * sends an unauthenticated visitor to `/auth/login` and they arrive back here signed in. That
@@ -29,10 +29,11 @@ async function Join({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const queryClient = getQueryClient();
 
-  // Read on the server so the screen can name the course before anybody presses anything.
+  // Read on the server so the screen can name the program and its courses before anybody
+  // presses anything.
   // Null when the token is unknown, which the component reports as a link that no longer works
   // rather than as an error.
   const preview = await queryClient.fetchQuery(trpc.enrollments.preview.queryOptions({ token }));
 
-  return <JoinCourse token={token} preview={preview} />;
+  return <JoinProgram token={token} preview={preview} />;
 }

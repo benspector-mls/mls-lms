@@ -24,22 +24,22 @@ import { useTRPC } from "@/trpc/client";
  * Putting a test student in this cohort: a new one, or one that already exists.
  *
  * **Two ways in, because reuse is worth offering and is not the obvious default.** A test student
- * is an identity rather than a course's property, so the same one can sit in several cohorts, and
- * its repositories stay distinct — a repository is named for the cohort as well as the student.
+ * is an identity rather than a program's property, so the same one can sit on several rosters, and
+ * its repositories stay distinct — a repository is named for the course as well as the student.
  * What reuse buys is one identity an admin gets used to seeing instead of a growing list of
  * numbers. What a new one buys is a clean slate, and two rows in one gradebook when that is what
  * you want to look at.
  *
- * Ones already in this cohort are listed and unselectable rather than hidden, because "Test Student
+ * Ones already on this roster are listed and unselectable rather than hidden, because "Test Student
  * 1 is already here" is the answer to the question somebody opened this to ask, and an absence does
  * not say it.
  */
 export function TestStudentDialog({
-  courseId,
+  programId,
   open,
   onOpenChange,
 }: {
-  courseId: string;
+  programId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -47,7 +47,7 @@ export function TestStudentDialog({
   const settled = useServerMutation();
 
   const existing = useQuery({
-    ...trpc.testStudents.list.queryOptions({ courseId }),
+    ...trpc.testStudents.list.queryOptions({ programId }),
     enabled: open,
   });
 
@@ -55,7 +55,7 @@ export function TestStudentDialog({
     trpc.testStudents.create.mutationOptions(
       settled({
         onSuccess: (result) => {
-          toast.success(`${result.displayName} is in the cohort.`);
+          toast.success(`${result.displayName} is on the roster.`);
           onOpenChange(false);
         },
       }),
@@ -66,7 +66,7 @@ export function TestStudentDialog({
     trpc.testStudents.enroll.mutationOptions(
       settled({
         onSuccess: (result) => {
-          toast.success(`${result.displayName} is in the cohort.`);
+          toast.success(`${result.displayName} is on the roster.`);
           onOpenChange(false);
         },
       }),
@@ -87,9 +87,10 @@ export function TestStudentDialog({
         <DialogHeader>
           <DialogTitle>Add a test student</DialogTitle>
           <DialogDescription>
-            A student-shaped account you can look through to meet this course the way a student does
-            — accept its work, push to its repositories, and grade the result. It is left out of the
-            student count on the course card, and shown with a Test badge everywhere else.
+            A student-shaped account you can look through to meet this matriculation the way a
+            fellow does — accept the work of any of its courses, push to its repositories, and grade
+            the result. It is left out of the roster count, and shown with a Test badge everywhere
+            else.
           </DialogDescription>
         </DialogHeader>
 
@@ -98,7 +99,7 @@ export function TestStudentDialog({
             variant="outline"
             className="justify-start"
             disabled={busy}
-            onClick={() => create.mutate({ courseId })}
+            onClick={() => create.mutate({ programId })}
           >
             {create.isPending ? (
               <Loader2 data-icon="inline-start" className="animate-spin" />
@@ -120,7 +121,7 @@ export function TestStudentDialog({
                       key={student.id}
                       type="button"
                       disabled={busy}
-                      onClick={() => enroll.mutate({ courseId, profileId: student.id })}
+                      onClick={() => enroll.mutate({ programId, profileId: student.id })}
                       className={cn(
                         "flex min-w-0 items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-sm",
                         "transition-colors hover:bg-muted disabled:opacity-60",

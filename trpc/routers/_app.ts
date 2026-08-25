@@ -7,9 +7,10 @@ import { assignmentsRouter } from "./assignments";
 import { attendanceRouter } from "./attendance";
 import { gcfRouter } from "./gcf";
 import { coursesRouter } from "./courses";
+import { programsRouter } from "./programs";
 import { enrollmentsRouter } from "./enrollments";
 import { gradingDraftsRouter } from "./grading-drafts";
-import { groupsRouter } from "./groups";
+import { cohortsRouter } from "./cohorts";
 import { pullRequestsRouter } from "./pull-requests";
 import { courseUnitsRouter } from "./course-units";
 import { resourcesRouter } from "./resources";
@@ -155,12 +156,13 @@ export const appRouter = createTRPCRouter({
     return { token: profile.calendarToken };
   }),
 
+  programs: programsRouter,
   courses: coursesRouter,
   enrollments: enrollmentsRouter,
   attendance: attendanceRouter,
   gcf: gcfRouter,
   courseUnits: courseUnitsRouter,
-  groups: groupsRouter,
+  cohorts: cohortsRouter,
   teamSets: teamSetsRouter,
   resources: resourcesRouter,
   assignments: assignmentsRouter,

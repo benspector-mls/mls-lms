@@ -1,5 +1,6 @@
 import {
   attendanceHref,
+  cohortsHref,
   courseHref,
   courseSettingsHref,
   curriculumHref,
@@ -7,25 +8,32 @@ import {
   gradebookHref,
   gradingQueueHref,
   newAssignmentHref,
+  programInstructorsHref,
+  programSettingsHref,
+  programStudentHref,
   rosterHref,
   sameViewInCourse,
+  sameViewInProgram,
   studentHref,
+  teamsHref,
   triageHref,
 } from "@/lib/links";
 
 const COURSE = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
+const PROGRAM = "77777777-7777-4777-8777-777777777777";
+const OTHER_PROGRAM = "88888888-8888-4888-8888-888888888888";
 const ASSIGNMENT = "33333333-3333-4333-8333-333333333333";
 const STUDENT = "44444444-4444-4444-8444-444444444444";
 const SUBMISSION = "55555555-5555-4555-8555-555555555555";
 const UNIT = "66666666-6666-4666-8666-666666666666";
 
-describe("every instructor route names its course", () => {
+describe("every course route names its course", () => {
   it.each([
     triageHref(COURSE),
     curriculumHref(COURSE),
     gradebookHref(COURSE),
-    rosterHref(COURSE),
+    teamsHref(COURSE),
     courseSettingsHref(COURSE),
     courseHref(COURSE),
     newAssignmentHref(COURSE),
@@ -34,9 +42,40 @@ describe("every instructor route names its course", () => {
     editAssignmentHref(COURSE, ASSIGNMENT),
     studentHref(COURSE, STUDENT),
   ])("%s", (href) => {
-    // The address is the only record of which cohort you are in. A link that omitted the
-    // course would land the reader somewhere the sidebar could not describe.
+    // The address is the only record of which course you are in. A link that omitted it would
+    // land the reader somewhere the sidebar could not describe.
     expect(href).toContain(COURSE);
+  });
+});
+
+/**
+ * The program's own views, and the rule that keeps the two scopes apart.
+ *
+ * **A course address never carries a program id**, which is what stops any link holding two ids
+ * that could disagree: the program is resolved from the course. So the check runs in both
+ * directions — every program address names its program, and no course address does.
+ */
+describe("every program route names its program, and no course route does", () => {
+  it.each([
+    attendanceHref(PROGRAM),
+    rosterHref(PROGRAM),
+    cohortsHref(PROGRAM),
+    programInstructorsHref(PROGRAM),
+    programSettingsHref(PROGRAM),
+    programStudentHref(PROGRAM, STUDENT),
+  ])("%s names the program", (href) => {
+    expect(href).toContain(PROGRAM);
+  });
+
+  it.each([
+    triageHref(COURSE),
+    curriculumHref(COURSE),
+    gradebookHref(COURSE),
+    teamsHref(COURSE),
+    courseSettingsHref(COURSE),
+    studentHref(COURSE, STUDENT),
+  ])("%s names no program", (href) => {
+    expect(href).not.toContain(PROGRAM);
   });
 });
 
@@ -71,29 +110,30 @@ describe("sameViewInCourse", () => {
   describe("the views every course has, which travel", () => {
     it.each([
       ["triage", triageHref(OTHER)],
-      ["attendance", attendanceHref(OTHER)],
       ["curriculum", curriculumHref(OTHER)],
       ["gradebook", gradebookHref(OTHER)],
-      ["roster", rosterHref(OTHER)],
+      ["teams", teamsHref(OTHER)],
       ["settings", courseSettingsHref(OTHER)],
-    ])("%s becomes the other cohort's %s", (segment, expected) => {
+    ])("%s becomes the other course's %s", (segment, expected) => {
       expect(sameViewInCourse(`/instructor/courses/${COURSE}/${segment}`, OTHER)).toBe(expected);
     });
   });
 
   /*
-    Attendance's two tabs are one address, so the whole view travels. One *day* under it does not
-    travel to the other cohort's day — that cohort may not have met on it — but it does not fall
-    through to settings either: landing on the other cohort's attendance is what somebody switching
-    from an attendance screen asked for.
+    Attendance and the roster are the program's views now, so they are not segments this function
+    ever sees. Checked rather than assumed: if either came back as a course view, a switcher would
+    be building a course address for a screen that does not exist at one.
   */
-  it("one day under attendance travels to the other cohort's attendance, not to settings", () => {
-    expect(sameViewInCourse(`/instructor/courses/${COURSE}/attendance/day/2026-08-14`, OTHER)).toBe(
-      attendanceHref(OTHER),
-    );
-  });
+  it.each(["attendance", "roster", "cohorts", "instructors"])(
+    "does not recognise %s, which belongs to the program",
+    (segment) => {
+      expect(sameViewInCourse(`/instructor/courses/${COURSE}/${segment}`, OTHER)).toBe(
+        courseSettingsHref(OTHER),
+      );
+    },
+  );
 
-  describe("the addresses that belong to one cohort and cannot travel", () => {
+  describe("the addresses that belong to one course and cannot travel", () => {
     it.each([
       ["one assignment's queue", `/instructor/courses/${COURSE}/curriculum/${ASSIGNMENT}`],
       ["its edit form", `/instructor/courses/${COURSE}/curriculum/${ASSIGNMENT}/edit`],
@@ -154,8 +194,52 @@ describe("authoring an assignment inside a unit", () => {
   });
 
   it("tolerates a trailing slash", () => {
-    expect(sameViewInCourse(`/instructor/courses/${COURSE}/roster/`, OTHER)).toBe(
-      rosterHref(OTHER),
+    expect(sameViewInCourse(`/instructor/courses/${COURSE}/gradebook/`, OTHER)).toBe(
+      gradebookHref(OTHER),
+    );
+  });
+});
+
+/**
+ * The program switcher's arithmetic, checked exhaustively for the reason its sibling is: a view
+ * missing from `sameViewInProgram` does not throw, it falls through to settings — so switching
+ * matriculation from the roster would silently land somewhere else and read as the switcher losing
+ * your place.
+ */
+describe("sameViewInProgram", () => {
+  describe("the views every program has, which travel", () => {
+    it.each([
+      ["attendance", attendanceHref(OTHER_PROGRAM)],
+      ["roster", rosterHref(OTHER_PROGRAM)],
+      ["cohorts", cohortsHref(OTHER_PROGRAM)],
+      ["instructors", programInstructorsHref(OTHER_PROGRAM)],
+      ["settings", programSettingsHref(OTHER_PROGRAM)],
+    ])("%s becomes the other program's %s", (segment, expected) => {
+      expect(sameViewInProgram(`/instructor/programs/${PROGRAM}/${segment}`, OTHER_PROGRAM)).toBe(
+        expected,
+      );
+    });
+  });
+
+  /*
+    One day of attendance does not travel. The other matriculation may not have met on it, and
+    landing on an empty screen offering to record a morning that never happened is worse than
+    landing on settings — which is also where a fellow's record lands, because a person is on one
+    roster or the other and a page naming somebody absent from this one would refuse rather than
+    render.
+  */
+  it.each([
+    ["one day of attendance", `/instructor/programs/${PROGRAM}/attendance/day/2026-08-14`],
+    ["a fellow's record", `/instructor/programs/${PROGRAM}/students/${STUDENT}`],
+    ["the bare program address", `/instructor/programs/${PROGRAM}`],
+  ])("%s lands on settings", (_label, pathname) => {
+    expect(sameViewInProgram(pathname, OTHER_PROGRAM)).toBe(programSettingsHref(OTHER_PROGRAM));
+  });
+
+  it("lands on settings from a course address, which names no program", () => {
+    // A course address carries no program id, so there is nothing here to keep.
+    expect(sameViewInProgram(`/instructor/courses/${COURSE}/gradebook`, OTHER_PROGRAM)).toBe(
+      programSettingsHref(OTHER_PROGRAM),
     );
   });
 });

@@ -4,17 +4,17 @@ import { Gradebook, parseGradebookTab } from "@/components/instructor/gradebook"
 import { GradebookDownload } from "@/components/instructor/gradebook-download";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
-import { GroupPicker } from "@/components/instructor/group-picker";
-import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
+import { CohortPicker } from "@/components/instructor/cohort-picker";
+import { cohortSelectionLabel, parseCohortSelection } from "@/lib/programs/cohorts";
 import { gradebookCsv, gradebookIsEmpty } from "@/lib/gradebook/csv";
-import { resolveGroup } from "@/lib/courses/resolve-group";
+import { resolveCohortForCourse } from "@/lib/programs/resolve-cohort";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * Every student against every assignment.
+ * Every fellow against every assignment.
  *
  * The back link to the course page is gone with the tab bar that made it necessary. The
- * gradebook is its own sidebar item now, so the way to anywhere else in the cohort is the
+ * gradebook is its own sidebar item now, so the way to anywhere else in the course is the
  * sidebar rather than a link back to a page that no longer lists anything.
  */
 export default function GradebookPage({
@@ -22,7 +22,7 @@ export default function GradebookPage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ group?: string; tab?: string }>;
+  searchParams: Promise<{ cohort?: string; tab?: string }>;
 }) {
   return (
     <Suspense fallback={<PageFallback rows={10} />}>
@@ -36,11 +36,11 @@ async function FullGradebook({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ group?: string; tab?: string }>;
+  searchParams: Promise<{ cohort?: string; tab?: string }>;
 }) {
   const { courseId } = await params;
   const query = await searchParams;
-  const groups = await resolveGroup(courseId, query.group);
+  const cohorts = await resolveCohortForCourse(courseId, query.cohort);
   // Anything unrecognised becomes the overview, so a stale link lands on the tab that
   // describes all three of the others rather than on an error.
   const tab = parseGradebookTab(query.tab);
@@ -56,44 +56,43 @@ async function FullGradebook({
   const wantsGcf = tab === "overview" || tab === "GCF";
 
   const [data, gcf] = await Promise.all([
-    queryClient.fetchQuery(trpc.courses.gradebook.queryOptions({ courseId, group: groups.group })),
+    queryClient.fetchQuery(
+      trpc.courses.gradebook.queryOptions({ courseId, cohort: cohorts.cohort }),
+    ),
     wantsGcf
-      ? queryClient.fetchQuery(trpc.gcf.forCourse.queryOptions({ courseId, group: groups.group }))
+      ? queryClient.fetchQuery(
+          trpc.gcf.forCourse.queryOptions({ courseId, cohort: cohorts.cohort }),
+        )
       : null,
   ]);
 
-  const selection = parseGroupSelection(groups.group);
+  const selection = parseCohortSelection(cohorts.cohort);
 
   /*
     Named once and read by both the description and the downloaded file's name, so a file taken
     from a filtered screen carries the same words the heading above it used. Null when unfiltered:
-    the whole cohort needs no qualifier in either place.
+    the whole roster needs no qualifier in either place.
   */
-  const groupLabel =
-    selection.kind === "all" ? null : groupSelectionLabel(selection, groups.groups);
+  const cohortLabel =
+    selection.kind === "all" ? null : cohortSelectionLabel(selection, cohorts.cohorts);
 
   return (
     <div className="flex w-full flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Gradebook"
         /*
-          "Every student" stops being true the moment a group is chosen, and a grid of eight rows
-          is a different claim depending on whether the cohort has eight students. So the
+          "Every fellow" stops being true the moment a cohort is chosen, and a grid of eight rows
+          is a different claim depending on whether the roster has eight fellows. So the
           description says which set it is rather than describing the unfiltered case always.
         */
         description={
-          groupLabel === null
-            ? `${data.course.cohortTerm} · every student against every assignment`
-            : `${data.course.cohortTerm} · ${groupLabel} against every assignment`
+          cohortLabel === null
+            ? `${data.course.program.matriculation} · every fellow against every assignment`
+            : `${data.course.program.matriculation} · ${cohortLabel} against every assignment`
         }
         actions={
           <>
-            <GroupPicker
-              courseId={courseId}
-              value={groups.group}
-              groups={groups.groups}
-              ungroupedCount={groups.ungroupedCount}
-            />
+            <CohortPicker choice={cohorts} />
             {/*
               Built here rather than in the browser, and offered only when there is a grid. The
               string is assembled from the payload this render already holds, which is what makes
@@ -103,15 +102,15 @@ async function FullGradebook({
             {!gradebookIsEmpty(data) && (
               <GradebookDownload
                 csv={gradebookCsv(data)}
-                cohortTerm={data.course.cohortTerm}
-                groupLabel={groupLabel}
+                matriculation={data.course.program.matriculation}
+                cohortLabel={cohortLabel}
               />
             )}
           </>
         }
       />
 
-      <Gradebook data={data} gcf={gcf} tab={tab} group={groups.group} />
+      <Gradebook data={data} gcf={gcf} tab={tab} cohort={cohorts.cohort} />
     </div>
   );
 }

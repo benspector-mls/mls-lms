@@ -53,14 +53,14 @@ export const staffRouter = createTRPCRouter({
         role: true,
         createdAt: true,
         /*
-          Which cohorts they teach, rather than a count. Revoking somebody's admin does not
-          un-teach them anything, so the courses are context for the decision rather than a
-          consequence of it — and an instructor listed against no course is the interesting row,
+          Which matriculations they instruct, rather than a count. Revoking somebody's admin does not
+          un-teach them anything, so the programs are context for the decision rather than a
+          consequence of it — and an instructor listed against no program is the interesting row,
           because it usually means an invitation was redeemed and nothing followed.
         */
-        instructorOf: {
-          select: { course: { select: { id: true, name: true, cohortTerm: true } } },
-          orderBy: { course: { createdAt: "desc" } },
+        programsInstructing: {
+          select: { program: { select: { id: true, name: true, matriculation: true } } },
+          orderBy: { program: { createdAt: "desc" } },
         },
       },
     });
@@ -72,9 +72,9 @@ export const staffRouter = createTRPCRouter({
     const adminCount = people.filter((person) => person.role === "ADMIN").length;
 
     return {
-      people: people.map(({ instructorOf, ...person }) => ({
+      people: people.map(({ programsInstructing, ...person }) => ({
         ...person,
-        courses: instructorOf.map((row) => row.course),
+        programs: programsInstructing.map((row) => row.program),
         /** Whether this is the caller, so the screen can say "you" and not offer self-demotion. */
         isYou: person.id === ctx.profile.id,
       })),

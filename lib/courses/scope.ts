@@ -61,7 +61,7 @@ async function refuse(delegate: Countable, id: string, what: string): Promise<ne
   throw exists > 0
     ? new TRPCError({
         code: "FORBIDDEN",
-        message: `You do not teach the course this ${what.toLowerCase()} belongs to.`,
+        message: `You do not teach in the program this ${what.toLowerCase()} belongs to.`,
       })
     : new TRPCError({ code: "NOT_FOUND", message: `${what} not found.` });
 }
@@ -92,7 +92,9 @@ export async function teachableCourse<S extends Prisma.CourseSelect>(
   const row = await ctx.db.course.findFirst({
     where: {
       id: courseId,
-      ...(teachesEverything(ctx) ? {} : { instructors: { some: { userId: ctx.profile.id } } }),
+      ...(teachesEverything(ctx)
+        ? {}
+        : { program: { instructors: { some: { userId: ctx.profile.id } } } }),
     },
     select,
   });
@@ -118,7 +120,7 @@ export async function teachableCourseUnit<S extends Prisma.CourseUnitSelect>(
       id: courseUnitId,
       ...(teachesEverything(ctx)
         ? {}
-        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        : { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } }),
     },
     select,
   });
@@ -137,7 +139,7 @@ export async function teachableResource<S extends Prisma.ResourceSelect>(
       id: resourceId,
       ...(teachesEverything(ctx)
         ? {}
-        : { courseUnit: { course: { instructors: { some: { userId: ctx.profile.id } } } } }),
+        : { courseUnit: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } } }),
     },
     select,
   });
@@ -145,23 +147,48 @@ export async function teachableResource<S extends Prisma.ResourceSelect>(
   return row ?? refuse(ctx.db.resource, resourceId, "Resource");
 }
 
-/** A group, if the caller teaches the course it belongs to. */
-export async function teachableGroup<S extends Prisma.CourseGroupSelect>(
+/** A cohort, if the caller instructs the program whose roster it divides. */
+export async function teachableCohort<S extends Prisma.CohortSelect>(
   ctx: AuthedCtx,
-  groupId: string,
+  cohortId: string,
   select: S,
-): Promise<Prisma.CourseGroupGetPayload<{ select: S }>> {
-  const row = await ctx.db.courseGroup.findFirst({
+): Promise<Prisma.CohortGetPayload<{ select: S }>> {
+  const row = await ctx.db.cohort.findFirst({
     where: {
-      id: groupId,
+      id: cohortId,
       ...(teachesEverything(ctx)
         ? {}
-        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        : { program: { instructors: { some: { userId: ctx.profile.id } } } }),
     },
     select,
   });
 
-  return row ?? refuse(ctx.db.courseGroup, groupId, "Group");
+  return row ?? refuse(ctx.db.cohort, cohortId, "Cohort");
+}
+
+/**
+ * A program, if the caller instructs it.
+ *
+ * `programProcedure` covers the procedures whose input names a program, so this is for the ones
+ * that reach one through a row they have already loaded — and for `remove`, which has to read the
+ * program it is about to delete before deciding whether it may.
+ */
+export async function teachableProgram<S extends Prisma.ProgramSelect>(
+  ctx: AuthedCtx,
+  programId: string,
+  select: S,
+): Promise<Prisma.ProgramGetPayload<{ select: S }>> {
+  const row = await ctx.db.program.findFirst({
+    where: {
+      id: programId,
+      ...(teachesEverything(ctx)
+        ? {}
+        : { instructors: { some: { userId: ctx.profile.id } } }),
+    },
+    select,
+  });
+
+  return row ?? refuse(ctx.db.program, programId, "Program");
 }
 
 export async function teachableTeamSet<S extends Prisma.TeamSetSelect>(
@@ -174,7 +201,7 @@ export async function teachableTeamSet<S extends Prisma.TeamSetSelect>(
       id: teamSetId,
       ...(teachesEverything(ctx)
         ? {}
-        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        : { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } }),
     },
     select,
   });
@@ -198,7 +225,7 @@ export async function teachableTeam<S extends Prisma.TeamSelect>(
       id: teamId,
       ...(teachesEverything(ctx)
         ? {}
-        : { teamSet: { course: { instructors: { some: { userId: ctx.profile.id } } } } }),
+        : { teamSet: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } } }),
     },
     select,
   });
@@ -206,7 +233,7 @@ export async function teachableTeam<S extends Prisma.TeamSelect>(
   return row ?? refuse(ctx.db.team, teamId, "Team");
 }
 
-/** An enrollment, if the caller teaches the course it is in. */
+/** An enrollment, if the caller instructs the program it is on the roster of. */
 export async function teachableEnrollment<S extends Prisma.EnrollmentSelect>(
   ctx: AuthedCtx,
   enrollmentId: string,
@@ -217,7 +244,7 @@ export async function teachableEnrollment<S extends Prisma.EnrollmentSelect>(
       id: enrollmentId,
       ...(teachesEverything(ctx)
         ? {}
-        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        : { program: { instructors: { some: { userId: ctx.profile.id } } } }),
     },
     select,
   });
@@ -225,7 +252,12 @@ export async function teachableEnrollment<S extends Prisma.EnrollmentSelect>(
   return row ?? refuse(ctx.db.enrollment, enrollmentId, "Enrollment");
 }
 
-/** An attendance session, if the caller teaches the course it belongs to. */
+/**
+ * An attendance session, if the caller instructs the program whose morning it is.
+ *
+ * One step shorter than it was: a session belongs to the program directly, so there is no course
+ * in the path at all. That is the shape of the change rather than an accident of it.
+ */
 export async function teachableAttendanceSession<S extends Prisma.AttendanceSessionSelect>(
   ctx: AuthedCtx,
   sessionId: string,
@@ -236,7 +268,7 @@ export async function teachableAttendanceSession<S extends Prisma.AttendanceSess
       id: sessionId,
       ...(teachesEverything(ctx)
         ? {}
-        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        : { program: { instructors: { some: { userId: ctx.profile.id } } } }),
     },
     select,
   });
@@ -255,7 +287,7 @@ export async function teachableAssignment<S extends Prisma.AssignmentSelect>(
       id: assignmentId,
       ...(teachesEverything(ctx)
         ? {}
-        : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+        : { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } }),
     },
     select,
   });
@@ -274,7 +306,7 @@ export async function teachableSubmission<S extends Prisma.SubmissionSelect>(
       id: submissionId,
       ...(teachesEverything(ctx)
         ? {}
-        : { assignment: { course: { instructors: { some: { userId: ctx.profile.id } } } } }),
+        : { assignment: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } } }),
     },
     select,
   });
@@ -295,7 +327,7 @@ export async function teachableDraft<S extends Prisma.GradingDraftSelect>(
         ? {}
         : {
             submission: {
-              assignment: { course: { instructors: { some: { userId: ctx.profile.id } } } },
+              assignment: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } },
             },
           }),
     },
@@ -318,7 +350,7 @@ export async function teachableTestRun<S extends Prisma.TestRunSelect>(
         ? {}
         : {
             submission: {
-              assignment: { course: { instructors: { some: { userId: ctx.profile.id } } } },
+              assignment: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } },
             },
           }),
     },

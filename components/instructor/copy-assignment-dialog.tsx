@@ -29,16 +29,16 @@ import { CATEGORY_META } from "@/lib/course-units";
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Copying an assignment into another cohort, or beside itself in this one.
+ * Copying an assignment into another course, or beside itself in this one.
  *
  * **The procedure could always do this and nothing could ask it to.** `duplicate` has taken a
  * `targetCourseId` since it was written — course creation copies a whole term through it — while
  * the menu that called it hardcoded the current course. So the case it exists for, carrying an
- * assignment from last term's cohort into this one, was reachable only by writing the call.
+ * assignment from last term's course into this one, was reachable only by writing the call.
  *
  * **The module is the part that needs a person.** Copying across courses matches the module by
- * name, which is the only thing two courses can agree about; it is exactly right when two cohorts
- * of the same program share a module sequence, and it fails on every assignment when they have
+ * name, which is the only thing two courses can agree about; it is exactly right when two years
+ * of the same course share a module sequence, and it fails on every assignment when they have
  * diverged. This asks, defaulting to the name match where one exists, so the ordinary case is one
  * click and the diverged case is a choice rather than a refusal.
  *
@@ -115,7 +115,7 @@ export function CopyAssignmentDialog({
           const into = targets.find((course) => course.id === targetCourseId);
           toast.success(
             into && into.id !== courseId
-              ? `Copied ${result.assignment.title} into ${into.name} · ${into.cohortTerm}. It is not visible to students yet.`
+              ? `Copied ${result.assignment.title} into ${into.name} · ${into.program.matriculation}. It is not visible to fellows yet.`
               : `Copied ${result.assignment.title}. It is not visible to students yet.`,
           );
           if (result.warnings.length > 0) {
@@ -157,14 +157,14 @@ export function CopyAssignmentDialog({
             `min-w-0` all the way down, and not decoration.
 
             `DialogContent` is a grid and `SelectTrigger` is `w-fit whitespace-nowrap`, so a grid
-            item's default `min-width: auto` lets a long cohort label — a program name, a term,
+            item's default `min-width: auto` lets a long course label — a course name, a term,
             and a marker — grow the trigger past the dialog's own `max-w-sm` and drag the panel
             out with it. The footer's negative margins are measured against a width the content
             no longer has, so it reads as a strip offset from everything above it.
           */
           <div className="flex min-w-0 flex-col gap-4">
             <div className="flex min-w-0 flex-col gap-1.5">
-              <Label htmlFor="copy-target-course">Into which cohort</Label>
+              <Label htmlFor="copy-target-course">Into which course</Label>
               <Select
                 value={targetCourseId}
                 onValueChange={(value) => {
@@ -176,7 +176,10 @@ export function CopyAssignmentDialog({
                   said below the select instead, where there is room for it to be a sentence.
                 */
                 items={Object.fromEntries(
-                  targets.map((course) => [course.id, `${course.name} · ${course.cohortTerm}`]),
+                  targets.map((course) => [
+                    course.id,
+                    `${course.name} · ${course.program.matriculation}`,
+                  ]),
                 )}
               >
                 <SelectTrigger id="copy-target-course" className="w-full min-w-0">
@@ -188,7 +191,7 @@ export function CopyAssignmentDialog({
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{course.name}</span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {course.cohortTerm}
+                          {course.program.matriculation}
                           {course.id === courseId ? " · this one" : ""}
                         </span>
                       </span>
@@ -203,9 +206,9 @@ export function CopyAssignmentDialog({
               */}
               {sameCourse && (
                 <p className="text-xs text-muted-foreground">
-                  This is the cohort it is already in, so the copy gets a repository name of its own
+                  This is the course it is already in, so the copy gets a repository name of its own
                   ending in <span className="font-mono whitespace-nowrap">-copy</span>. Copying into
-                  another cohort keeps the name, because that cohort&apos;s short name already tells
+                  another course keeps the name, because that course&apos;s short name already tells
                   the repositories apart.
                 </p>
               )}
@@ -217,7 +220,7 @@ export function CopyAssignmentDialog({
                 <Skeleton className="h-9 w-full" />
               ) : units.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  That cohort has no modules yet, so there is nowhere for the copy to go. Create one
+                  That course has no modules yet, so there is nowhere for the copy to go. Create one
                   there first.
                 </p>
               ) : (
@@ -247,7 +250,7 @@ export function CopyAssignmentDialog({
                 <p className="text-xs text-muted-foreground">
                   {nameMatch
                     ? `${unitName} exists there, so that is where it goes unless you say otherwise.`
-                    : `That cohort has no module called ${unitName}, so pick where this belongs.`}
+                    : `That course has no module called ${unitName}, so pick where this belongs.`}
                 </p>
               )}
             </div>

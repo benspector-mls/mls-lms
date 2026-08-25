@@ -10,7 +10,7 @@ import { gradebookCsvFilename } from "@/lib/gradebook/csv";
  *
  * **The file arrives already built.** `gradebookCsv` runs in the same server render that drew the
  * grid, and this takes the finished string as a prop — so there is no second query, no endpoint to
- * gate a second time, and no way for the file to describe a different set of students than the
+ * gate a second time, and no way for the file to describe a different set of fellows than the
  * table above it. Passing the payload instead and assembling it here would serialize a term's worth
  * of grading cells into the page for everybody, including the majority who never press this.
  *
@@ -20,13 +20,13 @@ import { gradebookCsvFilename } from "@/lib/gradebook/csv";
  */
 export function GradebookDownload({
   csv,
-  cohortTerm,
-  groupLabel,
+  matriculation,
+  cohortLabel,
 }: {
   csv: string;
-  cohortTerm: string;
-  /** Null when the whole cohort is on screen. */
-  groupLabel: string | null;
+  matriculation: string;
+  /** Null when the whole roster is on screen. */
+  cohortLabel: string | null;
 }) {
   function download() {
     /*
@@ -45,7 +45,7 @@ export function GradebookDownload({
     */
     const link = document.createElement("a");
     link.href = url;
-    link.download = gradebookCsvFilename({ cohortTerm, groupLabel, date: new Date() });
+    link.download = gradebookCsvFilename({ matriculation, cohortLabel, date: new Date() });
     document.body.append(link);
     link.click();
     link.remove();

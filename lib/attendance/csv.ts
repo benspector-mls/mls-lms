@@ -1,4 +1,4 @@
-import { slugifyCohort } from "@/lib/courses/cohort-slug";
+import { slugifyCourse } from "@/lib/courses/course-slug";
 import { csvLine, csvPersonName } from "@/lib/csv";
 import type { AttendanceSource, AttendanceStatus } from "@/lib/generated/prisma/enums";
 import { SCHOOL_TIME_ZONE, type SchoolDay } from "@/lib/school-time";
@@ -157,13 +157,13 @@ function weekdayOf(day: SchoolDay): string {
  * downloads called `attendance-swe-f26.csv` in one folder are three files nobody can tell apart.
  */
 export function attendanceCsvFilename(params: {
-  cohortTerm: string;
+  matriculation: string;
   from: SchoolDay | null;
   to: SchoolDay | null;
 }): string {
   const parts = [
     "attendance",
-    slugifyCohort(params.cohortTerm),
+    slugifyCourse(params.matriculation),
     params.from && params.to ? `${params.from}-to-${params.to}` : "",
   ].filter((part) => part !== "");
 

@@ -14,12 +14,12 @@
  * otherwise: `Profile.githubUsername` is unique, and the handle is derived from the number, so two
  * courses each holding their own "Test Student 1" would be two profiles wanting one handle.
  *
- * Reusing one across courses is safe. A repository is `{cohortSlug}-{assignmentRepoName}-{login}`,
+ * Reusing one across courses is safe. A repository is `{course slug}-{assignmentRepoName}-{login}`,
  * so the same test student in two cohorts gets two repositories — the property
  * `scripts/verify-enrollment.ts` already proves for a real student repeating a module.
  *
  * Pure, and its own module rather than part of the router that creates one, for the reason
- * `cohort-slug.ts` is its own module: the check script and the seed both need these strings and
+ * `course-slug.ts` is its own module: the check script and the seed both need these strings and
  * neither can import a `server-only` module.
  */
 

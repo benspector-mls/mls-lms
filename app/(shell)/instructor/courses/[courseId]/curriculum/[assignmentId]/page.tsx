@@ -2,7 +2,7 @@ import { Suspense } from "react";
 
 import { GradingQueue } from "@/components/instructor/grading-queue";
 import { PageFallback } from "@/components/list-states";
-import { resolveGroup } from "@/lib/courses/resolve-group";
+import { resolveCohortForCourse } from "@/lib/programs/resolve-cohort";
 import { requireCourseMatch } from "@/lib/instructor/course-scope";
 import { gradingQueueHref } from "@/lib/links";
 import { getQueryClient, trpc } from "@/trpc/server";
@@ -12,7 +12,7 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * Beside `edit/`, under the course that owns the assignment. The course is redundant here
  * — an assignment already knows its course — and it is in the address anyway, because the
- * sidebar reads the current cohort from the URL and nowhere else. Without it, walking from
+ * sidebar reads the current course from the URL and nowhere else. Without it, walking from
  * triage into a queue would silently change which course the switcher claimed you were in.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here —
@@ -24,7 +24,7 @@ export default function GradingQueuePage({
   searchParams,
 }: {
   params: Promise<{ courseId: string; assignmentId: string }>;
-  searchParams: Promise<{ group?: string }>;
+  searchParams: Promise<{ cohort?: string }>;
 }) {
   return (
     <Suspense fallback={<PageFallback rows={8} />}>
@@ -42,7 +42,7 @@ async function Queue({
   searchParams,
 }: {
   params: Promise<{ courseId: string; assignmentId: string }>;
-  searchParams: Promise<{ group?: string }>;
+  searchParams: Promise<{ cohort?: string }>;
 }) {
   const { courseId, assignmentId } = await params;
   const queryClient = getQueryClient();
@@ -52,13 +52,13 @@ async function Queue({
     same course — `requireCourseMatch` below redirects when they are not. Reading the URL's is
     what lets this happen before the assignment has been fetched.
   */
-  const groups = await resolveGroup(courseId, (await searchParams).group);
+  const cohorts = await resolveCohortForCourse(courseId, (await searchParams).cohort);
 
   // Both, because the completion threshold decides whether a score passes and is not on
   // the submission list.
   const [data, assignment] = await Promise.all([
     queryClient.fetchQuery(
-      trpc.submissions.listForAssignment.queryOptions({ assignmentId, group: groups.group }),
+      trpc.submissions.listForAssignment.queryOptions({ assignmentId, cohort: cohorts.cohort }),
     ),
     queryClient.fetchQuery(trpc.assignments.get.queryOptions({ assignmentId })),
   ]);
@@ -72,8 +72,7 @@ async function Queue({
   return (
     <GradingQueue
       data={data}
-      courseId={courseId}
-      groups={groups}
+      cohorts={cohorts}
       completionThreshold={assignment.completionThreshold}
       now={new Date()}
     />

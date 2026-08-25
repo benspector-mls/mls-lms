@@ -15,9 +15,11 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  School,
   Settings,
   ShieldCheck,
   UserRound,
+  UsersRound,
   Users,
 } from "lucide-react";
 
@@ -32,9 +34,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
   SidebarSeparator,
@@ -71,14 +70,20 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import {
   attendanceHref,
+  cohortsHref,
   curriculumHref,
   courseSettingsHref,
   gradebookHref,
   gradingQueueHref,
   gcfHref,
   myAttendanceHref,
+  programInstructorsHref,
+  programSettingsHref,
+  programsHref,
   rosterHref,
   sameViewInCourse,
+  sameViewInProgram,
+  teamsHref,
   triageHref,
 } from "@/lib/links";
 import { initials } from "@/lib/people";
@@ -98,15 +103,15 @@ import { useTRPC } from "@/trpc/client";
 type Role = "student" | "instructor";
 
 /**
- * Which cohort the reader is in, according to the address and nothing else.
+ * Which course the reader is in, according to the address and nothing else.
  *
  * The URL is the only record of it. There is no remembered "current course", which is
  * deliberate: a remembered one disagrees with the page the moment you open a link, and a
- * sidebar that names a different cohort than the screen is worse than one that names none.
+ * sidebar that names a different course than the screen is worse than one that names none.
  *
  * So this returns null rather than a guess. It used to fall back to the first course in
  * the list, which is newest-first, and the result was a switcher confidently naming last
- * term's cohort while you graded this term's work.
+ * term's course while you graded this term's work.
  */
 function useActiveCourseId(): string | null {
   const segments = usePathname().split("/").filter(Boolean);
@@ -119,6 +124,46 @@ function useActiveCourseId(): string | null {
   return null;
 }
 
+/**
+ * Which matriculation the reader is in, according to the address and nothing else.
+ *
+ * The counterpart of `useActiveCourseId`, and null rather than a guess for the same reason: a
+ * sidebar naming a different program than the screen is worse than one naming none.
+ *
+ * **It reads only program addresses.** A course address names a course and resolves its program
+ * from the course list — see `programOfCourse` — because carrying both identifiers in one URL would
+ * give every link two scopes that could disagree and nothing to reconcile them with.
+ */
+function useActiveProgramId(): string | null {
+  const segments = usePathname().split("/").filter(Boolean);
+
+  if (segments[0] === "instructor" && segments[1] === "programs" && segments[2]) {
+    return segments[2];
+  }
+  // The fellow-facing side: /programs, and /programs/[programId]/attendance.
+  if (segments[0] === "programs" && segments[1]) return segments[1];
+  return null;
+}
+
+/**
+ * The program a course belongs to, from the list the sidebar already holds.
+ *
+ * A course address names no program, and the sidebar still has to draw the program group while an
+ * instructor is inside a course. Reading it off `courses.listMine` rather than fetching it is what
+ * keeps that free: every course in that payload carries its matriculation, so this is a lookup
+ * rather than a request.
+ *
+ * Null where the list has no row for the id — an address naming a course the caller is not in,
+ * which every procedure behind the screen refuses anyway.
+ */
+function programOfCourse(
+  courses: { id: string; program: { id: string } }[],
+  courseId: string | null,
+): string | null {
+  if (!courseId) return null;
+  return courses.find((course) => course.id === courseId)?.program.id ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Breadcrumbs derived from the pathname + mock data
 // ---------------------------------------------------------------------------
@@ -128,7 +173,10 @@ interface Crumb {
   href?: string;
 }
 
-function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string }[]): Crumb[] {
+function useBreadcrumbs(
+  courses: { id: string; name: string; program: { id: string } }[],
+  programs: { id: string; name: string; matriculation: string }[],
+): Crumb[] {
   const trpc = useTRPC();
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
@@ -151,48 +199,55 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
   });
 
   /*
-    The cohort as well as the name, for the reason the switcher carries it: a program runs
-    every term under the same name, so "Software Engineering Fellowship" is the first step of
-    an identical trail in every cohort of it. The term is what tells two of them apart.
+    The matriculation as well as the name, because a program runs every term under the same name:
+    "Software Engineering Fellowship" is the first step of an identical trail in every year of it,
+    and the term is what tells two of them apart.
 
-    Parenthesised rather than the switcher's middot, because a breadcrumb already separates
-    its steps and a second free-standing separator inside one step reads as another step.
+    Parenthesised rather than a middot, because a breadcrumb already separates its steps and a
+    second free-standing separator inside one step reads as another step.
 
-    "Course" where the list has no row for the id — an address naming a cohort the caller is
-    not in, which every procedure behind the screen refuses anyway. There is no term to give
+    "Program" where the list has no row for the id — an address naming a matriculation the caller
+    is not in, which every procedure behind the screen refuses anyway. There is no term to give
     alongside it, which is why the fallback is the bare word rather than a half-built label.
   */
-  const courseLabel = (id: string) => {
-    const course = courses.find((c) => c.id === id);
-    return course ? `${course.name} (${course.cohortTerm})` : "Course";
+  const programLabel = (id: string) => {
+    const program = programs.find((p) => p.id === id);
+    return program ? `${program.name} (${program.matriculation})` : "Program";
+  };
+
+  /*
+    The course's own name and nothing else. It sits under the program crumb, which carries the
+    term, so repeating the term here would say the same thing twice in one trail.
+  */
+  const courseLabel = (id: string) => courses.find((c) => c.id === id)?.name ?? "Course";
+
+  /**
+   * Every crumb before the view, for an instructor screen scoped to a course.
+   *
+   * **Two steps rather than one, and this is what the program above the course changed.** The
+   * trail used to begin with the course, because a course was the whole scope; a course now
+   * belongs to a matriculation, and reading "Fullstack Software Engineering" without knowing
+   * which year of it leaves the same question the sidebar used to answer wrongly.
+   *
+   * Both are plain text rather than links. There is no program home and no course home — the bare
+   * course address redirects to Settings — and a breadcrumb whose first step lands somewhere the
+   * reader did not name is worse than one that only says where they are.
+   */
+  const courseTrail = (courseId: string): Crumb[] => {
+    const programId = programOfCourse(courses, courseId);
+    return [
+      ...(programId ? [{ label: programLabel(programId) }] : []),
+      { label: courseLabel(courseId) },
+    ];
   };
 
   if (inCourse) {
     const courseId = segments[2];
-    /*
-      The cohort first on every instructor screen, because it is what every one of them is
-      scoped to — and a trail that did not start there would leave the same question the
-      sidebar used to answer wrongly: which course is this.
-
-      Plain text rather than a link. There is no course home any more; the address it would
-      point at redirects to Settings, and a breadcrumb whose first step lands somewhere the
-      reader did not name is worse than one that only says where they are.
-    */
-    const crumbs: Crumb[] = [{ label: courseLabel(courseId) }];
+    const crumbs: Crumb[] = courseTrail(courseId);
 
     if (rest[0] === "triage") crumbs.push({ label: "Grading triage" });
-    else if (rest[0] === "attendance") {
-      crumbs.push({
-        label: "Attendance",
-        href: rest.length > 1 ? attendanceHref(courseId) : undefined,
-      });
-
-      // The two tabs are one address and get no crumb of their own. A day does, and the date is
-      // already the label a reader wants — "Friday, Aug 14" rather than the id of a session
-      // nobody has seen. `formatSchoolDay` takes the segment as it stands in the URL.
-      if (rest[1] === "day" && rest[2]) crumbs.push({ label: formatSchoolDay(rest[2]) });
-    } else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
-    else if (rest[0] === "roster") crumbs.push({ label: "Roster" });
+    else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
+    else if (rest[0] === "teams") crumbs.push({ label: "Teams" });
     else if (rest[0] === "settings") crumbs.push({ label: "Settings" });
     else if (rest[0] === "curriculum") {
       // The list is a screen of its own, so it is a step on the trail rather than a heading
@@ -211,33 +266,66 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
         });
         if (rest[2] === "edit") crumbs.push({ label: "Edit" });
       }
-    } else if (rest[0] === "students") crumbs.push({ label: "Student record" });
+    } else if (rest[0] === "students") crumbs.push({ label: "Work in this course" });
 
     return crumbs;
   }
 
-  // `/instructor` itself, which shows nothing and redirects into a cohort's triage.
+  // ["instructor", "programs", <programId>, ...rest]
+  if (segments[0] === "instructor" && segments[1] === "programs" && segments[2]) {
+    const programId = segments[2];
+    const programRest = segments.slice(3);
+    const crumbs: Crumb[] = [{ label: programLabel(programId) }];
+
+    if (programRest[0] === "attendance") {
+      crumbs.push({
+        label: "Attendance",
+        href: programRest.length > 1 ? attendanceHref(programId) : undefined,
+      });
+
+      // The two tabs are one address and get no crumb of their own. A day does, and the date is
+      // already the label a reader wants — "Friday, Aug 14" rather than the id of a session
+      // nobody has seen. `formatSchoolDay` takes the segment as it stands in the URL.
+      if (programRest[1] === "day" && programRest[2]) {
+        crumbs.push({ label: formatSchoolDay(programRest[2]) });
+      }
+    } else if (programRest[0] === "roster") crumbs.push({ label: "Roster" });
+    else if (programRest[0] === "cohorts") crumbs.push({ label: "Cohorts" });
+    else if (programRest[0] === "instructors") crumbs.push({ label: "Instructors" });
+    else if (programRest[0] === "settings") crumbs.push({ label: "Settings" });
+    else if (programRest[0] === "students") crumbs.push({ label: "Fellow record" });
+
+    return crumbs;
+  }
+
+  // `/instructor` itself, which shows nothing and redirects into a course's triage.
   if (segments[0] === "instructor") return [{ label: "Grading triage" }];
 
   /*
     A student's screens that are not one course. One step and no parent: the dashboard spans every
     course rather than sitting under one, and a trail claiming otherwise would be describing a
-    hierarchy this side of the application does not have.
+    hierarchy this side of the application does not have. The GCF is the same case for a sharper
+    reason — a result carries no matriculation at all.
   */
   if (segments[0] === "dashboard") return [{ label: "Dashboard" }];
+  if (segments[0] === "gcf") return [{ label: "My GCF" }];
+
+  /*
+    A fellow's own attendance, which is the one screen on this side addressed by program. Its
+    parent is the matriculation rather than a course, because there is one morning to check into
+    however many courses somebody is taking.
+  */
+  if (segments[0] === "programs" && segments[1]) {
+    return [{ label: programLabel(segments[1]) }, { label: "Attendance" }];
+  }
+
+  if (segments[0] === "programs") return [{ label: "Programs" }];
 
   if (segments[0] === "courses" && segments[1]) {
-    const crumbs: Crumb[] = [
+    return [
       { label: "Courses", href: "/courses" },
-      {
-        label: courseLabel(segments[1]),
-        href: segments[2] ? `/courses/${segments[1]}` : undefined,
-      },
+      { label: courseLabel(segments[1]) },
     ];
-    // A fellow's own attendance is the first screen under a course on this side, so the trail
-    // gains a step rather than repeating the course page's.
-    if (segments[2] === "attendance") crumbs.push({ label: "Attendance" });
-    return crumbs;
   }
   return [{ label: "Courses" }];
 }
@@ -247,97 +335,104 @@ function useBreadcrumbs(courses: { id: string; name: string; cohortTerm: string 
 // ---------------------------------------------------------------------------
 
 /**
- * Which cohort an instructor is working in, and the way into another one.
+ * Which matriculation an instructor is working in, and the way into another one.
  *
- * **Instructors only**, and the asymmetry is deliberate rather than unfinished. An instructor
- * teaches a handful of cohorts whose screens are identical, so a switcher trades one click for a
- * sidebar that stays the same height however many terms they accumulate. A fellow is in three
- * courses at once and lands on `/dashboard`, which names no course — a switcher in the header
- * would greet them every morning with a control pointing at a course the screen is not about, and
+ * **Instructors only**, and the asymmetry is deliberate rather than unfinished. An instructor works
+ * a handful of matriculations whose screens are identical, so a switcher trades one click for a
+ * sidebar that stays the same height however many years they accumulate. A fellow is in one
+ * matriculation at a time and lands on `/dashboard`, which names none — a switcher in the header
+ * would greet them every morning with a control pointing at something the screen is not about, and
  * the alternative of guessing one is what the note on `useActiveCourseId` records going wrong.
- * Their courses are listed instead, and the one they are reading expands. See `StudentCourses`.
+ * Their own programs are listed instead. See `StudentPrograms`.
+ *
+ * **It is selected from a course address too.** An instructor inside a course is inside its
+ * matriculation, and a switcher that emptied itself there would be blank on the screens where they
+ * spend the most time. `programOfCourse` is what fills it in.
  */
-function CourseSwitcher({
-  courses,
+function ProgramSwitcher({
+  programs,
+  selected,
 }: {
-  courses: { id: string; name: string; cohortTerm: string; archivedAt: Date | null }[];
+  programs: { id: string; name: string; matriculation: string; archivedAt: Date | null }[];
+  /** The matriculation the address is in, resolved through the course where it names one. */
+  selected: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const activeCourseId = useActiveCourseId();
 
   // Nothing to select between and nothing to say, which is where anybody starts before their
-  // first cohort exists.
-  if (courses.length === 0) return null;
+  // first matriculation exists.
+  if (programs.length === 0) return null;
 
   /*
-    Only a course this switcher can actually label. An id it has no row for would otherwise
-    reach `Select.Value`, which falls back to printing the raw value, and the trigger would
-    read as a bare uuid. That used to happen on every archived cohort, because `listMine` left
-    them out and their screens stayed reachable.
+    Only a program this switcher can actually label. An id it has no row for would otherwise
+    reach `Select.Value`, which falls back to printing the raw value, and the trigger would read
+    as a bare uuid.
   */
-  const selected = courses.some((c) => c.id === activeCourseId) ? activeCourseId : null;
+  const value = programs.some((p) => p.id === selected) ? selected : null;
 
   /*
-    Archived cohorts last, and labelled, rather than mixed in by date.
+    Archived matriculations last, and labelled, rather than mixed in by date.
 
-    They belong in here — it is how somebody gets back into a finished term — but a switcher
-    is a list of places to work, and the ones still running are what it should open on.
+    They belong in here — it is how somebody gets back into a finished year — but a switcher is a
+    list of places to work, and the ones still running are what it should open on.
   */
   const ordered = [
-    ...courses.filter((c) => c.archivedAt == null),
-    ...courses.filter((c) => c.archivedAt != null),
+    ...programs.filter((p) => p.archivedAt == null),
+    ...programs.filter((p) => p.archivedAt != null),
   ];
 
-  const label = (c: (typeof courses)[number]) =>
-    c.archivedAt != null ? `${c.name} · ${c.cohortTerm} · Archived` : `${c.name} · ${c.cohortTerm}`;
+  const label = (p: (typeof programs)[number]) =>
+    p.archivedAt != null
+      ? `${p.name} · ${p.matriculation} · Archived`
+      : `${p.name} · ${p.matriculation}`;
 
   return (
     <Select
-      value={selected}
+      value={value}
       /*
-        The same view in the other cohort, not that cohort's front page. An instructor
-        comparing two terms' triage asks for the other term's triage; being dropped back at
-        the course overview means finding the way again on every switch.
+        The same view in the other matriculation, not its front page. Somebody comparing two
+        years' attendance asks for the other year's attendance; being dropped at a front page
+        means finding the way again on every switch.
       */
       onValueChange={(id) => {
-        // Typed as nullable because `value` is: the trigger sits on a placeholder wherever
-        // the address names no cohort, and clearing the selection is not a navigation.
-        if (id) router.push(sameViewInCourse(pathname, id));
+        // Typed as nullable because `value` is: the trigger sits on a placeholder wherever the
+        // address names no matriculation, and clearing the selection is not a navigation.
+        if (id) router.push(sameViewInProgram(pathname, id));
       }}
       /*
-        Without this the trigger renders the *value* — a course id — rather than the name,
+        Without this the trigger renders the *value* — a program id — rather than the name,
         because `Select.Value` has no other way to know what the selected item was labelled.
         Any select whose value is not also its label needs it.
       */
-      items={Object.fromEntries(ordered.map((c) => [c.id, label(c)]))}
+      items={Object.fromEntries(ordered.map((p) => [p.id, label(p)]))}
     >
-      <SelectTrigger className="w-full" aria-label="Select course">
-        <BookOpen className="size-4 text-muted-foreground" />
-        <SelectValue placeholder="Choose a cohort" />
+      <SelectTrigger className="w-full" aria-label="Select program">
+        <School className="size-4 text-muted-foreground" />
+        <SelectValue placeholder="Choose a program" />
         <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
       </SelectTrigger>
       {/*
-        Under the trigger, not over it. The default positioning puts the *selected* row on top
-        of the trigger, so an instructor whose current cohort is third in the list opens the
-        switcher onto a popup whose first two rows are above the top of the window and cannot
-        be scrolled to. Anchoring the popup below the trigger starts the list at its first row,
-        which is the only arrangement where every cohort is reachable.
+        Under the trigger, not over it. The default positioning puts the *selected* row on top of
+        the trigger, so an instructor whose current matriculation is third in the list opens the
+        switcher onto a popup whose first two rows are above the top of the window and cannot be
+        scrolled to. Anchoring the popup below the trigger starts the list at its first row, which
+        is the only arrangement where every program is reachable.
       */}
       <SelectContent alignItemWithTrigger={false} align="start">
         <SelectGroup>
           {/*
-            The cohort as well as the name, because a program runs every term under the same
-            name: two rows both reading "Software Engineering Fellowship" are a switcher that
-            cannot be used. The term is what tells them apart, so it belongs on the row and on
-            the trigger — which is why it is in `items` above too.
+            The term as well as the name, because a program runs every year under the same name:
+            two rows both reading "Software Engineering Fellowship" are a switcher that cannot be
+            used. The term is what tells them apart, so it belongs on the row and on the trigger —
+            which is why it is in `items` above too.
           */}
-          {ordered.map((c) => (
-            <SelectItem key={c.id} value={c.id}>
+          {ordered.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
               <span className="flex min-w-0 flex-col">
-                <span className="truncate">{c.name}</span>
+                <span className="truncate">{p.name}</span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {c.archivedAt != null ? `${c.cohortTerm} · Archived` : c.cohortTerm}
+                  {p.archivedAt != null ? `${p.matriculation} · Archived` : p.matriculation}
                 </span>
               </span>
             </SelectItem>
@@ -349,23 +444,107 @@ function CourseSwitcher({
 }
 
 /**
- * The eight views a cohort has, in the order they are offered.
+ * Which course of the current matriculation an instructor is working in.
  *
- * They were tabs on one course page until the page had a header, a triage button, a tab bar,
- * and a row of counts competing for the same band of screen. As sidebar items each one is an
- * address, which is what lets the switcher keep the view across a change of cohort and what
- * lets a link name a screen rather than a page-plus-a-tab nobody can bookmark.
+ * **It lists one program's courses and no others**, which is what keeps it usable: courses are
+ * named for what they teach and every matriculation runs the same ones, so an unscoped list would
+ * hold four rows reading "Fullstack Software Engineering" that nothing on the row could tell apart.
+ * The program switcher above is how somebody reaches another year.
+ *
+ * It sits above the course group rather than in the header, beneath the program's own items,
+ * because that is the order the two scopes are in: choosing a matriculation is the outer choice.
+ */
+function CourseSwitcher({
+  courses,
+  selected,
+}: {
+  courses: { id: string; name: string; archivedAt: Date | null }[];
+  selected: string | null;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  if (courses.length === 0) return null;
+
+  const value = courses.some((c) => c.id === selected) ? selected : null;
+
+  /*
+    Archived courses last, and labelled. They belong in here — it is how somebody gets back into a
+    course that has finished while the rest of the matriculation runs on — but a switcher is a list
+    of places to work.
+  */
+  const ordered = [
+    ...courses.filter((c) => c.archivedAt == null),
+    ...courses.filter((c) => c.archivedAt != null),
+  ];
+
+  const label = (c: (typeof courses)[number]) =>
+    c.archivedAt != null ? `${c.name} · Archived` : c.name;
+
+  return (
+    <Select
+      value={value}
+      /*
+        The same view in the other course, not that course's front page. An instructor comparing
+        two courses' triage asks for the other one's triage.
+      */
+      onValueChange={(id) => {
+        if (id) router.push(sameViewInCourse(pathname, id));
+      }}
+      items={Object.fromEntries(ordered.map((c) => [c.id, label(c)]))}
+    >
+      <SelectTrigger className="w-full" aria-label="Select course">
+        <BookOpen className="size-4 text-muted-foreground" />
+        <SelectValue placeholder="Choose a course" />
+        <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
+      </SelectTrigger>
+      {/* Anchored below the trigger for the reason the program switcher above records. */}
+      <SelectContent alignItemWithTrigger={false} align="start">
+        <SelectGroup>
+          {ordered.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {label(c)}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * The five views a matriculation has, in the order they are offered.
+ *
+ * Attendance leads, and it is the only item in either group touched at a fixed time every single
+ * morning — being findable without thinking is most of what it needs. The roster is second because
+ * it is what the other three are about: cohorts divide it, instructors are given parts of it, and
+ * the settings decide how somebody joins it.
+ */
+const PROGRAM_VIEWS = [
+  { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
+  { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
+  { title: "Cohorts", href: cohortsHref, icon: UsersRound, segment: "cohorts" },
+  { title: "Instructors", href: programInstructorsHref, icon: GraduationCap, segment: "instructors" },
+  { title: "Settings", href: programSettingsHref, icon: Settings, segment: "settings" },
+] as const;
+
+/**
+ * The five views a course has, in the order they are offered.
+ *
+ * They were tabs on one course page until the page had a header, a triage button, a tab bar, and a
+ * row of counts competing for the same band of screen. As sidebar items each one is an address,
+ * which is what lets the switcher keep the view across a change of course and what lets a link name
+ * a screen rather than a page-plus-a-tab nobody can bookmark.
  *
  * Triage leads, because "what is waiting on me" is the question an instructor opens this
- * application to ask. Attendance is second, and it is the only item here touched at a fixed time
- * every single morning — being findable without thinking is most of what it needs.
+ * application to ask. Attendance and the roster are not here at all any more: a fellow arrives at
+ * the building once and joins one roster, so both are the matriculation's above.
  */
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
-  { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
   { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
   { title: "Curriculum", href: curriculumHref, icon: Layers, segment: "curriculum" },
-  { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
+  { title: "Teams", href: teamsHref, icon: UsersRound, segment: "teams" },
   { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
 ] as const;
 
@@ -376,76 +555,93 @@ function MainNav({
 }: {
   role: Role;
   isAdmin: boolean;
-  /** A student's sidebar *is* this list, so it comes down rather than being fetched twice. */
+  /** A fellow's sidebar *is* this list, so it comes down rather than being fetched twice. */
   courses: StudentCourse[];
 }) {
   const pathname = usePathname();
   const activeCourseId = useActiveCourseId();
+  const activeProgramId = useActiveProgramId();
 
   if (role === "student") {
     return (
       <>
         <StudentWork pathname={pathname} />
-        <StudentCourses courses={courses} pathname={pathname} />
+        <StudentPrograms courses={courses} pathname={pathname} />
         <AdminGroup isAdmin={isAdmin} pathname={pathname} />
       </>
     );
   }
 
   /*
-    Every course-scoped item points at the cohort in the address, so navigating never changes
-    which course you are in. They used to be a fixed `/instructor` and the *first* course in the
-    list, which meant grading one cohort's queue and then clicking "Course" took you into a
-    different cohort entirely.
+    Every scoped item points at the program or the course in the address, so navigating never
+    changes which one you are in. They used to be a fixed `/instructor` and the *first* course in
+    the list, which meant grading one course's queue and then clicking "Course" took you into a
+    different one entirely.
 
     Only from an instructor address, though. `/courses/[courseId]` names a course too, and an
-    instructor is sometimes reading one they do not teach — a colleague's cohort they are
-    enrolled in — where every one of these would lead somewhere that refuses them. The switcher
-    above is unaffected: switching *out* of such a course is exactly what it is for.
+    instructor is sometimes reading one they do not teach — a colleague's course they are enrolled
+    in — where every one of these would lead somewhere that refuses them. The switchers are
+    unaffected: switching *out* of such a course is exactly what they are for.
 
-    With no course to scope them to the whole group is dropped rather than pointed at a guess,
-    which is how this went wrong in the first place. "All courses" is always there, and the bare
-    `/instructor` still resolves to a real cohort's triage for anybody who types it.
+    With nothing to scope them to the group is dropped rather than pointed at a guess, which is how
+    this went wrong in the first place. "All programs" is always there, and the bare `/instructor`
+    still resolves to a real course's triage for anybody who types it.
   */
-  const navCourseId = pathname.startsWith("/instructor/") ? activeCourseId : null;
+  const inInstructorArea = pathname.startsWith("/instructor/");
+  const navCourseId = inInstructorArea ? activeCourseId : null;
+  /*
+    The matriculation of the address, from the program in it or from the course in it. A course
+    address names no program, so without the second half the program group would vanish on the
+    screens an instructor uses most — and the sidebar would stop offering attendance exactly where
+    it is opened every morning.
+  */
+  const navProgramId = inInstructorArea
+    ? (activeProgramId ?? programOfCourse(courses, activeCourseId))
+    : null;
+
+  // Only this matriculation's courses, for the reason `CourseSwitcher` records: every year runs
+  // the same courses under the same names, so an unscoped list cannot be read.
+  const programCourses = navProgramId
+    ? courses.filter((course) => course.teaches && course.program.id === navProgramId)
+    : [];
 
   return (
     <>
       {/*
-        Its own group, above the cohort and separated from it. Everything below is scoped to one
-        course; this is the way out of all of them, and grouping it among them made it read as a
-        seventh view of the cohort you were already in.
+        Its own group, above the two scopes and separated from them. Everything below is scoped to
+        one matriculation or one of its courses; this is the way out of all of them, and grouping
+        it among them made it read as one more view of the program you were already in.
       */}
       <SidebarGroup>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              isActive={pathname === "/courses"}
-              tooltip="All courses"
-              render={<Link href="/courses" />}
+              isActive={pathname === programsHref()}
+              tooltip="All programs"
+              render={<Link href={programsHref()} />}
             >
-              <GraduationCap />
-              <span>All courses</span>
+              <School />
+              <span>All programs</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroup>
 
-      {navCourseId && (
+      {navProgramId && (
         <SidebarGroup>
           <SidebarSeparator className="mx-0 mb-2" />
           {/*
-            No label. The switcher directly above names the cohort, and a heading reading
-            "Course" over six items that are all this course would be a second, vaguer answer to
-            a question already answered.
+            No label. The switcher in the header names the matriculation, and a heading reading
+            "Program" over five items that are all this program would be a second, vaguer answer
+            to a question already answered.
           */}
           <SidebarMenu>
-            {COURSE_VIEWS.map((view) => (
+            {PROGRAM_VIEWS.map((view) => (
               <SidebarMenuItem key={view.segment}>
                 <SidebarMenuButton
-                  isActive={isActiveView(pathname, navCourseId, view.segment)}
+                  isActive={isActiveProgramView(pathname, navProgramId, view.segment)}
                   tooltip={view.title}
-                  render={<Link href={view.href(navCourseId)} />}
+                  render={<Link href={view.href(navProgramId)} />}
                 >
                   <view.icon />
                   <span>{view.title}</span>
@@ -456,27 +652,63 @@ function MainNav({
         </SidebarGroup>
       )}
 
+      {/*
+        The course group, and the switcher that scopes it.
+
+        **Drawn whenever a matriculation is known, even where no course is**, which is the one place
+        the two groups behave differently. The program's items need a program and have one; the
+        course's items need a course, and an instructor standing on the roster has not chosen one
+        yet — so the switcher is offered on its own and the items appear once it has been used.
+      */}
+      {navProgramId && programCourses.length > 0 && (
+        <SidebarGroup>
+          <SidebarSeparator className="mx-0 mb-2" />
+          <div className="mb-2 group-data-[collapsible=icon]:hidden">
+            <CourseSwitcher courses={programCourses} selected={navCourseId} />
+          </div>
+          {navCourseId && (
+            <SidebarMenu>
+              {COURSE_VIEWS.map((view) => (
+                <SidebarMenuItem key={view.segment}>
+                  <SidebarMenuButton
+                    isActive={isActiveCourseView(pathname, navCourseId, view.segment)}
+                    tooltip={view.title}
+                    render={<Link href={view.href(navCourseId)} />}
+                  >
+                    <view.icon />
+                    <span>{view.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          )}
+        </SidebarGroup>
+      )}
+
       <AdminGroup isAdmin={isAdmin} pathname={pathname} />
     </>
   );
 }
 
-/** What the student sidebar needs from `courses.listMine`. */
+/** What the sidebar needs from `courses.listMine`. */
 type StudentCourse = {
   id: string;
   name: string;
-  cohortTerm: string;
+  /** The matriculation the course belongs to, which is what the fellow's own list groups by. */
+  program: { id: string; name: string; matriculation: string; archivedAt: Date | null };
   archivedAt: Date | null;
   enrolledAs: "ACTIVE" | "REMOVED" | null;
+  /** Whether the caller instructs the course's matriculation, which scopes the course switcher. */
+  teaches: boolean;
 };
 
 /**
- * The screen that spans a student's courses, above the courses themselves.
+ * The screen that spans a fellow's courses, above the courses themselves.
  *
- * **A group of one, and separated from the list below deliberately.** Everything under "My
- * courses" is one cohort; this is the view across all of them, and putting it among them would
- * make it read as a course. It is where signing in lands and what the sidebar opens on, because
- * "what is due" is the question a student arrives with and no single course can answer it.
+ * **A group of one, and separated from the list below deliberately.** Everything under a program's
+ * heading belongs to one matriculation; this is the view across all of them, and putting it among
+ * them would make it read as a course. It is where signing in lands and what the sidebar opens on,
+ * because "what is due" is the question a fellow arrives with and no single course can answer it.
  *
  * The Notes screen will be the second item here.
  */
@@ -500,49 +732,72 @@ function StudentWork({ pathname }: { pathname: string }) {
 }
 
 /**
- * A student's courses, each one a link.
+ * A fellow's matriculations, each holding its attendance and its courses.
  *
  * Most of their navigation, and every course they are in rather than a link to a list of them. It
  * replaced a single "My courses" item under a heading reading "Student", which spent a row telling
  * a reader who they were and then made reaching a course two clicks: one to a list, one to the
  * course.
  *
- * **The course being read expands to show its screens.** A flat list could say which course but
- * had no way to say which screen within it, which is why attendance arrived reachable only from a
- * button on the course page. Nesting rather than a header switcher keeps the two properties that
- * matter here: every course a fellow is in stays one click away, and the sidebar says nothing at
- * all about courses on the screens that span them.
+ * **Attendance sits beside the program's name rather than under a course**, which is the change the
+ * program above the course made visible here. A fellow taking three courses that all meet on a
+ * Tuesday used to have three attendance screens and three codes to type; there is one morning, so
+ * there is one row. It comes first inside the group for the reason it leads the instructor's group
+ * too — it is the one item touched at a fixed time every single morning.
  *
- * Only the active one expands. Three courses each showing every screen they have would be a dozen
- * rows to hold three destinations, and nobody is choosing among all of them at once — they are in
- * one course, looking for one of its parts.
+ * The courses beneath it are flat, each linking straight to its coursework. They used to expand to
+ * show their screens, which existed only to reach attendance from inside a course; with attendance
+ * a sibling of the courses there is nothing left underneath one to offer.
  *
- * `/courses` is not offered as an item of its own. It is still a real screen — the breadcrumb
- * links to it — but with every course named here it would be a row pointing at a list of the rows
- * above it. The exception is a student with no enrollment yet, where it is the only thing there is
- * to offer and the screen explains what to do.
+ * `/courses` is not offered as an item of its own. It is still a real screen — the breadcrumb links
+ * to it — but with every course named here it would be a row pointing at a list of the rows above
+ * it. The exception is a fellow with no enrollment yet, where it is the only thing there is to
+ * offer and the screen explains what to do.
  *
- * **Archived and left-behind cohorts stay, labelled**, exactly as the course list shows them. A
- * cohort somebody has finished or been removed from is still theirs to read — that is what
- * removal being a status rather than a deletion is for — and one sitting here unlabelled among
- * the ones they are in would be the sidebar telling them something false.
+ * **Archived programs and courses stay, labelled**, exactly as the course list shows them. A
+ * matriculation somebody has finished or been removed from is still theirs to read — that is what
+ * removal being a status rather than a deletion is for — and one sitting here unlabelled among the
+ * ones they are in would be the sidebar telling them something false.
  */
-function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathname: string }) {
+function StudentPrograms({
+  courses,
+  pathname,
+}: {
+  courses: StudentCourse[];
+  pathname: string;
+}) {
   /*
-    Current cohorts first, finished ones after, newest-first within each — the same ordering the
-    instructor switcher applies and for the same reason: this is a list of places to work, and
-    the ones still running are what it should open on. `listMine` is already newest-first, so
-    partitioning preserves that.
+    Grouped by matriculation, current ones first and finished ones after, preserving the order
+    `listMine` sent — the same ordering the instructor switchers apply and for the same reason: this
+    is a list of places to work, and the ones still running are what it should open on.
   */
-  const current = courses.filter((c) => c.archivedAt == null && c.enrolledAs !== "REMOVED");
-  const past = courses.filter((c) => c.archivedAt != null || c.enrolledAs === "REMOVED");
-  const ordered = [...current, ...past];
+  const programs: StudentCourse["program"][] = [];
+  const byProgram = new Map<string, StudentCourse[]>();
 
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>My courses</SidebarGroupLabel>
-      <SidebarMenu>
-        {ordered.length === 0 ? (
+  for (const course of courses) {
+    const existing = byProgram.get(course.program.id);
+    if (existing) {
+      existing.push(course);
+    } else {
+      programs.push(course.program);
+      byProgram.set(course.program.id, [course]);
+    }
+  }
+
+  const ordered = [
+    ...programs.filter((program) => program.archivedAt == null),
+    ...programs.filter((program) => program.archivedAt != null),
+  ];
+
+  /*
+    Nothing to group, which is where a fellow starts: signed in, on nobody's roster yet. The list
+    screen is the only thing there is to offer, and it is the one that explains what to do.
+  */
+  if (ordered.length === 0) {
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>My courses</SidebarGroupLabel>
+        <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               isActive={pathname === "/courses"}
@@ -553,99 +808,111 @@ function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathn
               <span>My courses</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-        ) : (
-          ordered.map((course) => {
-            const note = courseNote(course);
-            const base = `/courses/${course.id}`;
-            const inThisCourse = pathname === base || pathname.startsWith(`${base}/`);
+        </SidebarMenu>
+        <StudentGcf pathname={pathname} />
+      </SidebarGroup>
+    );
+  }
 
-            return (
-              <SidebarMenuItem key={course.id}>
+  return (
+    <>
+      {ordered.map((program) => {
+        const programCourses = byProgram.get(program.id) ?? [];
+        const attendance = myAttendanceHref(program.id);
+
+        return (
+          <SidebarGroup key={program.id}>
+            {/*
+              The matriculation as the heading, because a program runs every year under the same
+              name and somebody repeating one would otherwise see two identical headings. Archived
+              is said here rather than on every course beneath it: it is a fact about the whole
+              matriculation, and repeating it per course would say the same thing four times.
+            */}
+            <SidebarGroupLabel>
+              {program.archivedAt != null
+                ? `${program.name} · ${program.matriculation} · Archived`
+                : `${program.name} · ${program.matriculation}`}
+            </SidebarGroupLabel>
+            <SidebarMenu>
+              <SidebarMenuItem>
                 <SidebarMenuButton
-                  /*
-                    Prefix, not equality. A fellow reading their own attendance is at
-                    `/courses/<id>/attendance` and is still inside that course — an exact match
-                    would leave every row in the sidebar dark and the reader nowhere.
-                  */
-                  isActive={inThisCourse}
-                  /*
-                    The full name and the term, because the label below truncates and the
-                    collapsed sidebar shows nothing else. Two cohorts of one program share a name,
-                    so the term is what tells them apart.
-                  */
-                  tooltip={`${course.name} · ${course.cohortTerm}`}
-                  // `h-auto` because this row is two lines where every other one is one.
-                  className="h-auto py-1.5"
-                  render={<Link href={base} />}
+                  isActive={pathname === attendance}
+                  tooltip={`Attendance · ${program.matriculation}`}
+                  render={<Link href={attendance} />}
                 >
-                  <BookOpen />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{course.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {note ? `${course.cohortTerm} · ${note}` : course.cohortTerm}
-                    </span>
-                  </span>
+                  <CalendarCheck />
+                  <span>Attendance</span>
                 </SidebarMenuButton>
-
-                {/*
-                  Only the course being read expands. Every course a fellow is in showing every
-                  screen it has would be a dozen rows to hold three destinations, and the reader
-                  is never choosing among all of them at once — they are in one course, looking
-                  for one of its parts.
-
-                  Nothing renders here at all on the dashboard or the course list, where the
-                  address names no course. That is the property a switcher in the header would
-                  have cost: signing in lands on `/dashboard`, so the first thing a fellow sees
-                  every day would have been a control naming a course the screen is not about.
-                */}
-                {inThisCourse && (
-                  <SidebarMenuSub>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton
-                        isActive={pathname === base}
-                        render={<Link href={base} />}
-                      >
-                        <span>Coursework</span>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton
-                        isActive={pathname === `${base}/attendance`}
-                        render={<Link href={myAttendanceHref(course.id)} />}
-                      >
-                        <span>Attendance</span>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  </SidebarMenuSub>
-                )}
               </SidebarMenuItem>
-            );
-          })
-        )}
-      </SidebarMenu>
 
-      {/*
-        The GCF, beneath the courses rather than inside one.
+              {programCourses.map((course) => {
+                const note = courseNote(course);
+                const base = `/courses/${course.id}`;
 
-        **A record that follows a person rather than a cohort.** CodeSignal has no idea what a
-        cohort is, a fellow sits the assessment on their own schedule, and somebody who repeats a
-        term should find one history rather than two halves of it. So it is addressed like
-        `/courses` is — outside every course — and sits under the same heading because it is still
-        part of what a fellow's own record is.
-      */}
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            isActive={pathname === gcfHref()}
-            tooltip="My GCF results"
-            render={<Link href={gcfHref()} />}
-          >
-            <Gauge />
-            <span>My GCF</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarGroup>
+                return (
+                  <SidebarMenuItem key={course.id}>
+                    <SidebarMenuButton
+                      /*
+                        Prefix, not equality. A fellow reading one assignment is deeper inside the
+                        course and is still inside it — an exact match would leave every row in the
+                        sidebar dark and the reader nowhere.
+                      */
+                      isActive={pathname === base || pathname.startsWith(`${base}/`)}
+                      /*
+                        The full name, because the label truncates and the collapsed sidebar shows
+                        nothing else. The term is not repeated — the heading above carries it.
+                      */
+                      tooltip={note ? `${course.name} · ${note}` : course.name}
+                      // `h-auto` because this row is two lines wherever there is a note to show.
+                      className="h-auto py-1.5"
+                      render={<Link href={base} />}
+                    >
+                      <BookOpen />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{course.name}</span>
+                        {note && (
+                          <span className="truncate text-xs text-muted-foreground">{note}</span>
+                        )}
+                      </span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
+        );
+      })}
+
+      <SidebarGroup>
+        <StudentGcf pathname={pathname} />
+      </SidebarGroup>
+    </>
+  );
+}
+
+/**
+ * The GCF, outside every matriculation.
+ *
+ * **A record that follows a person rather than a program.** CodeSignal has no idea what a
+ * matriculation is, a fellow sits the assessment on their own schedule, and somebody who repeats a
+ * year should find one history rather than two halves of it. So it is addressed like `/courses` is —
+ * outside every scope — and it sits in its own group beneath them all rather than under any one
+ * program's heading, which would be claiming a result belonged to that year.
+ */
+function StudentGcf({ pathname }: { pathname: string }) {
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          isActive={pathname === gcfHref()}
+          tooltip="My GCF results"
+          render={<Link href={gcfHref()} />}
+        >
+          <Gauge />
+          <span>My GCF</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
   );
 }
 
@@ -653,7 +920,7 @@ function StudentCourses({ courses, pathname }: { courses: StudentCourse[]; pathn
  * Why a course is in the list but not one somebody is currently in, or null when it is.
  *
  * Removal wins over archiving when both are true, because it is the fact about *this reader*: a
- * cohort that ended is something everybody in it shares, and having left one is not.
+ * matriculation that ended is something everybody in it shares, and having left one is not.
  */
 function courseNote(course: StudentCourse): string | null {
   if (course.enrolledAs === "REMOVED") return "No longer enrolled";
@@ -662,19 +929,33 @@ function courseNote(course: StudentCourse): string | null {
 }
 
 /**
- * Which sidebar item the current address belongs to.
+ * Which sidebar item the current address belongs to, for a program's five views.
  *
- * Two segments need more than a prefix test. **Assignments** covers its own list *and* every
- * screen filed under it — one assignment's grading queue, its edit form, the new-assignment
- * form — because those are reached from it and highlighting nothing while you grade would make
- * the sidebar go blank exactly where an instructor spends the most time. **Settings** owns the
- * bare course address, which redirects to it, so the item is lit before the redirect resolves
- * rather than flickering off and on.
+ * **Attendance owns the day drill-down beneath it**, so the item stays lit while an instructor
+ * corrects an earlier morning rather than going blank on the one screen reached from it.
  *
- * A student's record under `/students/[studentId]` deliberately matches nothing. It is reached
- * from three different places and belongs to none of them.
+ * A fellow's record under `/students/[studentId]` deliberately matches nothing. It is reached from
+ * three different places and belongs to none of them.
  */
-function isActiveView(pathname: string, courseId: string, segment: string): boolean {
+function isActiveProgramView(pathname: string, programId: string, segment: string): boolean {
+  const base = `/instructor/programs/${programId}`;
+  return pathname === `${base}/${segment}` || pathname.startsWith(`${base}/${segment}/`);
+}
+
+/**
+ * Which sidebar item the current address belongs to, for a course's five views.
+ *
+ * Two segments need more than a prefix test. **Curriculum** covers its own list *and* every screen
+ * filed under it — one assignment's grading queue, its edit form, the new-assignment form — because
+ * those are reached from it and highlighting nothing while you grade would make the sidebar go
+ * blank exactly where an instructor spends the most time. **Settings** owns the bare course
+ * address, which redirects to it, so the item is lit before the redirect resolves rather than
+ * flickering off and on.
+ *
+ * A fellow's work under `/students/[studentId]` deliberately matches nothing, for the reason the
+ * program version above records.
+ */
+function isActiveCourseView(pathname: string, courseId: string, segment: string): boolean {
   const base = `/instructor/courses/${courseId}`;
 
   if (segment === "settings" && pathname === base) return true;
@@ -684,7 +965,7 @@ function isActiveView(pathname: string, courseId: string, segment: string): bool
 
 /**
  * Who may teach at all, which is a different kind of capability from everything above it:
- * those are scoped to a cohort, and this decides who gets one.
+ * those are scoped to a matriculation, and this decides who gets one.
  *
  * Hidden from an instructor, and that is presentation only — `/admin` reads through
  * `adminProcedure`, so an instructor who types the URL is refused by the procedures rather than
@@ -782,7 +1063,7 @@ function UserMenu({
         <DropdownMenuSeparator />
         {/*
           The way to the Profile screen, and the only one. It belongs here rather than in the
-          navigation above because everything up there is a place to work — a cohort, a list, a
+          navigation above because everything up there is a place to work — a program, a course, a
           queue — and this is the account those are being worked in. It is also where the name and
           the address already are, two lines up on the trigger, so it is where somebody who wants to
           change one of them looks first.
@@ -867,7 +1148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The sidebar's shape while the profile and course list are in flight. */
+/** The sidebar's shape while the profile, the program list and the course list are in flight. */
 function ShellSidebarFallback() {
   return (
     <Sidebar collapsible="icon">
@@ -898,6 +1179,13 @@ function ShellSidebar() {
   const trpc = useTRPC();
   const { data: profile } = useSuspenseQuery(trpc.me.queryOptions());
   const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions());
+  /*
+    Both lists, because the sidebar has two scopes to name and neither payload holds the other's
+    facts. `courses.listMine` carries each course's matriculation, which is what resolves the
+    program of a course address; it cannot carry a matriculation that has no courses yet, and an
+    instructor setting one up needs its roster and its settings before it does.
+  */
+  const { data: programs } = useSuspenseQuery(trpc.programs.listMine.queryOptions());
 
   // Read from the profile rather than the URL. A student who typed an instructor
   // address would otherwise be shown instructor navigation, and every page behind it
@@ -910,6 +1198,14 @@ function ShellSidebar() {
   // check in here silently exclude admins.
   const isAdmin = profile?.role === "ADMIN";
 
+  /*
+    Read here as well as in `MainNav`, because the switcher sits in the header and the groups sit
+    in the content — two components, one answer. Both are hooks over the pathname, so this costs
+    nothing beyond the parse.
+  */
+  const activeCourseId = useActiveCourseId();
+  const activeProgramId = useActiveProgramId();
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -920,7 +1216,10 @@ function ShellSidebar() {
         */}
         {role === "instructor" && (
           <div className="group-data-[collapsible=icon]:hidden">
-            <CourseSwitcher courses={courses} />
+            <ProgramSwitcher
+              programs={programs}
+              selected={activeProgramId ?? programOfCourse(courses, activeCourseId)}
+            />
           </div>
         )}
       </SidebarHeader>
@@ -938,7 +1237,8 @@ function ShellSidebar() {
 function ShellBreadcrumb() {
   const trpc = useTRPC();
   const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions());
-  const crumbs = useBreadcrumbs(courses);
+  const { data: programs } = useSuspenseQuery(trpc.programs.listMine.queryOptions());
+  const crumbs = useBreadcrumbs(courses, programs);
 
   return (
     <Breadcrumb className="min-w-0 flex-1">

@@ -11,14 +11,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
 import {
-  cohortRate,
   driftList,
   DRIFT_RULE,
+  programRate,
   type FellowSummary,
   type SummarySession,
 } from "@/lib/attendance/summary";
-import { attendanceDayHref, studentHref } from "@/lib/links";
+import { attendanceDayHref, programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatSchoolDay, formatSchoolDayShort } from "@/lib/school-time";
 import { formatPercent } from "@/lib/status";
@@ -26,12 +27,17 @@ import { cn } from "@/lib/utils";
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
 
 /**
- * The whole term: who is slipping, and everything behind that answer.
+ * The whole term: who is slipping, when people arrive, and everything behind both answers.
  *
  * **The drift list is the actual answer and the grid is the evidence.** Twenty-five fellows against
  * sixty sessions is fifteen hundred letters, and nobody reads fifteen hundred letters looking for
  * three people. So the short list comes first, with the rule printed beside it so nobody has to
  * wonder what qualified somebody — and the grid sits below for the reader who wants to check.
+ *
+ * **The arrival list sits between them and answers a different question.** Drift is about who is
+ * missing; this is about who is late, which one check-in a day would otherwise have hidden — a fellow
+ * marked present at 10:47 every Monday has a perfect record and a problem. It reads across the roster
+ * rather than one fellow at a time, because the pattern is what makes it worth mentioning at all.
  *
  * The grid copies `gradebook.tsx` exactly: an `overflow-x-auto` wrapper, a sticky name column,
  * summary columns before the day columns, and removed fellows in a second table below with their
@@ -46,6 +52,8 @@ type Term = {
   active: FellowSummary[];
   removed: FellowSummary[];
   openDays: string[];
+  /** One fellow's arrival averages, by enrollment id. See `lib/attendance/arrival.ts`. */
+  arrivals: Record<string, ArrivalAverages>;
 };
 
 const LETTER: Record<AttendanceStatus, string> = {
@@ -62,7 +70,7 @@ const LETTER_CLASS: Record<AttendanceStatus, string> = {
   EXCUSED: "text-muted-foreground",
 };
 
-export function AttendanceTerm({ courseId, data }: { courseId: string; data: Term }) {
+export function AttendanceTerm({ programId, data }: { programId: string; data: Term }) {
   if (data.sessions.length === 0) {
     return (
       <EmptyState
@@ -74,7 +82,21 @@ export function AttendanceTerm({ courseId, data }: { courseId: string; data: Ter
   }
 
   const drifting = driftList(data.active, data.sessions);
-  const rate = cohortRate(data.active);
+  const rate = programRate(data.active);
+
+  /*
+    Only the fellows there is something to say about, and test students are left out for the reason
+    every figure on this screen leaves them out. A row per fellow would be twenty-five sentences,
+    most of them "on average they check in at 9:02" — which is the whole roster arriving on time and
+    not worth a list.
+  */
+  const arriving = data.active
+    .filter((summary) => summary.fellow.testStudentNumber === null)
+    .map((summary) => ({
+      summary,
+      averages: data.arrivals[summary.fellow.enrollmentId],
+    }))
+    .filter((entry) => entry.averages !== undefined && arrivalSentence(entry.averages) !== null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -97,7 +119,7 @@ export function AttendanceTerm({ courseId, data }: { courseId: string; data: Ter
         {drifting.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
             Nobody is drifting by that rule.
-            {rate !== null && ` The cohort is at ${formatPercent(rate)}.`}
+            {rate !== null && ` The roster is at ${formatPercent(rate)}.`}
           </p>
         ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -107,7 +129,7 @@ export function AttendanceTerm({ courseId, data }: { courseId: string; data: Ter
                 className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
               >
                 <Link
-                  href={studentHref(courseId, entry.summary.fellow.studentId)}
+                  href={programStudentHref(programId, entry.summary.fellow.studentId)}
                   className="font-medium hover:underline"
                 >
                   {displayNameOf(entry.summary.fellow, "Unnamed")}
@@ -124,6 +146,37 @@ export function AttendanceTerm({ courseId, data }: { courseId: string; data: Ter
         )}
       </section>
 
+      {arriving.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-sm font-medium">When people arrive · {arriving.length}</h2>
+            <p className="text-xs text-muted-foreground">
+              The average check-in time of every fellow who has checked in enough times to have one,
+              and the weekday that drifts furthest from it. Only mornings they checked in are counted,
+              so an absence neither raises nor lowers these.
+            </p>
+          </div>
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+            {arriving.map((entry) => (
+              <li
+                key={entry.summary.fellow.enrollmentId}
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+              >
+                <Link
+                  href={programStudentHref(programId, entry.summary.fellow.studentId)}
+                  className="font-medium hover:underline"
+                >
+                  {displayNameOf(entry.summary.fellow, "Unnamed")}
+                </Link>
+                <span className="text-xs text-muted-foreground">
+                  {arrivalSentence(entry.averages!)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="flex flex-col gap-2">
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">Every session</h2>
@@ -131,19 +184,19 @@ export function AttendanceTerm({ courseId, data }: { courseId: string; data: Ter
             <Legend />
           </p>
         </div>
-        <Grid courseId={courseId} sessions={data.sessions} fellows={data.active} />
+        <Grid programId={programId} sessions={data.sessions} fellows={data.active} />
       </section>
 
       {data.removed.length > 0 && (
         <section className="flex flex-col gap-2">
           <div className="flex flex-col gap-0.5">
-            <h2 className="text-sm font-medium">No longer in the cohort · {data.removed.length}</h2>
+            <h2 className="text-sm font-medium">No longer on the roster · {data.removed.length}</h2>
             <p className="text-xs text-muted-foreground">
               Kept because they were here for the sessions above, and counted in none of the figures
               on this screen. Days after they left read as not enrolled rather than as absences.
             </p>
           </div>
-          <Grid courseId={courseId} sessions={data.sessions} fellows={data.removed} />
+          <Grid programId={programId} sessions={data.sessions} fellows={data.removed} />
         </section>
       )}
     </div>
@@ -173,11 +226,11 @@ function Legend() {
 }
 
 function Grid({
-  courseId,
+  programId,
   sessions,
   fellows,
 }: {
-  courseId: string;
+  programId: string;
   sessions: SummarySession[];
   fellows: FellowSummary[];
 }) {
@@ -199,7 +252,7 @@ function Grid({
             {sessions.map((session) => (
               <TableHead key={session.id} className="text-center whitespace-nowrap">
                 <Link
-                  href={attendanceDayHref(courseId, session.day)}
+                  href={attendanceDayHref(programId, session.day)}
                   className="hover:underline"
                   title={formatSchoolDay(session.day)}
                 >
@@ -215,7 +268,7 @@ function Grid({
               <TableCell className="sticky left-0 z-10 bg-card">
                 <div className="flex min-w-0 items-center gap-2">
                   <Link
-                    href={studentHref(courseId, summary.fellow.studentId)}
+                    href={programStudentHref(programId, summary.fellow.studentId)}
                     className="truncate font-medium hover:underline"
                   >
                     {displayNameOf(summary.fellow, "Unnamed")}
@@ -227,7 +280,7 @@ function Grid({
                 {/*
                   A test student has a dash rather than a figure. They are excluded from every
                   count on this screen, and a percentage beside a badge saying "not real" would
-                  invite somebody to read it as one of the cohort's numbers.
+                  invite somebody to read it as one of the roster's numbers.
                 */}
                 {summary.fellow.testStudentNumber !== null || summary.rate === null
                   ? "—"

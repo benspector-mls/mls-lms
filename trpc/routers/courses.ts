@@ -1,21 +1,20 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { inTransaction, type Db } from "@/lib/prisma";
+import type { Db } from "@/lib/prisma";
 
 import { isManualOnly } from "@/lib/assignments/spec";
 import type { CourseUnitCategory } from "@/lib/course-units";
-import { auditActor, recordEvent } from "@/lib/audit/record";
-import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
-import { newJoinToken } from "@/lib/courses/join-token";
-import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
+import { courseSlugProblem, MAX_COURSE_SLUG, suggestCourseSlug } from "@/lib/courses/course-slug";
+import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import {
+  assertInstructsProgram,
   assertTeaches,
   enrollmentsIn,
   removedStudentIds,
   selectedStudentIds,
 } from "@/lib/courses/membership";
-import { assertOwnsCourse, ownerOf } from "@/lib/courses/ownership";
+import { assertOwnsProgramOfCourse, ownerOf } from "@/lib/programs/ownership";
 import {
   allUnits,
   courseVerdictByStudent,
@@ -34,7 +33,7 @@ import {
   instructorProcedure,
   profileProcedure,
 } from "../init";
-import { displayNameOf, courseUnitSummarySelect, personNameSelect, personSelect } from "../selects";
+import { courseUnitSummarySelect, personSelect } from "../selects";
 
 export const coursesRouter = createTRPCRouter({
   /**
@@ -66,20 +65,38 @@ export const coursesRouter = createTRPCRouter({
       `enrolledAs` below is what the card reads.
     */
     const courses = await ctx.db.course.findMany({
+      /*
+        A course of a program the caller is on the roster of, or instructs.
+
+        **An unpublished course is visible to its instructors and to nobody else**, which is the
+        first of the three readers that have to agree about `Course.publishedAt` — the others are
+        `assertCourseMember` and `distributedToStudent`. It is what replaced "not enrolling anybody
+        yet" as the way to keep a course that begins in March off a fellow's screen, now that being
+        on a program's roster makes somebody a student of every course of it.
+      */
       where: isAdmin
         ? {}
         : {
             OR: [
-              { enrollments: { some: { studentId: ctx.profile.id } } },
-              { instructors: { some: { userId: ctx.profile.id } } },
+              {
+                publishedAt: { not: null },
+                program: { enrollments: { some: { studentId: ctx.profile.id } } },
+              },
+              { program: { instructors: { some: { userId: ctx.profile.id } } } },
             ],
           },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         name: true,
-        cohortTerm: true,
+        publishedAt: true,
         archivedAt: true,
+        /*
+          The matriculation the course belongs to. The breadcrumb names both — "Software Engineering
+          Fellowship (Fall 2026)" — because a program runs every term under the same name, and the
+          switcher groups a caller's courses by it.
+        */
+        program: { select: { id: true, name: true, matriculation: true, archivedAt: true } },
         // Counted here rather than fetched and measured in the interface, so the card
         // does not pull every assignment and enrollment across to say how many there
         // are.
@@ -92,29 +109,55 @@ export const coursesRouter = createTRPCRouter({
         // previewed the course. They are deliberately *not* excluded from the roster, gradebook,
         // or triage, which list students rather than count them, and where a test row is the
         // point.
-        _count: {
-          select: {
-            assignments: true,
-            enrollments: { where: { status: "ACTIVE", student: { testStudentNumber: null } } },
-          },
-        },
-        // The caller's own enrollment, so a card can say they have left this one.
-        enrollments: {
-          where: { studentId: ctx.profile.id },
-          select: { status: true },
-          take: 1,
-        },
-        // Whether the caller teaches this particular course, which is not the same as
-        // their role: an admin teaches none of them but sees all, and an instructor may
-        // be enrolled in a course they do not teach. The instructor link on each card
-        // reads this rather than the role.
-        instructors: {
-          where: { userId: ctx.profile.id },
-          select: { id: true },
-          take: 1,
-        },
+        _count: { select: { assignments: true } },
       },
     });
+
+    /*
+      The roster size and the caller's own standing, per program rather than per course.
+
+      One query for both rather than a relation on every course, because they are the same facts for
+      every course of one matriculation — reading them through each course would ask the same
+      question four times and invite the four answers to look independent.
+    */
+    const programIds = [...new Set(courses.map((course) => course.program.id))];
+    const programs =
+      programIds.length === 0
+        ? []
+        : await ctx.db.program.findMany({
+            where: { id: { in: programIds } },
+            select: {
+              id: true,
+              /*
+                ACTIVE only, and test students excluded. This figure is the one somebody quotes — a
+                roster of 25 must not read as 26 because an admin previewed a course. Test students
+                are deliberately *not* excluded from the roster, gradebook, or triage, which list
+                fellows rather than count them, and where a test row is the point.
+              */
+              _count: {
+                select: {
+                  enrollments: {
+                    where: { status: "ACTIVE", student: { testStudentNumber: null } },
+                  },
+                },
+              },
+              // The caller's own enrollment, so a card can say they have left this one.
+              enrollments: {
+                where: { studentId: ctx.profile.id },
+                select: { status: true },
+                take: 1,
+              },
+              // Whether the caller instructs this matriculation, which is not the same as their
+              // role: an admin instructs none of them but sees all.
+              instructors: {
+                where: { userId: ctx.profile.id },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          });
+
+    const standing = new Map(programs.map((program) => [program.id, program]));
 
     /*
       Whether the caller has finished each course they are a student of.
@@ -135,7 +178,7 @@ export const coursesRouter = createTRPCRouter({
       at all. A student is in a handful of courses, so this is a handful of rows.
     */
     const studentOf = courses
-      .filter((course) => course.enrollments.length > 0)
+      .filter((course) => (standing.get(course.program.id)?.enrollments.length ?? 0) > 0)
       .map((course) => course.id);
 
     const verdicts = new Map<string, UnitVerdict>();
@@ -182,11 +225,13 @@ export const coursesRouter = createTRPCRouter({
       }
     }
 
-    return courses.map(({ instructors, enrollments, ...course }) => ({
+    return courses.map((course) => ({
       ...course,
-      teaches: isAdmin || instructors.length > 0,
-      /** Null when the caller is not a student of this course — an instructor, or an admin. */
-      enrolledAs: enrollments[0]?.status ?? null,
+      /** How many active fellows are on the roster of the program this course belongs to. */
+      rosterCount: standing.get(course.program.id)?._count.enrollments ?? 0,
+      teaches: isAdmin || (standing.get(course.program.id)?.instructors.length ?? 0) > 0,
+      /** Null when the caller is not a fellow of this course's program — an instructor, or an admin. */
+      enrolledAs: standing.get(course.program.id)?.enrollments[0]?.status ?? null,
       /**
        * Where the caller stands on the whole course, or null when they are not a student of it.
        *
@@ -214,13 +259,21 @@ export const coursesRouter = createTRPCRouter({
         select: {
           id: true,
           name: true,
-          cohortTerm: true,
+          publishedAt: true,
           archivedAt: true,
+          program: {
+            select: {
+              id: true,
+              name: true,
+              matriculation: true,
+              archivedAt: true,
+              instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
+            },
+          },
           courseUnits: {
             orderBy: [{ position: "asc" }, { name: "asc" }],
             select: courseUnitSummarySelect,
           },
-          instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
         },
       });
 
@@ -229,12 +282,23 @@ export const coursesRouter = createTRPCRouter({
       }
 
       const isAdmin = ctx.profile.role === "ADMIN";
+      const teaches = isAdmin || course.program.instructors.length > 0;
 
-      if (!isAdmin && course.instructors.length === 0) {
-        // Every status, not just ACTIVE: a removed student keeps reading the course and the
-        // feedback they were given. Refusing them here is what would take it back.
+      if (!teaches) {
+        /*
+          Unpublished refuses as not-found, and before the enrollment is even looked for. To a
+          fellow, a course their instructor has not published and a course that does not exist are
+          the same situation, and the second wording would invite them to ask about work nobody has
+          finished writing. `assertCourseMember` says the same thing the same way.
+        */
+        if (course.publishedAt === null) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+        }
+
+        // Every status, not just ACTIVE: a removed fellow keeps reading the course and the feedback
+        // they were given. Refusing them here is what would take it back.
         const enrollment = await ctx.db.enrollment.findFirst({
-          where: { courseId: course.id, studentId: ctx.profile.id },
+          where: { programId: course.program.id, studentId: ctx.profile.id },
           select: { id: true },
         });
 
@@ -246,60 +310,24 @@ export const coursesRouter = createTRPCRouter({
         }
       }
 
-      const { instructors, ...rest } = course;
+      /*
+        The caller's own instructor row is a probe for `teaches` above rather than something a screen
+        reads, so it does not travel — a payload carrying it would invite a component to re-derive
+        `teaches` from it and get a different answer for an admin, who holds no row anywhere.
+      */
+      const { program, ...rest } = course;
 
-      return { ...rest, teaches: isAdmin || instructors.length > 0 };
-    }),
-
-  /**
-   * The roster: everybody who has ever joined this cohort, and the link that lets them.
-   *
-   * Its own read rather than a slice of the gradebook, because the two screens want
-   * genuinely different rows. This one needs every enrollment and no submissions at all;
-   * the gradebook needs every submission and only the active enrollments. Serving both
-   * from one payload meant opening the roster fetched a term's worth of grading cells to
-   * display a list of names.
-   *
-   * **Every status, and deliberately not filtered here.** A removed student has to appear —
-   * they are who Restore acts on, and a roster that silently omitted them would make removal
-   * look like deletion. The screen splits them into their own table.
-   */
-  roster: courseProcedure.query(async ({ ctx, input }) => {
-    const course = await ctx.db.course.findUnique({
-      where: { id: input.courseId },
-      select: {
-        id: true,
-        name: true,
-        cohortTerm: true,
-        archivedAt: true,
-        /*
-            The join link. Safe here and nowhere a student can reach: this procedure is
-            `instructorProcedure` *and* teach-gated above. It must never appear in `get` or
-            `assignments.listForCourse`, both of which answer to students — a link in a
-            payload is a link that has leaked.
-          */
-        joinToken: true,
-      },
-    });
-
-    if (!course) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
-    }
-
-    const enrollments = await ctx.db.enrollment.findMany({
-      where: { courseId: course.id },
-      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
-      select: {
-        id: true,
-        status: true,
-        student: {
-          select: personSelect,
+      return {
+        ...rest,
+        program: {
+          id: program.id,
+          name: program.name,
+          matriculation: program.matriculation,
+          archivedAt: program.archivedAt,
         },
-      },
-    });
-
-    return { course, enrollments };
-  }),
+        teaches,
+      };
+    }),
 
   /**
    * Every assignment in the course, with how much of each is graded and how much is waiting.
@@ -315,7 +343,7 @@ export const coursesRouter = createTRPCRouter({
    * lists.
    */
   assignmentsOverview: courseProcedure
-    .input(z.object({ group: groupSelectionInput }))
+    .input(z.object({ cohort: cohortSelectionInput }))
     .query(async ({ ctx, input }) => {
       /*
         The screen this feeds is the reason every group filter is applied on the server. Its
@@ -324,15 +352,17 @@ export const coursesRouter = createTRPCRouter({
         rule with two implementations, and the visible failure is a group's name above the whole
         cohort's figures.
       */
-      const selection = parseGroupSelection(input.group);
+      const selection = parseCohortSelection(input.cohort);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
         select: {
           id: true,
           name: true,
-          cohortTerm: true,
+          programId: true,
+          publishedAt: true,
           archivedAt: true,
+          program: { select: { id: true, name: true, matriculation: true } },
           // For the filter menu, which offers the course's whole module list rather than only
           // the modules that happen to hold an assignment — filtering to an empty module is a
           // legitimate way to find out that it is empty.
@@ -390,8 +420,8 @@ export const coursesRouter = createTRPCRouter({
         would leave this column claiming there is grading to do while triage shows nothing —
         with nothing on either screen to reconcile them.
       */
-      const removed = await removedStudentIds(ctx.db, course.id);
-      const inSelection = await selectedStudentIds(ctx.db, course.id, selection);
+      const removed = await removedStudentIds(ctx.db, course.programId);
+      const inSelection = await selectedStudentIds(ctx.db, course.programId, selection);
       const counts = new Map(
         assignments.map((assignment) => [
           assignment.id,
@@ -422,18 +452,22 @@ export const coursesRouter = createTRPCRouter({
     }),
 
   /**
-   * The cohort itself: what it is called, how its repositories are named, who teaches it,
-   * and how it is retired.
+   * The course itself: what it is called, how its repositories are named, who is assigned to teach
+   * it, and how it is published and retired.
    *
-   * Also where the bare course address lands, because once every tab became a sidebar item
-   * there was nothing else for `/instructor/courses/[courseId]` to be.
+   * Also where the bare course address lands, because once every tab became a sidebar item there was
+   * nothing else for `/instructor/courses/[courseId]` to be.
    *
-   * **`cohortSlug` is returned here and nowhere else.** It used to be returned by nothing at
-   * all, on the reasoning that it is fixed at creation and legible from any repository name
-   * the cohort has generated — which is right about a screen that lists work and wrong about
-   * this one. A settings screen is where a fact you cannot act on legitimately belongs, and
-   * an instructor who has to derive their own cohort's short name by reading a student's
-   * repository name has been told to work it out rather than told.
+   * **`slug` is returned here and nowhere else.** It used to be returned by nothing at all, on the
+   * reasoning that it is fixed at creation and legible from any repository name the course has
+   * generated — which is right about a screen that lists work and wrong about this one. A settings
+   * screen is where a fact you cannot act on legitimately belongs, and an instructor who has to
+   * derive their own course's short name by reading a fellow's repository name has been told to work
+   * it out rather than told.
+   *
+   * **The two links are not here.** Both belong to the program — one admits a fellow to the roster,
+   * the other admits an instructor to the whole matriculation — so they are on `programs.settings`,
+   * behind `programProcedure`. There is nothing about a course that grants anybody anything.
    */
   settings: courseProcedure.query(async ({ ctx, input }) => {
     const course = await ctx.db.course.findUnique({
@@ -441,27 +475,37 @@ export const coursesRouter = createTRPCRouter({
       select: {
         id: true,
         name: true,
-        cohortTerm: true,
-        cohortSlug: true,
+        slug: true,
+        publishedAt: true,
         archivedAt: true,
         createdAt: true,
-        attendanceLateAfterMinutes: true,
-        /*
-            Same guard as the join link above, and a sharper edge: this one admits somebody to
-            authoring and to every student's grades in this cohort. It is behind
-            `instructorProcedure` and the teach gate, and appears in no other payload.
-          */
-        coTeachToken: true,
-        instructors: {
-          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        program: {
           select: {
             id: true,
-            isPrimary: true,
-            createdAt: true,
-            user: {
-              select: personSelect,
+            name: true,
+            matriculation: true,
+            archivedAt: true,
+            /*
+              Every instructor of the matriculation, so the screen can offer the ones who are not yet
+              assigned to this course. Authority is theirs already — see `assertTeaches` — so this is
+              a list of candidates for a name on a course, not a list of people to be granted
+              anything.
+            */
+            instructors: {
+              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+              select: {
+                id: true,
+                isPrimary: true,
+                createdAt: true,
+                user: { select: personSelect },
+              },
             },
           },
+        },
+        /** Who is assigned to teach this course, which is a subset of the above. */
+        instructors: {
+          orderBy: { createdAt: "asc" },
+          select: { id: true, userId: true, createdAt: true },
         },
       },
     });
@@ -471,10 +515,10 @@ export const coursesRouter = createTRPCRouter({
     }
 
     /*
-        The organizations this cohort's repositories are created in, which is the other half of
-        what a repository name is made of. Distinct values rather than a row per assignment: the
-        question is which organizations are in play, and a course normally has one answer.
-      */
+      The organizations this course's repositories are created in, which is the other half of what a
+      repository name is made of. Distinct values rather than a row per assignment: the question is
+      which organizations are in play, and a course normally has one answer.
+    */
     const orgRows = await ctx.db.assignment.findMany({
       where: { courseId: course.id, githubOrg: { not: null } },
       select: { githubOrg: true },
@@ -482,23 +526,23 @@ export const coursesRouter = createTRPCRouter({
       orderBy: { githubOrg: "asc" },
     });
 
-    // Whether the short name is still theoretically free, which it is not once a repository
-    // has been named after it. Stated on the screen rather than acted on — there is no
-    // mutation either way, and knowing why is the point.
+    // Whether the short name is still theoretically free, which it is not once a repository has been
+    // named after it. Stated on the screen rather than acted on — there is no mutation either way,
+    // and knowing why is the point.
     const acceptedCount = await ctx.db.submission.count({
       where: { assignment: { courseId: course.id }, repoFullName: { not: null } },
     });
 
     /*
-        Derived by the same function the guards use, rather than read off `isPrimary` here.
+      Derived by the same function the guards use, rather than read off `isPrimary` here.
 
-        The owner is `isPrimary` **or** the longest-serving instructor when no row holds it, and
-        a screen that knew only the first half would show a cohort with no owner and offer an
-        Archive button that the procedure then refuses. Null only for a course with no
-        instructors at all, which `removeInstructor` refuses to create.
-      */
+      The owner is `isPrimary` **or** the longest-serving instructor when no row holds it, and a
+      screen that knew only the first half would show a program with no owner and offer a Publish or
+      Archive button that the procedure then refuses.
+    */
     const ownerId =
-      ownerOf(course.instructors.map((row) => ({ ...row, userId: row.user.id })))?.userId ?? null;
+      ownerOf(course.program.instructors.map((row) => ({ ...row, userId: row.user.id })))?.userId ??
+      null;
 
     return {
       course,
@@ -506,16 +550,15 @@ export const coursesRouter = createTRPCRouter({
       acceptedCount,
       /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
       callerId: ctx.profile.id,
-      /** Which of them owns it. */
+      /** Which of them owns the matriculation this course belongs to. */
       ownerId,
       /**
-       * Whether this caller may do the things ownership gates — archive, reopen, hand the
-       * cohort on, remove the owner.
+       * Whether this caller may do the things ownership gates — publish, archive, reopen, delete,
+       * decide who teaches this course.
        *
-       * Not `ownerId === callerId` in the browser, because an admin acts as owner on every
-       * course and holds no `CourseInstructor` row on any of them. A screen deriving it that
-       * way would hide the Archive button from the one reader who is the recovery path when
-       * an owner has left.
+       * Not `ownerId === callerId` in the browser, because an admin acts as owner on every program
+       * and holds no `ProgramInstructor` row on any of them. A screen deriving it that way would
+       * hide the Archive button from the one reader who is the recovery path when an owner has left.
        */
       callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === "ADMIN",
     };
@@ -539,17 +582,19 @@ export const coursesRouter = createTRPCRouter({
    * list. Everything still here is something the grid itself draws.
    */
   gradebook: courseProcedure
-    .input(z.object({ group: groupSelectionInput }))
+    .input(z.object({ cohort: cohortSelectionInput }))
     .query(async ({ ctx, input }) => {
-      const selection = parseGroupSelection(input.group);
+      const selection = parseCohortSelection(input.cohort);
 
       const course = await ctx.db.course.findUnique({
         where: { id: input.courseId },
         select: {
           id: true,
           name: true,
-          cohortTerm: true,
+          programId: true,
+          publishedAt: true,
           archivedAt: true,
+          program: { select: { id: true, name: true, matriculation: true } },
         },
       });
 
@@ -607,7 +652,7 @@ export const coursesRouter = createTRPCRouter({
           there is no way for the grid to show a group's students and count somebody else's work.
         */
         ctx.db.enrollment.findMany({
-          where: enrollmentsIn(course.id, selection),
+          where: enrollmentsIn(course.programId, selection),
           orderBy: [{ status: "asc" }, { createdAt: "asc" }],
           select: {
             id: true,
@@ -698,12 +743,12 @@ export const coursesRouter = createTRPCRouter({
          */
         removedCells: cells.filter((cell) => removed.has(cell.studentId)),
         /**
-         * Which group this grid was built for, so the screen can name what it narrowed to.
+         * Which cohort this grid was built for, so the screen can name what it narrowed to.
          *
-         * A gradebook showing eight rows is a different claim depending on whether the cohort
-         * has eight students, and the heading is the only place that can say which.
+         * A gradebook showing eight rows is a different claim depending on whether the roster has
+         * eight fellows, and the heading is the only place that can say which.
          */
-        groupSelection: input.group,
+        cohortSelection: input.cohort,
       };
     }),
 
@@ -726,26 +771,51 @@ export const coursesRouter = createTRPCRouter({
   create: instructorProcedure
     .input(
       z.object({
+        /** The matriculation this course belongs to. Any instructor of it may add a course. */
+        programId: z.string().uuid(),
         name: z.string().trim().min(1, "A course needs a name.").max(200),
-        cohortTerm: z.string().trim().min(1, "A course needs a term.").max(120),
         /**
-         * The cohort's short name, which prefixes every repository it generates.
+         * The course's short name, which prefixes every repository it generates.
          *
-         * Optional, and derived from the term when absent — so a caller that does not care gets
-         * `fall-2026` and the form can offer `f26` instead. Validated rather than slugified on
-         * arrival: silently rewriting somebody's `F26` to `f26` is fine, but silently rewriting
-         * `spring/26` to `spring-26` would put a name they did not choose into every repository.
+         * Optional, and derived from the course name and the program's matriculation when absent —
+         * so a caller that does not care gets `fse-f26` and the form can offer `swe-f26` instead.
+         * Validated rather than slugified on arrival: silently rewriting somebody's `F26` to `f26`
+         * is fine, but silently rewriting `spring/26` to `spring-26` would put a name they did not
+         * choose into every repository.
          */
-        cohortSlug: z.string().trim().toLowerCase().max(MAX_COHORT_SLUG).optional(),
-        /** Copies its modules and, unpublished, its assignments. */
+        slug: z.string().trim().toLowerCase().max(MAX_COURSE_SLUG).optional(),
+        /** Copies its units and, unpublished, its assignments. */
         copyFromCourseId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const cohortSlug =
-        input.cohortSlug ||
-        suggestCohortSlug({ courseName: input.name, cohortTerm: input.cohortTerm });
-      const slugProblem = cohortSlugProblem(cohortSlug);
+      /*
+        The program has to be one the caller instructs, and it has to be running. There is no
+        `programProcedure` to lean on here because this procedure also names a *second* course in
+        its input, and the guard it wants is about the program.
+      */
+      await assertInstructsProgram(ctx, input.programId);
+
+      const program = await ctx.db.program.findUnique({
+        where: { id: input.programId },
+        select: { id: true, name: true, matriculation: true, archivedAt: true },
+      });
+
+      if (!program) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That program does not exist." });
+      }
+
+      if (program.archivedAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${program.name} is archived, so no more courses can be added to it.`,
+        });
+      }
+
+      const slug =
+        input.slug ||
+        suggestCourseSlug({ courseName: input.name, matriculation: program.matriculation });
+      const slugProblem = courseSlugProblem(slug);
       if (slugProblem) {
         throw new TRPCError({ code: "BAD_REQUEST", message: slugProblem });
       }
@@ -812,35 +882,47 @@ export const coursesRouter = createTRPCRouter({
         const created = await tx.course
           .create({
             data: {
+              programId: input.programId,
               name: input.name,
-              cohortTerm: input.cohortTerm,
-              cohortSlug,
-              joinToken: newJoinToken(),
-              coTeachToken: newJoinToken(),
-              instructors: { create: { userId: ctx.profile.id, isPrimary: true } },
+              slug,
             },
-            select: { id: true, name: true, cohortTerm: true, cohortSlug: true },
+            select: { id: true, name: true, slug: true, programId: true },
           })
           .catch((err: unknown) => {
             /*
               The one collision the database refuses, said in words.
 
-              Rarer than it was, now that the suggestion names the course as well as the term —
-              it used to be that every program starting in the same season collided. What still
-              collides is two cohorts of the *same* program in the same term, and a raw
-              constraint error would name a column rather than the thing to change.
+              Rarer than it was, now that the suggestion names the course as well as the term — it
+              used to be that every program starting in the same season collided. What still
+              collides is two courses of the *same* program with similar names, and a raw constraint
+              error would name a column rather than the thing to change.
             */
             if ((err as { code?: string }).code === "P2002") {
               throw new TRPCError({
                 code: "CONFLICT",
                 message:
-                  `Another course already uses "${cohortSlug}" as its short name. Every ` +
-                  `cohort needs its own, because it prefixes the repository names — pick ` +
-                  `something like "${cohortSlug}-2".`,
+                  `Another course already uses "${slug}" as its short name. Every course needs ` +
+                  `its own, because it prefixes the repository names — pick something like ` +
+                  `"${slug}-2".`,
               });
             }
             throw err;
           });
+
+        /*
+          Assigned to its creator, which puts their name on it and makes them a collaborator on every
+          repository it generates. It grants nothing — every instructor of the program can already
+          author here — so this is a default rather than a permission, and the owner can change it on
+          the instructors screen.
+
+          Written beside the course rather than nested inside its create, because `CourseInstructor`
+          reaches its course through `(courseId, programId)` and a nested create cannot name the
+          second half of a composite relation.
+        */
+        await tx.courseInstructor.create({
+          data: { courseId: created.id, programId: input.programId, userId: ctx.profile.id },
+          select: { id: true },
+        });
 
         if (source && source.courseUnits.length > 0) {
           /*
@@ -915,18 +997,18 @@ export const coursesRouter = createTRPCRouter({
    * Reversible on purpose — a tidying action that cannot be undone gets avoided rather than
    * used, and an instructor who archives the wrong cohort should not need the database.
    *
-   * **Owner only, in both directions.** This is the one action a single instructor takes that
-   * changes what every student in the cohort sees, which is why it is not merely teach-gated
-   * like everything else on the settings screen. Reopening is the same gate because it is the
-   * same mutation with a boolean, and the consequence is worth knowing rather than
-   * discovering: a co-teacher finds an archived cohort in their course list, reads all of it,
-   * and cannot bring it back. That is the right side to err on — a cohort somebody else
-   * retired is not theirs to un-retire.
+   * **Owner only, in both directions** — the owner of the program this course belongs to, since
+   * ownership is a matriculation fact. This is one of the two actions a single instructor takes that
+   * change what every fellow sees, which is why it is not merely teach-gated like everything else on
+   * the settings screen. Reopening is the same gate because it is the same mutation with a boolean,
+   * and the consequence is worth knowing rather than discovering: a co-teacher finds an archived
+   * course in their list, reads all of it, and cannot bring it back. That is the right side to err on
+   * — a course somebody else retired is not theirs to un-retire.
    */
   setArchived: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), archived: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await assertOwnsCourse(ctx, input.courseId, input.archived ? "archive" : "reopen");
+      await assertOwnsProgramOfCourse(ctx, input.courseId, input.archived ? "archive" : "reopen");
 
       return ctx.db.course.update({
         where: { id: input.courseId },
@@ -936,37 +1018,48 @@ export const coursesRouter = createTRPCRouter({
     }),
 
   /**
-   * How long after check-in opens a fellow still counts as on time.
+   * Publishes a course, or takes it back to a draft.
    *
-   * A cohort's own norm rather than an application-wide constant, because it is one: a course
-   * that starts with fifteen minutes of standup and one that starts with a quiz disagree about
-   * when the door closes, and neither is wrong.
+   * **What replaced "do not enroll anybody yet".** Being on a program's roster now makes somebody a
+   * student of every course of it, so the lever that used to keep a course beginning in March off a
+   * fellow's screen is gone. This is the one that replaced it, and it means exactly what
+   * `Assignment.distributedAt` means one level down: instructors see the course and author in it, and
+   * fellows do not see it at all.
    *
-   * **It applies to sessions started from now on and rewrites nothing.** Each session copies this
-   * number when it starts, so a term of recorded lateness cannot be changed by moving a setting —
-   * see the comment on `AttendanceSession.lateAfterMinutes`. Correcting one morning that was
-   * recorded wrongly is `attendance.updateSession`, which is a different act and says so.
+   * **Unpublishing is allowed, and is not the same as archiving.** A course pulled back to a draft
+   * was published by mistake or is being rewritten; an archived one is finished. Both are reversible,
+   * and they are separate columns because a finished course must not read as one that has not started
+   * — the fellow who did the work would lose the record of it.
    *
-   * Teach-gated rather than owner-only, unlike archiving. It changes what a future session
-   * records, not what any student can already see.
+   * Owner only, the same gate as archiving and for the same reason: it changes what every fellow on
+   * the roster sees.
    */
-  setAttendanceLateAfter: courseProcedure
-    .input(z.object({ minutes: z.number().int().min(0).max(120) }))
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.course.update({
+  setPublished: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), published: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwnsProgramOfCourse(
+        ctx,
+        input.courseId,
+        input.published ? "publish" : "unpublish",
+      );
+
+      return ctx.db.course.update({
         where: { id: input.courseId },
-        data: { attendanceLateAfterMinutes: input.minutes },
-        select: { id: true, attendanceLateAfterMinutes: true },
-      }),
-    ),
+        data: { publishedAt: input.published ? new Date() : null },
+        select: { id: true, name: true, publishedAt: true },
+      });
+    }),
 
   /**
-   * What deleting this cohort would destroy. Read-only.
+   * What deleting this course would destroy. Read-only.
    *
-   * Exists so the confirmation states facts rather than generalities — "24 students, 12
-   * assignments, 187 submissions, 143 released grades" is a sentence somebody can act on, and
-   * "this cannot be undone" is not. Same shape as `assignments.removalImpact`, at the grain of
-   * a whole cohort.
+   * Exists so the confirmation states facts rather than generalities — "12 assignments, 187
+   * submissions, 143 released grades" is a sentence somebody can act on, and "this cannot be undone"
+   * is not. Same shape as `assignments.removalImpact`, at the grain of a whole course.
+   *
+   * **The roster is not part of it.** Enrollments, cohorts, and attendance belong to the program, so
+   * deleting one course of a matriculation leaves every fellow exactly where they were. That is the
+   * difference between this and `programs.remove`, and the confirmation should say so.
    *
    * **Archived only**, like the removal itself, so this cannot be used to preview an action
    * that is not available. Refusing here rather than returning an empty answer keeps the two in
@@ -979,7 +1072,7 @@ export const coursesRouter = createTRPCRouter({
       const course = await assertArchivedAndOwned(ctx, input.courseId, "delete");
 
       const [enrollments, assignments, courseUnits, instructors, submissions] = await Promise.all([
-        ctx.db.enrollment.count({ where: { courseId: course.id } }),
+        ctx.db.enrollment.count({ where: { programId: course.programId } }),
         ctx.db.assignment.count({ where: { courseId: course.id } }),
         ctx.db.courseUnit.count({ where: { courseId: course.id } }),
         ctx.db.courseInstructor.count({ where: { courseId: course.id } }),
@@ -996,9 +1089,17 @@ export const coursesRouter = createTRPCRouter({
 
       return {
         name: course.name,
-        cohortTerm: course.cohortTerm,
+        matriculation: course.program.matriculation,
         /** What has to be typed to confirm. Returned so the screen and the procedure agree. */
-        cohortSlug: course.cohortSlug,
+        slug: course.slug,
+        /**
+         * The size of the program's roster, which is **not** what deleting this course removes.
+         *
+         * Named here anyway, because it is what the submission and grade counts below are measured
+         * against and a reader would otherwise have to guess the denominator. Enrollments belong to
+         * the matriculation and survive: deleting one course of four leaves everybody on the roster,
+         * in their cohort, with their attendance intact.
+         */
         enrollments,
         assignments,
         courseUnits,
@@ -1028,12 +1129,15 @@ export const coursesRouter = createTRPCRouter({
     }),
 
   /**
-   * Deletes a cohort and everything cascading from it.
+   * Deletes a course and everything cascading from it.
    *
-   * Permanent, and there is no recovery path in the application: the course takes its modules,
-   * assignments, submissions, grading drafts, sections, test runs, enrollments, and instructor
-   * rows with it. The database's own backups are the only way back, which is worth saying on a
-   * screen that can destroy a term.
+   * Permanent, and there is no recovery path in the application: the course takes its units,
+   * assignments, submissions, grading drafts, sections, test runs, team sets, and the rows naming who
+   * taught it. The database's own backups are the only way back, which is worth saying on a screen
+   * that can destroy a term of work.
+   *
+   * **The roster survives.** Enrollments, cohorts, and attendance belong to the program, so this
+   * leaves every fellow where they were. Deleting the matriculation is `programs.remove`.
    *
    * **Archived first**, always. Archiving is reversible and this is not, so making it the only
    * path means the destructive action always has a survivable step in front of it — somebody
@@ -1042,24 +1146,23 @@ export const coursesRouter = createTRPCRouter({
    * **Owner only**, the same gate as archiving. If any co-teacher could archive and then delete,
    * the ownership rules would buy nothing.
    *
-   * **The typed confirmation is enforced here rather than in the dialog**, which is the whole
-   * point of it: the interface warns and the procedure is what refuses. It asks for the short
-   * name rather than the course name, because a program runs every term under the same name —
-   * "Software Engineering Fellowship" would confirm the wrong cohort as readily as the right
-   * one, and the short name is the thing that is unique to this one.
+   * **The typed confirmation is enforced here rather than in the dialog**, which is the whole point
+   * of it: the interface warns and the procedure is what refuses. It asks for the short name rather
+   * than the course name, because a program runs the same courses every term — "Fullstack Software
+   * Engineering" would confirm last year's as readily as this year's, and the short name is the thing
+   * that is unique across every course of every matriculation.
    */
   remove: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), confirmCohortSlug: z.string() }))
+    .input(z.object({ courseId: z.string().uuid(), confirmSlug: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const course = await assertArchivedAndOwned(ctx, input.courseId, "delete");
 
-      if (input.confirmCohortSlug.trim().toLowerCase() !== course.cohortSlug) {
+      if (input.confirmSlug.trim().toLowerCase() !== course.slug) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            `Type the cohort's short name exactly to delete it. Expected "${course.cohortSlug}" ` +
-            `— every cohort of this program is called "${course.name}", so the short name is ` +
-            `what says which one.`,
+            `Type the course's short name exactly to delete it. Expected "${course.slug}" — a ` +
+            `program runs the same courses every term, so the short name is what says which one.`,
         });
       }
 
@@ -1077,7 +1180,7 @@ export const coursesRouter = createTRPCRouter({
           _count: { select: { gradingDrafts: true, testRuns: true } },
         },
       });
-      const enrollments = await ctx.db.enrollment.count({ where: { courseId: course.id } });
+      const enrollments = await ctx.db.enrollment.count({ where: { programId: course.programId } });
       const assignments = await ctx.db.assignment.count({ where: { courseId: course.id } });
 
       await ctx.db.course.delete({ where: { id: course.id } });
@@ -1104,7 +1207,8 @@ export const coursesRouter = createTRPCRouter({
 
       return {
         name: course.name,
-        cohortTerm: course.cohortTerm,
+        matriculation: course.program.matriculation,
+        /** The program's roster, untouched by this — see `removalImpact`. */
         enrollments,
         assignments,
         submissions: submissions.length,
@@ -1121,10 +1225,10 @@ export const coursesRouter = createTRPCRouter({
     }),
 
   /*
-    There is deliberately no `setCohortSlug`.
+    There is deliberately no `setSlug`.
 
     The short name is settled when the course is created and never again. It prefixes every
-    repository the cohort generates, so the only window in which changing it means anything is
+    repository the course generates, so the only window in which changing it means anything is
     before the first Accept — and a mutation that is legal for a few hours and refused forever
     after is a rule every reader has to learn, a check to keep correct, and a screen that has to
     explain which state it is in. What it buys is correcting a typo, in a window measured against
@@ -1140,384 +1244,15 @@ export const coursesRouter = createTRPCRouter({
     update, which is safe for exactly as long as the course has no submissions.
   */
 
-  /**
-   * Replaces the join link, invalidating the old one.
-   *
-   * **The only control over who can use it.** Anyone holding the link joins immediately, so a
-   * link that reached the wrong person is dealt with by replacing it and removing whoever got
-   * in. Students already enrolled are unaffected — the token is how you *join*, not how you
-   * stay.
-   */
-  regenerateJoinToken: courseProcedure.mutation(async ({ ctx, input }) => {
-    return inTransaction(ctx.db, async (tx) => {
-      const course = await tx.course.update({
-        where: { id: input.courseId },
-        data: { joinToken: newJoinToken() },
-        select: { id: true, name: true, joinToken: true },
-      });
+  /*
+    There is deliberately nothing here about the join link, co-teaching, instructors, or ownership.
 
-      /*
-        Worth recording because rotating the link is what an instructor does *after* something has
-        gone wrong — a link forwarded to the wrong person, a link posted somewhere public. The
-        event is the timestamp that says when the old one stopped working, which is the question
-        asked when working out how somebody got into a cohort.
-
-        The token itself is not recorded, new or old, for the reason `createInvite` does not record
-        one: it is the whole credential.
-      */
-      await recordEvent(tx, {
-        action: "JOIN_TOKEN_REGENERATED",
-        actor: auditActor(ctx),
-        course: { id: course.id, label: course.name },
-      });
-
-      return { id: course.id, joinToken: course.joinToken };
-    });
-  }),
-
-  // =====================================================================================
-  // Co-teaching: who else may teach this cohort
-  //
-  // A second link, deliberately not the join link, because the two grant opposite things.
-  // The join link admits a stranger to one cohort as a student; this one admits them to
-  // authoring, to the gradebook, and to every student's grade in it.
-  //
-  // **It grants a course, never a role.** Only an account that already holds INSTRUCTOR or
-  // ADMIN can redeem it. A student opening it is refused and told what is actually needed,
-  // rather than promoted — a course-level link that made somebody staff would be a second
-  // path to staff access with no admin involved, which is exactly what `adminProcedure` and
-  // `InstructorInvite` exist to control. So becoming staff stays where it was, and this
-  // decides only which cohorts an existing instructor works in.
-  //
-  // Reusable rather than single use, unlike an instructor invitation. A cohort gains
-  // co-teachers one at a time across a term and the sender is the same person either way;
-  // what bounds this link is the role check rather than the token being spent, and
-  // `regenerateCoTeachToken` is the control over a link that reached the wrong person.
-  // =====================================================================================
-
-  /**
-   * What a co-teach link points at, before anybody redeems it.
-   *
-   * `profileProcedure`, because the caller is by definition not yet an instructor of this
-   * course — that is what they are here to change. Returns null on an unknown token so a
-   * replaced link reads as "this link no longer works" rather than as an error page.
-   *
-   * It reports `eligible` rather than refusing, so the screen can explain the one refusal
-   * that has an answer: a student account cannot be made staff from here, and saying so on
-   * arrival beats a failed button.
-   */
-  previewCoTeach: profileProcedure
-    .input(z.object({ token: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      const course = await ctx.db.course.findUnique({
-        where: { coTeachToken: input.token },
-        select: {
-          id: true,
-          name: true,
-          cohortTerm: true,
-          archivedAt: true,
-          instructors: {
-            where: { isPrimary: true },
-            take: 1,
-            select: { user: { select: { displayName: true } } },
-          },
-        },
-      });
-
-      if (!course) return null;
-
-      const already = await ctx.db.courseInstructor.findUnique({
-        where: { courseId_userId: { courseId: course.id, userId: ctx.profile.id } },
-        select: { id: true },
-      });
-
-      return {
-        courseId: course.id,
-        name: course.name,
-        cohortTerm: course.cohortTerm,
-        archived: course.archivedAt !== null,
-        primaryInstructor: course.instructors[0]?.user.displayName ?? null,
-        /** Whether this account may hold the grant at all — staff only. */
-        eligible: ctx.profile.role === "INSTRUCTOR" || ctx.profile.role === "ADMIN",
-        /** So the screen says "you already teach this" rather than offering to join again. */
-        alreadyTeaches: already !== null,
-      };
-    }),
-
-  /**
-   * Redeems a co-teach link, adding the caller to the course as an instructor.
-   *
-   * **Idempotent**, the same way `enrollments.join` is and for the same reason:
-   * `@@unique([courseId, userId])` means a second redemption returns the row that exists
-   * rather than adding another, so a bookmarked link is not a case to handle.
-   *
-   * `isPrimary: false`, always. The primary instructor is whoever created the cohort, and
-   * that is a fact about how the course came to exist rather than a rank a link can confer.
-   */
-  acceptCoTeach: profileProcedure
-    .input(z.object({ token: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      const course = await ctx.db.course.findUnique({
-        where: { coTeachToken: input.token },
-        select: { id: true, name: true, archivedAt: true },
-      });
-
-      /*
-        The same message whether the link was never real or has been replaced. From here they
-        are the same fact, and telling them apart would say something about a course the caller
-        has no connection to.
-      */
-      if (!course) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message:
-            "That co-teaching link does not work. It may have been replaced — ask whoever " +
-            "sent it for the current one.",
-        });
-      }
-
-      /*
-        A student is refused rather than promoted, and told what would actually help.
-
-        This is the guard the whole design rests on. Raising a role here would mean any
-        instructor could hand out staff access to anybody by forwarding a course link, with no
-        admin involved and no record of it beyond a `CourseInstructor` row.
-      */
-      if (ctx.profile.role !== "INSTRUCTOR" && ctx.profile.role !== "ADMIN") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message:
-            `This link adds an instructor to ${course.name}, and your account is not an ` +
-            `instructor account. An admin has to send you an instructor invitation first — ` +
-            `once you have used that, this link will work.`,
-        });
-      }
-
-      if (course.archivedAt !== null) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: `${course.name} is archived, so it is not taking new instructors.`,
-        });
-      }
-
-      /*
-        An enrolled student of this course is refused, the mirror of `enrollments.join`
-        refusing an instructor. Being both would put their own submissions in the queue they
-        are meant to be working through.
-      */
-      const enrolled = await ctx.db.enrollment.findUnique({
-        where: { courseId_studentId: { courseId: course.id, studentId: ctx.profile.id } },
-        select: { id: true },
-      });
-      if (enrolled) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            `You are enrolled as a student in ${course.name}, so you cannot also teach it. ` +
-            `Ask an instructor to remove your enrollment first.`,
-        });
-      }
-
-      const existing = await ctx.db.courseInstructor.findUnique({
-        where: { courseId_userId: { courseId: course.id, userId: ctx.profile.id } },
-        select: { id: true },
-      });
-
-      if (existing) {
-        return { courseId: course.id, name: course.name, added: false };
-      }
-
-      await ctx.db.courseInstructor.create({
-        data: { courseId: course.id, userId: ctx.profile.id, isPrimary: false },
-        select: { id: true },
-      });
-
-      return { courseId: course.id, name: course.name, added: true };
-    }),
-
-  /**
-   * Replaces the co-teach link, invalidating the old one.
-   *
-   * The only control over who can use it, exactly as with the join link: anybody holding it
-   * who is already staff is added immediately, so a link that reached the wrong person is
-   * dealt with by replacing it and removing whoever got in. Instructors already on the course
-   * are unaffected — the token is how you are added, not how you stay.
-   */
-  regenerateCoTeachToken: courseProcedure.mutation(async ({ ctx, input }) => {
-    return ctx.db.course.update({
-      where: { id: input.courseId },
-      data: { coTeachToken: newJoinToken() },
-      select: { id: true, coTeachToken: true },
-    });
-  }),
-
-  /**
-   * Removes an instructor from a course.
-   *
-   * **Refused if it would leave the course with none**, the same shape and the same reasoning
-   * as revoking the last admin: a course with no instructors is unreachable by every
-   * authoring procedure, all of which check `CourseInstructor` rather than the role, and the
-   * only way back is a database edit. The check is cheap and the failure is not.
-   *
-   * **The owner cannot be removed by anybody else**, which is the permission this whole area
-   * exists for: before it, anybody who taught a course could remove the person who set it up.
-   * They can still remove *themselves* — somebody who leaves the program should not be
-   * permanent, and refusing would make "who created this" outrank "who runs it now" — and
-   * ownership then falls to the longest-serving instructor left. `transferOwnership` is how
-   * they choose who instead of letting the rule choose.
-   *
-   * Nothing is taken back on GitHub. An instructor removed here stays a collaborator on every
-   * repository generated while they taught, because `accept` adds collaborators at the moment
-   * a student accepts and those repositories hold real student work. Same reasoning as leaving
-   * student repositories alone when an assignment is removed.
-   */
-  removeInstructor: courseProcedure
-    .input(z.object({ userId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      /*
-        Every instructor on the course in one read, rather than the target row and a count.
-        Three of the four things decided below — who the target is, whether this would empty
-        the list, and who owns the cohort — are questions about the same set, and asking
-        separately is how two of them come to be answered about different sets.
-      */
-      const instructors = await ctx.db.courseInstructor.findMany({
-        where: { courseId: input.courseId },
-        select: {
-          id: true,
-          userId: true,
-          isPrimary: true,
-          createdAt: true,
-          user: { select: personNameSelect },
-        },
-      });
-
-      const row = instructors.find((instructor) => instructor.userId === input.userId);
-
-      if (!row) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "That person does not teach this course.",
-        });
-      }
-
-      if (instructors.length <= 1) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "This is the only instructor on the course. Add another one first — a course " +
-            "with no instructors cannot be authored in or graded, and only a database edit " +
-            "would bring it back.",
-        });
-      }
-
-      /*
-        The owner is removable by the owner and by an admin, and by nobody else.
-
-        Leaving on your own account is a decision about your own work; removing the person who
-        runs a cohort is a decision about theirs. An admin passes because an admin is the
-        recovery path when an owner has left the program without handing the course on.
-      */
-      const owner = ownerOf(instructors);
-      const callerIsOwner = owner?.userId === ctx.profile.id;
-
-      if (
-        owner &&
-        owner.userId === input.userId &&
-        !callerIsOwner &&
-        ctx.profile.role !== "ADMIN"
-      ) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message:
-            `${displayNameOf(row.user, "that instructor")} owns this cohort, so only they can leave it. If they ` +
-            `should hand it on, they can transfer it to somebody else first.`,
-        });
-      }
-
-      await ctx.db.courseInstructor.delete({ where: { id: row.id } });
-
-      /*
-        Who owns it now, said back rather than left to be noticed.
-
-        An owner who leaves without transferring hands the cohort to the longest-serving
-        instructor left, by the same rule that covers a deleted account. It is the right
-        default and it is not a thing anybody would guess, so the screen says whose it is now.
-      */
-      const remaining = instructors.filter((instructor) => instructor.id !== row.id);
-      const successor = owner?.userId === input.userId ? ownerOf(remaining) : null;
-
-      return {
-        courseId: input.courseId,
-        instructorName: displayNameOf(row.user, "that instructor"),
-        /** Who inherited the cohort, or null when the person removed did not own it. */
-        newOwnerName: successor ? displayNameOf(successor.user, "that instructor") : null,
-      };
-    }),
-
-  /**
-   * Hands the cohort to another of its instructors.
-   *
-   * **What makes "the owner cannot be removed" livable.** Without it that rule reads as "the
-   * person who set this up runs it forever", and somebody leaving the program leaves behind a
-   * cohort nobody else can take responsibility for. Leaving afterwards is then the ordinary
-   * `removeInstructor` they already have.
-   *
-   * The target has to teach the course already. Ownership decides which of a cohort's
-   * instructors can archive it and remove people, so handing it to somebody who is not one of
-   * them would be adding an instructor by a second path — and the co-teaching link is the one
-   * place that decision is made and explained.
-   *
-   * Cleared and then set, inside a transaction, because a partial unique index on
-   * `course_instructors` allows exactly one primary row per course and is checked per
-   * statement. Setting first would collide with the row being replaced.
-   */
-  transferOwnership: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), userId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      await assertOwnsCourse(ctx, input.courseId, "hand on");
-
-      const target = await ctx.db.courseInstructor.findUnique({
-        where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
-        select: {
-          id: true,
-          isPrimary: true,
-          user: { select: personNameSelect },
-        },
-      });
-
-      if (!target) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message:
-            "That person does not teach this course, so they cannot own it. Send them the " +
-            "co-teaching link first.",
-        });
-      }
-
-      if (target.isPrimary) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: `${displayNameOf(target.user, "that instructor")} already owns this cohort.`,
-        });
-      }
-
-      await ctx.db.$transaction(async (tx) => {
-        await tx.courseInstructor.updateMany({
-          where: { courseId: input.courseId, isPrimary: true },
-          data: { isPrimary: false },
-        });
-        await tx.courseInstructor.update({
-          where: { id: target.id },
-          data: { isPrimary: true },
-        });
-      });
-
-      return {
-        courseId: input.courseId,
-        ownerId: input.userId,
-        ownerName: displayNameOf(target.user, "that instructor"),
-      };
-    }),
+    All four belong to the matriculation rather than to one of its courses, and all four are in
+    `programs.ts`: `regenerateJoinToken`, the instructor link and the pair that redeems it,
+    `setCourseInstructors`, `removeInstructor`, and `transferOwnership`. What is left in this router
+    is a course's curriculum, its gradebook, and its own life cycle — which is the division the
+    program was introduced to make.
+  */
 });
 
 /**
@@ -1616,14 +1351,21 @@ async function courseCells(
 async function assertArchivedAndOwned(ctx: AuthedCtx, courseId: string, action: string) {
   const course = await ctx.db.course.findUnique({
     where: { id: courseId },
-    select: { id: true, name: true, cohortTerm: true, cohortSlug: true, archivedAt: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      programId: true,
+      archivedAt: true,
+      program: { select: { matriculation: true } },
+    },
   });
 
   if (!course) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
   }
 
-  await assertOwnsCourse(ctx, courseId, action);
+  await assertOwnsProgramOfCourse(ctx, courseId, action);
 
   if (course.archivedAt === null) {
     throw new TRPCError({

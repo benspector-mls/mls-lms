@@ -5,7 +5,7 @@ import superjson from "superjson";
 import { z } from "zod";
 
 import { resolveViewAs, VIEW_AS_COOKIE } from "@/lib/auth/view-as";
-import { assertTeaches } from "@/lib/courses/membership";
+import { assertInstructsProgram, assertTeaches } from "@/lib/courses/membership";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -157,13 +157,17 @@ export const studentProcedure = requireRole("STUDENT");
 export const instructorProcedure = requireRole("INSTRUCTOR", "ADMIN");
 
 /**
- * An instructor **of this course**, for every procedure whose input already names one.
+ * An instructor **of this course's program**, for every procedure whose input names a course.
  *
  * The check the INSTRUCTOR role cannot make on its own: holding it says somebody is staff, not
- * which cohorts are theirs, so without this one cohort's instructor could author in another's,
- * rename its modules, or regroup its students. It was `await assertTeaches(ctx, input.courseId)`
- * written out as the first line of about twenty procedures — correct at every one of them, and
- * forgettable at the twenty-first.
+ * which matriculations are theirs, so without this one program's instructor could author in
+ * another's, rename its units, or reassign its fellows. It was
+ * `await assertTeaches(ctx, input.courseId)` written out as the first line of about twenty
+ * procedures — correct at every one of them, and forgettable at the twenty-first.
+ *
+ * **The row it looks for is on the program.** An instructor of a program may act in every course
+ * of it, so a `CourseInstructor` row grants nothing and is not consulted; what it records is who
+ * teaches what. See `assertTeaches` for why that is the decision.
  *
  * **Structural, the way `protectedProcedure` gates a session.** A procedure built on this cannot
  * omit the check, because there is no line to leave out. That is the same trade every guard above
@@ -174,14 +178,32 @@ export const instructorProcedure = requireRole("INSTRUCTOR", "ADMIN");
  * tRPC merges chained `.input()` schemas, so a procedure adding its own keeps `courseId` in its
  * input type and no browser call site moves.
  *
- * For the procedures whose input names a *row* rather than a course — a module id, a submission
- * id — this cannot help: the row has to be read before anything knows which course it is in.
- * Those use the `teachable*` loaders in `lib/courses/scope.ts`, which do both in one query.
+ * For the procedures whose input names a *row* rather than a course — a unit id, a submission id —
+ * this cannot help: the row has to be read before anything knows which course it is in. Those use
+ * the `teachable*` loaders in `lib/courses/scope.ts`, which do both in one query.
  */
 export const courseProcedure = instructorProcedure
   .input(z.object({ courseId: z.string().uuid() }))
   .use(async ({ ctx, input, next }) => {
     await assertTeaches(ctx, input.courseId);
+    return next();
+  });
+
+/**
+ * An instructor **of this program**, for the procedures that name one rather than a course.
+ *
+ * The sibling of `courseProcedure`, and it exists because a program has screens of its own now:
+ * attendance, the roster, the cohorts, and who teaches what. None of those has a course to reach
+ * through, so `courseProcedure` cannot serve them — and writing the guard out by hand in the four
+ * routers that hold them would be the same forgettable first line this pair was built to delete.
+ *
+ * Structural for the same reason, and one query for the same reason. `assertInstructsProgram` is
+ * the whole of it, and an admin passes as an admin passes everything.
+ */
+export const programProcedure = instructorProcedure
+  .input(z.object({ programId: z.string().uuid() }))
+  .use(async ({ ctx, input, next }) => {
+    await assertInstructsProgram(ctx, input.programId);
     return next();
   });
 

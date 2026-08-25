@@ -308,19 +308,19 @@ describe("the filename", () => {
   const DATE = new Date(2026, 7, 11);
 
   it("names the cohort and the day", () => {
-    expect(gradebookCsvFilename({ cohortTerm: "Fall 2026", groupLabel: null, date: DATE })).toBe(
+    expect(gradebookCsvFilename({ matriculation: "Fall 2026", cohortLabel: null, date: DATE })).toBe(
       "gradebook-fall-2026-2026-08-11.csv",
     );
   });
 
   it("names the group when the screen was filtered", () => {
     expect(
-      gradebookCsvFilename({ cohortTerm: "Fall 2026", groupLabel: "Section A", date: DATE }),
+      gradebookCsvFilename({ matriculation: "Fall 2026", cohortLabel: "Section A", date: DATE }),
     ).toBe("gradebook-fall-2026-section-a-2026-08-11.csv");
   });
 
   it("leaves no doubled hyphen when a term slugifies to nothing", () => {
-    expect(gradebookCsvFilename({ cohortTerm: "!!!", groupLabel: null, date: DATE })).toBe(
+    expect(gradebookCsvFilename({ matriculation: "!!!", cohortLabel: null, date: DATE })).toBe(
       "gradebook-2026-08-11.csv",
     );
   });
@@ -328,8 +328,8 @@ describe("the filename", () => {
   it("pads a single-digit month and day", () => {
     expect(
       gradebookCsvFilename({
-        cohortTerm: "Spring 2027",
-        groupLabel: null,
+        matriculation: "Spring 2027",
+        cohortLabel: null,
         date: new Date(2027, 0, 5),
       }),
     ).toBe("gradebook-spring-2027-2027-01-05.csv");

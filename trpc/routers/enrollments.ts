@@ -14,34 +14,39 @@ import { inTransaction } from "@/lib/prisma";
 
 import {
   type AuthedCtx,
-  courseProcedure,
   createTRPCRouter,
   instructorProcedure,
   profileProcedure,
+  programProcedure,
 } from "../init";
 import { displayNameOf, personNameSelect } from "../selects";
 
 /**
- * Getting students into a course, and out of it.
+ * Getting fellows onto a program's roster, and off it.
  *
- * **One join link per course, and a list of who it works for.** An instructor writes down the
- * students they expect — by GitHub login, by address, or both — and then sends the link however
- * they already talk to them. This application holds no email credentials and sends nothing, which
- * is the reason the link is per course rather than per student: there is no point generating
- * twenty-five tokens when distributing them is a person's job either way.
+ * **One join link per matriculation, and a list of who it works for.** Whoever runs the program
+ * writes down the fellows they expect — by GitHub login, by address, or both — and then sends the
+ * link however they already talk to them. This application holds no email credentials and sends
+ * nothing, which is the reason the link is per program rather than per person: there is no point
+ * generating twenty-five tokens when distributing them is a person's job either way.
  *
- * The two halves do different work and neither is enough alone. The link is unguessable, which
- * stops somebody finding a cohort; the roster is an allowlist, which stops somebody who was *sent*
- * the link — forwarded from a group chat, or passed to a friend — from being admitted by it. See
+ * **One link where there used to be one per course**, which is the duplication the program removed.
+ * A fellow taking four courses of a matriculation used to be sent four links and arrive on four
+ * rosters; joining now enrolls them once, and being on the roster makes them a student of every
+ * published course of it.
+ *
+ * The two halves do different work and neither is enough alone. The link is unguessable, which stops
+ * somebody finding a program; the roster is an allowlist, which stops somebody who was *sent* the
+ * link — forwarded from a group chat, or passed to a friend — from being admitted by it. See
  * `lib/courses/roster.ts` for how a match is decided and why one entry admits one person.
  *
- * `courses.regenerateJoinToken` and `remove` are still here and still worth having, but they are
- * now the second line rather than the only one.
+ * `programs.regenerateJoinToken` and `remove` are still worth having, but they are now the second
+ * line rather than the only one.
  *
- * **Removing is a status, never a deleted row.** A student who leaves had submissions, grades,
- * and released feedback, and destroying those to tidy a roster is the worse failure. What
- * removal does is stop them appearing — see `lib/courses/membership.ts` for the two questions
- * that come apart because of it.
+ * **Removing is a status, never a deleted row.** A fellow who leaves had submissions, grades, and
+ * released feedback, and destroying those to tidy a roster is the worse failure. What removal does is
+ * stop them appearing — see `lib/courses/membership.ts` for the two questions that come apart
+ * because of it.
  */
 export const enrollmentsRouter = createTRPCRouter({
   /**
@@ -58,25 +63,34 @@ export const enrollmentsRouter = createTRPCRouter({
   preview: profileProcedure
     .input(z.object({ token: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const course = await ctx.db.course.findUnique({
+      const program = await ctx.db.program.findUnique({
         where: { joinToken: input.token },
         select: {
           id: true,
           name: true,
-          cohortTerm: true,
+          matriculation: true,
           archivedAt: true,
           instructors: {
             where: { isPrimary: true },
             take: 1,
             select: { user: { select: { displayName: true } } },
           },
+          /*
+            What they are joining, so the screen names the courses rather than only the program.
+            Published only: an unpublished course is not something a fellow is about to get.
+          */
+          courses: {
+            where: { publishedAt: { not: null }, archivedAt: null },
+            orderBy: { createdAt: "asc" },
+            select: { id: true, name: true },
+          },
         },
       });
 
-      if (!course) return null;
+      if (!program) return null;
 
       const existing = await ctx.db.enrollment.findFirst({
-        where: { courseId: course.id, studentId: ctx.profile.id },
+        where: { programId: program.id, studentId: ctx.profile.id },
         select: { status: true },
       });
 
@@ -94,22 +108,24 @@ export const enrollmentsRouter = createTRPCRouter({
       const onRoster =
         existing !== null ||
         !rosterApplies(ctx.profile.role) ||
-        (await findRosterMatch(ctx.db, course.id, ctx.profile)) !== null;
+        (await findRosterMatch(ctx.db, program.id, ctx.profile)) !== null;
 
       return {
-        courseId: course.id,
-        name: course.name,
-        cohortTerm: course.cohortTerm,
-        archived: course.archivedAt !== null,
-        primaryInstructor: course.instructors[0]?.user.displayName ?? null,
+        programId: program.id,
+        name: program.name,
+        matriculation: program.matriculation,
+        archived: program.archivedAt !== null,
+        owner: program.instructors[0]?.user.displayName ?? null,
+        /** The published courses joining admits them to, so the screen can say what they get. */
+        courses: program.courses,
         /**
-         * Whether this account is expected in this cohort. False turns the join button into an
+         * Whether this account is expected on this roster. False turns the join button into an
          * explanation — see `rosterRefusal` for what that explanation may and may not say.
          */
         onRoster,
         /** What they are signed in as, so the explanation can name the account rather than the person. */
         signedInAs: ctx.profile.githubUsername ?? ctx.profile.email,
-        /** So the screen can say "you are already in this course" rather than offering to join. */
+        /** So the screen can say "you are already in this program" rather than offering to join. */
         alreadyIn: existing?.status ?? null,
       };
     }),
@@ -117,20 +133,20 @@ export const enrollmentsRouter = createTRPCRouter({
   /**
    * Redeems a join link.
    *
-   * **Idempotent**, which is what makes a reusable link safe: `@@unique([courseId, studentId])`
-   * means a second redemption returns the enrollment that exists rather than adding another, so
-   * a student who opens the link twice — or bookmarks it — is not a problem to handle.
+   * **Idempotent**, which is what makes a reusable link safe: `@@unique([programId, studentId])`
+   * means a second redemption returns the enrollment that exists rather than adding another, so a
+   * fellow who opens the link twice — or bookmarks it — is not a problem to handle.
    *
    * `profileProcedure` rather than `studentProcedure`: an instructor or admin holding a link may
-   * legitimately want to sit in a cohort, and refusing on the strength of a role would refuse
-   * them for no reason. What it does not do is make them a *student* of a course they teach —
-   * `assertActiveStudent` refuses an instructor separately, so a submission row can never
-   * appear in their own queue.
+   * legitimately want to sit in a program, and refusing on the strength of a role would refuse them
+   * for no reason. What it does not do is make them a *student* of a course they teach —
+   * `assertActiveStudent` refuses an instructor separately, so a submission row can never appear in
+   * their own queue.
    */
   join: profileProcedure
     .input(z.object({ token: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const course = await ctx.db.course.findUnique({
+      const program = await ctx.db.program.findUnique({
         where: { joinToken: input.token },
         select: { id: true, name: true, archivedAt: true },
       });
@@ -140,7 +156,7 @@ export const enrollmentsRouter = createTRPCRouter({
         they are the same fact and telling them apart would say something about a course the
         caller has no connection to.
       */
-      if (!course) {
+      if (!program) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message:
@@ -149,33 +165,33 @@ export const enrollmentsRouter = createTRPCRouter({
         });
       }
 
-      if (course.archivedAt !== null) {
+      if (program.archivedAt !== null) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${course.name} has finished, so it is not taking new students.`,
+          message: `${program.name} has finished, so it is not taking new fellows.`,
         });
       }
 
       /*
-        An instructor of this course is refused rather than enrolled.
+        An instructor of this program is refused rather than enrolled.
 
-        Not a technicality: an enrollment would put them in their own roster and their own
-        gradebook, and `accept` would then create a submission that appears in the queue they
-        are supposed to be working through. They can already see everything in the course.
+        Not a technicality: an enrollment would put them in their own roster and their own gradebook,
+        and `accept` would then create a submission that appears in the queue they are supposed to be
+        working through. They can already see everything in every course of it.
       */
-      const teaches = await ctx.db.courseInstructor.findFirst({
-        where: { courseId: course.id, userId: ctx.profile.id },
+      const instructs = await ctx.db.programInstructor.findFirst({
+        where: { programId: program.id, userId: ctx.profile.id },
         select: { id: true },
       });
-      if (teaches) {
+      if (instructs) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `You teach ${course.name}, so you are already in it.`,
+          message: `You teach in ${program.name}, so you are already in it.`,
         });
       }
 
       const existing = await ctx.db.enrollment.findUnique({
-        where: { courseId_studentId: { courseId: course.id, studentId: ctx.profile.id } },
+        where: { programId_studentId: { programId: program.id, studentId: ctx.profile.id } },
         select: { id: true, status: true },
       });
 
@@ -189,15 +205,15 @@ export const enrollmentsRouter = createTRPCRouter({
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
-            `You are no longer enrolled in ${course.name}. Everything you submitted and were ` +
+            `You are no longer enrolled in ${program.name}. Everything you submitted and were ` +
             `given feedback on is still available to you. Ask your instructor if this is wrong.`,
         });
       }
 
-      // Already in, from a link opened twice or a bookmark. Returned rather than refused: they
-      // asked to be in the course and they are.
+      // Already in, from a link opened twice or a bookmark. Returned rather than refused: they asked
+      // to be in the program and they are.
       if (existing) {
-        return { courseId: course.id, name: course.name, joined: false };
+        return { programId: program.id, name: program.name, joined: false };
       }
 
       /*
@@ -218,11 +234,11 @@ export const enrollmentsRouter = createTRPCRouter({
         Staff are exempt, for the reason `rosterApplies` gives.
       */
       const match = rosterApplies(ctx.profile.role)
-        ? await findRosterMatch(ctx.db, course.id, ctx.profile)
+        ? await findRosterMatch(ctx.db, program.id, ctx.profile)
         : null;
 
       if (rosterApplies(ctx.profile.role) && !match) {
-        throw rosterRefusal(course.name, ctx.profile);
+        throw rosterRefusal(program.name, ctx.profile);
       }
 
       /*
@@ -242,43 +258,43 @@ export const enrollmentsRouter = createTRPCRouter({
             throw new TRPCError({
               code: "CONFLICT",
               message:
-                `Somebody else just joined ${course.name} using the place reserved for your ` +
-                `account. Ask your instructor to check the list of expected students.`,
+                `Somebody else just joined ${program.name} using the place reserved for your ` +
+                `account. Ask your instructor to check the list of expected fellows.`,
             });
           }
         }
 
         await tx.enrollment.create({
-          data: { courseId: course.id, studentId: ctx.profile.id },
+          data: { programId: program.id, studentId: ctx.profile.id },
           select: { id: true },
         });
 
         await recordEvent(tx, {
           action: "ENROLLMENT_JOINED",
           actor: auditActor(ctx),
-          subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a student") },
-          course: { id: course.id, label: course.name },
-          // Which of the two ways in this was. A staff member sitting in a cohort and a student
+          subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a fellow") },
+          program: { id: program.id, label: program.name },
+          // Which of the two ways in this was. A staff member sitting in a program and a fellow
           // arriving on their reserved place are both legitimate and are not the same event.
           detail: match
             ? { rosterEntryId: match.id, expectedAs: match.githubUsername ?? match.email }
             : { viaStaffExemption: true, role: ctx.profile.role },
         });
 
-        return { courseId: course.id, name: course.name, joined: true };
+        return { programId: program.id, name: program.name, joined: true };
       });
     }),
 
   /**
-   * Who is expected in this cohort, claimed or not.
+   * Who is expected on this roster, claimed or not.
    *
-   * `courseProcedure`, so an instructor reads their own cohort's list and not another's. The
-   * unclaimed entries are the useful half of this screen: they are the students who have been
-   * sent the link and have not arrived, which is the list somebody chases.
+   * `programProcedure`, so an instructor reads their own matriculation's list and not another's. The
+   * unclaimed entries are the useful half of this screen: they are the fellows who have been sent the
+   * link and have not arrived, which is the list somebody chases.
    */
-  roster: courseProcedure.query(async ({ ctx, input }) => {
+  roster: programProcedure.query(async ({ ctx, input }) => {
     const entries = await ctx.db.rosterEntry.findMany({
-      where: { courseId: input.courseId },
+      where: { programId: input.programId },
       select: {
         id: true,
         githubUsername: true,
@@ -295,13 +311,13 @@ export const enrollmentsRouter = createTRPCRouter({
 
     return entries.map((entry) => ({
       ...entry,
-      claimedByName: entry.claimedBy ? displayNameOf(entry.claimedBy, "a student") : null,
+      claimedByName: entry.claimedBy ? displayNameOf(entry.claimedBy, "a fellow") : null,
       addedByName: entry.addedBy ? displayNameOf(entry.addedBy, "an instructor") : null,
     }));
   }),
 
   /**
-   * Adds people to the list of students expected in this cohort.
+   * Adds people to the list of fellows expected on this roster.
    *
    * **Entries that are already there are skipped rather than refused.** Pasting a roster twice is
    * something people do — a spreadsheet gains three names and the whole thing gets pasted again —
@@ -309,15 +325,15 @@ export const enrollmentsRouter = createTRPCRouter({
    * the obvious action the wrong one. What comes back says how many of each, so the screen can be
    * honest about it.
    */
-  addToRoster: courseProcedure
+  addToRoster: programProcedure
     .input(
       z.object({
         entries: z.array(rosterEntrySchema).min(1).max(MAX_ROSTER_PASTE),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const course = await ctx.db.course.findUniqueOrThrow({
-        where: { id: input.courseId },
+      const program = await ctx.db.program.findUniqueOrThrow({
+        where: { id: input.programId },
         select: { id: true, name: true },
       });
 
@@ -330,7 +346,7 @@ export const enrollmentsRouter = createTRPCRouter({
         */
         const written = await tx.rosterEntry.createMany({
           data: input.entries.map((entry) => ({
-            courseId: input.courseId,
+            programId: input.programId,
             githubUsername: entry.githubUsername,
             email: entry.email,
             note: entry.note,
@@ -343,8 +359,8 @@ export const enrollmentsRouter = createTRPCRouter({
           await recordEvent(tx, {
             action: "ROSTER_ENTRY_ADDED",
             actor: auditActor(ctx),
-            course: { id: course.id, label: course.name },
-            // The keys rather than a count, because "who was added to this cohort" is the question
+            program: { id: program.id, label: program.name },
+            // The keys rather than a count, because "who was added to this roster" is the question
             // this event is kept to answer, and a count cannot answer it.
             detail: {
               added: written.count,
@@ -361,32 +377,32 @@ export const enrollmentsRouter = createTRPCRouter({
     }),
 
   /**
-   * Takes somebody off the list of expected students.
+   * Takes somebody off the list of expected fellows.
    *
-   * **A claimed entry is refused.** Removing it would not remove the student — they are enrolled,
-   * and the enrollment is what the application reads — so it would only destroy the record of how
-   * they got in, leaving a cohort member nothing explains. `remove` below is how somebody leaves.
+   * **A claimed entry is refused.** Removing it would not remove the fellow — they are enrolled, and
+   * the enrollment is what the application reads — so it would only destroy the record of how they
+   * got in, leaving somebody on the roster nothing explains. `remove` below is how somebody leaves.
    */
-  removeFromRoster: courseProcedure
+  removeFromRoster: programProcedure
     .input(z.object({ entryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const entry = await ctx.db.rosterEntry.findFirst({
-        // Scoped by `courseId` from the input, which `courseProcedure` has already checked the
-        // caller teaches. An entry id alone says nothing about which cohort it belongs to.
-        where: { id: input.entryId, courseId: input.courseId },
+        // Scoped by `programId` from the input, which `programProcedure` has already checked the
+        // caller instructs. An entry id alone says nothing about which roster it belongs to.
+        where: { id: input.entryId, programId: input.programId },
         select: {
           id: true,
           githubUsername: true,
           email: true,
           claimedById: true,
-          course: { select: { id: true, name: true } },
+          program: { select: { id: true, name: true } },
         },
       });
 
       if (!entry) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "That entry is not on this cohort's list.",
+          message: "That entry is not on this program's list.",
         });
       }
 
@@ -394,7 +410,7 @@ export const enrollmentsRouter = createTRPCRouter({
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message:
-            "That student has already joined on this entry, so removing it would take away the " +
+            "That fellow has already joined on this entry, so removing it would take away the " +
             "record of how they got in without taking away their place. Remove them from the " +
             "roster instead.",
         });
@@ -406,7 +422,7 @@ export const enrollmentsRouter = createTRPCRouter({
         await recordEvent(tx, {
           action: "ROSTER_ENTRY_REMOVED",
           actor: auditActor(ctx),
-          course: { id: entry.course.id, label: entry.course.name },
+          program: { id: entry.program.id, label: entry.program.name },
           detail: { key: entry.githubUsername ?? entry.email },
         });
 
@@ -415,11 +431,14 @@ export const enrollmentsRouter = createTRPCRouter({
     }),
 
   /**
-   * Removes a student from a cohort.
+   * Removes a fellow from a program.
    *
-   * Their work, grades, and released feedback are untouched and stay readable to them; what
-   * stops is appearing in the roster's active list, the gradebook, the queue, and the counts,
-   * and being able to hand anything else in.
+   * Their work, grades, and released feedback are untouched and stay readable to them; what stops is
+   * appearing in the roster's active list, the gradebook, the queue, and the counts of every course
+   * of the matriculation, and being able to hand anything else in.
+   *
+   * **Their cohort and their team memberships are left alone**, so restoring somebody returns them to
+   * where they were rather than to an unassigned row somebody has to place again.
    */
   remove: instructorProcedure
     .input(z.object({ enrollmentId: z.string().uuid() }))
@@ -437,7 +456,7 @@ export const enrollmentsRouter = createTRPCRouter({
           action: "ENROLLMENT_REMOVED",
           actor: auditActor(ctx),
           subject: { id: enrollment.studentId, label: enrollment.studentName },
-          course: { id: enrollment.courseId, label: enrollment.courseName },
+          program: { id: enrollment.programId, label: enrollment.programName },
           detail: { enrollmentId: updated.id },
         });
 
@@ -446,12 +465,12 @@ export const enrollmentsRouter = createTRPCRouter({
     }),
 
   /**
-   * Puts a removed student back.
+   * Puts a removed fellow back.
    *
-   * **The counterpart to redeeming being refused for a removed student**, and the reason that
-   * refusal is safe. If rejoining were automatic, removing somebody would not stick while they
-   * still held the link, and an instructor's only recourse would be rotating the link for the
-   * whole cohort. Coming back is the instructor's action.
+   * **The counterpart to redeeming being refused for a removed fellow**, and the reason that refusal
+   * is safe. If rejoining were automatic, removing somebody would not stick while they still held the
+   * link, and an instructor's only recourse would be rotating the link for the whole roster. Coming
+   * back is the instructor's action.
    */
   restore: instructorProcedure
     .input(z.object({ enrollmentId: z.string().uuid() }))
@@ -469,7 +488,7 @@ export const enrollmentsRouter = createTRPCRouter({
           action: "ENROLLMENT_RESTORED",
           actor: auditActor(ctx),
           subject: { id: enrollment.studentId, label: enrollment.studentName },
-          course: { id: enrollment.courseId, label: enrollment.courseName },
+          program: { id: enrollment.programId, label: enrollment.programName },
           detail: { enrollmentId: updated.id },
         });
 
@@ -479,28 +498,28 @@ export const enrollmentsRouter = createTRPCRouter({
 });
 
 /**
- * The enrollment, if the caller teaches the course it belongs to, and who it is about.
+ * The enrollment, if the caller instructs the program it is on the roster of, and who it is about.
  *
  * A thin wrapper over `teachableEnrollment` rather than its own check: both call sites want the
- * student's name for the message they return, and that is the only thing this adds. Loading the
- * row first is what makes the course-level check possible at all — an enrollment id says nothing
- * about which course it is in until the row is read.
+ * fellow's name for the message they return, and that is the only thing this adds. Loading the row
+ * first is what makes the program-level check possible at all — an enrollment id says nothing about
+ * which matriculation it belongs to until the row is read.
  */
 async function loadTeachableEnrollment(
   ctx: AuthedCtx,
   enrollmentId: string,
-): Promise<{ courseId: string; courseName: string; studentId: string; studentName: string }> {
+): Promise<{ programId: string; programName: string; studentId: string; studentName: string }> {
   const found = await teachableEnrollment(ctx, enrollmentId, {
-    courseId: true,
+    programId: true,
     studentId: true,
-    course: { select: { name: true } },
+    program: { select: { name: true } },
     student: { select: personNameSelect },
   });
 
   return {
-    courseId: found.courseId,
-    courseName: found.course.name,
+    programId: found.programId,
+    programName: found.program.name,
     studentId: found.studentId,
-    studentName: displayNameOf(found.student, "that student"),
+    studentName: displayNameOf(found.student, "that fellow"),
   };
 }

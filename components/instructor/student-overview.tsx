@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * One student's whole record in one cohort, with the selected submission open beside it.
+ * One fellow's whole record in one course, with the selected submission open beside it.
  *
  * **The grading queue's other axis, and deliberately the same screen.** The queue is one assignment
  * across many students; this is one student across many assignments. The row component and the
@@ -185,7 +185,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 <p className="text-sm font-medium">Nothing here</p>
                 <p className="text-xs text-muted-foreground">
                   {counts.all === 0
-                    ? "This cohort has no assignments yet."
+                    ? "This course has no assignments yet."
                     : "No assignments match."}
                 </p>
               </div>
@@ -268,7 +268,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 <Inbox className="size-10 text-muted-foreground" />
                 <p className="text-base font-medium">Nothing handed in yet</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
-                  {name} has not started any of this cohort&apos;s assignments. Their work opens
+                  {name} has not started any of this course&apos;s assignments. Their work opens
                   here once there is some.
                 </p>
               </div>
@@ -281,7 +281,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
 }
 
 /**
- * Who this is, and which cohort you are reading them in.
+ * Who this is, and which course you are reading them in.
  *
  * The email and GitHub username are the point of the header rather than decoration: they are what
  * an instructor needs when a repository name does not match the person they expected, and there
@@ -303,7 +303,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
             {removed && (
               <Badge variant="outline" className="gap-1 font-normal">
                 <UserMinus className="size-3" />
-                Removed from this cohort
+                Removed from this program
               </Badge>
             )}
           </div>
@@ -338,8 +338,8 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
 
       <div className="flex flex-wrap items-center gap-2">
         {/*
-          The cohort being read, switchable to another this student is in. Separate from the
-          sidebar's course switcher, which knows nothing about this student and would offer cohorts
+          The course being read, switchable to another this fellow is in. Separate from the
+          sidebar's course switcher, which knows nothing about this fellow and would offer courses
           they are not in — a student repeating a module has two records, and this is how you get
           from one to the other.
         */}
@@ -350,10 +350,10 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
               if (id) router.push(studentHref(id, data.student.id));
             }}
             items={Object.fromEntries(
-              data.courses.map((course) => [course.id, `${course.name} · ${course.cohortTerm}`]),
+              data.courses.map((course) => [course.id, `${course.name} · ${course.matriculation}`]),
             )}
           >
-            <SelectTrigger size="sm" aria-label="Which cohort">
+            <SelectTrigger size="sm" aria-label="Which course">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -363,7 +363,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">{course.name}</span>
                       <span className="truncate text-xs text-muted-foreground">
-                        {course.cohortTerm}
+                        {course.matriculation}
                         {course.enrolledAs !== "ACTIVE" && " · removed"}
                       </span>
                     </span>
@@ -374,7 +374,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
           </Select>
         ) : (
           <span className="text-xs text-muted-foreground">
-            {data.course.name} · {data.course.cohortTerm}
+            {data.course.name} · {data.program.matriculation}
           </span>
         )}
 

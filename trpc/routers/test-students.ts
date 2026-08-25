@@ -24,7 +24,7 @@ import { adminProcedure, createTRPCRouter } from "../init";
  * and enrol it is an instructor able to mint a student.
  *
  * **The one guard worth naming separately** is that `enroll` and `remove` refuse a profile that is
- * not a test student. Without it, `enroll` is a mutation that puts any person in any course, and
+ * not a test student. Without it, `enroll` is a mutation that puts any person in any program, and
  * `remove` is one that deletes any person's account and every grade they ever received. The
  * `testStudentNumber !== null` check is the entire difference between this router and an
  * escalation, so it is asserted in each and checked by `scripts/verify-test-student.ts`.
@@ -40,14 +40,14 @@ const testStudentSelect = {
 
 export const testStudentsRouter = createTRPCRouter({
   /**
-   * Every test student in the deployment, each saying whether it is already in this course.
+   * Every test student in the deployment, each saying whether it is already on this roster.
    *
-   * Scoped by course rather than global because the only reader is the dialog on one course's
+   * Scoped by program rather than global because the only reader is the dialog on one program's
    * roster, and what it has to decide is which of these are still worth offering. One already here
    * is not an error — it is simply not on the list.
    */
   list: adminProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
+    .input(z.object({ programId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const testStudents = await ctx.db.profile.findMany({
         where: { testStudentNumber: { not: null } },
@@ -55,7 +55,7 @@ export const testStudentsRouter = createTRPCRouter({
         select: {
           ...testStudentSelect,
           enrollments: {
-            where: { courseId: input.courseId },
+            where: { programId: input.programId },
             select: { status: true },
           },
         },
@@ -63,13 +63,13 @@ export const testStudentsRouter = createTRPCRouter({
 
       return testStudents.map(({ enrollments, ...student }) => ({
         ...student,
-        /** ACTIVE, REMOVED, or null for not in this course at all. */
+        /** ACTIVE, REMOVED, or null for not on this roster at all. */
         enrollmentStatus: enrollments[0]?.status ?? null,
       }));
     }),
 
   /**
-   * Makes the next test student and puts it in this course.
+   * Makes the next test student and puts it on this program's roster.
    *
    * The sequence, and why it is this order:
    *
@@ -87,23 +87,23 @@ export const testStudentsRouter = createTRPCRouter({
    * 4. **Enrol it**, which is what the admin actually asked for.
    */
   create: adminProcedure
-    .input(z.object({ courseId: z.string().uuid() }))
+    .input(z.object({ programId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const course = await ctx.db.course.findUnique({
-        where: { id: input.courseId },
+      const program = await ctx.db.program.findUnique({
+        where: { id: input.programId },
         select: { id: true, name: true, archivedAt: true },
       });
 
-      if (!course) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "That course does not exist." });
+      if (!program) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That program does not exist." });
       }
 
       // The same refusal `enrollments.join` makes, for the same reason: a finished cohort takes
       // nothing new, and previewing one is not a reason to make an exception.
-      if (course.archivedAt !== null) {
+      if (program.archivedAt !== null) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${course.name} has finished, so it is not taking new students.`,
+          message: `${program.name} has finished, so it is not taking new fellows.`,
         });
       }
 
@@ -206,7 +206,7 @@ export const testStudentsRouter = createTRPCRouter({
         });
 
         const enrollment = await ctx.db.enrollment.create({
-          data: { courseId: course.id, studentId: profile.id, status: "ACTIVE" },
+          data: { programId: program.id, studentId: profile.id, status: "ACTIVE" },
           select: { id: true, status: true },
         });
 
@@ -224,7 +224,7 @@ export const testStudentsRouter = createTRPCRouter({
           action: "TEST_STUDENT_CREATED",
           actor: auditActor(ctx),
           subject: { id: profile.id, label: testStudentName(number) },
-          course: { id: course.id, label: course.name },
+          program: { id: program.id, label: program.name },
           detail: { number, handle: testStudentHandle(number) },
         });
 
@@ -246,16 +246,16 @@ export const testStudentsRouter = createTRPCRouter({
     }),
 
   /**
-   * Puts an existing test student in this course.
+   * Puts an existing test student on this program's roster.
    *
-   * Idempotent through `@@unique([courseId, studentId])`, and it restores a REMOVED one rather than
+   * Idempotent through `@@unique([programId, studentId])`, and it restores a REMOVED one rather than
    * refusing — which is the opposite of what `enrollments.join` does with a removed student, and
    * deliberately so. There, refusing is what makes removal stick against somebody still holding the
    * link. Here the only caller is the admin who removed it, and the row records no history worth
    * protecting.
    */
   enroll: adminProcedure
-    .input(z.object({ courseId: z.string().uuid(), profileId: z.string().uuid() }))
+    .input(z.object({ programId: z.string().uuid(), profileId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const student = await ctx.db.profile.findUnique({
         where: { id: input.profileId },
@@ -273,25 +273,25 @@ export const testStudentsRouter = createTRPCRouter({
         });
       }
 
-      const course = await ctx.db.course.findUnique({
-        where: { id: input.courseId },
+      const program = await ctx.db.program.findUnique({
+        where: { id: input.programId },
         select: { id: true, name: true, archivedAt: true },
       });
 
-      if (!course) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "That course does not exist." });
+      if (!program) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That program does not exist." });
       }
 
-      if (course.archivedAt !== null) {
+      if (program.archivedAt !== null) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${course.name} has finished, so it is not taking new students.`,
+          message: `${program.name} has finished, so it is not taking new fellows.`,
         });
       }
 
       const enrollment = await ctx.db.enrollment.upsert({
-        where: { courseId_studentId: { courseId: course.id, studentId: student.id } },
-        create: { courseId: course.id, studentId: student.id, status: "ACTIVE" },
+        where: { programId_studentId: { programId: program.id, studentId: student.id } },
+        create: { programId: program.id, studentId: student.id, status: "ACTIVE" },
         update: { status: "ACTIVE" },
         select: { status: true },
       });
@@ -319,7 +319,7 @@ export const testStudentsRouter = createTRPCRouter({
               assignment: { select: { title: true, course: { select: { name: true } } } },
             },
           },
-          enrollments: { select: { course: { select: { name: true } } } },
+          enrollments: { select: { program: { select: { name: true } } } },
         },
       });
 
@@ -337,7 +337,7 @@ export const testStudentsRouter = createTRPCRouter({
           .map((s) => s.repoFullName)
           .filter((name): name is string => name !== null),
         submissionCount: student.submissions.length,
-        courses: student.enrollments.map((e) => e.course.name),
+        programs: student.enrollments.map((e) => e.program.name),
       };
     }),
 

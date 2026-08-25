@@ -33,7 +33,7 @@ import {
   profileProcedure,
   studentProcedure,
 } from "../init";
-import { courseUnitSummarySelect } from "../selects";
+import { courseHeaderSelect, courseUnitSummarySelect } from "../selects";
 
 /** Columns of an assignment that are safe to send to any enrolled member. */
 const assignmentFields = {
@@ -209,7 +209,7 @@ export const assignmentsRouter = createTRPCRouter({
         where: { id: input.assignmentId },
         select: {
           ...assignmentFields,
-          course: { select: { id: true, name: true, cohortTerm: true } },
+          course: { select: courseHeaderSelect },
         },
       });
 
@@ -604,7 +604,7 @@ export const assignmentsRouter = createTRPCRouter({
     const [course, courseUnits, rubrics, siblings, teamSets, activeCount] = await Promise.all([
       ctx.db.course.findUnique({
         where: { id: input.courseId },
-        select: { id: true, name: true, cohortTerm: true },
+        select: { id: true, name: true, programId: true, program: { select: { matriculation: true } } },
       }),
       // The course's own units, which are the only ones an assignment may be filed under.
       // Empty is a real state and the form has to say so rather than offering an empty select:
@@ -642,7 +642,11 @@ export const assignmentsRouter = createTRPCRouter({
           },
         },
       }),
-      ctx.db.enrollment.count({ where: { courseId: input.courseId, status: "ACTIVE" } }),
+      // The program's roster, reached through the course. A team set divides the fellows of a
+      // matriculation, so the count the form offers is of the roster.
+      ctx.db.enrollment.count({
+        where: { program: { courses: { some: { id: input.courseId } } }, status: "ACTIVE" },
+      }),
     ]);
 
     if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
@@ -672,7 +676,7 @@ export const assignmentsRouter = createTRPCRouter({
       course: {
         id: course.id,
         name: course.name,
-        cohortTerm: course.cohortTerm,
+        matriculation: course.program.matriculation,
         courseUnits,
       },
       rubrics,

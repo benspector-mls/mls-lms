@@ -15,7 +15,7 @@
  * nothing, and that is the one error this file must not make.
  */
 
-import { slugifyCohort } from "@/lib/courses/cohort-slug";
+import { slugifyCourse } from "@/lib/courses/course-slug";
 import { csvLine, csvPersonName } from "@/lib/csv";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 
@@ -206,14 +206,14 @@ export function gradebookCsv(data: GradebookCsvData): string {
  * twice in a term is two different sets of numbers, and the file is the only thing that records
  * which sitting it came from.
  *
- * `slugifyCohort` rather than a slugifier of its own — it already lowercases, collapses everything
+ * `slugifyCourse` rather than a slugifier of its own — it already lowercases, collapses everything
  * else to single hyphens, and trims the ends, which is exactly what a filename wants. Its
  * twenty-four character ceiling is set by GitHub repository names and is merely a convenience here.
  */
 export function gradebookCsvFilename(params: {
-  cohortTerm: string;
-  /** Null when the whole cohort is exported, which needs no qualifier in the name. */
-  groupLabel: string | null;
+  matriculation: string;
+  /** Null when the whole roster is exported, which needs no qualifier in the name. */
+  cohortLabel: string | null;
   date: Date;
 }): string {
   const stamp = [
@@ -222,12 +222,12 @@ export function gradebookCsvFilename(params: {
     String(params.date.getDate()).padStart(2, "0"),
   ].join("-");
 
-  // Filtered so that a term or a group name written entirely in a script `slugifyCohort` cannot
+  // Filtered so that a term or a cohort name written entirely in a script `slugifyCourse` cannot
   // transliterate leaves a shorter name rather than a doubled hyphen.
   const parts = [
     "gradebook",
-    slugifyCohort(params.cohortTerm),
-    params.groupLabel === null ? "" : slugifyCohort(params.groupLabel),
+    slugifyCourse(params.matriculation),
+    params.cohortLabel === null ? "" : slugifyCourse(params.cohortLabel),
     stamp,
   ].filter((part) => part !== "");
 

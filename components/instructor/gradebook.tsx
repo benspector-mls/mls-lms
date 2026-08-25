@@ -99,7 +99,7 @@ const TAB_LABEL: Record<GradebookTab, string> = {
  * Which tab an address names, defaulting to the overview.
  *
  * Exported so the page can parse `?tab=` and pass the answer down, in the manner of
- * `parseGroupSelection`. Anything unrecognised is the overview rather than an error: a stale
+ * `parseCohortSelection`. Anything unrecognised is the overview rather than an error: a stale
  * link or a typed address should land somewhere useful, and the overview is the tab that
  * describes all three of the others.
  */
@@ -113,18 +113,19 @@ export function Gradebook({
   data,
   gcf,
   tab,
-  group,
+  cohort,
 }: {
   data: Gradebook;
   /**
-   * The cohort's GCF results, or null on a tab that does not read them.
+   * The selected fellows' GCF results, or null on a tab that does not read them.
    *
    * Fetched by the page only for the two tabs that show them, so opening the Assignments tab does
    * not also pull a term of CodeSignal results nobody asked for.
    */
   gcf: Gcf | null;
   tab: GradebookTab;
-  group: string;
+  /** The cohort the grid was built for, carried into every tab link. */
+  cohort: string;
 }) {
   const active = data.activeEnrollments.map((enrollment) => enrollment.student);
   const removed = data.removedEnrollments.map((enrollment) => enrollment.student);
@@ -181,7 +182,7 @@ export function Gradebook({
 
   return (
     <div className="flex flex-col gap-6">
-      <TabStrip courseId={data.course.id} group={group} active={tab} counts={counts} />
+      <TabStrip courseId={data.course.id} cohort={cohort} active={tab} counts={counts} />
 
       {tab === "overview" ? (
         <Overview
@@ -217,8 +218,8 @@ export function Gradebook({
  * The four tabs, as links.
  *
  * Links rather than buttons, so each tab is an address: shareable, bookmarkable, and reachable
- * with the browser's own back button. The group filter is carried through every one of them,
- * because switching tab must never silently widen the grid back to the whole cohort.
+ * with the browser's own back button. The cohort filter is carried through every one of them,
+ * because switching tab must never silently widen the grid back to the whole roster.
  *
  * The count beside each label is how many assignments are on the other side of it, which is what
  * makes the shape of a course readable without opening all four — "forty assignments, three
@@ -226,18 +227,18 @@ export function Gradebook({
  */
 function TabStrip({
   courseId,
-  group,
+  cohort,
   active,
   counts,
 }: {
   courseId: string;
-  group: string;
+  cohort: string;
   active: GradebookTab;
   counts: Record<GradebookTab, number | null>;
 }) {
   const href = (tab: GradebookTab) => {
     const params = new URLSearchParams();
-    if (group !== "all") params.set("group", group);
+    if (cohort !== "all") params.set("cohort", cohort);
     if (tab !== "overview") params.set("tab", tab);
     const query = params.toString();
     return query ? `${gradebookHref(courseId)}?${query}` : gradebookHref(courseId);

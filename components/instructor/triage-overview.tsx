@@ -18,8 +18,12 @@ import { PageHeader } from "@/components/page-header";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { GroupPicker } from "@/components/instructor/group-picker";
-import { groupSelectionLabel, parseGroupSelection } from "@/lib/courses/groups";
+import { CohortPicker } from "@/components/instructor/cohort-picker";
+import {
+  cohortSelectionLabel,
+  parseCohortSelection,
+  type CohortChoice,
+} from "@/lib/programs/cohorts";
 import {
   groupByAssignment,
   nameSubtext,
@@ -31,15 +35,16 @@ import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * What is waiting on the instructor in one cohort.
+ * What is waiting on the instructor in one course.
  *
  * Organized by what to do about it rather than by assignment, because the question this
  * screen answers is "what next". The buckets together are the whole of the outstanding
  * grading: everything a student has declared finished and nobody has approved is in one of
  * them, so clearing them is being caught up.
  *
- * One cohort at a time, which is what makes "caught up" mean anything. Two terms' work
+ * One course at a time, which is what makes "caught up" mean anything. Two courses' work
  * interleaved has no state in which the screen is empty and no order in which to work it.
+ * The cohort picker narrows it further, to the fellows one instructor grades.
  */
 
 type Triage = RouterOutputs["submissions"]["triage"];
@@ -117,37 +122,26 @@ const BUCKET_META: Record<
 
 export function TriageOverview({
   triage,
-  courseId,
   courseName,
-  cohortTerm,
+  matriculation,
   archived,
-  groups,
+  cohorts,
   now,
 }: {
   triage: Triage;
-  /*
-    Not used for the links out of this screen — each row carries its own assignment's course,
-    which is the right source because it comes from the row rather than from the address the
-    screen was opened at. It is here for the picker, which records a selection against a course
-    rather than against a submission.
-  */
-  courseId: string;
   courseName: string;
-  cohortTerm: string;
+  /** The program's term, "Fall 2026". The heading names it beside the course. */
+  matriculation: string;
   archived: boolean;
-  /** The picker's options and the selection this pile was built for, from `resolveGroup`. */
-  groups: {
-    group: string;
-    groups: { id: string; name: string; memberCount: number }[];
-    ungroupedCount: number;
-  };
+  /** The picker's options and the selection this pile was built for, from `resolveCohort`. */
+  cohorts: CohortChoice;
   /**
    * Passed in rather than read here, so every relative time on the screen is measured
    * from one instant and a component cannot disagree with its neighbour.
    */
   now: Date;
 }) {
-  const selection = parseGroupSelection(groups.group);
+  const selection = parseCohortSelection(cohorts.cohort);
   const buckets = bucketize(triage.submissions);
   const generating = triage.submissions.filter((row) => row.bucket === "generating");
 
@@ -158,20 +152,20 @@ export function TriageOverview({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       {/*
-        The cohort in the title, not the instructor's own name. Two cohorts' triage screens
-        are otherwise indistinguishable, and telling a reader who they are is the one fact on
-        the screen they already had.
+        The course and its term in the title, not the instructor's own name. Two courses' triage
+        screens are otherwise indistinguishable, and telling a reader who they are is the one fact
+        on the screen they already had.
       */}
       <PageHeader
         title="Grading triage"
         description={[
-          `${courseName} · ${cohortTerm}`,
+          `${courseName} · ${matriculation}`,
           /*
-            The group, whenever the pile is not the whole cohort. Every figure beside it counts
-            the selected students only, so a screen that said "Caught up" without naming what it
-            was caught up on would be making a claim about the cohort that it has not checked.
+            The cohort, whenever the pile is not the whole roster. Every figure beside it counts
+            the selected fellows only, so a screen that said "Caught up" without naming what it
+            was caught up on would be making a claim about the roster that it has not checked.
           */
-          ...(selection.kind === "all" ? [] : [groupSelectionLabel(selection, groups.groups)]),
+          ...(selection.kind === "all" ? [] : [cohortSelectionLabel(selection, cohorts.cohorts)]),
           remaining === 0
             ? "Caught up"
             : `${remaining} ${remaining === 1 ? "submission" : "submissions"} left to grade`,
@@ -179,22 +173,15 @@ export function TriageOverview({
         ].join(" · ")}
         /*
           The picker is the only action. There was a button back to the course page, which existed
-          because the cohort's other views were tabs on it and this screen was the one place
+          because the course's other views were tabs on it and this screen was the one place
           outside; every one of them is a sidebar item now, so it led to the one address that is
           not a view at all.
         */
-        actions={
-          <GroupPicker
-            courseId={courseId}
-            value={groups.group}
-            groups={groups.groups}
-            ungroupedCount={groups.ungroupedCount}
-          />
-        }
+        actions={<CohortPicker choice={cohorts} />}
       />
 
       {/*
-        Otherwise an archived cohort reads as caught up, which is a different claim and a
+        Otherwise an archived course reads as caught up, which is a different claim and a
         false one. Empty here because the work is finished being waited on, not because it
         was done.
       */}
@@ -202,7 +189,7 @@ export function TriageOverview({
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This cohort is archived, so nothing here is waiting on you. Its submissions and feedback
+            This course is archived, so nothing here is waiting on you. Its submissions and feedback
             stay readable in the gradebook and in every assignment&apos;s own queue.
           </p>
         </div>

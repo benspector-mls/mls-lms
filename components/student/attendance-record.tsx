@@ -1,5 +1,6 @@
 import { CalendarCheck } from "lucide-react";
 
+import { ArrivalAveragesPanel } from "@/components/arrival-averages";
 import { EmptyState } from "@/components/list-states";
 import { AttendanceCalendar } from "@/components/student/attendance-calendar";
 import { formatSchoolDay, formatSchoolTime, type SchoolDay } from "@/lib/school-time";
@@ -7,11 +8,15 @@ import { attendanceSourceLabel, formatPercent } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * A fellow's own attendance, in one cohort.
+ * A fellow's own attendance, in one matriculation.
  *
- * **Two things, in this order: how much of the term you have been here for, and the term itself.**
- * The figure leads because it is the question somebody opens this to ask, and the calendar carries
- * the rest.
+ * **One record where there used to be one per course**, because there is one morning: a fellow taking
+ * three courses that all met on a Tuesday had three records of the same arrival.
+ *
+ * **Three things, in this order: how much of the term you have been here for, when you tend to
+ * arrive, and the term itself.** The figure leads because it is the question somebody opens this to
+ * ask; the arrival averages are the detail that per-course attendance used to carry, recovered as the
+ * fact it actually was; and the calendar carries the rest.
  *
  * **A list of missed days used to sit between them, and it went because it said twice what the
  * calendar says once.** Red and amber squares are the missed days; the list repeated them as rows.
@@ -71,6 +76,20 @@ export function StudentAttendanceRecord({ data, today }: { data: Record; today: 
           {summary.absent + summary.unrecorded}
           {summary.excused > 0 && " — an excused session still counts as one you missed."}
         </p>
+      </section>
+
+      {/*
+        Their own arrival pattern, shown to them rather than only to an instructor. It is the same
+        panel the instructor's screens draw and the same figures, which is deliberate: a fellow who is
+        told they arrive late on Mondays should be able to check the claim, and being able to read it
+        first is most of what makes the conversation fair.
+      */}
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">When you arrive</h2>
+        <ArrivalAveragesPanel
+          averages={data.arrivals}
+          emptyNote="You have not checked in enough times yet for an average."
+        />
       </section>
 
       <AttendanceCalendar days={calendarDays} enrolledFrom={data.enrolledFrom} today={today} />

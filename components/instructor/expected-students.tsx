@@ -30,11 +30,11 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Who is expected in this cohort, and the box that says so.
+ * Who is expected in this matriculation, and the box that says so.
  *
  * **This is the other half of the join link, and it goes above it on the screen for that reason.**
  * The link on its own admits whoever holds it; with this list it admits whoever holds it *and* was
- * written down here first. An instructor who has not filled this in has a cohort nobody can join,
+ * written down here first. An instructor who has not filled this in has a program nobody can join,
  * which is why the empty state says so in those words rather than describing the feature.
  *
  * **The paste is parsed in the browser before anything is sent**, by the same function the
@@ -45,7 +45,13 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Entries = RouterOutputs["enrollments"]["roster"];
 
-export function ExpectedStudents({ courseId, entries }: { courseId: string; entries: Entries }) {
+export function ExpectedStudents({
+  programId,
+  entries,
+}: {
+  programId: string;
+  entries: Entries;
+}) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
@@ -188,7 +194,7 @@ export function ExpectedStudents({ courseId, entries }: { courseId: string; entr
             <Button
               size="sm"
               disabled={!canAdd}
-              onClick={() => add.mutate({ courseId, entries: parsed.entries })}
+              onClick={() => add.mutate({ programId, entries: parsed.entries })}
             >
               <Check data-icon="inline-start" />
               Add {parsed.entries.length > 0 ? parsed.entries.length : ""}
@@ -213,13 +219,13 @@ export function ExpectedStudents({ courseId, entries }: { courseId: string; entr
               caption={`Waiting to join (${waiting.length})`}
               entries={waiting}
               busy={busy}
-              onRemove={(entryId) => remove.mutate({ courseId, entryId })}
+              onRemove={(entryId) => remove.mutate({ programId, entryId })}
             />
           )}
           {/*
             Kept on the screen after they arrive rather than dropped from it. The row is the record
             of who was expected and which account turned up — which is what somebody checks when a
-            student says they cannot get in and a stranger's handle is sitting in the cohort.
+            fellow says they cannot get in and a stranger's handle is sitting on the roster.
           */}
           {arrived.length > 0 && (
             <EntryTable caption={`Joined (${arrived.length})`} entries={arrived} busy={busy} />

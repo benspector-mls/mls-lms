@@ -1,8 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { assertTeaches, enrollmentsIn } from "@/lib/courses/membership";
-import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
+import { assertInstructsProgram, enrollmentsIn } from "@/lib/courses/membership";
+import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import { dateColumnFor, schoolDayFromColumn, schoolDaySchema } from "@/lib/school-time";
 
 import { createTRPCRouter, courseProcedure, instructorProcedure, profileProcedure } from "../init";
@@ -102,12 +102,17 @@ export const gcfRouter = createTRPCRouter({
    * omitting them: "has not sat it" is the thing an instructor most needs to see.
    */
   forCourse: courseProcedure
-    .input(z.object({ group: groupSelectionInput.default("all") }))
+    .input(z.object({ cohort: cohortSelectionInput.default("all") }))
     .query(async ({ ctx, input }) => {
-      const selection = parseGroupSelection(input.group);
+      const selection = parseCohortSelection(input.cohort);
+
+      const course = await ctx.db.course.findUniqueOrThrow({
+        where: { id: input.courseId },
+        select: { programId: true },
+      });
 
       const enrollments = await ctx.db.enrollment.findMany({
-        where: enrollmentsIn(input.courseId, selection),
+        where: enrollmentsIn(course.programId, selection),
         orderBy: [{ status: "asc" }, { createdAt: "asc" }],
         select: { status: true, student: { select: personSelect } },
       });
@@ -172,7 +177,11 @@ export const gcfRouter = createTRPCRouter({
     .input(z.object({ rows: z.array(importRowInput).max(MAX_IMPORT_ROWS) }))
     .query(async ({ ctx, input }) => {
       const enrollments = await ctx.db.enrollment.findMany({
-        where: { courseId: input.courseId, status: "ACTIVE" },
+        // The program's roster, reached through the course this procedure is gated on.
+        where: {
+          program: { courses: { some: { id: input.courseId } } },
+          status: "ACTIVE",
+        },
         select: { student: { select: personSelect } },
       });
       const students = enrollments.map((enrollment) => enrollment.student);
@@ -264,7 +273,10 @@ export const gcfRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const enrollments = await ctx.db.enrollment.findMany({
-        where: { courseId: input.courseId, status: "ACTIVE" },
+        where: {
+          program: { courses: { some: { id: input.courseId } } },
+          status: "ACTIVE",
+        },
         select: { studentId: true },
       });
       const enrolled = new Set(enrollments.map((enrollment) => enrollment.studentId));
@@ -442,28 +454,34 @@ type Ctx = Parameters<Parameters<typeof instructorProcedure.mutation>[0]>[0]["ct
 /**
  * Refuses unless this student is in this course.
  *
- * The check `courseProcedure` cannot make. It gates on the course, which stops somebody writing
- * into a cohort they do not teach — but the student id is a separate argument naming any profile
+ * The check `courseProcedure` cannot make. It gates on the course, which stops somebody writing into
+ * a matriculation they do not teach in — but the student id is a separate argument naming any profile
  * in the deployment, and nothing about teaching a course says anything about that person.
  */
 async function assertEnrolled(ctx: Ctx, courseId: string, studentId: string): Promise<void> {
   const enrollment = await ctx.db.enrollment.findFirst({
-    where: { courseId, studentId },
+    // Reached through the course, because an enrollment is on a program's roster rather than in one
+    // of its courses. The course is still what says which roster to look on.
+    where: { program: { courses: { some: { id: courseId } } }, studentId },
     select: { id: true },
   });
 
   if (!enrollment) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "That student is not in this course." });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "That fellow is not on the roster of this course's program.",
+    });
   }
 }
 
 /**
- * Refuses unless the caller teaches some course this attempt's student is enrolled in.
+ * Refuses unless the caller instructs some program this attempt's fellow is on the roster of.
  *
- * An attempt carries no course, so there is nothing on the row to gate on — the question has to
- * be asked of the person instead. This is the loosest defensible reading and it is stated rather
- * than assumed: an instructor may edit an attempt belonging to somebody they teach *anywhere*,
- * which is right because the attempt itself belongs to no cohort. An admin passes on the role.
+ * An attempt carries no course and no program, so there is nothing on the row to gate on — the
+ * question has to be asked of the person instead. This is the loosest defensible reading and it is
+ * stated rather than assumed: an instructor may edit an attempt belonging to somebody they teach
+ * *anywhere*, which is right because the attempt itself belongs to no matriculation. An admin passes
+ * on the role.
  */
 async function assertTeachesTheStudent(ctx: Ctx, attemptId: string): Promise<void> {
   const attempt = await ctx.db.gcfAttempt.findUnique({
@@ -480,17 +498,17 @@ async function assertTeachesTheStudent(ctx: Ctx, attemptId: string): Promise<voi
   const shared = await ctx.db.enrollment.findFirst({
     where: {
       studentId: attempt.studentId,
-      course: { instructors: { some: { userId: ctx.profile.id } } },
+      program: { instructors: { some: { userId: ctx.profile.id } } },
     },
-    select: { courseId: true },
+    select: { programId: true },
   });
 
   if (!shared) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "You do not teach a course this student is in.",
+      message: "You do not teach in a program this fellow is on the roster of.",
     });
   }
 
-  await assertTeaches(ctx, shared.courseId);
+  await assertInstructsProgram(ctx, shared.programId);
 }

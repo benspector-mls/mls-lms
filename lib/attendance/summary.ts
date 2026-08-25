@@ -71,9 +71,9 @@ export function countsAsAttended(status: AttendanceStatus): boolean {
  * One row per fellow, whether or not they count.
  *
  * **Test students are summarized rather than dropped**, because the grid draws them badged the way
- * every other screen does. Everything that reports a number — `driftList`, `cohortRate`, the CSV —
+ * every other screen does. Everything that reports a number — `driftList`, `programRate`, the CSV —
  * filters on `testStudentNumber` itself. Removing them here instead would make the grid disagree
- * with the roster about who is in the cohort.
+ * with the roster about who is on it.
  */
 export function summarize(
   sessions: SummarySession[],
@@ -200,8 +200,8 @@ export function driftList(summaries: FellowSummary[], sessions: SummarySession[]
   );
 }
 
-/** The cohort's own figure, over the fellows who count. */
-export function cohortRate(summaries: FellowSummary[]): number | null {
+/** The whole roster's figure, over the fellows who count. */
+export function programRate(summaries: FellowSummary[]): number | null {
   const counted = summaries.filter((summary) => summary.fellow.testStudentNumber === null);
   const eligible = counted.reduce((total, summary) => total + summary.eligible, 0);
   if (eligible === 0) return null;

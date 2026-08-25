@@ -15,12 +15,12 @@ import type { SchoolDay } from "@/lib/school-time";
  */
 export function AttendanceDownload({
   csv,
-  cohortTerm,
+  matriculation,
   from,
   to,
 }: {
   csv: string;
-  cohortTerm: string;
+  matriculation: string;
   from: SchoolDay | null;
   to: SchoolDay | null;
 }) {
@@ -32,7 +32,7 @@ export function AttendanceDownload({
 
     const link = document.createElement("a");
     link.href = url;
-    link.download = attendanceCsvFilename({ cohortTerm, from, to });
+    link.download = attendanceCsvFilename({ matriculation, from, to });
     document.body.append(link);
     link.click();
     link.remove();

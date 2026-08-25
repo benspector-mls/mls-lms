@@ -24,21 +24,20 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Making team sets, naming the teams in one, and placing fellows on them.
+ * Making a course's team sets, naming the teams in one, and placing fellows on them.
  *
- * On the roster beside Groups, because both are things done to a cohort rather than to a pile of
- * work — and directly beside them so the difference is legible at the moment it matters. A
- * **Group** splits the marking between instructors: it is a filter, students never see it, and it
- * changes nothing about the work. A **Team** hands in one piece of work, receives one grade, and
- * its members can see each other.
+ * **On its own screen beside the course's curriculum**, which is where a set belongs: it divides
+ * the matriculation's fellows for one course's projects, and it is the course that owns it. A
+ * **cohort** is the other division and lives on the program — it splits the marking between
+ * instructors, fellows never see it, and it changes nothing about the work. A **team** hands in one
+ * piece of work, receives one grade, and its members can see each other.
  *
- * **A set is a partition.** A fellow is on at most one team of any one set, so placement is a
- * select rather than the checkboxes a group uses — where being in two groups at once is allowed
- * and sometimes wanted. A set per project is the shape this is for: the same cohort divided
- * differently for each, with last term's divisions sitting harmlessly in their own set rather than
- * crowding a picker.
+ * **A set is a partition.** A fellow is on at most one team of any one set, so placement is one
+ * select per fellow. A set per project is the shape this is for: the same roster divided
+ * differently for each, with an earlier project's divisions sitting harmlessly in their own set
+ * rather than crowding a picker.
  *
- * Placements are staged and saved together, as a group's members are, and for the same reason:
+ * Placements are staged and saved together, as a cohort's are, and for the same reason:
  * `setPlacements` takes the whole placement at once, so it is idempotent and cannot be left half
  * applied — and "distribute evenly" is then the same act as changing one select.
  */
@@ -46,13 +45,13 @@ import type { RouterOutputs } from "@/trpc/types";
 type TeamSets = RouterOutputs["teamSets"]["listForCourse"];
 type TeamSet = TeamSets["sets"][number];
 /**
- * Every active fellow of the cohort, which placement needs and this component does not fetch.
+ * Every active fellow of the matriculation, which placement needs and this component does not fetch.
  *
- * Read from the groups router because it is already the list of active enrollments with their
- * students, and the roster screen already asks for it. Only `enrollmentId` and `student` are used
- * here; which groups somebody is in is another card's business.
+ * Read from the cohorts router because it is already the list of active enrollments with their
+ * students. Only `enrollmentId` and `student` are used here; which cohort somebody is in is the
+ * program's business and not this screen's.
  */
-type Roster = RouterOutputs["groups"]["membershipsForCourse"];
+type Roster = RouterOutputs["cohorts"]["membershipsForProgram"];
 
 /** What to call somebody, in the order the rest of this application prefers. */
 function labelFor(student: Roster[number]["student"]): string {
@@ -108,10 +107,10 @@ export function TeamSetManager({
               Team Sets
             </CardTitle>
             <CardDescription className="mt-1">
-              Reusable teams for team assignments. Each team hands in one piece of work and receives
-              one grade, and every member of a team can see who else is on it. A set holds one
-              division of the cohort — make one per project, and point that project&apos;s
-              assignments at it. A fellow is on at most one team of any set.
+              Reusable teams for this course&apos;s team assignments. Each team hands in one piece
+              of work and receives one grade, and every member of a team can see who else is on it.
+              A set holds one division of the roster — make one per project, and point that
+              project&apos;s assignments at it. A fellow is on at most one team of any set.
             </CardDescription>
           </div>
           {!creating && (
@@ -261,7 +260,7 @@ function TeamSetRow({
       onSuccess: (removed) => {
         toast.success(
           `Removed "${removed.name}". Its ${removed.memberCount} ` +
-            `${removed.memberCount === 1 ? "member stays" : "members stay"} in the cohort.`,
+            `${removed.memberCount === 1 ? "member stays" : "members stay"} on the roster.`,
         );
         onChanged();
       },
@@ -412,7 +411,7 @@ function TeamSetRow({
         <div className="mx-3 mb-2 flex flex-col gap-2 rounded-md border border-destructive/40 p-3">
           <span className="text-xs text-muted-foreground">
             Removing &ldquo;{set.name}&rdquo; dissolves its {set.teams.length}{" "}
-            {set.teams.length === 1 ? "team" : "teams"}. Nobody leaves the cohort and nothing
+            {set.teams.length === 1 ? "team" : "teams"}. Nobody leaves the roster and nothing
             anybody submitted changes. An assignment handed in through this set is refused, because
             its submissions name these teams.
           </span>
@@ -468,7 +467,7 @@ function TeamSetRow({
           {/* Who is on which. A select, because a set is a partition. */}
           {roster.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
-              Nobody has joined this cohort yet.
+              Nobody has joined this matriculation yet.
             </p>
           ) : (
             <div className="flex flex-col gap-1">

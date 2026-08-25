@@ -173,7 +173,7 @@ export function StudentCourseDetail({
         All courses
       </Link>
 
-      <PageHeader title={course.name} description={course.cohortTerm} />
+      <PageHeader title={course.name} description={course.program.matriculation} />
 
       {/*
         Where the course stands, in one line. Below the header because it is about the work

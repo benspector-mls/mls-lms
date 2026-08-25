@@ -26,12 +26,12 @@ import { useTRPC } from "@/trpc/client";
  * two tabs — and a check-in that flipped one and left the other is the state this cannot be in.
  */
 export function CheckInForm({
-  courseId,
-  courseName,
+  programId,
+  programName,
   compact,
 }: {
-  courseId: string;
-  courseName: string;
+  programId: string;
+  programName: string;
   /** Narrower, for a row of a strip rather than a card of its own. */
   compact?: boolean;
 }) {
@@ -63,7 +63,7 @@ export function CheckInForm({
         className="flex flex-wrap items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          checkIn.mutate({ courseId, code });
+          checkIn.mutate({ programId, code });
         }}
       >
         <Input
@@ -75,7 +75,7 @@ export function CheckInForm({
           // Numeric on a phone, and no autofocus — see the note at the top of this file.
           inputMode="numeric"
           autoComplete="off"
-          aria-label={`Check-in code for ${courseName}`}
+          aria-label={`Check-in code for ${programName}`}
           placeholder="0000"
           className={cn(
             "text-center font-mono tabular-nums",

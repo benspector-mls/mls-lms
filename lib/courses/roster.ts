@@ -53,19 +53,19 @@ export type RosterMatch = {
 /**
  * The entry that admits this person to this course, or null.
  *
- * **Either key matches, and that is deliberate.** Each fails in a way the other covers: a student
+ * **Either key matches, and that is deliberate.** Each fails in a way the other covers: a fellow
  * who renames their GitHub account between the roster being written and their first sign-in no
- * longer matches by login, and a student whose GitHub email is private presents a
+ * longer matches by login, and a fellow whose GitHub email is private presents a
  * `users.noreply.github.com` address that was never on any roster. Requiring both would refuse
  * real students for reasons neither they nor their instructor can see.
  *
- * **Unclaimed, or claimed by this same person.** The second half is what makes a removed student
+ * **Unclaimed, or claimed by this same person.** The second half is what makes a removed fellow
  * restorable and a bookmarked link harmless: they already hold their entry, so they go on matching
  * it. What it refuses is a second person arriving on an entry somebody else has already used.
  */
 export async function findRosterMatch(
   db: Tx,
-  courseId: string,
+  programId: string,
   candidate: RosterCandidate,
 ): Promise<RosterMatch | null> {
   const githubUsername = rosterKey(candidate.githubUsername);
@@ -79,7 +79,7 @@ export async function findRosterMatch(
 
   return db.rosterEntry.findFirst({
     where: {
-      courseId,
+      programId,
       AND: [{ OR: keys }, { OR: [{ claimedById: null }, { claimedById: candidate.id }] }],
     },
     select: { id: true, note: true, githubUsername: true, email: true, claimedById: true },
@@ -134,14 +134,14 @@ export async function claimRosterEntry(
  * The refusal, worded for the student reading it.
  *
  * **Says what to do and does not say what is on the roster.** "This link is not for your account"
- * is actionable; listing who is expected would let anybody holding a link read a cohort's roster,
+ * is actionable; listing who is expected would let anybody holding a link read a program's roster,
  * which is the thing the link was not supposed to be worth.
  *
  * It names the GitHub account they arrived as, because the common cause is not exclusion — it is
- * a student who signed in with a personal account when their instructor wrote down a different
+ * a fellow who signed in with a personal account when their instructor wrote down a different
  * handle, and they cannot see which one they used without being told.
  */
-export function rosterRefusal(courseName: string, candidate: RosterCandidate): TRPCError {
+export function rosterRefusal(programName: string, candidate: RosterCandidate): TRPCError {
   const signedInAs = candidate.githubUsername
     ? `You are signed in as @${candidate.githubUsername}.`
     : candidate.email
@@ -151,8 +151,8 @@ export function rosterRefusal(courseName: string, candidate: RosterCandidate): T
   return new TRPCError({
     code: "FORBIDDEN",
     message:
-      `This link is for ${courseName}, and your account is not on its list of expected ` +
-      `students. ${signedInAs} If you usually use a different GitHub account, sign out and ` +
+      `This link is for ${programName}, and your account is not on its list of expected ` +
+      `fellows. ${signedInAs} If you usually use a different GitHub account, sign out and ` +
       `try again with that one — otherwise ask your instructor to add you.`,
   });
 }

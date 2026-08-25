@@ -42,8 +42,8 @@ async function refusalMessage(work: () => Promise<unknown>): Promise<string> {
 
 async function main() {
   const { db } = await import("../lib/prisma");
-  const { studentRepoName, slugifyCohort, suggestCohortSlug, cohortSlugProblem } =
-    await import("../lib/courses/cohort-slug");
+  const { studentRepoName, slugifyCourse, suggestCourseSlug, courseSlugProblem } =
+    await import("../lib/courses/course-slug");
   const links = await import("../lib/links");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
@@ -131,7 +131,7 @@ async function main() {
           ["", ""],
         ];
         for (const [term, expected] of derivations) {
-          check(`"${term}" slugifies to "${expected}"`, slugifyCohort(term), expected);
+          check(`"${term}" slugifies to "${expected}"`, slugifyCourse(term), expected);
         }
 
         /*
@@ -172,7 +172,7 @@ async function main() {
         for (const [courseName, cohortTerm, expected] of suggestions) {
           check(
             `"${courseName}" + "${cohortTerm}" suggests "${expected}"`,
-            suggestCohortSlug({ courseName, cohortTerm }),
+            suggestCourseSlug({ courseName, cohortTerm }),
             expected,
           );
         }
@@ -180,9 +180,9 @@ async function main() {
         // Every one of them has to be a legal repository name, which is the only property that
         // actually matters — a suggestion the form would then reject is worse than no suggestion.
         for (const [courseName, cohortTerm] of suggestions) {
-          const slug = suggestCohortSlug({ courseName, cohortTerm });
+          const slug = suggestCourseSlug({ courseName, cohortTerm });
           if (slug === "") continue;
-          check(`..."${slug}" is a usable short name`, cohortSlugProblem(slug), null);
+          check(`..."${slug}" is a usable short name`, courseSlugProblem(slug), null);
         }
 
         /*
@@ -1714,7 +1714,7 @@ async function main() {
         // Asked for rather than assumed. The confirmation is the cohort's own short name, and
         // writing out what the derivation happens to produce today is how a check comes to be
         // testing its own copy of a rule instead of the one the application uses.
-        const doomedSlug = suggestCohortSlug({
+        const doomedSlug = suggestCourseSlug({
           courseName: "Verify Deletion",
           cohortTerm: "Cohort Verify H",
         });

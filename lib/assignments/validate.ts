@@ -99,11 +99,11 @@ export async function validateAssignmentDraft(
 
   // ---- The course, and whether the module belongs to it ----
   //
-  // `cohortSlug` is read here because it prefixes every repository this assignment generates,
+  // The course's `slug` is read here because it prefixes every repository this assignment
   // which the name-length check below needs.
   const course = await db.course.findUnique({
     where: { id: input.courseId },
-    select: { id: true, cohortSlug: true },
+    select: { id: true, slug: true },
   });
 
   if (!course) {
@@ -181,13 +181,13 @@ export async function validateAssignmentDraft(
     /*
       Whether the generated name leaves room for a GitHub login.
 
-      A repository is `{cohortSlug}-{assignmentRepoName}-{github login}`. GitHub allows 100
+      A repository is `{course slug}-{assignmentRepoName}-{github login}`. GitHub allows 100
       characters in a repository name and 39 in a login, so the slug and the assignment name have
       to fit inside 59 between them or some student's Accept fails — at the moment they press it,
       which is both the worst place to find out and the hardest to attribute.
 
       **Not reachable with this curriculum, and left in deliberately.** The longest assignment
-      name in the program is 28 characters (`swe-checkpoint-summative-1-4`) and `MAX_COHORT_SLUG`
+      name in the program is 28 characters (`swe-checkpoint-summative-1-4`) and `MAX_COURSE_SLUG`
       is 24, so the worst case available today is 52 — leaving 46 for a login where 39 is the
       most GitHub permits. It would take an assignment named 36 characters or more, paired with a
       long slug, to trip. Which is to say this is insurance against a curriculum that grows
@@ -197,7 +197,7 @@ export async function validateAssignmentDraft(
       past which *some* login fails, not the point where the name is wrong. And here rather than
       in the slug's own rules, because only this knows both halves.
     */
-    const prefixed = `${course.cohortSlug}-${spec.assignmentRepoName}`;
+    const prefixed = `${course.slug}-${spec.assignmentRepoName}`;
     const longestLogin = 100 - prefixed.length - 1;
     if (longestLogin < 39) {
       warn(

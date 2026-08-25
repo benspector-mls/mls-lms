@@ -616,7 +616,7 @@ function Editor({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title={existing ? `Edit ${existing.title}` : "New assignment"}
-        description={`${context.course.name} · ${context.course.cohortTerm}`}
+        description={`${context.course.name} · ${context.course.matriculation}`}
         /*
           The point total, and nothing to press. It is a readout of what the sections below add up
           to, which is worth seeing while they are edited; the button that commits them is at the

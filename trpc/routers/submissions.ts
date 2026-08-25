@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { isManualOnly } from "@/lib/assignments/spec";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { groupSelectionInput, parseGroupSelection } from "@/lib/courses/groups";
+import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import {
   teamAwareWork,
   assertOwnsOrTeaches,
@@ -616,7 +616,7 @@ export const submissionsRouter = createTRPCRouter({
     question this screen deliberately does not ask.
   */
   triage: instructorProcedure
-    .input(z.object({ courseId: z.string().uuid(), group: groupSelectionInput }))
+    .input(z.object({ courseId: z.string().uuid(), cohort: cohortSelectionInput }))
     .query(async ({ ctx, input }) => {
       /*
         Narrowed on the server rather than in the browser, which is what keeps this screen
@@ -624,7 +624,7 @@ export const submissionsRouter = createTRPCRouter({
         and cannot filter afterwards, so one server-side rule is what stops the two from
         describing different sets of students under the same group name.
       */
-      const selection = parseGroupSelection(input.group);
+      const selection = parseCohortSelection(input.cohort);
       /*
         Whether the caller may see this course's pile at all. An admin may see any course;
         an instructor only the ones they are listed on. This is also the access check —
@@ -637,40 +637,39 @@ export const submissionsRouter = createTRPCRouter({
         has always filtered it and the instructor branch never did, which meant the rule held
         for the one reader who does not teach and failed for every reader who does.
       */
-      const visible =
-        ctx.profile.role === "ADMIN"
-          ? await ctx.db.course.findMany({
-              where: { id: input.courseId, archivedAt: null },
-              select: { id: true },
-            })
-          : await ctx.db.courseInstructor.findMany({
-              where: {
-                userId: ctx.profile.id,
-                courseId: input.courseId,
-                course: { archivedAt: null },
-              },
-              select: { courseId: true },
-            });
+      const course = await ctx.db.course.findFirst({
+        where: {
+          id: input.courseId,
+          archivedAt: null,
+          ...(ctx.profile.role === "ADMIN"
+            ? {}
+            : { program: { instructors: { some: { userId: ctx.profile.id } } } }),
+        },
+        select: { id: true, programId: true },
+      });
 
-      // Empty rather than a refusal, because the two reasons to be here are not worth
-      // telling apart on this screen: a course that is archived and a course somebody else
-      // teaches both have nothing in them waiting on the caller.
-      if (visible.length === 0) {
+      // Empty rather than a refusal, because the two reasons to be here are not worth telling apart
+      // on this screen: a course that is archived and a course in somebody else's matriculation both
+      // have nothing in them waiting on the caller.
+      if (!course) {
         return { submissions: [], gradedCount: 0 };
       }
 
       const submissions = await ctx.db.submission.findMany({
         where: {
-          assignment: { courseId: input.courseId },
           /*
-            Students currently in the cohort. A removed student's unfinished work is not
-            waiting on anybody — nobody is going to grade a submission from somebody who has
-            left the program — and left in, it sits here permanently, in a count that is
-            supposed to answer whether the instructor is caught up. It is not deleted: the
-            gradebook shows it, in its own table, which is where a departed student's record
-            belongs. Restoring them puts it straight back, because this reads live status.
+            This course's work, by fellows currently on the program's roster. A removed fellow's
+            unfinished work is not waiting on anybody — nobody is going to grade a submission from
+            somebody who has left — and left in, it sits here permanently, in a count that is
+            supposed to answer whether the instructor is caught up. It is not deleted: the gradebook
+            shows it, in its own table, which is where a departed fellow's record belongs. Restoring
+            them puts it straight back, because this reads live status.
+
+            The course scope is inside the fragment rather than a key of its own, so a reader cannot
+            narrow by the roster and forget to narrow by the course — which would widen this pile
+            from one course to every course of the matriculation with nothing to say so.
           */
-          ...teamAwareWork(input.courseId, selection),
+          ...teamAwareWork(course.programId, input.courseId, selection),
           OR: [
             // Open work, whether or not a run has happened yet.
             { status: { in: ["SUBMITTED", "RESUBMITTED"] } },
@@ -759,8 +758,7 @@ export const submissionsRouter = createTRPCRouter({
       // describe the same set of students.
       const gradedCount = await ctx.db.submission.count({
         where: {
-          assignment: { courseId: input.courseId },
-          ...teamAwareWork(input.courseId, selection),
+          ...teamAwareWork(course.programId, input.courseId, selection),
           /*
             One per piece of work, not one per person. A team's grade is on every member's row, so
             counting all of them would say twelve were approved where three were read — and this
@@ -854,9 +852,9 @@ export const submissionsRouter = createTRPCRouter({
    * answers — a submission cannot be work to do on one screen and finished on the other.
    */
   listForAssignment: instructorProcedure
-    .input(z.object({ assignmentId: z.string().uuid(), group: groupSelectionInput }))
+    .input(z.object({ assignmentId: z.string().uuid(), cohort: cohortSelectionInput }))
     .query(async ({ ctx, input }) => {
-      const selection = parseGroupSelection(input.group);
+      const selection = parseCohortSelection(input.cohort);
       const assignment = await teachableAssignment(ctx, input.assignmentId, {
         id: true,
         title: true,
@@ -864,6 +862,9 @@ export const submissionsRouter = createTRPCRouter({
         dueAt: true,
         kind: true,
         sections: true,
+        // The matriculation whose roster the cohort filter narrows, which the assignment reaches
+        // through its course.
+        course: { select: { programId: true } },
       });
 
       /*
@@ -886,11 +887,11 @@ export const submissionsRouter = createTRPCRouter({
         distinct: ["submissionId"],
       });
       const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
-      const removed = await removedStudentIds(ctx.db, assignment.courseId);
+      const removed = await removedStudentIds(ctx.db, assignment.course.programId);
 
       // Null when nothing is selected — see `selectedStudentIds`, which is shared with the
       // gradebook and the assignments list so a group means the same set of students on all three.
-      const inSelection = await selectedStudentIds(ctx.db, assignment.courseId, selection);
+      const inSelection = await selectedStudentIds(ctx.db, assignment.course.programId, selection);
 
       const decorate = (submission: (typeof submissions)[number]) =>
         decorateSubmission(submission, { manualOnly, undeliveredIds });
@@ -985,19 +986,31 @@ export const submissionsRouter = createTRPCRouter({
     .input(z.object({ studentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       /*
-        The enrollment is what proves the student belongs to this course, so it is the access
-        check as well as a fact for the header. Without it, any student id plus a course the
-        caller teaches would return an empty list rather than a refusal — which reads as "this
-        student has done nothing" instead of "this student is not in this cohort".
+        The enrollment is what proves the fellow is on the roster of this course's program, so it is
+        the access check as well as a fact for the header. Without it, any student id plus a course
+        the caller teaches would return an empty list rather than a refusal — which reads as "this
+        fellow has done nothing" instead of "this fellow is not in this matriculation".
       */
       const enrollment = await ctx.db.enrollment.findFirst({
-        where: { courseId: input.courseId, studentId: input.studentId },
+        where: {
+          program: { courses: { some: { id: input.courseId } } },
+          studentId: input.studentId,
+        },
         select: {
           status: true,
-          student: {
-            select: personSelect,
+          student: { select: personSelect },
+          program: {
+            select: {
+              id: true,
+              name: true,
+              matriculation: true,
+              archivedAt: true,
+              courses: {
+                where: { id: input.courseId },
+                select: { id: true, name: true, publishedAt: true, archivedAt: true },
+              },
+            },
           },
-          course: { select: { id: true, name: true, cohortTerm: true, archivedAt: true } },
         },
       });
 
@@ -1052,27 +1065,56 @@ export const submissionsRouter = createTRPCRouter({
         that could only show the one in its own URL would make finding the other a guess. Scoped
         by what the caller teaches, so it does not report the existence of cohorts they cannot open.
       */
+      /*
+        Every other course of every matriculation this fellow is on the roster of and the caller can
+        see, so the selector on the screen holds the full set. Reached through the program, because
+        that is where an enrollment lives.
+      */
       const otherEnrollments = await ctx.db.enrollment.findMany({
         where: {
           studentId: input.studentId,
           ...(ctx.profile.role === "ADMIN"
             ? {}
-            : { course: { instructors: { some: { userId: ctx.profile.id } } } }),
+            : { program: { instructors: { some: { userId: ctx.profile.id } } } }),
         },
-        orderBy: { course: { createdAt: "desc" } },
+        orderBy: { program: { createdAt: "desc" } },
         select: {
           status: true,
-          course: { select: { id: true, name: true, cohortTerm: true } },
+          program: {
+            select: {
+              id: true,
+              name: true,
+              matriculation: true,
+              courses: {
+                orderBy: { createdAt: "asc" },
+                select: { id: true, name: true },
+              },
+            },
+          },
         },
       });
 
       return {
         student: enrollment.student,
-        course: enrollment.course,
+        /** The course being read, and the matriculation it belongs to. */
+        course: enrollment.program.courses[0]!,
+        program: {
+          id: enrollment.program.id,
+          name: enrollment.program.name,
+          matriculation: enrollment.program.matriculation,
+          archivedAt: enrollment.program.archivedAt,
+        },
         /** So the screen can say they have left, the way every other reader of this does. */
         enrollmentStatus: enrollment.status,
         /** Includes the course being read, so the selector holds the full set rather than the rest. */
-        courses: otherEnrollments.map((row) => ({ ...row.course, enrolledAs: row.status })),
+        courses: otherEnrollments.flatMap((row) =>
+          row.program.courses.map((course) => ({
+            ...course,
+            programName: row.program.name,
+            matriculation: row.program.matriculation,
+            enrolledAs: row.status,
+          })),
+        ),
         rows: assignments.map(({ sections, submissions, ...assignment }) => {
           const manualOnly = isManualOnly(sections);
           const submission = submissions[0] ?? null;

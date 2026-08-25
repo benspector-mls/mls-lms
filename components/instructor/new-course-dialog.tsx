@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { courseSettingsHref } from "@/lib/links";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cohortSlugProblem, MAX_COHORT_SLUG, suggestCohortSlug } from "@/lib/courses/cohort-slug";
+import { courseSlugProblem, MAX_COURSE_SLUG, suggestCourseSlug } from "@/lib/courses/course-slug";
 import {
   Select,
   SelectContent,
@@ -21,29 +21,39 @@ import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Creating a cohort, optionally from a previous one.
+ * Creating a course in a matriculation, optionally from a course of an earlier one.
  *
- * **Copying is the point of this screen, not a convenience on it.** A new cohort of an existing
- * program is last term's modules and assignments with new dates, so the alternative to copying
- * is re-entering twelve assignments and two repository URLs each. The first course in a
- * deployment has nothing to copy from, which is why it is optional rather than required.
+ * **Copying is the point of this screen, not a convenience on it.** A new year's course is last
+ * year's modules and assignments with new dates, so the alternative to copying is re-entering
+ * twelve assignments and two repository URLs each. The first course in a deployment has nothing to
+ * copy from, which is why it is optional rather than required.
  *
  * What the copy does and does not carry is stated here rather than left to be discovered: due
- * dates are cleared because a new cohort has new ones, and copies arrive unpublished because the
- * reason to copy is that last term's version was nearly right.
+ * dates are cleared because a new year has new ones, and copies arrive unpublished because the
+ * reason to copy is that last year's version was nearly right.
  *
  * **A partial copy is reported, not rolled back.** An assignment can legitimately fail — a
- * template made private since last term, an answer key folder renamed upstream — and discarding
- * a whole new cohort because one of twelve needs attention would be the wrong trade.
+ * template made private since last year, an answer key folder renamed upstream — and discarding
+ * a whole new course because one of twelve needs attention would be the wrong trade.
+ *
+ * **The term is not asked for.** It is the matriculation the course is being created in, which the
+ * screen already knows — asking again would be a second place for the same fact to be written down,
+ * and two courses of one year could then disagree about what year it is.
  */
 export function NewCourseDialog({
+  programId,
+  matriculation,
   courses,
 }: {
+  /** The matriculation the new course belongs to. */
+  programId: string;
+  /** Its term, which the short name is suggested from and the review step names. */
+  matriculation: string;
   /** Courses the caller can copy from — the ones they teach, archived ones included. */
   courses: {
     id: string;
     name: string;
-    cohortTerm: string;
+    program: { matriculation: string };
     archivedAt: Date | null;
     teaches: boolean;
     _count: { assignments: number };
@@ -54,13 +64,12 @@ export function NewCourseDialog({
 
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
-  const [cohortTerm, setCohortTerm] = React.useState("");
   const [copyFrom, setCopyFrom] = React.useState("");
 
   /*
     Two steps, because one of these fields cannot be taken back.
 
-    The short name is settled here and never again — every repository the cohort generates is
+    The short name is settled here and never again — every repository the course generates is
     named after it, so a typo is forty repositories with a typo in them and no way to rename
     them from this application. Copying is the other reason: it can bring a term's worth of
     assignments into the wrong course, and undoing that means deleting them one at a time.
@@ -71,44 +80,47 @@ export function NewCourseDialog({
   const [step, setStep] = React.useState<"form" | "confirm">("form");
 
   /*
-    The slug follows the cohort term until somebody edits it, and then stops.
+    The slug follows the course name until somebody edits it, and then stops.
 
     Held as "have they touched it" rather than by comparing the two, because those are different
-    questions: an instructor who deliberately types `fall-2026` — the same thing the term would
-    have suggested — has still taken it over, and their next keystroke in the term field should
-    not silently overwrite it.
+    questions: an instructor who deliberately types the same thing the name would have suggested
+    has still taken it over, and their next keystroke in the name field should not silently
+    overwrite it.
   */
   const [slug, setSlug] = React.useState("");
   const [slugEdited, setSlugEdited] = React.useState(false);
   /*
-    Suggested from the course *and* the term, not the term alone.
+    Suggested from the course name *and* the matriculation, not the term alone.
 
     Every program a school runs starts in the fall, so a term-only suggestion made `fall-2026`
     the short name of whichever course was created first and a refusal for the rest — and the
     instructor hitting the refusal was the one who had done nothing wrong.
   */
-  const effectiveSlug = slugEdited ? slug : suggestCohortSlug({ courseName: name, cohortTerm });
-  const slugProblem = effectiveSlug === "" ? null : cohortSlugProblem(effectiveSlug);
+  const effectiveSlug = slugEdited ? slug : suggestCourseSlug({ courseName: name, matriculation });
+  const slugProblem = effectiveSlug === "" ? null : courseSlugProblem(effectiveSlug);
 
   /*
     Every course the caller teaches, archived ones included, and that is the interesting half.
 
-    A cohort is normally copied the term after it finished, which is exactly when the source
-    has been archived — so excluding them would leave this list empty at the moment it is most
-    wanted. They are labelled rather than hidden, because a term nobody is teaching is a
-    reasonable thing to copy and a confusing thing to copy by accident.
+    A course is normally copied the year after it finished, which is exactly when the source has
+    been archived — so excluding them would leave this list empty at the moment it is most wanted.
+    They are labelled rather than hidden, because a year nobody is teaching is a reasonable thing
+    to copy and a confusing thing to copy by accident.
+
+    **Every matriculation the caller instructs, not only this one.** Copying within one year is the
+    rare case; the ordinary one is last year's course into this year's, which is a different program
+    by definition.
   */
   const copyable = courses.filter((course) => course.teaches);
   const source = copyable.find((course) => course.id === copyFrom) ?? null;
 
   const sourceLabel = (course: (typeof courses)[number]) =>
     course.archivedAt != null
-      ? `${course.name} · ${course.cohortTerm} · Archived`
-      : `${course.name} · ${course.cohortTerm}`;
+      ? `${course.name} · ${course.program.matriculation} · Archived`
+      : `${course.name} · ${course.program.matriculation}`;
 
   /** Whether the form is filled in enough to be worth reviewing. */
-  const ready =
-    name.trim() !== "" && cohortTerm.trim() !== "" && effectiveSlug !== "" && slugProblem === null;
+  const ready = name.trim() !== "" && effectiveSlug !== "" && slugProblem === null;
 
   const close = () => {
     setOpen(false);
@@ -138,18 +150,16 @@ export function NewCourseDialog({
 
         close();
         setName("");
-        setCohortTerm("");
         setCopyFrom("");
         setSlug("");
         setSlugEdited(false);
         /*
           Settings, named rather than reached through the bare course address's redirect.
 
-          The right landing for a brand-new cohort, and for the same reason the assignment
-          form lands on the assignments list instead: it is where the result is. A course
-          created a second ago has no triage, no gradebook, and no roster — what it has is a
-          join link to send, a short name that will prefix every repository it generates, and
-          a co-teaching link, and all three are here.
+          The right landing for a brand-new course, and for the same reason the assignment form
+          lands on the assignments list instead: it is where the result is. A course created a
+          second ago has no triage and no gradebook — what it has is a short name that will prefix
+          every repository it generates, and the control that lets fellows see it at all.
         */
         router.push(courseSettingsHref(result.course.id));
       },
@@ -178,10 +188,10 @@ export function NewCourseDialog({
 
         <dl className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
           <Detail label="Course" value={name.trim()} />
-          <Detail label="Cohort" value={cohortTerm.trim()} />
+          <Detail label="Matriculation" value={matriculation} />
           {/*
             The pattern rather than the bare slug, because the slug on its own does not show what
-            it is for. This is the string students read for the next nine months.
+            it is for. This is the string fellows read for the next nine months.
           */}
           <Detail
             label="Repositories"
@@ -193,7 +203,7 @@ export function NewCourseDialog({
             label="Copying"
             value={
               source
-                ? `${source.name} · ${source.cohortTerm} — its modules and ` +
+                ? `${source.name} · ${source.program.matriculation} — its modules and ` +
                   `${source._count.assignments} ` +
                   `${source._count.assignments === 1 ? "assignment" : "assignments"}, ` +
                   `unpublished, with due dates cleared`
@@ -208,9 +218,9 @@ export function NewCourseDialog({
             disabled={create.isPending}
             onClick={() =>
               create.mutate({
+                programId,
                 name: name.trim(),
-                cohortTerm: cohortTerm.trim(),
-                cohortSlug: effectiveSlug,
+                slug: effectiveSlug,
                 copyFromCourseId: copyFrom || undefined,
               })
             }
@@ -250,33 +260,21 @@ export function NewCourseDialog({
           id="course-name"
           value={name}
           autoFocus
-          placeholder="Software Engineering Fellowship"
+          placeholder="Fullstack Software Engineering"
           onChange={(event) => setName(event.target.value)}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium" htmlFor="course-term">
-          Cohort
-        </label>
-        <Input
-          id="course-term"
-          value={cohortTerm}
-          placeholder="Fall 2026"
-          onChange={(event) => setCohortTerm(event.target.value)}
         />
       </div>
 
       {/*
         The short name, which is the only field here whose value is visible outside this
-        application — it is in the name of every repository the cohort generates, which students
+        application — it is in the name of every repository the course generates, which fellows
         see, clone, and read for the next nine months.
 
-        Suggested rather than asked for, because typing one per cohort is a chore and the course
-        and term together already imply it. Editable in the same breath, because `swe-f26` is what
-        somebody reading forty repository names actually wants where the suggestion offers
-        `software-engineering-f26` — and this is the only moment it is editable at all, which is
-        what the review step exists to make sure gets read.
+        Suggested rather than asked for, because typing one per course is a chore and the course
+        name and the matriculation together already imply it. Editable in the same breath, because
+        `swe-f26` is what somebody reading forty repository names actually wants where the
+        suggestion offers `fullstack-software-e-f26` — and this is the only moment it is editable at
+        all, which is what the review step exists to make sure gets read.
       */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium" htmlFor="course-slug">
@@ -285,7 +283,7 @@ export function NewCourseDialog({
         <Input
           id="course-slug"
           value={effectiveSlug}
-          maxLength={MAX_COHORT_SLUG}
+          maxLength={MAX_COURSE_SLUG}
           placeholder="swe-f26"
           className="font-mono"
           onChange={(event) => {
@@ -297,7 +295,7 @@ export function NewCourseDialog({
           <p className="text-xs text-destructive">{slugProblem}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Every repository this cohort generates is named{" "}
+            Every repository this course generates is named{" "}
             <code>{effectiveSlug || "short-name"}-assignment-githubname</code>. It cannot be changed
             after the course is created.
           </p>
@@ -316,7 +314,7 @@ export function NewCourseDialog({
             }}
           >
             {/* `w-full min-w-0` because the trigger is `w-fit whitespace-nowrap` by default,
-                and a label of a program name plus a term plus "Archived" would otherwise widen
+                and a label of a course name plus a term plus "Archived" would otherwise widen
                 this whole form rather than truncate inside it. */}
             <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder="Start empty" />

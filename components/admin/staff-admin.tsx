@@ -194,17 +194,17 @@ function PeopleTab({ people }: { people: People }) {
                   </TableCell>
 
                   <TableCell className="hidden sm:table-cell">
-                    {person.courses.length === 0 ? (
+                    {person.programs.length === 0 ? (
                       // Worth naming rather than leaving blank. An instructor teaching nothing is
                       // usually somebody who redeemed an invitation and was never added to a
-                      // cohort, which is a loose end rather than a normal state.
-                      <span className="text-xs text-muted-foreground">No cohort yet</span>
+                      // matriculation, which is a loose end rather than a normal state.
+                      <span className="text-xs text-muted-foreground">No program yet</span>
                     ) : (
                       <div className="flex flex-col gap-0.5">
-                        {person.courses.map((course) => (
-                          <span key={course.id} className="truncate text-xs">
-                            {course.name}{" "}
-                            <span className="text-muted-foreground">· {course.cohortTerm}</span>
+                        {person.programs.map((program) => (
+                          <span key={program.id} className="truncate text-xs">
+                            {program.name}{" "}
+                            <span className="text-muted-foreground">· {program.matriculation}</span>
                           </span>
                         ))}
                       </div>

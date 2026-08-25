@@ -16,26 +16,27 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * A fellow's week, one block per course, at the top of the dashboard.
+ * A fellow's week, one block per matriculation, at the top of the dashboard.
  *
- * **One block per course is the whole reason this works where three cards did not.** A fellow in
- * three cohorts checks into three sessions on a Tuesday, and three stacked cards pushed the work
- * off the one screen that answers "what is due".
+ * **One block per matriculation, not per course**, which is what attendance moving up to the program
+ * bought here: a fellow taking three courses that all met on a Tuesday had three blocks and three
+ * codes to type, and the three said the same thing while pushing the work off the one screen that
+ * answers "what is due".
  *
- * Each block is three rows, and the split is what keeps it narrow enough for a phone: the course
+ * Each block is three rows, and the split is what keeps it narrow enough for a phone: the program
  * with its live-session pill and the term's figure, then the week, then the code box for as long
- * as check-in is open. Laid out across a single line, the box and a long cohort name wrapped into
- * something that read as two courses.
+ * as check-in is open. Laid out across a single line, the box and a long program name wrapped into
+ * something that read as two programs.
  *
  * **The week is squares and the figure is the term.** A weekly percentage would be a confident
  * wrong number: a session exists only because an instructor pressed start, so a morning nobody
- * opened looks exactly like a morning the cohort did not meet, and a forgotten Tuesday would read
+ * opened looks exactly like a morning the program did not meet, and a forgotten Tuesday would read
  * as a full week. Squares report each day and leave the empty ones blank; the percentage beside
  * them is cumulative, which has a denominator worth quoting.
  *
- * **It renders nothing when the week holds no session in any cohort.** Silence at the weekend and
- * over winter break, for the reason `CheckInCard` gives: a strip of empty squares announcing its
- * own absence is a false alarm on every day nobody meets.
+ * **It renders nothing when the week holds no session in any matriculation.** Silence at the
+ * weekend and over winter break, for the reason `CheckInCard` gives: a strip of empty squares
+ * announcing its own absence is a false alarm on every day nobody meets.
  *
  * Polled at thirty seconds, as the check-in card is, so a fellow who opened this a minute before
  * class sees the code box appear without reloading.
@@ -52,10 +53,10 @@ export function AttendanceStrip({ initial }: { initial: MyWeek }) {
     refetchInterval: 30_000,
   });
 
-  const { columns, courses } = week.data;
+  const { columns, programs } = week.data;
 
   // Nothing met this week. Not an empty grid, and not a message about there being no grid.
-  const anySession = courses.some((course) => course.days.some((day) => day.session != null));
+  const anySession = programs.some((row) => row.days.some((day) => day.session != null));
   if (columns.length === 0 || !anySession) return null;
 
   return (
@@ -63,40 +64,40 @@ export function AttendanceStrip({ initial }: { initial: MyWeek }) {
       <h2 className="flex items-center gap-2 text-sm font-semibold">Weekly Attendance</h2>
 
       <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
-        {courses.map((course) => (
-          <CourseWeek key={course.course.id} course={course} columns={columns} />
+        {programs.map((row) => (
+          <ProgramWeek key={row.program.id} row={row} columns={columns} />
         ))}
       </div>
     </section>
   );
 }
 
-function CourseWeek({
-  course,
+function ProgramWeek({
+  row,
   columns,
 }: {
-  course: MyWeek["courses"][number];
+  row: MyWeek["programs"][number];
   columns: MyWeek["columns"];
 }) {
-  const byDay = new Map(course.days.map((day) => [day.day, day]));
+  const byDay = new Map(row.days.map((day) => [day.day, day]));
 
   return (
     <div className="flex flex-col gap-2 px-3 py-2.5">
       {/*
-        The course, what is happening in it right now, and how the term has gone — in that order,
+        The program, what is happening in it right now, and how the term has gone — in that order,
         because it is the order somebody asks them in. The pill sits beside the name rather than
-        beside the code box: it is a fact about the cohort, and it should be legible on a morning
-        the fellow has already checked in and the box has gone.
+        beside the code box: it is a fact about the morning, and it should be legible after the
+        fellow has already checked in and the box has gone.
       */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Link
-          href={myAttendanceHref(course.course.id)}
+          href={myAttendanceHref(row.program.id)}
           className="min-w-0 truncate text-sm font-medium hover:underline"
         >
-          {course.course.name}
+          {row.program.name}
         </Link>
 
-        {course.open && (
+        {row.open && (
           <Badge variant="default" className="gap-1">
             {/*
               A dot that pulses. Every other animation here is a spinner on something the reader
@@ -119,19 +120,17 @@ function CourseWeek({
           Nothing at all before the first session closes, rather than a nought that reads as a
           failure to turn up.
         */}
-        {course.summary.rate != null && (
+        {row.summary.rate != null && (
           <span className="ml-auto shrink-0 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-            {course.summary.attended} of {course.summary.eligible} ·{" "}
-            <span className="font-medium text-foreground">
-              {formatPercent(course.summary.rate)}
-            </span>
+            {row.summary.attended} of {row.summary.eligible} ·{" "}
+            <span className="font-medium text-foreground">{formatPercent(row.summary.rate)}</span>
           </span>
         )}
       </div>
 
       <div className="flex items-end gap-1">
         {columns.map((day) => {
-          const kind = kindOf(byDay.get(day)?.session, day, course.enrolledFrom);
+          const kind = kindOf(byDay.get(day)?.session, day, row.enrolledFrom);
           const meta = CELL[kind];
           const marked = isMarked(kind);
           const description = marked
@@ -165,8 +164,8 @@ function CourseWeek({
         phone without pushing the week off the side. It is also the row that is absent for most of
         the day, once check-in has closed, which is why the two above it are self-contained.
       */}
-      {course.open &&
-        (course.open.checkedIn ? (
+      {row.open &&
+        (row.open.checkedIn ? (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <CheckCircle2
               aria-hidden="true"
@@ -175,7 +174,7 @@ function CourseWeek({
             You checked in today
           </span>
         ) : (
-          <CheckInForm courseId={course.course.id} courseName={course.course.name} compact />
+          <CheckInForm programId={row.program.id} programName={row.program.name} compact />
         ))}
     </div>
   );

@@ -2,7 +2,7 @@ import "server-only";
 
 import { TRPCError } from "@trpc/server";
 
-import { studentRepoName, teamRepoName } from "../courses/cohort-slug";
+import { studentRepoName, teamRepoName } from "../courses/course-slug";
 import type { Prisma } from "../generated/prisma/client";
 import type { SubmissionModel } from "../generated/prisma/models";
 import { getConfiguredInstallationId, isGithubAppConfigured } from "../github/app-client";
@@ -66,7 +66,7 @@ export const acceptableAssignmentSelect = {
   /// because it is what decides whether accepting claims a team's row or creates one of its own.
   teamSetId: true,
   // The cohort's short name, which prefixes the repository this creates.
-  course: { select: { cohortSlug: true } },
+  course: { select: { slug: true } },
 } satisfies Prisma.AssignmentSelect;
 
 /** An assignment loaded for accepting. */
@@ -336,7 +336,7 @@ export async function acceptRepoAssignment(
 
   const installationId = getConfiguredInstallationId();
   /*
-    `{cohortSlug}-{assignmentRepoName}-{github login}`, built in one place.
+    `{course slug}-{assignmentRepoName}-{github login}`, built in one place.
 
     The cohort in the name is what keeps two courses running the same program apart on GitHub, so
     a student repeating a module gets a fresh repository rather than wanting the one their
@@ -344,12 +344,12 @@ export async function acceptRepoAssignment(
   */
   const repoName = team
     ? teamRepoName({
-        cohortSlug: assignment.course.cohortSlug,
+        courseSlug: assignment.course.slug,
         assignmentRepoName: source.assignmentRepoName,
         teamName: team.name,
       })
     : studentRepoName({
-        cohortSlug: assignment.course.cohortSlug,
+        courseSlug: assignment.course.slug,
         assignmentRepoName: source.assignmentRepoName,
         githubLogin: student.githubUsername,
       });
@@ -476,14 +476,23 @@ export async function acceptRepoAssignment(
     });
   }
 
-  // Every instructor on the course is added, so no repository ever needs manual permission
-  // changes.
+  /*
+    Every instructor assigned to teach the course is added, so no repository ever needs manual
+    permission changes.
+
+    **The instructors assigned to this course, not every instructor of its program.** Authority is
+    program-wide — an instructor of the program may grade in any course of it — but a collaborator
+    invitation is a real GitHub notification sent to a real person, and inviting the whole of a
+    matriculation's staff onto every fellow's repository is noise nobody asked for. `CourseInstructor`
+    exists to record exactly this: who is actually working the course. Somebody covering a colleague
+    grades through this application without needing the repository.
+  */
   const instructors = await db.courseInstructor.findMany({
     where: { courseId: assignment.courseId },
-    select: { user: { select: { githubUsername: true, email: true } } },
+    select: { programInstructor: { select: { user: { select: { githubUsername: true, email: true } } } } },
   });
 
-  for (const { user } of instructors) {
+  for (const { programInstructor: { user } } of instructors) {
     if (!user.githubUsername) {
       // An instructor who has not linked GitHub cannot be added. This must not fail the
       // student's accept — they would be blocked by someone else's incomplete setup.

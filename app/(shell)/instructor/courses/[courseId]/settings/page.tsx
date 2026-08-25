@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * The cohort itself, and where the bare course address lands.
+ * The course itself, and where the bare course address lands.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
@@ -26,7 +26,7 @@ async function Settings({ params }: { params: Promise<{ courseId: string }> }) {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Settings"
-        description={`${data.course.name} · ${data.course.cohortTerm}`}
+        description={`${data.course.name} · ${data.course.program.matriculation}`}
       />
       <CourseSettings data={data} />
     </div>

@@ -30,7 +30,7 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Today = RouterOutputs["attendance"]["today"];
 
-export function CheckInCard({ courseId, initial }: { courseId: string; initial: Today }) {
+export function CheckInCard({ programId, initial }: { programId: string; initial: Today }) {
   const trpc = useTRPC();
 
   /*
@@ -48,7 +48,7 @@ export function CheckInCard({ courseId, initial }: { courseId: string; initial: 
     refetchInterval: 30_000,
   });
 
-  const entry = today.data.find((row) => row.courseId === courseId);
+  const entry = today.data.find((row) => row.programId === programId);
   if (!entry) return null;
 
   return <CourseCheckIn entry={entry} />;
@@ -64,7 +64,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="flex items-center gap-2 text-sm font-medium">
             <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-            {entry.courseName}
+            {entry.programName}
             <AttendanceStatusBadge status={record.status} />
           </span>
           <span className="text-xs text-muted-foreground">
@@ -87,7 +87,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="flex items-center gap-2 text-sm font-medium">
             <CircleSlash className="size-4 text-muted-foreground" />
-            Check-in closed for {entry.courseName}
+            Check-in closed for {entry.programName}
           </span>
           <span className="text-xs text-muted-foreground">
             You are not marked in for today. Speak to your instructor — they can record it.
@@ -103,14 +103,14 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="flex items-center gap-2 text-sm font-medium">
             <Clock className="size-4 text-primary" />
-            Check in — {entry.courseName}
+            Check in — {entry.programName}
           </span>
           <span className="text-xs text-muted-foreground">
             Type the code your instructor gave out for today.
           </span>
         </div>
 
-        <CheckInForm courseId={entry.courseId} courseName={entry.courseName} />
+        <CheckInForm programId={entry.programId} programName={entry.programName} />
       </div>
     </Shell>
   );

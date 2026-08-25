@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Archive, ArrowRight, BookOpen, CircleCheck, UserMinus } from "lucide-react";
 
-import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,32 +8,39 @@ import { courseHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
 
 /**
- * The courses the caller belongs to. Students and instructors see the same card, and it
- * opens into whichever view the caller works in — the instructor screens for a course they
- * teach, the student's own assignments otherwise.
+ * The courses the caller belongs to. Fellows and instructors see the same card, and it opens into
+ * whichever view the caller works in — the instructor screens for a course they teach, the fellow's
+ * own assignments otherwise.
  *
- * **This is the only screen that is not scoped to a cohort**, which is why archived ones belong
- * here. They are in a section beneath the running ones rather than mixed in: a finished term is
- * not something anybody is working in, and a list that made no distinction would put last year
- * beside this week.
+ * **A fellow's way around**, and for an instructor the sibling of `/programs`: this lists courses
+ * across every matriculation, that one lists the matriculations themselves. Archived courses belong
+ * here for the same reason, in a section beneath the running ones rather than mixed in — a finished
+ * course is not something anybody is working in, and a list that made no distinction would put last
+ * year beside this week.
  *
- * There is deliberately no second link offering an instructor the student view of their own
- * course. It would show them their own submissions, which do not exist, rather than what a
- * student sees — that needs [a test enrollment](../../ROADMAP.md#seeing-a-course-as-a-student-sees-it).
+ * **Creating a course is not offered here.** A course belongs to one matriculation, so it is made
+ * from that matriculation's settings screen, where the term it will belong to is already decided.
+ * A button here would have had to ask which program first, which is the question `/programs`
+ * already answers by being the screen somebody was on.
+ *
+ * There is deliberately no second link offering an instructor the fellow's view of their own
+ * course. It would show them their own submissions, which do not exist, rather than what a fellow
+ * sees — that needs [a test enrollment](../../ROADMAP.md#seeing-a-course-as-a-student-sees-it).
  */
 
 type Course = {
   id: string;
   name: string;
-  cohortTerm: string;
+  /** The matriculation the course belongs to, which is what tells two years of one course apart. */
+  program: { name: string; matriculation: string };
   archivedAt: Date | null;
   teaches: boolean;
   /**
    * The caller's own enrollment status, or null when they are not a student of this course.
    *
-   * `REMOVED` is why this is here. A student who has left a cohort keeps the course — they can
-   * still read the feedback they were given — and a card that looked identical to the cohorts
-   * they are still in would be telling them something false.
+   * `REMOVED` is why this is here. A fellow who has left a program keeps its courses — they can
+   * still read the feedback they were given — and a card that looked identical to the courses they
+   * are still in would be telling them something false.
    */
   enrolledAs: "ACTIVE" | "REMOVED" | null;
   /**
@@ -46,32 +52,24 @@ type Course = {
    * their instructor are never shown different answers.
    */
   completion: "complete" | "incomplete" | "pending" | null;
-  _count: { assignments: number; enrollments: number };
+  _count: { assignments: number };
+  /** How many active fellows are on the roster of the matriculation this course belongs to. */
+  rosterCount: number;
 };
 
 export function CoursesList({
   courses,
   githubLinked,
-  canCreate,
 }: {
   courses: Course[];
   githubLinked: boolean;
-  /**
-   * Whether to offer creating one. Any instructor may — a cohort belongs to whoever runs it —
-   * and the procedure is what refuses, so this only decides whether the button is there.
-   */
-  canCreate: boolean;
 }) {
   const running = courses.filter((course) => course.archivedAt == null);
   const archived = courses.filter((course) => course.archivedAt != null);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader
-        title="Courses"
-        description="The cohorts you belong to."
-        actions={canCreate ? <NewCourseDialog courses={courses} /> : undefined}
-      />
+      <PageHeader title="Courses" description="The courses you belong to." />
 
       {/*
         Worth saying before they try. Accepting an assignment creates a repository named
@@ -95,7 +93,7 @@ export function CoursesList({
         <EmptyState
           icon={<BookOpen />}
           title="You are not enrolled in any courses yet"
-          description="When you are added to a cohort, it will appear here."
+          description="When you are added to a program, its courses will appear here."
         />
       ) : (
         <div className="flex flex-col gap-6">
@@ -108,13 +106,13 @@ export function CoursesList({
           ) : (
             /*
               Said rather than left as an empty page above a list. Everything the caller
-              belongs to being archived is a real state — the term between two cohorts — and
-              a screen showing only the archived section reads as a bug otherwise.
+              belongs to being archived is a real state — the months between two matriculations —
+              and a screen showing only the archived section reads as a bug otherwise.
             */
             <EmptyState
               icon={<Archive />}
               title="Nothing running right now"
-              description="Every cohort you belong to has been archived. They are below, and they stay readable."
+              description="Every course you belong to has been archived. They are below, and they stay readable."
             />
           )}
 
@@ -123,7 +121,7 @@ export function CoursesList({
               <div className="flex flex-col gap-0.5 border-t border-border pt-5">
                 <h2 className="text-sm font-medium">Archived</h2>
                 <p className="text-xs text-muted-foreground">
-                  Finished cohorts. Everything in them stays readable — the work, the grades, and
+                  Finished courses. Everything in them stays readable — the work, the grades, and
                   the feedback that was given — and nothing new can be handed in.
                 </p>
               </div>
@@ -166,10 +164,10 @@ function CourseCard({ course }: { course: Course }) {
                 **Only the "complete" state is shown.** A course is complete when every unit that
                 has anything published in it is complete, so the other two verdicts are the
                 ordinary condition of a term in progress — a badge reading "Not finished" on every
-                card of a running cohort would be a label on the normal case, which is noise. The
+                card of a running course would be a label on the normal case, which is noise. The
                 green is the same green completion uses everywhere else in the interface.
 
-                Absent entirely for an instructor's own cohorts, because they are not doing the
+                Absent entirely for an instructor's own courses, because they are not doing the
                 work: `completion` is null unless the caller is enrolled.
               */}
               {course.completion === "complete" && (
@@ -180,7 +178,7 @@ function CourseCard({ course }: { course: Course }) {
               )}
               {/*
                 Said on the card rather than only inside the course, because this is
-                where somebody would otherwise be misled: a cohort they have left,
+                where somebody would otherwise be misled: a program they have left,
                 sitting in the same list as the ones they are in.
               */}
               {removed && (
@@ -190,10 +188,17 @@ function CourseCard({ course }: { course: Course }) {
                 </span>
               )}
             </div>
+            {/*
+              The matriculation and not only the term, because a school runs several programs a year
+              and "Fall 2026" alone would not say which of them this course belongs to. The roster
+              count is the program's — one roster serves every course in it, which is the whole
+              point of the program owning it.
+            */}
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {course.cohortTerm} · {course._count.assignments}{" "}
+              {course.program.name} · {course.program.matriculation} ·{" "}
+              {course._count.assignments}{" "}
               {course._count.assignments === 1 ? "assignment" : "assignments"} ·{" "}
-              {course._count.enrollments} {course._count.enrollments === 1 ? "student" : "students"}
+              {course.rosterCount} {course.rosterCount === 1 ? "fellow" : "fellows"}
             </p>
             {removed && (
               <p className="mt-1.5 text-xs text-muted-foreground">
@@ -207,8 +212,8 @@ function CourseCard({ course }: { course: Course }) {
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
           {/*
             One link, to the view the caller actually works in. An instructor
-            opening a course wants their own screen — the roster, the assignments,
-            the gradebook — and the student view of a course they teach shows them
+            opening a course wants their own screen — the triage, the curriculum,
+            the gradebook — and the fellow's view of a course they teach shows them
             their own submissions, of which they have none.
 
             `teaches` rather than the role: an admin teaches no course and an

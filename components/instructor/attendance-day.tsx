@@ -59,7 +59,7 @@ const POLL_MS = 5000;
 export function AttendanceDay({ data }: { data: Grid }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
-  const courseId = data.course.id;
+  const programId = data.program.id;
 
   /*
     Seeded from the server render, so the first paint has the grid rather than a spinner — the
@@ -68,7 +68,7 @@ export function AttendanceDay({ data }: { data: Grid }) {
     tab left open overnight is not a query every five seconds until morning.
   */
   const grid = useQuery({
-    ...trpc.attendance.grid.queryOptions({ courseId, day: data.day }),
+    ...trpc.attendance.grid.queryOptions({ programId, day: data.day }),
     initialData: data,
     refetchInterval: (query) => (query.state.data?.session?.state === "open" ? POLL_MS : false),
     staleTime: 0,
@@ -145,9 +145,9 @@ export function AttendanceDay({ data }: { data: Grid }) {
       {session ? (
         <SessionHeader
           session={session}
-          archived={view.course.archived}
+          archived={view.program.archived}
           busy={busy}
-          courseId={courseId}
+          programId={programId}
           onEnd={() => end.mutate({ sessionId: session.id })}
           onExtend={() => extend.mutate({ sessionId: session.id })}
           onReopen={() => reopen.mutate({ sessionId: session.id })}
@@ -157,9 +157,9 @@ export function AttendanceDay({ data }: { data: Grid }) {
         <StartCard
           day={view.day}
           isToday={view.isToday}
-          archived={view.course.archived}
+          archived={view.program.archived}
           busy={busy}
-          onStart={() => start.mutate({ courseId, day: view.day })}
+          onStart={() => start.mutate({ programId, day: view.day })}
         />
       )}
 
@@ -171,7 +171,7 @@ export function AttendanceDay({ data }: { data: Grid }) {
             <EmptyState
               icon={<Users />}
               title="Nobody is enrolled yet"
-              description="Send the join link from the roster. Fellows appear here once they are in the cohort."
+              description="Send the join link from the roster. Fellows appear here once they are on it."
             />
           ) : (
             <>
@@ -179,7 +179,7 @@ export function AttendanceDay({ data }: { data: Grid }) {
                 <RowGroup
                   heading={`Not checked in · ${unresolved.length}`}
                   rows={unresolved}
-                  courseId={courseId}
+                  programId={programId}
                   day={view.day}
                   sessionId={session.id}
                   busy={busy}
@@ -189,7 +189,7 @@ export function AttendanceDay({ data }: { data: Grid }) {
                 <RowGroup
                   heading={`Recorded · ${recorded.length}`}
                   rows={recorded}
-                  courseId={courseId}
+                  programId={programId}
                   day={view.day}
                   sessionId={session.id}
                   busy={busy}
@@ -228,7 +228,7 @@ function StartCard({
     return (
       <EmptyState
         icon={<Clock />}
-        title="This cohort has finished"
+        title="This program has finished"
         description="Its attendance stays readable and exportable, but no new session can be started."
       />
     );
@@ -265,7 +265,7 @@ function SessionHeader({
   session,
   archived,
   busy,
-  courseId,
+  programId,
   onEnd,
   onExtend,
   onReopen,
@@ -274,7 +274,7 @@ function SessionHeader({
   session: NonNullable<Grid["session"]>;
   archived: boolean;
   busy: boolean;
-  courseId: string;
+  programId: string;
   onEnd: () => void;
   onExtend: () => void;
   onReopen: () => void;
@@ -314,7 +314,7 @@ function SessionHeader({
                 size="sm"
                 variant="outline"
                 render={
-                  <a href={attendancePresentHref(courseId)} target="_blank" rel="noreferrer" />
+                  <a href={attendancePresentHref(programId)} target="_blank" rel="noreferrer" />
                 }
               >
                 <MonitorPlay data-icon="inline-start" />
@@ -350,7 +350,7 @@ function SessionHeader({
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
             Deleting this session removes it from every fellow&apos;s record and from the export, as
-            though the cohort never met. Use this for a session started on the wrong day.
+            though the program never met. Use this for a session started on the wrong day.
           </span>
           <div className="flex gap-2">
             <Button
@@ -528,7 +528,7 @@ function Counts({ counts, total }: { counts: Grid["counts"]; total: number }) {
           <span className="text-xs text-muted-foreground">{cell.label}</span>
         </div>
       ))}
-      <span className="sr-only">{total} fellows in this cohort</span>
+      <span className="sr-only">{total} fellows on this roster</span>
     </div>
   );
 }
@@ -543,14 +543,14 @@ function Counts({ counts, total }: { counts: Grid["counts"]; total: number }) {
 function RowGroup({
   heading,
   rows,
-  courseId,
+  programId,
   day,
   sessionId,
   busy,
 }: {
   heading: string;
   rows: GridRow[];
-  courseId: string;
+  programId: string;
   day: string;
   sessionId: string;
   busy: boolean;
@@ -563,7 +563,7 @@ function RowGroup({
           <Row
             key={row.enrollmentId}
             row={row}
-            courseId={courseId}
+            programId={programId}
             day={day}
             sessionId={sessionId}
             busy={busy}
@@ -576,13 +576,13 @@ function RowGroup({
 
 function Row({
   row,
-  courseId,
+  programId,
   day,
   sessionId,
   busy,
 }: {
   row: GridRow;
-  courseId: string;
+  programId: string;
   day: string;
   sessionId: string;
   busy: boolean;
@@ -602,7 +602,7 @@ function Row({
           <div className="flex min-w-0 flex-col">
             <div className="flex min-w-0 items-center gap-2">
               <a
-                href={studentHref(courseId, row.student.id)}
+                href={studentHref(programId, row.student.id)}
                 className="truncate text-sm font-medium hover:underline"
               >
                 {name}
@@ -616,7 +616,7 @@ function Row({
         <div className="flex shrink-0 flex-wrap items-center gap-1">
           <StatusButtons
             row={row}
-            courseId={courseId}
+            programId={programId}
             day={day}
             sessionId={sessionId}
             busy={busy}
@@ -645,7 +645,7 @@ function Row({
       {editingNote && row.record && (
         <NoteEditor
           row={row}
-          courseId={courseId}
+          programId={programId}
           day={day}
           sessionId={sessionId}
           busy={busy}
@@ -670,14 +670,14 @@ function Row({
  */
 function NoteEditor({
   row,
-  courseId,
+  programId,
   day,
   sessionId,
   busy,
   onDone,
 }: {
   row: GridRow;
-  courseId: string;
+  programId: string;
   day: string;
   sessionId: string;
   busy: boolean;
@@ -691,7 +691,7 @@ function NoteEditor({
     trpc.attendance.setStatus.mutationOptions({
       onSuccess: () => {
         void queryClient.invalidateQueries({
-          queryKey: trpc.attendance.grid.queryKey({ courseId, day }),
+          queryKey: trpc.attendance.grid.queryKey({ programId, day }),
         });
         onDone();
       },
@@ -784,13 +784,13 @@ const STATUSES = ["PRESENT", "LATE", "ABSENT", "EXCUSED"] as const;
  */
 function StatusButtons({
   row,
-  courseId,
+  programId,
   day,
   sessionId,
   busy,
 }: {
   row: GridRow;
-  courseId: string;
+  programId: string;
   day: string;
   sessionId: string;
   busy: boolean;
@@ -809,7 +809,7 @@ function StatusButtons({
     trpc.attendance.setStatus.mutationOptions({
       onSuccess: () =>
         queryClient.invalidateQueries({
-          queryKey: trpc.attendance.grid.queryKey({ courseId, day }),
+          queryKey: trpc.attendance.grid.queryKey({ programId, day }),
         }),
       onError: (error) => toast.error(error.message),
     }),

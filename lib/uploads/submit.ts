@@ -139,14 +139,20 @@ export async function assertCanHandIn(
     noticed here.
   */
   const enrollment = await db.enrollment.findFirst({
-    where: { courseId: assignment.courseId, studentId: params.profileId, status: "ACTIVE" },
+    where: {
+      // Reached through the program, because that is where an enrollment lives. The course is
+      // still what identifies which roster to look on.
+      program: { courses: { some: { id: assignment.courseId } } },
+      studentId: params.profileId,
+      status: "ACTIVE",
+    },
     select: { id: true },
   });
 
   if (!enrollment) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "You are not enrolled in the course this assignment belongs to.",
+      message: "You are not enrolled in the program this assignment belongs to.",
     });
   }
 

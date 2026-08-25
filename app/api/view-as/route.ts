@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 
 import { recordEvent, viewAsActor } from "@/lib/audit/record";
-import { isUuid, resolveViewAs, VIEW_AS_COOKIE, VIEW_AS_COURSE_COOKIE } from "@/lib/auth/view-as";
+import {
+  isUuid,
+  resolveViewAs,
+  VIEW_AS_COOKIE,
+  VIEW_AS_PROGRAM_COOKIE,
+} from "@/lib/auth/view-as";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -25,7 +30,7 @@ import { createClient } from "@/lib/supabase/server";
 export async function POST(request: NextRequest) {
   const form = await request.formData();
   const testStudentId = form.get("testStudentId");
-  const courseId = form.get("courseId");
+  const programId = form.get("programId");
   const { origin } = new URL(request.url);
 
   if (typeof testStudentId !== "string") {
@@ -72,7 +77,7 @@ export async function POST(request: NextRequest) {
       id: viewingAs.testStudent.id,
       label: `Test Student ${viewingAs.testStudent.number}`,
     },
-    ...(typeof courseId === "string" && isUuid(courseId) ? { course: { id: courseId } } : {}),
+    ...(typeof programId === "string" && isUuid(programId) ? { program: { id: programId } } : {}),
   });
 
   const jar = await cookies();
@@ -90,14 +95,14 @@ export async function POST(request: NextRequest) {
   jar.set(VIEW_AS_COOKIE, viewingAs.testStudent.id, options);
 
   /*
-    Where to go back to. Set from the course whose roster this was pressed on, and *cleared* rather
-    than left when there is none — a stale value from a previous switch would send the admin back to
-    a course they were not in this time, which is worse than the fallback.
+    Where to go back to. Set from the matriculation whose roster this was pressed on, and *cleared*
+    rather than left when there is none — a stale value from a previous switch would send the admin
+    back to a program they were not in this time, which is worse than the fallback.
   */
-  if (typeof courseId === "string" && isUuid(courseId)) {
-    jar.set(VIEW_AS_COURSE_COOKIE, courseId, options);
+  if (typeof programId === "string" && isUuid(programId)) {
+    jar.set(VIEW_AS_PROGRAM_COOKIE, programId, options);
   } else {
-    jar.delete(VIEW_AS_COURSE_COOKIE);
+    jar.delete(VIEW_AS_PROGRAM_COOKIE);
   }
 
   // Where a student lands, because that is what the admin is now looking at.

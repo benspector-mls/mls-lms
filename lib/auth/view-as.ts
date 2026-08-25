@@ -41,13 +41,14 @@ export const VIEW_AS_COOKIE = "mls_view_as";
  * **A second cookie rather than a second value in the first**, because the two carry different
  * authority. The one above is an entitlement and is re-established from the database on every
  * request; this one is a destination, and the worst a wrong value can do is land somebody on the
- * wrong course's settings. Keeping the checked thing to one uuid is what makes it obvious that it
+ * wrong program's roster. Keeping the checked thing to one uuid is what makes it obvious that it
  * is checked.
  *
- * A test student can be enrolled in several courses, so this cannot be derived at the point of
- * leaving — the question is not which course it is in, it is which one the admin came from.
+ * **A matriculation rather than a course**, because the roster is the program's: the View as button
+ * is on that screen, and a test student enrolled in several programs gives "which one did the admin
+ * come from" no answer that can be derived at the point of leaving.
  */
-export const VIEW_AS_COURSE_COOKIE = "mls_view_as_course";
+export const VIEW_AS_PROGRAM_COOKIE = "mls_view_as_program";
 
 /**
  * Whether a string is shaped like a uuid.
