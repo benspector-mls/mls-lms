@@ -7,6 +7,7 @@ import {
   Copy,
   Link2,
   Loader2,
+  Pencil,
   Plus,
   ShieldCheck,
   ShieldMinus,
@@ -16,6 +17,7 @@ import {
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
+import { StaffProgramsDialog } from "@/components/admin/staff-programs-dialog";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -50,13 +52,17 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type People = RouterOutputs["staff"]["people"];
 type Invites = RouterOutputs["staff"]["invites"];
+/** Every matriculation in the deployment, which is what an admin's own list already is. */
+type Programs = RouterOutputs["programs"]["listMine"];
 
 export function StaffAdmin({
   people,
+  programs,
   invites,
   now,
 }: {
   people: People;
+  programs: Programs;
   invites: Invites;
   /**
    * Passed in rather than read here, so every relative time on the screen is measured from one
@@ -102,7 +108,7 @@ export function StaffAdmin({
         </TabsList>
 
         <TabsContent value="people" className="mt-4">
-          <PeopleTab people={people} />
+          <PeopleTab people={people} programs={programs} />
         </TabsContent>
         <TabsContent value="invites" className="mt-4">
           <InvitesTab invites={invites} now={now} />
@@ -116,9 +122,13 @@ export function StaffAdmin({
 // People
 // ---------------------------------------------------------------------------
 
-function PeopleTab({ people }: { people: People }) {
+function PeopleTab({ people, programs }: { people: People; programs: Programs }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
+
+  /** Whose programs are being edited, or null. One dialog for the table rather than one per row. */
+  const [editing, setEditing] = React.useState<string | null>(null);
+  const editingPerson = people.people.find((person) => person.id === editing) ?? null;
 
   const setAdmin = useMutation(
     trpc.staff.setAdmin.mutationOptions(
@@ -150,9 +160,9 @@ function PeopleTab({ people }: { people: People }) {
           <TableHeader>
             <TableRow>
               <TableHead>Person</TableHead>
-              <TableHead className="hidden sm:table-cell">Teaches</TableHead>
+              <TableHead className="hidden sm:table-cell">Instructs</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead className="text-right">Admin</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -195,10 +205,13 @@ function PeopleTab({ people }: { people: People }) {
 
                   <TableCell className="hidden sm:table-cell">
                     {person.programs.length === 0 ? (
-                      // Worth naming rather than leaving blank. An instructor teaching nothing is
-                      // usually somebody who redeemed an invitation and was never added to a
-                      // matriculation, which is a loose end rather than a normal state.
-                      <span className="text-xs text-muted-foreground">No program yet</span>
+                      // Worth naming rather than leaving blank, and in amber rather than grey. An
+                      // instructor on no matriculation is usually somebody who redeemed an
+                      // invitation and was never added to anything — a loose end rather than a
+                      // normal state, and the one this screen's Programs control exists to close.
+                      <span className="text-xs text-amber-600 dark:text-amber-500">
+                        No program yet
+                      </span>
                     ) : (
                       <div className="flex flex-col gap-0.5">
                         {person.programs.map((program) => (
@@ -218,24 +231,41 @@ function PeopleTab({ people }: { people: People }) {
                   </TableCell>
 
                   <TableCell className="text-right">
-                    {lastAdmin ? (
-                      <span className="text-xs text-muted-foreground">Only admin</span>
-                    ) : (
+                    <div className="flex items-center justify-end gap-1">
+                      {/*
+                        Programs before the role control, because it is the one somebody comes to
+                        this screen for repeatedly. Granting admin is rare and permanent-feeling;
+                        putting somebody on a matriculation is the ordinary September act.
+                      */}
                       <Button
                         size="sm"
                         variant="ghost"
-                        className={isAdmin ? "text-destructive hover:text-destructive" : undefined}
                         disabled={setAdmin.isPending}
-                        onClick={() => setAdmin.mutate({ profileId: person.id, admin: !isAdmin })}
+                        onClick={() => setEditing(person.id)}
                       >
-                        {isAdmin ? (
-                          <ShieldMinus data-icon="inline-start" />
-                        ) : (
-                          <ShieldCheck data-icon="inline-start" />
-                        )}
-                        {isAdmin ? "Revoke" : "Make admin"}
+                        <Pencil data-icon="inline-start" />
+                        Programs
                       </Button>
-                    )}
+
+                      {lastAdmin ? (
+                        <span className="text-xs text-muted-foreground">Only admin</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={isAdmin ? "text-destructive hover:text-destructive" : undefined}
+                          disabled={setAdmin.isPending}
+                          onClick={() => setAdmin.mutate({ profileId: person.id, admin: !isAdmin })}
+                        >
+                          {isAdmin ? (
+                            <ShieldMinus data-icon="inline-start" />
+                          ) : (
+                            <ShieldCheck data-icon="inline-start" />
+                          )}
+                          {isAdmin ? "Revoke" : "Make admin"}
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -245,11 +275,34 @@ function PeopleTab({ people }: { people: People }) {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        An admin can invite staff and grant admin to anybody here. Revoking the last admin is
-        refused — it would leave nobody able to use this screen, and no way back except editing the
-        database. Making somebody staff in the first place is an invitation, so that there is a
-        record of how they got access.
+        An admin can invite staff, put anybody here onto a matriculation, and grant admin. Revoking
+        the last admin is refused — it would leave nobody able to use this screen, and no way back
+        except editing the database. Making somebody staff in the first place is an invitation, so
+        that there is a record of how they got access; <strong>Programs</strong> only decides which
+        matriculations an existing instructor works in.
       </p>
+
+      {/*
+        One dialog for the table rather than one mounted per row, because it holds a draft and
+        twenty invisible drafts is twenty pieces of state that can go stale. Keyed on the person so
+        opening a second row after a first starts from that person's own list rather than the
+        previous one's.
+      */}
+      {editingPerson && (
+        <StaffProgramsDialog
+          key={editingPerson.id}
+          person={{
+            id: editingPerson.id,
+            name: editingPerson.displayName ?? editingPerson.email ?? "this account",
+            programIds: editingPerson.programs.map((program) => program.id),
+          }}
+          programs={programs}
+          open
+          onOpenChange={(next) => {
+            if (!next) setEditing(null);
+          }}
+        />
+      )}
     </div>
   );
 }

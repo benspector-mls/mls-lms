@@ -38,6 +38,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * Placements are staged in the browser and saved together, the way team placements are and for the
  * same reason: `setPlacements` takes the whole placement at once, so it is idempotent, it cannot be
  * left half applied, and "distribute evenly" is then the same act as changing one select.
+ *
+ * **It is a tab on the roster rather than a screen of its own**, because it is a thing done *to* the
+ * roster: the placement is one control the size of the roster, so it cannot sit under the tables,
+ * and "who has nobody grading them" is asked while reading them. A tab separates the two without
+ * making either somewhere you have to go.
  */
 
 type Cohorts = RouterOutputs["cohorts"]["listForProgram"];

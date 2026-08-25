@@ -35,7 +35,7 @@ Beyond those two there are no settings. No notification preferences, no email ch
 
 An admin can do everything [an instructor can do](#what-an-instructor-can-do), in **every** program, without being added to it. That is the main thing to understand about the role, and it is the recovery path when an instructor leaves mid-term: an admin can reach their programs, hand them to somebody else, and keep the year running.
 
-Five things are an admin's alone.
+Six things are an admin's alone.
 
 ### Deciding who is staff
 
@@ -44,6 +44,22 @@ Five things are an admin's alone.
 **Instructor invitations** are how somebody becomes staff. Generate a link, copy it, and send it however you already talk to that person — the application sends no email. Opening it and signing in makes them an instructor. An invitation is **single use and expires after seven days**, because it grants access to authoring and to every fellow's grades in every program, so a forwarded one costs a great deal.
 
 A **used invitation cannot be revoked**, and it stays on the list on purpose. It has stopped being a way in and become the record of how somebody got access, which is the question worth being able to answer months later. Taking their access away is a role change, not a tidied list. An unused invitation can be revoked at any time.
+
+### Putting an instructor on a program
+
+**Programs** on a person's row opens the list of every matriculation, ticked where they instruct one. Tick, untick, and press Save; the whole list is written at once, so three corrections are one decision rather than three.
+
+This is the third way somebody comes to instruct a program, and it is the one for the cases the other two cannot reach: an instructor who redeemed an invitation months ago and was never added to anything — which the screen marks in amber as **No program yet** — and one who has left the school and has to come off every program at once. The instructor link is still how somebody joins a program they were *sent* a link for.
+
+**It grants no role.** A student account is refused and you are told to send an invitation instead, which is the same rule the link follows: staff access is granted through an invitation so that there is a record of it.
+
+Three things it refuses, and each is worth knowing before you press Save rather than after:
+
+- **A fellow of a program cannot also instruct it.** Being both would put their own submissions in the queue they are meant to be working through. Remove their enrollment from that program's roster first.
+- **A program cannot be left with no instructors.** Nobody could author in it or grade it, and the only way back is editing the database — the same rule as revoking the last admin.
+- **Removing whoever owns a program hands it to the longest-serving instructor left**, which is not something anybody would guess, so the screen says whose it is now.
+
+Taking somebody off a program also takes their name off its courses. Archived matriculations are in the list and can be changed, unlike through the link — correcting the record of who ran a year that is over is exactly what this is for.
 
 ### Granting and revoking admin
 
@@ -66,7 +82,7 @@ Two things to expect while you are in that view. Your admin powers are **refused
 
 ### Reaching every program
 
-An admin passes every check a program makes about who instructs it. So you can open any program's roster, attendance, cohorts and settings and any of its courses' triage, gradebook and curriculum, archive either, delete either, transfer who owns a program, and remove an instructor from it, without anybody adding you first.
+An admin passes every check a program makes about who instructs it. So you can open any program's attendance, roster and settings and any of its courses' triage, gradebook and curriculum, archive either, delete either, transfer who owns a program, and remove an instructor from it, without anybody adding you first.
 
 ---
 
@@ -76,9 +92,11 @@ An admin passes every check a program makes about who instructs it. So you can o
 
 An admin sends you an **instructor invitation**; opening it and signing in makes you an instructor. That gives you the role, not any particular program.
 
-To instruct a program somebody else set up, they send you its **instructor link** from the program's Instructors screen. Opening it and pressing the button adds you. That link admits an existing instructor to one program — it never makes anybody staff, so sending it to a fellow does not promote them, and they are told an admin has to invite them first.
+To instruct a program somebody else set up, they send you its **instructor link** from the program's Settings screen. Opening it and pressing the button adds you. That link admits an existing instructor to one program — it never makes anybody staff, so sending it to a fellow does not promote them, and they are told an admin has to invite them first.
 
-**One link covers every course of the program**, because every instructor of a program can work in all of them: author, grade, and read every fellow's work. What the **Who teaches what** grid decides is whose name a fellow sees on a course, who gets added as a collaborator on the repositories it generates, and which course your own screens open on. Getting it wrong costs a GitHub notification, not access.
+An admin can also put you on one directly, from **Admin → Staff**, without a link changing hands.
+
+**One link covers every course of the program**, because every instructor of a program can work in all of them: author, grade, and read every fellow's work. What the **Who teaches what** grid on the program's Settings screen decides is whose name a fellow sees on a course, who gets added as a collaborator on the repositories it generates, and which course your own screens open on. Getting it wrong costs a GitHub notification, not access.
 
 The person who created the program additionally **owns** it, which means archiving it, deciding who else instructs it and who is named on which course, and deleting it. An owner can only be removed by themselves or by an admin.
 
@@ -91,6 +109,8 @@ The first thing a new program needs is its roster: who you are expecting, and th
 **New course** on the program's Settings screen asks for a name and a **short name** — a few characters that go at the front of every repository the course generates, so `fse-f26-swe-1-4-loops-jsmith` sits beside next spring's `fse-s27-…`. One is suggested from the course name and the matriculation; edit it if you would rather read something else across forty repository names.
 
 **The short name is settled when the course is created and cannot be changed afterwards**, because the repositories are already named after it and renaming here would not rename theirs. That is why creating a course has a review step. Its Settings screen shows it, an example repository name built from it, and how many repositories already carry it.
+
+**The course's name, on the other hand, can be changed whenever you like** — the two controls sit next to each other on that screen for exactly that reason. The name is what fellows see on their course list, what every heading says, and what a subscribed calendar puts beside each deadline, and nothing in the application matches on it. The short name below it is in the name of forty repositories on GitHub, and changing it here would rename none of them.
 
 **You can copy last year's course.** Choose any course you instruct — in any program, which is the ordinary case — and its modules and assignments are copied across, **unpublished and with the dates cleared**, so you set the new year's due dates rather than inheriting last year's.
 
@@ -142,7 +162,7 @@ Every kind takes **submission instructions**, written in Markdown, which the stu
 
 **One roster for the whole program**, entered once rather than once per course. A fellow who joins is a student of every course in it.
 
-Two tabs. The first is the roster itself; the second is how people get onto it, and its two panels work together.
+Three tabs. **Active Roster** is who is on it. **Cohorts** is how they are divided between instructors. **Enroll New Fellows** is how people get onto it in the first place, and its two panels work together.
 
 **Expected fellows** is the list of who you are expecting, written before any of them has an account. Paste one per line — GitHub username, email, or both — and the screen shows what it understood before anything is saved.
 
@@ -152,11 +172,11 @@ If a link goes astray, **regenerate** it. Everybody already in stays in, and the
 
 **Removing a fellow** takes them out of your lists and stops them handing anything else in, in every course of the program. **It does not take their work back** — they keep reading the feedback they were given, and their graded work moves to a "Removed fellows" table at the bottom of each gradebook rather than vanishing from it. **Restore** puts them back.
 
-A column on the roster names each fellow's **cohort**, or says "No cohort" where nobody has placed them, because that is the question you ask while reading the roster. Placing them is the Cohorts screen.
+A column on the roster names each fellow's **cohort**, or says "No cohort" where nobody has placed them, because that is the question you ask while reading the roster. Placing them is the tab beside it.
 
 ### Cohorts, and splitting the marking
 
-**Cohorts** divide the roster between instructors. Create one — "Cohort A" — place fellows in it, and the cohort picker narrows triage, the gradebook, the curriculum list, and an assignment's queue to just those fellows. If you and a co-teacher split a roster, set your cohort once and **every course of the program** defaults to your half.
+**Cohorts** is the roster's second tab, and cohorts divide the roster between instructors. Create one — "Cohort A" — place fellows in it, and the cohort picker narrows triage, the gradebook, the curriculum list, and an assignment's queue to just those fellows. If you and a co-teacher split a roster, set your cohort once and **every course of the program** defaults to your half.
 
 **A fellow is in at most one cohort**, so the screen is one list of every fellow with a select beside each name rather than a grid of checkboxes. Change as many as you like and press Save once. **Distribute evenly** deals the roster round-robin if you have no particular arrangement in mind, and the count of fellows **in no cohort** sits at the foot, because somebody who joined by the link in October and was never placed is invisible to every instructor working a cohort.
 
@@ -225,7 +245,7 @@ Open an assignment to get its **queue**: every fellow down one side, the work an
 
 **A linked Google document opens in place.** Where a student hands in a Doc, a Sheet, or a Slides deck, it is embedded in that column read-only — the address is still printed above it, because handing in the instructor's template instead of your own copy is the commonest mistake on this kind of assignment and the two differ only at the end of the URL. It needs the document to be shared with anyone who has the link. If Google asks for access instead, the card says what that means and who can fix it.
 
-**Grading mode** is the way to give it that room on a laptop. It puts away the application sidebar and the list of students, leaving **Previous**, **Next**, your place in the list, and a dropdown of every name in it for going straight to one. Movement and the dropdown both follow whatever the search box, the group picker and the tabs are showing. Leaving it puts everything back the way you had it.
+**Grading mode** is the way to give it that room on a laptop. It puts away the application sidebar and the list of fellows, leaving **Previous**, **Next**, your place in the list, and a dropdown of every name in it for going straight to one. Movement and the dropdown both follow whatever the search box, the cohort picker and the tabs are showing. Leaving it puts everything back the way you had it.
 
 **Running the tests.** For a code assignment, **Run tests** executes *your* tests, from the template repository, against the student's code, in a sandbox with no network access and no credentials in it. Students never have write access to the template, so the tests cannot be edited by the person being graded. The result is a pass rate and every failure's name and message. **A run that errored or timed out is never turned into a score of zero** — the screen says which happened.
 
@@ -305,7 +325,7 @@ Graded work never appears as a deadline, including work that came back below the
 
 Once you are in, it says so for the rest of the day. If it says **Late** and you were here on time, tell your instructor — they can change it. If check-in has closed and you missed it, the Attendance screen says that too, and the answer is the same: tell your instructor, because they are the only ones who can record it.
 
-**Your full attendance record** is on that Attendance screen: in the sidebar, under whichever course you are reading — the course you are in expands to show Coursework and Attendance. It says how many sessions you have been to since you joined and shows the whole term as a **calendar you can page through month by month**, in the same colours as the week on your dashboard. Grey is a session where nothing was recorded for you. An excused absence still counts as missed, which the screen says rather than leaving you to work it out.
+**Your full attendance record** is on that Attendance screen, in the sidebar beside your program's name. It says how many sessions you have been to since you joined and shows the whole term as a **calendar you can page through month by month**, in the same colours as the week on your dashboard. Grey is a session where nothing was recorded for you. An excused absence still counts as missed, which the screen says rather than leaving you to work it out.
 
 ### Your due dates in your own calendar
 

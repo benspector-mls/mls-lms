@@ -230,7 +230,7 @@ async function main() {
         );
         /*
           It adds them to the program and to no course, deliberately. Which courses somebody teaches
-          is the owner's decision on the instructors screen, and it grants nothing anyway — so
+          is the owner's decision on the program's settings screen, and it grants nothing anyway — so
           guessing here would only put a name on a course nobody put it on.
         */
         check(

@@ -704,8 +704,8 @@ export const programsRouter = createTRPCRouter({
    * about how it came to exist rather than a rank a link can confer.
    *
    * **It adds them to the program and to no course.** Which courses somebody teaches is the owner's
-   * decision on the instructors screen — see `setCourseInstructors` — and it grants nothing anyway,
-   * so guessing here would only put a name on a course nobody put it on.
+   * decision on the program's settings screen — see `setCourseInstructors` — and it grants nothing
+   * anyway, so guessing here would only put a name on a course nobody put it on.
    */
   acceptInstructorLink: profileProcedure
     .input(z.object({ token: z.string().min(1) }))

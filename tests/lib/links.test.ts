@@ -1,6 +1,5 @@
 import {
   attendanceHref,
-  cohortsHref,
   courseHref,
   courseSettingsHref,
   curriculumHref,
@@ -8,7 +7,6 @@ import {
   gradebookHref,
   gradingQueueHref,
   newAssignmentHref,
-  programInstructorsHref,
   programSettingsHref,
   programStudentHref,
   rosterHref,
@@ -59,8 +57,6 @@ describe("every program route names its program, and no course route does", () =
   it.each([
     attendanceHref(PROGRAM),
     rosterHref(PROGRAM),
-    cohortsHref(PROGRAM),
-    programInstructorsHref(PROGRAM),
     programSettingsHref(PROGRAM),
     programStudentHref(PROGRAM, STUDENT),
   ])("%s names the program", (href) => {
@@ -124,7 +120,7 @@ describe("sameViewInCourse", () => {
     ever sees. Checked rather than assumed: if either came back as a course view, a switcher would
     be building a course address for a screen that does not exist at one.
   */
-  it.each(["attendance", "roster", "cohorts", "instructors"])(
+  it.each(["attendance", "roster"])(
     "does not recognise %s, which belongs to the program",
     (segment) => {
       expect(sameViewInCourse(`/instructor/courses/${COURSE}/${segment}`, OTHER)).toBe(
@@ -211,8 +207,6 @@ describe("sameViewInProgram", () => {
     it.each([
       ["attendance", attendanceHref(OTHER_PROGRAM)],
       ["roster", rosterHref(OTHER_PROGRAM)],
-      ["cohorts", cohortsHref(OTHER_PROGRAM)],
-      ["instructors", programInstructorsHref(OTHER_PROGRAM)],
       ["settings", programSettingsHref(OTHER_PROGRAM)],
     ])("%s becomes the other program's %s", (segment, expected) => {
       expect(sameViewInProgram(`/instructor/programs/${PROGRAM}/${segment}`, OTHER_PROGRAM)).toBe(

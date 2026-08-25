@@ -34,6 +34,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
   SidebarSeparator,
@@ -70,14 +73,12 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import {
   attendanceHref,
-  cohortsHref,
   curriculumHref,
   courseSettingsHref,
   gradebookHref,
   gradingQueueHref,
   gcfHref,
   myAttendanceHref,
-  programInstructorsHref,
   programSettingsHref,
   programsHref,
   rosterHref,
@@ -444,87 +445,111 @@ function ProgramSwitcher({
 }
 
 /**
- * Which course of the current matriculation an instructor is working in.
+ * The matriculation's courses, each opening to its own five views.
  *
- * **It lists one program's courses and no others**, which is what keeps it usable: courses are
- * named for what they teach and every matriculation runs the same ones, so an unscoped list would
- * hold four rows reading "Fullstack Software Engineering" that nothing on the row could tell apart.
- * The program switcher above is how somebody reaches another year.
+ * **A list rather than a picker**, which is the difference between choosing a course and being shown
+ * what there is. A select answered "which one am I in" and hid the rest behind a click; an
+ * instructor with three courses now reads all three, and the one they are working in shows what it
+ * holds. It is the same shape a fellow's own sidebar has, and it is the shape for the same reason:
+ * a flat list can say *which* course but has nothing to say which screen inside it.
  *
- * It sits above the course group rather than in the header, beneath the program's own items,
- * because that is the order the two scopes are in: choosing a matriculation is the outer choice.
+ * **Only the course being read expands.** Three courses each showing five views is fifteen rows to
+ * hold five destinations, and nobody is choosing among all of them at once — they are in one course,
+ * looking for one of its parts.
+ *
+ * **Clicking a course keeps the view.** From course A's gradebook, course B's row goes to *its*
+ * gradebook rather than to a front page, which is the one property the picker had that was worth
+ * keeping: somebody comparing two courses' triage asks for the other one's triage. `sameViewInCourse`
+ * decides, and where the view cannot travel — an assignment's queue belongs to one course — it lands
+ * on settings rather than on an id the other course does not have.
+ *
+ * **Only this matriculation's courses**, which is what keeps the list readable: courses are named for
+ * what they teach and every year runs the same ones, so an unscoped list would hold four rows
+ * reading "Fullstack Software Engineering" that nothing on the row could tell apart. Reaching another
+ * year is the program switcher in the header.
  */
-function CourseSwitcher({
+function CourseList({
   courses,
   selected,
+  pathname,
 }: {
   courses: { id: string; name: string; archivedAt: Date | null }[];
   selected: string | null;
+  pathname: string;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  if (courses.length === 0) return null;
-
-  const value = courses.some((c) => c.id === selected) ? selected : null;
-
   /*
     Archived courses last, and labelled. They belong in here — it is how somebody gets back into a
-    course that has finished while the rest of the matriculation runs on — but a switcher is a list
-    of places to work.
+    course that has finished while the rest of the matriculation runs on — but this is a list of
+    places to work, and the ones still running are what it should open on.
   */
   const ordered = [
-    ...courses.filter((c) => c.archivedAt == null),
-    ...courses.filter((c) => c.archivedAt != null),
+    ...courses.filter((course) => course.archivedAt == null),
+    ...courses.filter((course) => course.archivedAt != null),
   ];
 
-  const label = (c: (typeof courses)[number]) =>
-    c.archivedAt != null ? `${c.name} · Archived` : c.name;
-
   return (
-    <Select
-      value={value}
-      /*
-        The same view in the other course, not that course's front page. An instructor comparing
-        two courses' triage asks for the other one's triage.
-      */
-      onValueChange={(id) => {
-        if (id) router.push(sameViewInCourse(pathname, id));
-      }}
-      items={Object.fromEntries(ordered.map((c) => [c.id, label(c)]))}
-    >
-      <SelectTrigger className="w-full" aria-label="Select course">
-        <BookOpen className="size-4 text-muted-foreground" />
-        <SelectValue placeholder="Choose a course" />
-        <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
-      </SelectTrigger>
-      {/* Anchored below the trigger for the reason the program switcher above records. */}
-      <SelectContent alignItemWithTrigger={false} align="start">
-        <SelectGroup>
-          {ordered.map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {label(c)}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+    <SidebarMenu>
+      {ordered.map((course) => {
+        const open = course.id === selected;
+
+        return (
+          <SidebarMenuItem key={course.id}>
+            <SidebarMenuButton
+              isActive={open}
+              tooltip={
+                course.archivedAt != null ? `${course.name} · Archived` : course.name
+              }
+              // `h-auto` because an archived row is two lines where every other one is one.
+              className="h-auto py-1.5"
+              render={<Link href={sameViewInCourse(pathname, course.id)} />}
+            >
+              <BookOpen />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{course.name}</span>
+                {course.archivedAt != null && (
+                  <span className="truncate text-xs text-muted-foreground">Archived</span>
+                )}
+              </span>
+            </SidebarMenuButton>
+
+            {open && (
+              <SidebarMenuSub>
+                {COURSE_VIEWS.map((view) => (
+                  <SidebarMenuSubItem key={view.segment}>
+                    <SidebarMenuSubButton
+                      isActive={isActiveCourseView(pathname, course.id, view.segment)}
+                      render={<Link href={view.href(course.id)} />}
+                    >
+                      <span>{view.title}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                ))}
+              </SidebarMenuSub>
+            )}
+          </SidebarMenuItem>
+        );
+      })}
+    </SidebarMenu>
   );
 }
 
 /**
- * The five views a matriculation has, in the order they are offered.
+ * The three views a matriculation has, in the order they are offered.
  *
  * Attendance leads, and it is the only item in either group touched at a fixed time every single
  * morning — being findable without thinking is most of what it needs. The roster is second because
- * it is what the other three are about: cohorts divide it, instructors are given parts of it, and
- * the settings decide how somebody joins it.
+ * it is what everything else is about, and the settings last because they are read at the start of a
+ * year and rarely after.
+ *
+ * **Three rather than five, and the two that went were sections rather than screens.** Cohorts are a
+ * tab on the roster, because placing fellows is a thing done to it; instructors are a card on the
+ * settings, because who runs a matriculation is a fact about it. Each had its own address while the
+ * question was open, and running it answered them — five sidebar items were five doors onto three
+ * rooms, and a menu that long stops being read.
  */
 const PROGRAM_VIEWS = [
   { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
   { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
-  { title: "Cohorts", href: cohortsHref, icon: UsersRound, segment: "cohorts" },
-  { title: "Instructors", href: programInstructorsHref, icon: GraduationCap, segment: "instructors" },
   { title: "Settings", href: programSettingsHref, icon: Settings, segment: "settings" },
 ] as const;
 
@@ -653,35 +678,17 @@ function MainNav({
       )}
 
       {/*
-        The course group, and the switcher that scopes it.
+        The matriculation's courses, under a heading rather than behind a control.
 
-        **Drawn whenever a matriculation is known, even where no course is**, which is the one place
-        the two groups behave differently. The program's items need a program and have one; the
-        course's items need a course, and an instructor standing on the roster has not chosen one
-        yet — so the switcher is offered on its own and the items appear once it has been used.
+        **Drawn whenever a matriculation is known, whether or not a course is**, which is what makes
+        it a list and not a picker: an instructor standing on the roster is shown what the year holds
+        rather than an empty select. Nothing expands until one of them is open.
       */}
       {navProgramId && programCourses.length > 0 && (
         <SidebarGroup>
           <SidebarSeparator className="mx-0 mb-2" />
-          <div className="mb-2 group-data-[collapsible=icon]:hidden">
-            <CourseSwitcher courses={programCourses} selected={navCourseId} />
-          </div>
-          {navCourseId && (
-            <SidebarMenu>
-              {COURSE_VIEWS.map((view) => (
-                <SidebarMenuItem key={view.segment}>
-                  <SidebarMenuButton
-                    isActive={isActiveCourseView(pathname, navCourseId, view.segment)}
-                    tooltip={view.title}
-                    render={<Link href={view.href(navCourseId)} />}
-                  >
-                    <view.icon />
-                    <span>{view.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          )}
+          <SidebarGroupLabel>Courses</SidebarGroupLabel>
+          <CourseList courses={programCourses} selected={navCourseId} pathname={pathname} />
         </SidebarGroup>
       )}
 

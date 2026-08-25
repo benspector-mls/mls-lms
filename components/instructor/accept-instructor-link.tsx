@@ -17,7 +17,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * **The link admits somebody to a matriculation rather than to one course**, which is the change
  * that made one link enough: an instructor of a program may act in any of its courses, so there is
  * one grant to make and one link to send. Which courses their name goes on is a separate decision
- * the owner makes on the instructors screen, and it grants nothing either way.
+ * the owner makes on the program's settings screen, and it grants nothing either way.
  *
  * **A button rather than joining on arrival**, the same as the fellow's join screen and for the
  * same reason: opening a link is not consent to take on a matriculation, and this is the one screen

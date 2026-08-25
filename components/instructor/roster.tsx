@@ -65,9 +65,9 @@ export function ProgramRoster({
   /**
    * The matriculation's cohorts, for the column that names each fellow's.
    *
-   * Passed in rather than fetched, and read-only here. Placing fellows is the Cohorts screen's
-   * whole job; this column exists so that reading the roster answers "who is in nothing" without
-   * opening it, which is the question an instructor asks when somebody joins by the link mid-term.
+   * Passed in rather than fetched, and read-only here. Placing fellows is the Cohorts tab's whole
+   * job; this column exists so that reading the roster answers "who is in nothing" without leaving
+   * it, which is the question an instructor asks when somebody joins by the link mid-term.
    */
   cohorts: { id: string; name: string }[];
 }) {
@@ -349,7 +349,7 @@ function RosterTable({
             <TableHead>Fellow</TableHead>
             <TableHead className="hidden sm:table-cell">GitHub</TableHead>
             {/*
-              Read-only here, and named rather than counted. The Cohorts screen is where a fellow is
+              Read-only here, and named rather than counted. The Cohorts tab is where a fellow is
               placed; this column is so that reading the roster shows who is in none, which is who
               an instructor comes looking for when somebody joins by the link mid-term.
             */}

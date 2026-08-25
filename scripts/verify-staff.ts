@@ -429,6 +429,193 @@ async function main() {
           skip("no student account left to check direct promotion against");
         }
 
+        // ---- Putting an instructor on a matriculation ------------------------
+        //
+        // The third way somebody comes to instruct a program, and the one an admin reaches for: the
+        // instructor link is how somebody joins one they were sent a link for, and this is how the
+        // list gets repaired. Every check here is that it does *not* become a second path to staff
+        // access — the whole list is written, and the role is never touched.
+        const program = await tx.program.findFirst({
+          where: { instructors: { some: {} } },
+          select: {
+            id: true,
+            name: true,
+            courses: { take: 1, select: { id: true } },
+            instructors: { select: { userId: true } },
+          },
+        });
+
+        if (!program) {
+          skip("no seeded program to put an instructor on");
+        } else {
+          /*
+            The account promoted above, which is genuinely somebody who holds the role and no
+            program — the exact loose end this control exists to close. Selected by the property
+            rather than by being the one this script happened to promote, so it stays right if the
+            order of the groups above ever changes.
+          */
+          const held = new Set(program.instructors.map((row) => row.userId));
+          const spare = (
+            await tx.profile.findMany({
+              where: { role: { in: ["INSTRUCTOR", "ADMIN"] } },
+              select: { id: true, role: true },
+            })
+          ).find((row) => !held.has(row.id));
+
+          if (!spare) {
+            skip("every staff account already instructs the fixture program");
+          } else {
+            const added = await asAdmin.staff.setPrograms({
+              profileId: spare.id,
+              programIds: [program.id],
+            });
+            check("an admin puts an instructor on a program", added.added, [program.name]);
+            /*
+              Never primary. The owner is whoever created the matriculation, which is a fact about
+              how it came to exist rather than a rank an admin confers by ticking a box.
+            */
+            check(
+              "...and the row is not primary",
+              (
+                await tx.programInstructor.findFirstOrThrow({
+                  where: { programId: program.id, userId: spare.id },
+                  select: { isPrimary: true },
+                })
+              ).isPrimary,
+              false,
+            );
+            /*
+              **Unchanged, not `INSTRUCTOR`.** The claim is that this control touches no role at all,
+              and asserting a particular one instead makes the check pass or fail on which account
+              the query happened to return — on a deployment whose only spare staff account is the
+              admin, it fails while nothing is wrong. Which is the harness's own warning about
+              fixtures chosen by a proxy, met here.
+            */
+            check(
+              "...and it granted no role",
+              (await tx.profile.findUniqueOrThrow({ where: { id: spare.id } })).role,
+              spare.role,
+            );
+            check(
+              "sending the same list again changes nothing",
+              (
+                await asAdmin.staff.setPrograms({
+                  profileId: spare.id,
+                  programIds: [program.id],
+                })
+              ).added,
+              [],
+            );
+
+            /*
+              Their course rows go with them, by the cascade on `(programId, userId)`. That is the
+              cleanup step the composite key removes rather than leaving to be remembered, and it is
+              why this check names a course first.
+            */
+            if (program.courses[0]) {
+              await tx.courseInstructor.create({
+                data: {
+                  courseId: program.courses[0].id,
+                  programId: program.id,
+                  userId: spare.id,
+                },
+              });
+            }
+
+            const removed = await asAdmin.staff.setPrograms({
+              profileId: spare.id,
+              programIds: [],
+            });
+            check("taking them off names the program", removed.removed, [program.name]);
+            check(
+              "...and their name comes off its courses with them",
+              await tx.courseInstructor.count({
+                where: { programId: program.id, userId: spare.id },
+              }),
+              0,
+            );
+          }
+
+          /*
+            The last instructor is refused, the same shape and the same reasoning as revoking the
+            last admin: a program with no instructors cannot be authored in or graded by anybody,
+            and the only way back is a database edit. Asserted still there afterwards, because a
+            refusal that returned the right code while the row went anyway would look correct.
+          */
+          if (program.instructors.length === 1) {
+            const only = program.instructors[0]!.userId;
+            check(
+              "the only instructor on a program cannot be taken off it",
+              await refusal(() => asAdmin.staff.setPrograms({ profileId: only, programIds: [] })),
+              "PRECONDITION_FAILED",
+            );
+            check(
+              "...and they are still on it",
+              await tx.programInstructor.count({
+                where: { programId: program.id, userId: only },
+              }),
+              1,
+            );
+          } else {
+            skip("the fixture program has more than one instructor, so the last-one refusal did not run");
+          }
+
+          /*
+            A fellow of the program cannot also instruct it, the mirror of `enrollments.join`
+            refusing an instructor. Being both would put their own submissions in the queue they are
+            meant to be working through.
+          */
+          const fellow = await tx.enrollment.findFirst({
+            where: { programId: program.id },
+            select: { studentId: true },
+          });
+
+          if (fellow) {
+            await tx.profile.update({
+              where: { id: fellow.studentId },
+              data: { role: "INSTRUCTOR" },
+            });
+            check(
+              "a fellow of the program cannot be put on it as an instructor",
+              await refusal(() =>
+                asAdmin.staff.setPrograms({
+                  profileId: fellow.studentId,
+                  programIds: [program.id],
+                }),
+              ),
+              "PRECONDITION_FAILED",
+            );
+          } else {
+            skip("the fixture program has no fellow, so the enrolled refusal did not run");
+          }
+        }
+
+        /*
+          Asked of an account that is a student **now**, rather than of the one that was a student
+          when the script started. Redeeming an invitation above raised that account's role, so
+          reusing it here would be checking the refusal against an instructor — which is exactly the
+          mistake the `setAdmin` check two groups up already avoids the same way.
+        */
+        const stillAStudentHere = await tx.profile.findFirst({
+          where: { role: "STUDENT" },
+          select: { id: true },
+        });
+
+        if (program && stillAStudentHere) {
+          check(
+            "a student cannot be put on a program either",
+            await refusal(() =>
+              asAdmin.staff.setPrograms({
+                profileId: stillAStudentHere.id,
+                programIds: [program.id],
+              }),
+            ),
+            "PRECONDITION_FAILED",
+          );
+        } else {
+          skip("no account is still a student, so the student refusal on setPrograms did not run");
+        }
+
         // ---- What the screen reads -------------------------------------------
         const people = await asAdmin.staff.people();
         check(

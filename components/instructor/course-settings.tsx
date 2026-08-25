@@ -22,13 +22,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { studentRepoName } from "@/lib/courses/course-slug";
 import { displayNameOf } from "@/lib/people";
-import { programInstructorsHref } from "@/lib/links";
+import { programSettingsHref } from "@/lib/links";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * The course itself: whether fellows can see it, how its repositories are named, whose name is on
- * it, and how it is retired.
+ * The course itself: what it is called, whether fellows can see it, how its repositories are named,
+ * whose name is on it, and how it is retired.
  *
  * Also where the bare course address lands, because once every tab became a sidebar item there was
  * nothing else for `/instructor/courses/[courseId]` to be. That turns out to be the right answer
@@ -65,6 +65,7 @@ export function CourseSettings({ data }: { data: Data }) {
         </div>
       )}
 
+      <NameCard data={data} />
       <PublishCard data={data} />
       <RepositoryNamingCard data={data} />
       <TeachingCard data={data} />
@@ -91,6 +92,96 @@ export function CourseSettings({ data }: { data: Data }) {
 function ownerNameIn(data: Data): string {
   const owner = data.course.program.instructors.find((row) => row.user.id === data.ownerId);
   return owner ? displayNameOf(owner.user, "its owner") : "its owner";
+}
+
+/**
+ * What the course is called.
+ *
+ * **Editable, where the short name below is not, and the difference is the whole of this card.** The
+ * name is display and only display: nothing looks a course up by it, no constraint holds it, and
+ * every reader is showing it to somebody rather than matching on it. The short name is in the name
+ * of every repository the course has generated, so changing it here would rename nothing on GitHub
+ * and leave this application describing repositories that do not exist.
+ *
+ * Putting them next to each other is deliberate. "Why can I change one and not the other" is the
+ * question somebody will have, and the two cards answer it by sitting together — the second says in
+ * words what it would cost.
+ *
+ * Any instructor of the matriculation may, unlike publishing and archiving. Those decide whether a
+ * fellow can reach the course at all; this decides what it is called, which is the same kind of act
+ * as renaming a module.
+ */
+function NameCard({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const [name, setName] = React.useState(data.course.name);
+
+  const rename = useMutation(
+    trpc.courses.rename.mutationOptions(
+      settled({
+        onSuccess: (result) => toast.success(`This course is called ${result.name} now.`),
+      }),
+    ),
+  );
+
+  const trimmed = name.trim();
+  const changed = trimmed !== data.course.name;
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Course name</h2>
+        <p className="text-xs text-muted-foreground">
+          What fellows see on their course list, what every heading in it says, and what a subscribed
+          calendar names beside each deadline. Changing it changes all of them.
+        </p>
+      </div>
+
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (changed && trimmed !== "") {
+            rename.mutate({ courseId: data.course.id, name: trimmed });
+          }
+        }}
+      >
+        <label className="flex min-w-64 flex-1 flex-col gap-1.5">
+          <span className="text-xs font-medium">Name</span>
+          <Input
+            value={name}
+            maxLength={200}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <Button
+          type="submit"
+          size="sm"
+          variant="outline"
+          disabled={!changed || trimmed === "" || rename.isPending}
+        >
+          Save
+        </Button>
+        {changed && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={rename.isPending}
+            onClick={() => setName(data.course.name)}
+          >
+            Discard
+          </Button>
+        )}
+      </form>
+
+      <p className="text-xs text-muted-foreground">
+        The short name below is a different thing and cannot be changed — it is already in the name
+        of every repository this course has generated.
+      </p>
+    </section>
+  );
 }
 
 /**
@@ -277,8 +368,8 @@ function RepositoryNamingCard({ data }: { data: Data }) {
  * open on.
  *
  * So it is a list and a link rather than a control. Changing it is one decision about a whole
- * matriculation — who works which course — and it is made once on the instructors screen rather than
- * course by course, where four screens would each hold a quarter of the answer.
+ * matriculation — who works which course — and it is made once on the program's settings screen
+ * rather than course by course, where four screens would each hold a quarter of the answer.
  */
 function TeachingCard({ data }: { data: Data }) {
   const assigned = new Set(data.course.instructors.map((row) => row.userId));
@@ -324,12 +415,12 @@ function TeachingCard({ data }: { data: Data }) {
           </>
         )}
         <Link
-          href={programInstructorsHref(data.course.program.id)}
+          href={programSettingsHref(data.course.program.id)}
           className="underline underline-offset-4"
         >
           Change who teaches what
         </Link>{" "}
-        on the matriculation&apos;s instructors screen.
+        on the matriculation&apos;s settings screen.
       </p>
     </section>
   );

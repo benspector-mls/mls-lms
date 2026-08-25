@@ -240,12 +240,6 @@ async function main() {
         const programSwitches: [string, string, string][] = [
           ["attendance", links.attendanceHref(alpha), links.attendanceHref(beta)],
           ["the roster", links.rosterHref(alpha), links.rosterHref(beta)],
-          ["the cohorts", links.cohortsHref(alpha), links.cohortsHref(beta)],
-          [
-            "the instructors",
-            links.programInstructorsHref(alpha),
-            links.programInstructorsHref(beta),
-          ],
           ["settings", links.programSettingsHref(alpha), links.programSettingsHref(beta)],
           /*
             One day of attendance does not travel. The other matriculation may not have met that
@@ -582,6 +576,8 @@ async function main() {
           And once set it cannot be changed, by anybody, ever — there is no procedure that changes
           it. Asserted against the router rather than against a screen, because "the button is not
           rendered" is a different claim: the check that matters is that no caller can reach it.
+
+          `courses.rename` sits beside it and reaches only the name, which the group below checks.
         */
         check(
           "nothing can change a short name after creation",
@@ -704,6 +700,47 @@ async function main() {
           )?.status,
           "ACTIVE",
         );
+
+        // ---- Renaming, and the half that cannot be renamed ---------------------
+        //
+        // The pair is the point. A course's name is display and only display — nothing looks one up
+        // by it and no constraint holds it — so it is editable. Its short name is in the name of
+        // every repository the course has generated, so it is not, and the check that no procedure
+        // reaches it is asserted against the router rather than against a screen: "the field is not
+        // rendered" is a different claim from "no caller can reach it".
+        const beforeRename = await tx.course.findUniqueOrThrow({
+          where: { id: empty.course.id },
+          select: { slug: true },
+        });
+        check(
+          "a course can be renamed, and the name is trimmed",
+          (await asInstructor.courses.rename({ courseId: empty.course.id, name: "  Verify Renamed  " }))
+            .name,
+          "Verify Renamed",
+        );
+        check(
+          "...and its short name is untouched",
+          (
+            await tx.course.findUniqueOrThrow({
+              where: { id: empty.course.id },
+              select: { slug: true },
+            })
+          ).slug,
+          beforeRename.slug,
+        );
+        check(
+          "a blank name is refused",
+          await refusal(() => asInstructor.courses.rename({ courseId: empty.course.id, name: "  " })),
+          "BAD_REQUEST",
+        );
+        check(
+          "a fellow cannot rename a course",
+          await refusal(() =>
+            asStudent.courses.rename({ courseId: empty.course.id, name: "Nope" }),
+          ),
+          "FORBIDDEN",
+        );
+        await asInstructor.courses.rename({ courseId: empty.course.id, name: "Verify Empty" });
 
         // ---- Publishing --------------------------------------------------------
         //

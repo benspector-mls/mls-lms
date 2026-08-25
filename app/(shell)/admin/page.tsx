@@ -27,8 +27,14 @@ export default function AdminPage() {
 async function Staff() {
   const queryClient = getQueryClient();
 
-  const [people, invites] = await Promise.all([
+  /*
+    Every matriculation, which is what `programs.listMine` already answers for an admin: they belong
+    to none of them and see all. A read of its own rather than a field on `staff.people`, because it
+    is a list of what exists rather than a fact about any of these people.
+  */
+  const [people, programs, invites] = await Promise.all([
     queryClient.fetchQuery(trpc.staff.people.queryOptions()),
+    queryClient.fetchQuery(trpc.programs.listMine.queryOptions()),
     queryClient.fetchQuery(trpc.staff.invites.queryOptions()),
   ]);
 
@@ -37,5 +43,5 @@ async function Staff() {
     the same instant — two invitations created a second apart must not disagree about whether they
     have expired. Safe in this position because the render is already dynamic.
   */
-  return <StaffAdmin people={people} invites={invites} now={new Date()} />;
+  return <StaffAdmin people={people} programs={programs} invites={invites} now={new Date()} />;
 }

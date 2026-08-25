@@ -2,8 +2,8 @@
 // gradebook cells agree on where a submission opens.
 //
 // **There are two scopes now, and each address names exactly one of them.** A program address names
-// a matriculation — its attendance, its roster, its cohorts, its instructors, its settings. A course
-// address names one course of one program — its triage, gradebook, curriculum, team sets, settings.
+// a matriculation — its attendance, its roster, its settings. A course address names one course of
+// one program — its triage, gradebook, curriculum, team sets, settings.
 // The program is never in a course address: it is resolved from the course, because carrying both
 // would give every link two ids that could disagree and nothing to reconcile them with.
 //
@@ -19,7 +19,13 @@
 // switcher would look broken for that screen alone.
 
 // ---------------------------------------------------------------------------------------------
-// The program's five views
+// The program's three views
+//
+// Three rather than five, because two of them turned out to be sections of the others. Placing
+// fellows in cohorts is a thing done *to* the roster, and it now shares that screen's tabs; who
+// instructs the matriculation is a fact about the matriculation, and it sits on its settings. Both
+// had their own address while the question was whether they were separate screens, and running them
+// answered it — a sidebar item apiece was five doors onto three rooms.
 // ---------------------------------------------------------------------------------------------
 
 /** Every program the caller belongs to. The way out of all of them. */
@@ -76,22 +82,7 @@ export function rosterHref(programId: string): string {
   return `/instructor/programs/${programId}/roster`;
 }
 
-/**
- * The cohorts: how this program's roster is divided among its instructors.
- *
- * Its own screen rather than a card on the roster, because it is a placement for every fellow on the
- * roster rather than a list beside it — the same shape team sets have, and the same interface.
- */
-export function cohortsHref(programId: string): string {
-  return `/instructor/programs/${programId}/cohorts`;
-}
-
-/** Who instructs this matriculation, who teaches which of its courses, and who owns it. */
-export function programInstructorsHref(programId: string): string {
-  return `/instructor/programs/${programId}/instructors`;
-}
-
-/** The matriculation's own settings: its name, its two links, its lateness rule, and how it ends. */
+/** The matriculation's own settings: what it is, its courses, who instructs it, and how it ends. */
 export function programSettingsHref(programId: string): string {
   return `/instructor/programs/${programId}/settings`;
 }
@@ -275,8 +266,6 @@ export function sameViewInProgram(pathname: string, programId: string): string {
 
   if (rest[0] === "attendance" && rest.length === 1) return attendanceHref(programId);
   if (rest[0] === "roster") return rosterHref(programId);
-  if (rest[0] === "cohorts") return cohortsHref(programId);
-  if (rest[0] === "instructors") return programInstructorsHref(programId);
   if (rest[0] === "settings") return programSettingsHref(programId);
 
   return programSettingsHref(programId);

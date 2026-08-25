@@ -41,6 +41,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * matriculation, says who teaches what, and removes people — the actions with reach beyond the
  * person performing them. Before that distinction existed, anybody who taught could remove the
  * person who set the term up.
+ *
+ * **It sits on the settings screen rather than one of its own.** Who runs a matriculation is a fact
+ * about the matriculation, in the same way its term and its lateness rule are; and these are three
+ * cards read when somebody joins or leaves, which is rarer than anything else on that screen. A
+ * sidebar item for them was a door onto a section.
  */
 
 type Data = RouterOutputs["programs"]["settings"];

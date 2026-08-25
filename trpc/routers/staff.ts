@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { displayNameOf } from "@/lib/people";
 import { inTransaction } from "@/lib/prisma";
+import { ownerOf } from "@/lib/programs/ownership";
 import {
   inviteExpiry,
   inviteIsUsable,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/staff/invite";
 
 import { adminProcedure, createTRPCRouter, profileProcedure } from "../init";
+import { personNameSelect } from "../selects";
 
 /**
  * Who may teach, and who may decide that.
@@ -23,6 +25,13 @@ import { adminProcedure, createTRPCRouter, profileProcedure } from "../init";
  * since a new hire has no reason to sign in to a system they cannot yet use. `setAdmin` is how an
  * account that already exists gains more, which is what makes "an admin can let other admins
  * invite people" actually reachable.
+ *
+ * **A third, for the case neither covers.** `setPrograms` puts an existing instructor onto a
+ * matriculation without a link changing hands. The instructor link is how somebody joins a program
+ * they were *sent* one for; this is how an admin repairs the list — an instructor who redeemed an
+ * invitation and was never added to anything, or one who left the school and has to come off every
+ * program at once. It grants no role and refuses an account that is not already staff, so it is not
+ * a second path to staff access.
  *
  * Everything here is `adminProcedure` except the two an invitee calls. An instructor deciding who
  * else becomes an instructor is precisely the escalation this exists to prevent.
@@ -81,6 +90,204 @@ export const staffRouter = createTRPCRouter({
       adminCount,
     };
   }),
+
+  /**
+   * Puts an instructor onto a set of matriculations, and takes them off the rest.
+   *
+   * **The whole list rather than "add this one"**, for the reason `programs.setCourseInstructors`
+   * takes the whole list: it is idempotent, it cannot leave a half-applied state, and the screen
+   * sends what it is showing rather than a diff it computed itself.
+   *
+   * **It grants a program and never a role.** An account that is not already staff is refused and
+   * told to use an invitation, which is the same guard `acceptInstructorLink` makes and for the same
+   * reason: a second path that raised a role would undo the point of granting staff access
+   * deliberately and with a record.
+   *
+   * Three refusals, and what each is protecting:
+   *
+   * - **A fellow of a program cannot also instruct it**, the mirror of `enrollments.join` refusing
+   *   an instructor. Being both would put their own submissions in the queue they work through.
+   * - **A program cannot be left with no instructors.** Every authoring procedure gates on
+   *   `ProgramInstructor`, so a matriculation with no rows there cannot be authored in or graded by
+   *   anybody, and the only way back is a database edit. The same shape as revoking the last admin.
+   * - **The target must be staff**, above.
+   *
+   * **An archived matriculation is allowed here, unlike through the link**, and the difference is
+   * deliberate. The link refuses one because somebody redeeming a link into a finished year is
+   * almost certainly holding a stale link. An admin editing the record of who ran a year that is
+   * over is the case an admin exists for, and refusing it would leave no way to correct it at all.
+   *
+   * **Removing somebody takes their `CourseInstructor` rows with them**, by the cascade on
+   * `(programId, userId)` — that is the cleanup step the composite key removes rather than leaving
+   * to be remembered. And removing an owner hands the matriculation to the longest-serving
+   * instructor left, by `ownerOf`, which is the same rule a deleted account falls through. It is not
+   * a thing anybody would guess, so the result names every program whose ownership moved.
+   */
+  setPrograms: adminProcedure
+    .input(
+      z.object({
+        profileId: z.string().uuid(),
+        programIds: z.array(z.string().uuid()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const target = await ctx.db.profile.findUnique({
+        where: { id: input.profileId },
+        select: { id: true, role: true, displayName: true, email: true, githubUsername: true },
+      });
+
+      if (!target) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That account no longer exists." });
+      }
+
+      if (target.role === "STUDENT") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "That account is a student. Send them an instructor invitation instead — staff " +
+            "access is granted through an invitation so that there is a record of it.",
+        });
+      }
+
+      const personName = displayNameOf(target, "that account");
+      const wanted = [...new Set(input.programIds)];
+
+      const [existing, named] = await Promise.all([
+        ctx.db.programInstructor.findMany({
+          where: { userId: target.id },
+          select: { id: true, programId: true, program: { select: { name: true } } },
+        }),
+        wanted.length === 0
+          ? []
+          : ctx.db.program.findMany({
+              where: { id: { in: wanted } },
+              select: { id: true, name: true },
+            }),
+      ]);
+
+      if (named.length !== wanted.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That list names a program that no longer exists. Reload the page and try again.",
+        });
+      }
+
+      const held = new Set(existing.map((row) => row.programId));
+      const adding = named.filter((program) => !held.has(program.id));
+      const removing = existing.filter((row) => !wanted.includes(row.programId));
+
+      /*
+        Enrollment first, because it refuses rather than warns and the whole call should fail before
+        anything is written. One query for every program being added, rather than one each: the
+        question is the same and asking it per program is how two of them come to be answered about
+        different rosters.
+      */
+      if (adding.length > 0) {
+        const enrolled = await ctx.db.enrollment.findFirst({
+          where: { studentId: target.id, programId: { in: adding.map((row) => row.id) } },
+          select: { program: { select: { name: true } } },
+        });
+
+        if (enrolled) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              `${personName} is enrolled as a fellow in ${enrolled.program.name}, so they cannot ` +
+              `also instruct it. Remove their enrollment from that program's roster first.`,
+          });
+        }
+      }
+
+      /*
+        Every instructor of every program being touched, in one read, because two of the questions
+        below are about the same set: whether removing this person would empty a program, and who
+        would inherit it if they owned it.
+      */
+      const affected = removing.map((row) => row.programId);
+      const rosters =
+        affected.length === 0
+          ? []
+          : await ctx.db.programInstructor.findMany({
+              where: { programId: { in: affected } },
+              select: {
+                userId: true,
+                programId: true,
+                isPrimary: true,
+                createdAt: true,
+                user: { select: personNameSelect },
+                program: { select: { name: true } },
+              },
+            });
+
+      const inherited: { program: string; newOwner: string }[] = [];
+
+      for (const row of removing) {
+        const instructors = rosters.filter(
+          (instructor) => instructor.programId === row.programId,
+        );
+
+        if (instructors.length <= 1) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              `${personName} is the only instructor on ${row.program.name}. Add somebody else ` +
+              `to it first — a program with no instructors cannot be authored in or graded, and ` +
+              `only a database edit would bring it back.`,
+          });
+        }
+
+        const owner = ownerOf(instructors);
+        if (owner?.userId !== target.id) continue;
+
+        const successor = ownerOf(
+          instructors.filter((instructor) => instructor.userId !== target.id),
+        );
+        if (successor) {
+          inherited.push({
+            program: row.program.name,
+            newOwner: displayNameOf(successor.user, "the longest-serving instructor"),
+          });
+        }
+      }
+
+      /*
+        Written in a transaction, because a run that added three and failed to remove the fourth
+        would leave a list nobody asked for — and this screen's whole job is that the list is what
+        somebody decided it should be.
+      */
+      await inTransaction(ctx.db, async (tx) => {
+        if (removing.length > 0) {
+          await tx.programInstructor.deleteMany({
+            where: { id: { in: removing.map((row) => row.id) } },
+          });
+        }
+
+        if (adding.length > 0) {
+          /*
+            `isPrimary: false`, always. The owner is whoever created the matriculation, and that is a
+            fact about how it came to exist rather than a rank an admin confers by adding somebody
+            to a list — `transferOwnership` is the deliberate act that moves it.
+          */
+          await tx.programInstructor.createMany({
+            data: adding.map((program) => ({
+              programId: program.id,
+              userId: target.id,
+              isPrimary: false,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      });
+
+      return {
+        personName,
+        programs: wanted.length,
+        added: adding.map((program) => program.name),
+        removed: removing.map((row) => row.program.name),
+        /** Programs whose ownership moved because this removed the person who held it. */
+        inherited,
+      };
+    }),
 
   /**
    * Every invitation, newest first, with the state the screen names.

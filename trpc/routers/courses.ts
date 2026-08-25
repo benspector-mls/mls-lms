@@ -35,6 +35,9 @@ import {
 } from "../init";
 import { courseUnitSummarySelect, personSelect } from "../selects";
 
+/** Trimmed, so " Data Science" and "Data Science" are one name to everyone but the database. */
+const courseName = z.string().trim().min(1, "A course needs a name.").max(200);
+
 export const coursesRouter = createTRPCRouter({
   /**
    * Courses the caller belongs to, either enrolled as a student or listed as an
@@ -773,7 +776,7 @@ export const coursesRouter = createTRPCRouter({
       z.object({
         /** The matriculation this course belongs to. Any instructor of it may add a course. */
         programId: z.string().uuid(),
-        name: z.string().trim().min(1, "A course needs a name.").max(200),
+        name: courseName,
         /**
          * The course's short name, which prefixes every repository it generates.
          *
@@ -913,7 +916,7 @@ export const coursesRouter = createTRPCRouter({
           Assigned to its creator, which puts their name on it and makes them a collaborator on every
           repository it generates. It grants nothing — every instructor of the program can already
           author here — so this is a default rather than a permission, and the owner can change it on
-          the instructors screen.
+          the program's settings screen.
 
           Written beside the course rather than nested inside its create, because `CourseInstructor`
           reaches its course through `(courseId, programId)` and a nested create cannot name the
@@ -1016,6 +1019,34 @@ export const coursesRouter = createTRPCRouter({
         select: { id: true, name: true, archivedAt: true },
       });
     }),
+
+  /**
+   * Renames a course. The short name is untouched and cannot be reached from here.
+   *
+   * **Free, because the name is display and only display.** Nothing looks a course up by it, no
+   * constraint holds it, and every reader — a card, a breadcrumb, a heading, a calendar event's
+   * description, an audit event's label — is showing it to somebody rather than matching on it. The
+   * one visible consequence is the right one: a subscribed calendar shows the new name the next time
+   * it fetches the feed.
+   *
+   * **The short name is the opposite and stays that way.** It is in the name of every repository the
+   * course has generated, so renaming it here would rename nothing on GitHub and leave the
+   * application describing repositories that do not exist. There is no procedure that changes it,
+   * which is what the review step on the creation form exists to make sure somebody reads.
+   *
+   * Instructor-gated rather than owner-only, unlike publishing and archiving. Those two change
+   * whether a fellow can reach the course at all; this changes what it is called, which is the same
+   * kind of act as renaming a module or a cohort — and both of those are any instructor's.
+   */
+  rename: courseProcedure
+    .input(z.object({ name: courseName }))
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.course.update({
+        where: { id: input.courseId },
+        data: { name: input.name },
+        select: { id: true, name: true },
+      }),
+    ),
 
   /**
    * Publishes a course, or takes it back to a draft.
