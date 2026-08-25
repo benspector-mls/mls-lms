@@ -906,15 +906,15 @@ export const submissionsRouter = createTRPCRouter({
        *
        * A mirror is checked first, then removal, in order of how little the reason has to do with
        * the instructor's filter. A mirror is never work whoever holds it; somebody who has left
-       * the cohort is not work whichever group they were in; being outside the selected group is
+       * the program is not work whichever cohort they were in; being outside the selected cohort is
        * the only one of the three a picker can undo, which is why it is last.
        */
       const asideReason = (
         row: (typeof submissions)[number],
-      ): "team_mirror" | "removed" | "outside_group" | null => {
+      ): "team_mirror" | "removed" | "outside_cohort" | null => {
         if (row.teamSubmissionId !== null) return "team_mirror";
         if (removed.has(row.student.id)) return "removed";
-        if (inSelection && !inSelection.has(row.student.id)) return "outside_group";
+        if (inSelection && !inSelection.has(row.student.id)) return "outside_cohort";
         return null;
       };
 
@@ -930,7 +930,7 @@ export const submissionsRouter = createTRPCRouter({
           manualOnly,
         },
         /**
-         * The queue itself: students currently in the cohort, and in the selected group.
+         * The queue itself: fellows currently on the roster, and in the selected cohort.
          *
          * A removed student is not work to be done, so they are not in the pile an instructor
          * works down — the same reason they are out of grading triage. A student outside the

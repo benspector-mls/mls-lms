@@ -886,7 +886,7 @@ export const coursesRouter = createTRPCRouter({
               name: input.name,
               slug,
             },
-            select: { id: true, name: true, slug: true, programId: true },
+            select: { id: true, name: true, slug: true, programId: true, publishedAt: true },
           })
           .catch((err: unknown) => {
             /*
