@@ -317,7 +317,14 @@ function CourseSwitcher({
         <SelectValue placeholder="Choose a cohort" />
         <ChevronsUpDown className="ml-auto size-3.5 text-muted-foreground" />
       </SelectTrigger>
-      <SelectContent>
+      {/*
+        Under the trigger, not over it. The default positioning puts the *selected* row on top
+        of the trigger, so an instructor whose current cohort is third in the list opens the
+        switcher onto a popup whose first two rows are above the top of the window and cannot
+        be scrolled to. Anchoring the popup below the trigger starts the list at its first row,
+        which is the only arrangement where every cohort is reachable.
+      */}
+      <SelectContent alignItemWithTrigger={false} align="start">
         <SelectGroup>
           {/*
             The cohort as well as the name, because a program runs every term under the same
