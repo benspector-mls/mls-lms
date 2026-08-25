@@ -229,7 +229,7 @@ export const gcfRouter = createTRPCRouter({
         return {
           ...row,
           /*
-            Matched only when the person is also *in this cohort*. An address belonging to a
+            Matched only when the person is also *on this course's roster*. An address belonging to a
             fellow from another course resolves to a real profile, and writing their score from
             here would be an instructor recording against somebody they do not teach.
           */
@@ -282,7 +282,7 @@ export const gcfRouter = createTRPCRouter({
       const enrolled = new Set(enrollments.map((enrollment) => enrollment.studentId));
 
       /*
-        Every hand-made assignment has to name somebody in this cohort. Checked here and not only
+        Every hand-made assignment has to name somebody on this roster. Checked here and not only
         on the preview, because the browser chose these ids: without it, an instructor could write
         a GCF score onto any profile in the deployment by editing one request.
       */
@@ -290,7 +290,7 @@ export const gcfRouter = createTRPCRouter({
         if (!enrolled.has(assignment.studentId)) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "One of those students is not in this cohort.",
+            message: "One of those fellows is not on this program's roster.",
           });
         }
       }

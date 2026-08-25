@@ -21,12 +21,11 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * and wants the whole term at once. They were two addresses reached by a button, which put the
  * question an instructor asks every morning one click away from the one they ask once a month.
  *
- * **No group filter on either tab, and this is the second instructor screen without one.** The
- * roster has none because it is where groups are made; attendance has none for a sharper reason.
- * `resolveGroup` falls back to an instructor's *remembered* grading filter, so somebody who
- * narrowed the gradebook to their fifteen last Tuesday would open this at 9:00 and read "11 of 15"
- * — a number that is wrong about the room while looking entirely correct. Attendance is taken for
- * everybody present, so it reads everybody.
+ * **No cohort filter on either tab.** The roster and the cohorts screen have none because they are
+ * where cohorts are made; attendance has none for a sharper reason. `resolveCohort` falls back to an
+ * instructor's *remembered* grading filter, so somebody who narrowed the gradebook to their fifteen
+ * last Tuesday would open this at 9:00 and read "11 of 15" — a number that is wrong about the room
+ * while looking entirely correct. Attendance is taken for everybody present, so it reads everybody.
  *
  * Both payloads are fetched here regardless of which tab is open. They are two reads on a screen
  * whose whole content is a roster and a grid, and fetching the second only when it is opened would

@@ -123,7 +123,7 @@ describe("dueDateEvent", () => {
     expect(event.uid).toBe(`${assignment.id}@${UID_DOMAIN}`);
   });
 
-  it("puts the cohort's name and the link in the description, and nothing else", () => {
+  it("puts the course's name and the link in the description, and nothing else", () => {
     const event = eventFor(edt("2026-10-09T23:59:00"));
 
     expect(event.description).toBe(`${assignment.course.name}\n${event.url}`);

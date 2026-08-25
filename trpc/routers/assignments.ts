@@ -972,7 +972,7 @@ export const assignmentsRouter = createTRPCRouter({
         targetCourseId: z.string().uuid(),
         /**
          * Where it lands in the target course. Optional, and when it is absent the module is
-         * matched across courses by name — which is right when two cohorts of the same program
+         * matched across courses by name — which is right when two years of the same course
          * share a module sequence and useless when they have diverged. Naming it is what the
          * copy dialog does, so the case the matching cannot serve stops being a refusal.
          */
@@ -1192,7 +1192,7 @@ export async function copyAssignmentInto(
         When nobody names one, it is matched by name, which is the only thing two courses can
         agree about — and refused when the target has none, rather than filing the copy under
         whichever module happened to be first, which is a wrong answer that looks like a right
-        one. Naming the module is how the copy dialog serves two cohorts whose module sequences
+        one. Naming the module is how the copy dialog serves two courses whose module sequences
         have diverged, which is exactly the case that matching cannot.
       */
   const targetUnit = params.targetCourseUnitId
@@ -1234,7 +1234,7 @@ export async function copyAssignmentInto(
         rather than asked for.
 
         `@@unique([courseId, assignmentRepoName])` is per course, so a copy into *another*
-        cohort keeps the name — the repositories still differ, because the cohort's short name
+        course keeps the name — the repositories still differ, because the course's short name
         prefixes every one of them. Only a copy beside the original collides, and the caller
         that used to invent a name for it built one out of the assignment's human title, which
         is not a legal repository name the moment a title contains a space.

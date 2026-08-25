@@ -300,7 +300,7 @@ describe("programRate", () => {
       [...marks(["PRESENT", "ABSENT"], "e1"), ...marks(["PRESENT", "PRESENT"], "e2")],
     );
 
-    // The test student's perfect record does not lift the cohort's figure.
+    // The test student's perfect record does not lift the roster's figure.
     expect(programRate(summaries)).toBe(0.5);
   });
 

@@ -111,7 +111,7 @@ const SEASONS: [RegExp, string][] = [
  * The course half is measured against this rather than against the term in hand, so that one
  * program's short name is the same shape in every season. Measured against the actual term, a
  * fellowship would be `software-engineering-f26` in the autumn and `software-sp27` in the spring
- * — one character of season costing a word of the course name — and two cohorts of the same
+ * — one character of season costing a word of the course name — and two years of the same
  * program would stop looking related, which is the whole thing a slug is for.
  */
 const MAX_COMPACT_TERM = 4;
@@ -140,17 +140,21 @@ function compactTerm(matriculation: string): string | null {
 /**
  * The short name a new course is offered: the course, then the term.
  *
- * "Data Science" starting "Fall 2026" suggests `data-science-f26`; "Software Engineering
- * Fellowship" suggests `sef-f26`, which an instructor will probably edit to `swe-f26`. Both
- * halves are there because neither is unique on its own — every program a school runs starts in
- * the fall, so a term-only slug is the short name of whichever course was created first and a
- * refusal for the rest.
+ * "Data Science" in "Fall 2026" suggests `data-science-f26`; "Fullstack Software Engineering"
+ * suggests `fse-f26`, which an instructor will probably edit to `swe-f26`. Both halves are there
+ * because neither is unique on its own — every program a school runs starts in the fall, so a
+ * term-only slug is the short name of whichever course was created first and a refusal for the rest.
  *
- * **The course name is either whole or its initials, never half of itself.** `software-engineeri`
+ * **The course name is either whole or its initials, never half of itself.** `fullstack-software-e`
  * is a name nobody would have chosen, and this is a suggestion people will accept without reading
- * closely; `sef` is visibly an abbreviation, so somebody who wants `swe` can see there was a
- * decision to make. The term is what survives intact, because it is the half that tells two
- * matriculations of the same program apart.
+ * closely; `fse` is visibly an abbreviation, so somebody who wants `swe` can see there was a
+ * decision to make. The term is what survives intact, because it is the half that tells two years
+ * of the same course apart.
+ *
+ * **The initials branch is deliberately ugly, and the seed has nobody to edit it.** A real course
+ * wants a hand-picked short name, because the slug is frozen the moment anybody accepts work — so
+ * the review step on the creation form is the point at which this suggestion is meant to be read
+ * and usually replaced.
  */
 export function suggestCourseSlug(params: { courseName: string; matriculation: string }): string {
   const compact = compactTerm(params.matriculation);

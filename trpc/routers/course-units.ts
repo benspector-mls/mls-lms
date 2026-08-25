@@ -23,7 +23,7 @@ import { courseUnitSummarySelect } from "../selects";
  * rename is here at all rather than being ruled out as too expensive.
  *
  * Every write is `instructorProcedure` *and* checks the caller teaches this course. The role
- * alone would let one cohort's instructor rename another's units.
+ * alone would let one matriculation's instructor rename another's units.
  */
 
 /** Trimmed, because " Mod 4" and "Mod 4" are the same unit to everyone but the database. */

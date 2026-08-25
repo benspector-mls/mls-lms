@@ -634,7 +634,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
         ),
       /**
        * The repository name prefix. Generated repositories are
-       * `{cohortSlug}-{assignmentRepoName}-{student github login}`, which is why this cannot change
+       * `{courseSlug}-{assignmentRepoName}-{fellow github login}`, which is why this cannot change
        * once anybody has accepted.
        */
       assignmentRepoName: githubName,

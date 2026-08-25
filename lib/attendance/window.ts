@@ -18,7 +18,7 @@ export const DEFAULT_SESSION_MINUTES = 90;
 /** How much one press of Extend buys. */
 export const EXTEND_MINUTES = 30;
 
-/** Where `Course.attendanceLateAfterMinutes` starts, and what most cohorts will leave it at. */
+/** Where `Program.attendanceLateAfterMinutes` starts, and what most programs will leave it at. */
 export const DEFAULT_LATE_AFTER_MINUTES = 5;
 
 /** The parts of a session these functions read. */

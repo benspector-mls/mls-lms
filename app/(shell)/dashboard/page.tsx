@@ -36,7 +36,7 @@ async function Dashboard() {
 
   /*
     Routing, not authorization. `listMine` is scoped to the caller's own enrollments and would
-    answer an instructor honestly — with the handful of cohorts they happen to be enrolled in as a
+    answer an instructor honestly — with the handful of courses they happen to be enrolled in as a
     student, which is not what they came for. An instructor's landing screen is their grading
     queue, so send them there rather than showing them a nearly empty dashboard.
 

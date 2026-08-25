@@ -82,7 +82,7 @@ export const GCF_KIND_META = {
  *
  * **Program-wide rather than per cohort**, because it is a Marcy standard rather than something a
  * cohort sets. A constant rather than a column for the same reason: a per-course setting would
- * let two cohorts disagree about what a good GCF is, which is the opposite of what a standard is
+ * let two matriculations disagree about what a good GCF is, which is the opposite of what a standard is
  * for.
  *
  * 389 on the proctored 200–600 scale, and 600 on a mock's 1200. Both discriminate against real

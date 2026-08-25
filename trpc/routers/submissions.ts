@@ -395,7 +395,7 @@ export const submissionsRouter = createTRPCRouter({
       /*
         The student who owns this, or an instructor of its course. Holding the INSTRUCTOR role
         is not enough, for the reason every authoring procedure checks the same thing: it says
-        nothing about *which* courses, so without this one cohort's instructor could read
+        nothing about *which* programs, so without this one matriculation's instructor could read
         another cohort's submissions.
       */
       await assertOwnsOrTeaches(ctx, {
@@ -588,7 +588,7 @@ export const submissionsRouter = createTRPCRouter({
    * exactly one of them, whether or not a report has been generated for it yet.
    *
    * One course, not all of them. The course is required rather than optional: an
-   * instructor teaching two cohorts at once was shown both piles interleaved, and "what do
+   * instructor teaching two courses at once was shown both piles interleaved, and "what do
    * I do next" is not a question that can be answered across cohorts — the answer depends
    * on which one you are teaching this hour. There is no unscoped mode to fall back into,
    * because leaving one available is how the screen came to use it.
@@ -1063,7 +1063,7 @@ export const submissionsRouter = createTRPCRouter({
         Asked here rather than by a second procedure, because it is one query and the screen is
         useless without it: a student repeating a module has two sets of submissions, and a page
         that could only show the one in its own URL would make finding the other a guess. Scoped
-        by what the caller teaches, so it does not report the existence of cohorts they cannot open.
+        by what the caller instructs, so it does not report the existence of courses they cannot open.
       */
       /*
         Every other course of every matriculation this fellow is on the roster of and the caller can

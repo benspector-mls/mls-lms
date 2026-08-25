@@ -25,7 +25,7 @@ export default function InstructorPage() {
 async function PickACourse() {
   const courses = await getQueryClient().fetchQuery(trpc.courses.listMine.queryOptions());
 
-  // Newest first, and archived cohorts skipped: this address is a guess at the term somebody
+  // Newest first, and archived courses skipped: this address is a guess at the course somebody
   // is in the middle of, and a finished one is never that. `listMine` returns them now — it
   // has to, or an archived cohort is reachable from nowhere — so the filter is here, where
   // the question is which cohort to open rather than which cohorts exist.

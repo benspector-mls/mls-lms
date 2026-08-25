@@ -77,7 +77,7 @@ const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO
 
 /**
  * The repository name is the template repository's name, so a student's
- * repository is `{cohortSlug}-{assignmentRepoName}-{their github login}`. Derived rather than
+ * repository is `{courseSlug}-{assignmentRepoName}-{their github login}`. Derived rather than
  * written out separately, because the two must always agree: if they disagree,
  * `accept` creates a repository from one template and names it after another.
  */
@@ -769,7 +769,7 @@ async function main() {
 
     **Every assignment is left unpublished.** `distributedAt` stays null, so no student sees any
     of this and nobody's progress bar moves — an instructor opening the Projects tab sees the
-    shape of the feature, and the cohort's own screens are untouched. Publish one from the
+    shape of the feature, and the course's own screens are untouched. Publish one from the
     authoring form to try the student side.
 
     **Not repository-backed.** These are `EXTERNAL_URL` and `FILE_UPLOAD`, so nothing here implies

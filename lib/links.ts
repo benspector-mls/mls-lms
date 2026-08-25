@@ -221,7 +221,7 @@ export function courseHref(courseId: string): string {
 /**
  * The same view in a different cohort, for the course switcher.
  *
- * Switching course should keep you where you were — an instructor comparing two cohorts'
+ * Switching course should keep you where you were — an instructor comparing two courses'
  * triage wants the other cohort's triage, not to be dropped back at its front page. That
  * only holds for the views that exist in every course; an assignment belongs to exactly
  * one, so its queue and its edit form cannot carry across and land on the course instead.

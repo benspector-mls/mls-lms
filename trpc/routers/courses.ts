@@ -40,7 +40,7 @@ export const coursesRouter = createTRPCRouter({
    * Courses the caller belongs to, either enrolled as a student or listed as an
    * instructor. Admins see every course.
    *
-   * **Archived cohorts are returned, labelled, rather than filtered out.** They used to be
+   * **Archived courses are returned, labelled, rather than filtered out.** They used to be
    * filtered, which meant a cohort somebody archived could be reached from nowhere in the
    * interface — every procedure still admitted its members, so the work was all there and
    * openable only by a URL somebody happened to have kept. Archiving is supposed to take a
@@ -101,11 +101,11 @@ export const coursesRouter = createTRPCRouter({
         // does not pull every assignment and enrollment across to say how many there
         // are.
         //
-        // ACTIVE only, unlike the `where` above: this is "how many students does this cohort
+        // ACTIVE only, unlike the `where` above: this is "how many fellows does this matriculation
         // have", which a departed one is not the answer to.
         //
         // Test students are excluded for the same reason and it is the same question. This figure
-        // is the one somebody quotes — a cohort of 25 must not read as 26 because an admin
+        // is the one somebody quotes — a roster of 25 must not read as 26 because an admin
         // previewed the course. They are deliberately *not* excluded from the roster, gradebook,
         // or triage, which list students rather than count them, and where a test row is the
         // point.
@@ -173,7 +173,7 @@ export const coursesRouter = createTRPCRouter({
       reads, so a student and their instructor cannot be shown different answers.
 
       Two extra queries rather than a relation on every course, and both narrowed to the courses
-      the caller is *enrolled in*: an instructor's own cohorts get no verdict, because they are
+      the caller is *enrolled in*: an instructor's own courses get no verdict, because they are
       not doing the work, and an admin looking at every course in the system fetches nothing here
       at all. A student is in a handful of courses, so this is a handful of rows.
     */
@@ -416,7 +416,7 @@ export const coursesRouter = createTRPCRouter({
       /*
         Active students only, the same set triage works from.
 
-        A departed student's work is not the cohort's outstanding work, so counting it here
+        A departed fellow's work is not the course's outstanding work, so counting it here
         would leave this column claiming there is grading to do while triage shows nothing —
         with nothing on either screen to reconcile them.
       */
@@ -722,7 +722,7 @@ export const coursesRouter = createTRPCRouter({
          * as a gap rather than as a zero — never having started is not the same as having scored
          * nothing.
          *
-         * Active only, because every reader of this list is asking about the cohort's present
+         * Active only, because every reader of this list is asking about the roster's present
          * state: the gradebook grid, the "N submissions waiting on you" in the course heading, and
          * the per-assignment "to grade" column. All three have to agree with grading triage, and
          * that is the set triage works from. Getting this wrong is quiet — the heading claims work
@@ -733,7 +733,7 @@ export const coursesRouter = createTRPCRouter({
             !removed.has(cell.studentId) && (visible === null || visible.has(cell.studentId)),
         ),
         /**
-         * The same, for students who have been removed — their record, not the cohort's state.
+         * The same, for fellows who have been removed — their record, not the roster's state.
          *
          * A departed student's work is kept and shown in its own table. This is the point of
          * removing rather than deleting: how somebody did before they left the program is worth
@@ -1306,7 +1306,7 @@ async function courseCells(
   const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
 
   // Asked once per assignment rather than once per cell. Whether the pipeline can grade an
-  // assignment at all is a property of the assignment, and a cohort of twenty-five turns that
+  // assignment at all is a property of the assignment, and a roster of twenty-five turns that
   // into twenty-five identical answers otherwise.
   const manualOnlyByAssignment = new Map(
     assignments.map((assignment) => [assignment.id, isManualOnly(assignment.sections)]),

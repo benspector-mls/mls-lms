@@ -9,23 +9,27 @@ import { personSelect } from "../selects";
 /**
  * The team sets of a course: create one with its teams, rename them, and place fellows on them.
  *
- * A team set is a named, reusable collection of the teams a course's students work in. It is the
- * second way of dividing a cohort and deliberately not the first: `CourseGroup` — "Groups" on the
- * roster — splits the marking between co-teachers, is invisible to students, and decides nothing
+ * A team set is a named, reusable collection of the teams a course's fellows work in. It is the
+ * second way of dividing a roster and deliberately not the first: a `Cohort` — "Cohorts" under the
+ * program — splits the marking between co-teachers, is invisible to fellows, and decides nothing
  * about the work. A team hands in one piece of work, receives one grade, and its members can see
- * each other. Nothing in `groups.ts` changed to make room for this.
+ * each other. Nothing in `cohorts.ts` changed to make room for this.
  *
- * **A set partitions the cohort.** A fellow is on at most one team of any one set, which is what
+ * **The two also sit at different scopes**, which is the sharper difference: a cohort divides the
+ * matriculation's roster and a team set divides it for one *course's* projects. That is why a set
+ * carries a `programId` beside its `courseId` — the enrollment a membership names is the program's.
+ *
+ * **A set partitions the roster.** A fellow is on at most one team of any one set, which is what
  * gives "which team are you on for this project" a single answer, and it is the database that
  * says so rather than a rule here. They may be on a team in every other set, which is what makes
- * a set reusable: one for each project, each dividing the same cohort differently.
+ * a set reusable: one for each project, each dividing the same roster differently.
  *
  * **Instructor-only.** There is no procedure here a student can call. What a student may see of
  * their own team is read through their own assignment, in `assignments.ts`, from their own
  * membership — never from a team id they could pass in.
  *
  * Every write is `instructorProcedure` *and* a `teachable*` loader, exactly as the groups router
- * is: the role alone would let one cohort's instructor regroup another's students.
+ * is: the role alone would let one matriculation's instructor regroup another's fellows.
  */
 
 /** Trimmed, because " Team 1" and "Team 1" are the same team to everyone but the database. */

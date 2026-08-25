@@ -32,7 +32,7 @@ async function Student({ params }: { params: Promise<{ courseId: string; student
 
   /*
     One read. The procedure refuses a course the caller does not teach and a student who is not in
-    it, so there is no separate guard here — and `NOT_FOUND` for a student who is not in this cohort
+    it, so there is no separate guard here — and `NOT_FOUND` for a fellow who is not on this course's roster
     is the honest answer, where an empty list would read as somebody who had done nothing.
   */
   const data = await getQueryClient().fetchQuery(

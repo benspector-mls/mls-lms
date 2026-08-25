@@ -354,11 +354,10 @@ export const attendanceRouter = createTRPCRouter({
    * a past session; passing nothing reads today, and returns a null session when nobody started
    * one, which is what the screen turns into the Start button.
    *
-   * **No group filter, deliberately, and this is the only instructor read besides the roster
-   * without one.** `resolveGroup` falls back to an instructor's *remembered* grading filter, so
-   * somebody who narrowed the gradebook last Tuesday would open the morning board to "11 of 15" —
-   * a count that is wrong about the room while looking entirely correct. Attendance is taken for
-   * everybody in the room, so it reads everybody.
+   * **No cohort filter, deliberately.** `resolveCohort` falls back to an instructor's *remembered*
+   * grading filter, so somebody who narrowed the gradebook last Tuesday would open the morning board
+   * to "11 of 15" — a count that is wrong about the room while looking entirely correct. Attendance
+   * is taken for everybody in the room, so it reads everybody.
    */
   grid: programProcedure
     .input(z.object({ day: schoolDaySchema.optional() }))
