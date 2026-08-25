@@ -6,16 +6,19 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | --- | --- | --- |
 | `verify:sandbox` | 41 | nothing — **now `tests/lib/sandbox/sandbox-logic.test.ts`** |
 | `verify:grade` | 101 | nothing — **now three suites under `tests/lib/grade/`** |
-| `verify:modules` | 35 | the database |
-| `verify:groups` | 46 | the database |
-| `verify:team-sets` | 32 | the database |
+| `verify:modules` | 35 → **41** | the database |
+| `verify:cohorts` | 46 as `verify:groups`, **not yet re-measured** | the database |
+| `verify:programs` | **91**, new | the database |
+| `verify:team-sets` | 32, **not yet re-measured** | the database |
 | `verify:team-work` | 51 | the database |
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
 | `verify:approve` | 48 → **53** | the database |
 | `verify:uploads` | 88 → **109** | the database, and the storage bucket |
 | `verify:authoring` | 156 | the database, and GitHub |
-| `verify:enrollment` | 200 → **209** | the database |
+| `verify:enrollment` | 200 → 209, **not yet re-measured** | the database |
+| `verify:curriculum` | **19** | the database |
+| `verify:gcf` | **26** | the database |
 | `verify:app` | 16 | GitHub |
 | `verify:pr-diff` | 11, or 19 on a five-file pull request | the database, and GitHub |
 | `verify:drive-embed` | not yet run against fixtures | Google, and two fixture documents |
@@ -23,8 +26,32 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:e2b` | 8 | a real E2B sandbox |
 | `verify:test-student` | 42, or 56 with `--live`, or 64 with `--live --github` | the database; `--live` also Supabase; `--github` also GitHub |
 | `verify:dashboard` | 27 | the database |
-| `verify:attendance` | 59 | the database |
+| `verify:attendance` | 59, **not yet re-measured** | the database |
 | `verify:calendar` | 28 | the database, and the application answering over HTTP |
+
+## The program above the course, 25 August 2026
+
+A matriculation now owns the roster, the attendance days, the cohorts and the instructors, and a course owns the work. Six of the counts above cannot be compared until the development database holds real work again: the migration that introduced the program was a clean break, so the seed's one fellow, no submissions and single instructor make most of these scripts skip. **A skip exits non-zero and that is the intended outcome** — the figures marked "not yet re-measured" have to be recorded on the first run against a database somebody has been using, and until then this file is honest about not knowing them rather than carrying a number nobody checked.
+
+What ran on a freshly seeded database passes: `verify:programs` at 91, `verify:modules` at 41, `verify:curriculum` at 19, `verify:gcf` at 26, and `verify:resources` at 60. **`verify:resources` reporting 60 where this file records 64 is the seed rather than the script** — two of its groups skip for want of a second course and a second instructor, which the old development database happened to have. That distinction is exactly what this file exists to make.
+
+**`verify:groups` became `verify:cohorts`, and checks the opposite property.** A grading group was a many-to-many, so the old script asserted that one fellow could be in two at once; a cohort is a column on the enrollment, so the new one asserts that placing somebody in a second cohort moves them out of the first. The filtering half is unchanged in shape and now reads a program's cohorts against a course's four screens, which is the arrangement the change created — one placement narrows every course of a matriculation. Two checks are new and both replace something: the composite key `(cohort_id, program_id)` refusing another matriculation's cohort, which `groups.setMembers` used to validate by hand, and `cohorts.remove` clearing its fellows before deleting the row, which a two-column `SET NULL` cannot do.
+
+**`verify:programs` is new and holds what came out of `verify:enrollment`.** Its 91 are the instructor link, who teaches which course, ownership, and deleting a matriculation. The link is the group worth reading: it takes one account, has it refused while it is a fellow, promotes it, and has it admitted — the same account for both halves, which is what makes it a comparison rather than two unrelated facts about two people. Three of its checks are about the promotion *not* happening: no instructor row written, no role raised while refused, and no role raised on success. A link that raised a role would be a second path to staff access with no admin involved.
+
+**Its ownership group demotes the owner to INSTRUCTOR for the whole run and puts the role back at the end.** `assertOwnsProgram` lets an admin through and the seeded matriculation's creator is the deployment's admin, so run as it stands every check saying "the owner may" would pass on the admin bypass while claiming to measure ownership — and would keep passing if ownership were removed entirely. The check at the end expects the bypass on purpose, which is why the role goes back up there and not a line earlier.
+
+**`verify:enrollment` is the other half and its figure will be lower.** What stays is the roster and the join link, both the program's, plus the course-shaped things: the short name, copying, publication, and deleting a course. Its publish group is placed after the fellow has joined, because "an unpublished course is absent from their list" is a claim about somebody on the roster and would be vacuous about somebody in nothing. Its deletion group gained the check the program above the course made possible — deleting one course of several leaves every fellow on the roster, in their cohort, with their attendance intact.
+
+**`verify:attendance` gained the arrival averages, checked against rows the database produced.** `lib/attendance/arrival.ts` is unit-tested against invented pairs; what a script can ask is whether the aggregate is right over real rows. Four late Mondays, five on-time Tuesdays and two Wednesdays in **March 2026**, chosen because daylight saving starts on the 8th: the first Monday is in EST and the rest are in EDT, so four arrivals averaging exactly 10:45 is the school clock being read correctly across the change rather than a fixed offset happening to work. A local helper solves for the instant at which the school clock reads a given time and throws rather than returning a near miss, because a silent wrap onto the previous evening would file the arrival under the wrong weekday — the mistake the checks exist to catch.
+
+**Three of its arrival checks are the rules that are easy to state and easy to get wrong in a query.** An absence moves neither figure, and it is written on a Monday that already has an average so the reading would change if the rule failed. Two Wednesdays report a count and no average, which is the three-arrival floor. Thursday reports a count of zero, which is a different fact from the Wednesdays — "not enough yet" and "never" both draw as a blank and are not the same thing. And the proportion of the fixture is load-bearing: `arrivalSentence` names the weekday furthest from the mean, and the mean is pulled toward whichever weekday has more arrivals, so more of the ordinary day is what makes "on Mondays" the answer rather than "on Tuesdays".
+
+**`verify:team-sets` states what the composite keys buy in their new shape.** A membership's three keys share `program_id` now, because the enrollment became program-scoped while the set stayed course-scoped — so `team_sets` carries the matriculation and the pair of checks is that naming another matriculation's fellow is refused whichever program id the row claims, its own or this one's. There is no value that satisfies all three keys.
+
+**`verify:dashboard` gained the third reader of `Course.publishedAt`.** The other two are `courses.listMine` and `assertCourseMember`; this feed is where a disagreement would show up as a deadline for work nobody has been given. Its attendance strip is also asserted to hold one row per matriculation rather than one per course, which is the count a procedure left with its old scoping would fail — a fellow taking three courses that all met on a Tuesday used to get three rows saying the same thing.
+
+**`verify:test-student` is program-scoped throughout**, because a test student is enrolled on a roster rather than in a course. Its skip on a deployment whose only instructor is also an admin now names the program rather than the course.
 
 **`verify:uploads` went from 88 to 109 when Python became an accepted file type**, and the twenty-one is worth breaking down because most of it is new coverage rather than the new type: eleven checks about the type itself and what can be shown in place, two about the bucket accepting `text/x-python`, seven about who may read an uploaded file's text through `submissions.uploadText`, and one more line of the rollback check, which now names two stored objects instead of one.
 
@@ -97,7 +124,7 @@ Its three most valuable hand-in checks are the ones about a second member. That 
 The database-backed scripts are slow enough that `npm run` adds a wrapper it is easier to do without:
 
 ```sh
-npx tsx --conditions=react-server scripts/verify-groups.ts
+npx tsx --conditions=react-server scripts/verify-cohorts.ts
 ```
 
 `--conditions=react-server` is required by anything reaching a module marked `server-only`, which is most of them.

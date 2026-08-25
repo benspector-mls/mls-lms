@@ -692,19 +692,31 @@ async function main() {
         await tx.attendanceSession.deleteMany({ where: { programId: program.id } });
 
         /*
-          Mondays and Tuesdays in a real month, so `weekdayOf` has something to agree with rather
-          than a date this script asserted the weekday of. **March 2026 deliberately**, because
-          daylight saving starts on the 8th: the first Monday is in EST and the rest are in EDT, so
-          four arrivals averaging exactly 10:45 is the school clock being read correctly across the
-          change rather than a fixed offset happening to work.
+          Mondays, Tuesdays and Wednesdays in a real month, so `weekdayOf` has something to agree
+          with rather than a date this script asserted the weekday of. **March 2026 deliberately**,
+          because daylight saving starts on the 8th: the first Monday is in EST and the rest are in
+          EDT, so four arrivals averaging exactly 10:45 is the school clock being read correctly
+          across the change rather than a fixed offset happening to work.
+
+          **Four late Mondays against five on-time Tuesdays**, and the proportion is the point rather
+          than the pattern being visible. `arrivalSentence` names the weekday furthest from the
+          overall mean, and the mean is pulled toward whichever weekday has more arrivals — so a
+          fixture with more Mondays than Tuesdays would make *Tuesday* the outlier and the sentence
+          would name the ordinary day rather than the exceptional one. More of the ordinary day is
+          what a real week looks like, and it is what makes "on Mondays" the answer.
+
+          The two Wednesdays are the floor: two arrivals is below `MIN_ARRIVALS`, so that weekday
+          reports no average while the ones around it do.
         */
         const mondays = ["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23"];
-        const tuesdays = ["2026-03-03", "2026-03-10", "2026-03-17"];
+        const tuesdays = ["2026-03-03", "2026-03-10", "2026-03-17", "2026-03-24", "2026-03-31"];
+        const wednesdays = ["2026-03-04", "2026-03-11"];
         checkThat(
-          "the fixture days really are Mondays and Tuesdays",
+          "the fixture days really are Mondays, Tuesdays and Wednesdays",
           mondays.every((day) => weekdayOf(day) === 1) &&
-            tuesdays.every((day) => weekdayOf(day) === 2),
-          `${mondays.length} + ${tuesdays.length} days`,
+            tuesdays.every((day) => weekdayOf(day) === 2) &&
+            wednesdays.every((day) => weekdayOf(day) === 3),
+          `${mondays.length} + ${tuesdays.length} + ${wednesdays.length} days`,
         );
 
         /** One closed session on a given day, with one arrival at a given school-clock time. */
@@ -735,10 +747,9 @@ async function main() {
           });
         }
 
-        // Late every Monday, on time every Tuesday. The pattern is the whole point: an overall
-        // average alone would say nothing worth telling anybody.
         for (const day of mondays) await arrivalOn(day, 10, 45);
         for (const day of tuesdays) await arrivalOn(day, 9, 0);
+        for (const day of wednesdays) await arrivalOn(day, 9, 5);
 
         /*
           And one absence, which must not move either figure. On a Monday deliberately — the weekday
@@ -750,7 +761,7 @@ async function main() {
           data: {
             programId: program.id,
             date: dateColumnFor("2026-03-30"),
-            startedAt: new Date("2026-03-30T09:00:00Z"),
+            startedAt: new Date("2026-03-30T13:00:00Z"),
             endsAt: new Date("2026-03-30T23:00:00Z"),
             endedAt: new Date("2026-03-30T23:00:00Z"),
             lateAfterMinutes: 5,
@@ -776,7 +787,7 @@ async function main() {
         check(
           "the overall average counts every arrival and no absence",
           theirs?.overall.count,
-          mondays.length + tuesdays.length,
+          mondays.length + tuesdays.length + wednesdays.length,
         );
         check(
           "...and every weekday is present, Monday first",
@@ -794,41 +805,35 @@ async function main() {
           9 * 60,
         );
         /*
-          A weekday nobody has arrived on. Reported as an entry with a null average rather than
-          omitted, so a screen draws a stable set of rows — a table whose weekdays appeared and
-          disappeared as the term went on would move under the reader.
+          The floor. Two arrivals is one short, so the weekday reports its count and no average — a
+          mean over two mornings is a number somebody would quote, and quoting it would be wrong.
         */
-        check(
-          "a weekday with no arrivals has no average",
-          theirs?.byWeekday.find((entry) => entry.weekday === 3)?.average,
-          { minutes: null, count: 0 },
-        );
-
-        /*
-          The floor, checked by taking one Tuesday away. Three is the smallest number where a mean
-          says something about a habit rather than about one morning, and the failure it prevents is
-          a screen quoting a figure over a single arrival.
-        */
-        const oneTuesday = await tx.attendanceSession.findFirstOrThrow({
-          where: { programId: program.id, date: dateColumnFor(tuesdays[0]!) },
-          select: { id: true },
-        });
-        await tx.attendanceRecord.deleteMany({ where: { sessionId: oneTuesday.id } });
-        const thinner = await asInstructor.attendance.history({ programId: program.id });
         check(
           `a weekday with fewer than ${MIN_ARRIVALS} arrivals reports none`,
-          thinner.arrivals[first.id]?.byWeekday.find((entry) => entry.weekday === 2)?.average,
-          { minutes: null, count: tuesdays.length - 1 },
+          theirs?.byWeekday.find((entry) => entry.weekday === 3)?.average,
+          { minutes: null, count: wednesdays.length },
+        );
+        /*
+          A weekday nobody has arrived on. Reported as an entry with a null average rather than
+          omitted, so a screen draws a stable set of rows — a table whose weekdays appeared and
+          disappeared as the term went on would move under the reader. And it is a different fact
+          from the one above: "not enough yet" and "never" both read as blank and are not the same.
+        */
+        check(
+          "...and a weekday with none at all says so too",
+          theirs?.byWeekday.find((entry) => entry.weekday === 4)?.average,
+          { minutes: null, count: 0 },
         );
 
         /*
           The sentence the three screens print, and the reason it is one function: a weekday within
           five minutes of the overall mean is rounding rather than a pattern, and naming it would
-          invent one. Here Monday is more than an hour out, so it is named.
+          invent one. Here Monday is more than an hour late against a mean pulled down by five
+          on-time Tuesdays, so Monday is the weekday named.
         */
         const sentence = arrivalSentence(theirs!);
         checkThat(
-          "the sentence names the weekday that drifts",
+          "the sentence names the weekday that drifts furthest",
           sentence !== null &&
             sentence.includes("Monday") &&
             sentence.includes(formatClockMinutes(10 * 60 + 45)),
@@ -846,7 +851,7 @@ async function main() {
         check(
           "a fellow's own record carries the same overall average",
           (await asFirst.attendance.myHistory({ programId: program.id })).arrivals.overall.minutes,
-          thinner.arrivals[first.id]?.overall.minutes,
+          theirs?.overall.minutes,
         );
 
         throw new Error("ROLLBACK");
