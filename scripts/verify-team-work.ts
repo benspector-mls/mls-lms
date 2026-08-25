@@ -39,33 +39,41 @@ async function main() {
     where: { archivedAt: null, instructors: { some: {} }, courseUnits: { some: {} } },
     select: {
       id: true,
+      programId: true,
       instructors: { take: 1, select: { userId: true } },
       courseUnits: { take: 1, select: { id: true } },
-      enrollments: {
-        orderBy: { createdAt: "asc" },
-        take: 3,
-        select: { id: true, studentId: true },
+      // The roster is the matriculation's, so the fellows are reached through it. A team set divides
+      // them for one course's projects, which is why both scopes are named here.
+      program: {
+        select: {
+          enrollments: {
+            orderBy: { createdAt: "asc" },
+            take: 3,
+            select: { id: true, studentId: true },
+          },
+        },
       },
     },
   });
 
   const course = candidates.find(
     (row) =>
-      row.enrollments.length === 3 &&
-      new Set(row.enrollments.map((enrollment) => enrollment.studentId)).size === 3,
+      row.program.enrollments.length === 3 &&
+      new Set(row.program.enrollments.map((enrollment) => enrollment.studentId)).size === 3,
   );
 
   if (!course) {
-    return skip("no seeded course with an instructor, a unit, and three distinct students");
+    return skip("no seeded course with an instructor, a unit, and three distinct fellows");
   }
 
   const courseId = course.id;
+  const programId = course.programId;
   const unitId = course.courseUnits[0]!.id;
   const instructor = course.instructors[0]!;
-  const [alice, bob, cara] = course.enrollments as [
-    (typeof course.enrollments)[number],
-    (typeof course.enrollments)[number],
-    (typeof course.enrollments)[number],
+  const [alice, bob, cara] = course.program.enrollments as [
+    (typeof course.program.enrollments)[number],
+    (typeof course.program.enrollments)[number],
+    (typeof course.program.enrollments)[number],
   ];
   const createCaller = createCallerFactory(appRouter);
 
@@ -79,9 +87,15 @@ async function main() {
       data: { status: "ACTIVE" },
     });
 
+    /*
+      The set carries its matriculation as well as its course, which is what makes a membership's
+      three keys share a column: the enrollment is program-scoped and the set is course-scoped, so
+      without `programId` on the set the two ends of a membership would share nothing.
+    */
     const set = await tx.teamSet.create({
       data: {
         courseId,
+        programId,
         name: "Verify Work Teams",
         teams: { create: [{ name: "Team 1", position: 0 }] },
       },
@@ -93,7 +107,7 @@ async function main() {
       data: members.map((member) => ({
         teamId: team.id,
         teamSetId: set.id,
-        courseId,
+        programId,
         enrollmentId: member.id,
       })),
     });
@@ -230,7 +244,7 @@ async function main() {
       the pile?" wrongly for everybody else on the team.
 
       Compared against the members' own names rather than a literal, because the fixture borrows
-      whichever students the seeded cohort has.
+      whichever fellows the seeded roster has.
     */
     const { groupByAssignment, nameSubtext, triageStudentName } =
       await import("../lib/grade/triage-groups");
@@ -270,7 +284,7 @@ async function main() {
       --- a mirror that has fallen behind --------------------------------
 
       Put behind by hand, because the point is not how it got there. A fan-out that missed a row,
-      a row written by an older version of this application, a member restored to the cohort — all
+      a row written by an older version of this application, a member restored to the roster — all
       of them leave the same state, and what matters is that the next thing to touch the team
       repairs it rather than leaving somebody reading "Accepted" about work that was handed in.
 
@@ -308,7 +322,7 @@ async function main() {
 
     // --- a member placed on the team after it handed in --------------------
     await tx.teamMembership.create({
-      data: { teamId, teamSetId: setId, courseId, enrollmentId: cara.id },
+      data: { teamId, teamSetId: setId, programId, enrollmentId: cara.id },
     });
     await asBob.submissions.submitWork({ assignmentId, submittedUrl: "https://example.com/again" });
 

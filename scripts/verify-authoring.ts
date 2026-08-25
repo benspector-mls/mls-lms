@@ -882,9 +882,13 @@ check(
 // =====================================================================================
 
 /**
- * A fixed id for the second course this script needs, so a re-run reuses one row rather than
- * adding another. Nothing else uses it, and the script deletes it before it exits.
+ * Fixed ids for the second matriculation and course this script needs, so a re-run reuses two rows
+ * rather than adding more. Nothing else uses them, and the script deletes them before it exits.
+ *
+ * Two rather than one, because a course belongs to a matriculation: the tokens the second course
+ * used to carry are the program's now.
  */
+const ELSEWHERE_PROGRAM_ID = "e7c1a1d0-0000-4000-8000-00000000fffe";
 const ELSEWHERE_COURSE_ID = "e7c1a1d0-0000-4000-8000-00000000ffff";
 
 async function procedures() {
@@ -898,6 +902,7 @@ async function procedures() {
     select: {
       id: true,
       courseId: true,
+      course: { select: { programId: true } },
       kind: true,
       title: true,
       courseUnitId: true,
@@ -935,12 +940,14 @@ async function procedures() {
     stopped this entire group of checks while the script went on reporting a pass.
   */
   const student = await db.enrollment.findFirst({
-    where: { courseId: seeded.courseId },
+    // On the roster of the matriculation the seeded course belongs to, which is what makes somebody
+    // a student of it.
+    where: { programId: seeded.course.programId },
     orderBy: { createdAt: "asc" },
     select: { studentId: true },
   });
   if (!instructor || !student) {
-    skip("the procedure checks — the seeded course has no instructor or student");
+    skip("the procedure checks — the seeded course has no instructor or fellow");
     return;
   }
 
@@ -1012,7 +1019,7 @@ async function procedures() {
   /*
     And a module of a *different* course, which is the failure nothing at the database level
     catches: the foreign key says the module exists, not that it belongs here. Without this an
-    assignment could be filed under another cohort's module and appear in neither course.
+    assignment could be filed under another course's module and appear in neither one.
   */
   /*
     Reused if it is already there, and cleaned up at the end.
@@ -1023,15 +1030,25 @@ async function procedures() {
     it left a course and a module behind on every run, which is how the seeded course came to
     have neighbours nobody created on purpose.
   */
+  const elsewhereProgram = await db.program.upsert({
+    where: { id: ELSEWHERE_PROGRAM_ID },
+    create: {
+      id: ELSEWHERE_PROGRAM_ID,
+      name: "Another program (verify:authoring)",
+      matriculation: "Cohort Other",
+      joinToken: `verify-authoring-${ELSEWHERE_PROGRAM_ID}`,
+      instructorToken: `verify-authoring-it-${ELSEWHERE_PROGRAM_ID}`,
+    },
+    update: {},
+    select: { id: true },
+  });
   const elsewhereCourse = await db.course.upsert({
     where: { id: ELSEWHERE_COURSE_ID },
     create: {
       id: ELSEWHERE_COURSE_ID,
+      programId: elsewhereProgram.id,
       name: "Another course (verify:authoring)",
-      cohortTerm: "Cohort Other",
-      cohortSlug: "verify-authoring",
-      joinToken: `verify-authoring-${ELSEWHERE_COURSE_ID}`,
-      coTeachToken: `verify-authoring-ct-${ELSEWHERE_COURSE_ID}`,
+      slug: "verify-authoring",
     },
     update: {},
     select: { id: true },
@@ -1328,11 +1345,15 @@ async function procedures() {
     validation instead, reporting a hole that is not there. The reverse is the worse case: on a
     different set of rows it would have picked a real outsider and passed by luck.
 
-    `instructorOf: { none: ... }` cannot go stale as courses gain or lose instructors. ADMIN is
-    excluded by asking for the role exactly, which is correct — an admin may author anywhere.
+    `programsInstructing: { none: ... }` cannot go stale as a matriculation gains or loses
+    instructors. ADMIN is excluded by asking for the role exactly, which is correct — an admin may
+    author anywhere.
   */
   const outsider = await db.profile.findFirst({
-    where: { role: "INSTRUCTOR", instructorOf: { none: { courseId: seeded.courseId } } },
+    where: {
+      role: "INSTRUCTOR",
+      programsInstructing: { none: { programId: seeded.course.programId } },
+    },
     select: { id: true },
   });
   if (outsider) {
@@ -1551,7 +1572,7 @@ async function procedures() {
         --- copying, which is what `duplicate` was actually written for -------
 
         The procedure has taken a `targetCourseId` since it was written and the interface
-        hardcoded the current course, so the cross-cohort case was reachable only by writing the
+        hardcoded the current course, so the cross-course case was reachable only by writing the
         call. What the checks below are really about is the **module**, because that is the part
         two courses cannot agree on by construction: a module belongs to one course, so a copy
         has to be told or has to guess, and guessing wrong looks exactly like guessing right.
@@ -1565,10 +1586,10 @@ async function procedures() {
           }
         };
 
-        // --- into another cohort ---
+        // --- into another course ---
         const targetCourse = await inTx.courses.create({
+          programId: seeded.course.programId,
           name: "Verify Copy Target",
-          cohortTerm: "Cohort Copy A",
         });
         const seededModuleName = (await tx.courseUnit.findUnique({
           where: { id: seeded.courseUnitId },
@@ -1576,7 +1597,7 @@ async function procedures() {
         }))!.name;
 
         check(
-          "copying into a cohort with no module of that name is refused",
+          "copying into a course with no module of that name is refused",
           await code(() =>
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
@@ -1592,8 +1613,8 @@ async function procedures() {
         );
 
         /*
-        Named explicitly, which is the case the name match cannot serve: two cohorts whose
-        module sequences have diverged. Without it, copying into such a cohort fails on every
+        Named explicitly, which is the case the name match cannot serve: two courses whose
+        module sequences have diverged. Without it, copying into such a course fails on every
         assignment and the only way through is renaming a module to match.
       */
         const differentlyNamed = await inTx.courseUnits.create({
@@ -1607,19 +1628,19 @@ async function procedures() {
           targetCourseUnitId: differentlyNamed.id,
         });
         check(
-          "naming the module copies it into a cohort whose modules are named differently",
+          "naming the module copies it into a course whose modules are named differently",
           named.assignment.courseUnitId,
           differentlyNamed.id,
         );
         /*
         The repository name comes across unchanged, which is the half worth checking rather than
         assuming. `@@unique([courseId, assignmentRepoName])` is per course, and the generated
-        repositories still differ because the cohort's short name prefixes every one of them —
-        so renaming here would break the correspondence between two cohorts of one program for
+        repositories still differ because the course's short name prefixes every one of them —
+        so renaming here would break the correspondence between two years of one course for
         no reason.
       */
         check(
-          "...keeping the repository name, because the cohort's short name tells them apart",
+          "...keeping the repository name, because the course's short name tells them apart",
           named.assignment.assignmentRepoName,
           seeded.assignmentRepoName,
         );
@@ -1627,12 +1648,12 @@ async function procedures() {
 
         /*
         A module id is a parameter anybody can pass, so it is checked against the target course
-        rather than merely looked up. Without that, a copy could be filed under a third cohort's
+        rather than merely looked up. Without that, a copy could be filed under a third course's
         module — which no screen would show and no constraint would catch, since `courseUnitId` is a
         foreign key to modules rather than to modules *of this course*.
       */
         check(
-          "a module from another cohort is refused",
+          "a module from another course is refused",
           await code(() =>
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
@@ -1646,10 +1667,10 @@ async function procedures() {
         /*
         The same assignment cannot land in one course twice, because the copy keeps its
         repository name and two assignments in a course cannot share one. Worth checking rather
-        than discovering: it is the reason the check below needs a second cohort.
+        than discovering: it is the reason the check below needs a second course.
       */
         check(
-          "copying the same assignment into that cohort again is refused",
+          "copying the same assignment into that course again is refused",
           await code(() =>
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
@@ -1661,12 +1682,12 @@ async function procedures() {
         );
 
         /*
-        Matched by name when nobody says otherwise, which is the ordinary case: a cohort copied
-        from last term's has last term's module names.
+        Matched by name when nobody says otherwise, which is the ordinary case: a course copied
+        from last year's has last year's module names.
       */
         const secondTarget = await inTx.courses.create({
+          programId: seeded.course.programId,
           name: "Verify Copy Target Two",
-          cohortTerm: "Cohort Copy B",
         });
         const sameName = await inTx.courseUnits.create({
           category: "MODULE",
@@ -1683,12 +1704,12 @@ async function procedures() {
           sameName.id,
         );
 
-        // An archived cohort takes nothing new, the same rule as a student joining one. It
-        // matters because archived cohorts are in the course list now, so one is a thing somebody
+        // An archived course takes nothing new, the same rule as a fellow joining a program. It
+        // matters because archived courses are in the course list now, so one is a thing somebody
         // can be looking at when they reach for a copy.
         await inTx.courses.setArchived({ courseId: targetCourse.course.id, archived: true });
         check(
-          "copying into an archived cohort is refused",
+          "copying into an archived course is refused",
           await code(() =>
             inTx.assignments.duplicate({
               assignmentId: seeded.id,
@@ -1761,14 +1782,14 @@ async function procedures() {
     0,
   );
   /*
-    Nor the cohorts the copy checks created, which is a separate claim from the assignments.
+    Nor the courses the copy checks created, which is a separate claim from the assignments.
 
     Those checks copy *into* new courses, so a rollback that left the courses behind would leave
-    the seeded assignment duplicated into cohorts nobody made — and a course is the one thing
+    the seeded assignment duplicated into courses nobody made — and a course is the one thing
     here whose leftovers are visible to every instructor rather than only to a query.
   */
   check(
-    "...nor the cohorts the copy checks created",
+    "...nor the courses the copy checks created",
     await db.course.count({ where: { name: { startsWith: "Verify Copy Target" } } }),
     0,
   );
@@ -1781,10 +1802,11 @@ async function procedures() {
     shows up much later as a module list nobody recognises. `onDelete: Cascade` from course to
     modules takes the module with it.
   */
-  await db.course.deleteMany({ where: { id: ELSEWHERE_COURSE_ID } });
+  await db.program.deleteMany({ where: { id: ELSEWHERE_PROGRAM_ID } });
   check(
-    "the other course this script created is gone",
-    await db.course.count({ where: { name: { contains: "(verify:authoring)" } } }),
+    "the other program and course this script created are gone",
+    (await db.course.count({ where: { name: { contains: "(verify:authoring)" } } })) +
+      (await db.program.count({ where: { name: { contains: "(verify:authoring)" } } })),
     0,
   );
 }

@@ -50,7 +50,7 @@ async function main() {
   */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id },
+        where: { program: { courses: { some: { id: course.id } } } },
         orderBy: { createdAt: "asc" },
         select: { studentId: true },
       })
@@ -228,7 +228,7 @@ async function main() {
 
       const gradebook = await asInstructor.courses.gradebook({
         courseId: course.id,
-        group: "all",
+        cohort: "all",
       });
 
       const grouped = groupByUnit(gradebook.assignments, gradebook.courseUnits);

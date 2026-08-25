@@ -16,7 +16,7 @@
  *
  * The strongest checks are the last group. Everything above them asks whether the procedures do
  * what they say; those ask whether the mistakes they prevent are possible at all — a fellow on two
- * teams of one set, a team holding another cohort's student, two rows claiming to hold one team's
+ * teams of one set, a team holding another matriculation's fellow, two rows claiming to hold one team's
  * work, and a mirror pointing at a mirror. Each runs in its own transaction, because a constraint
  * violation aborts the transaction it happens in.
  */
@@ -49,40 +49,52 @@ async function main() {
     where: { archivedAt: null, instructors: { some: {} } },
     select: {
       id: true,
+      programId: true,
       instructors: { take: 1, select: { userId: true } },
-      // Any status. They are made active inside the throwaway transaction below, so a cohort
-      // whose third student has been removed in the running application is still usable.
-      enrollments: {
-        orderBy: { createdAt: "asc" },
-        take: 3,
-        select: { id: true, studentId: true },
-      },
       assignments: { take: 1, select: { id: true } },
+      /*
+        The fellows are the matriculation's, reached through it. A team set divides them for one
+        course's projects, so both scopes are named here — and a membership's keys share
+        `programId`, which is what makes a cross-matriculation row unrepresentable.
+
+        Any status. They are made active inside the throwaway transaction below, so a roster whose
+        third fellow has been removed in the running application is still usable.
+      */
+      program: {
+        select: {
+          enrollments: {
+            orderBy: { createdAt: "asc" },
+            take: 3,
+            select: { id: true, studentId: true },
+          },
+        },
+      },
     },
   });
 
   const course = candidates.find(
     (row) =>
-      row.enrollments.length === 3 &&
-      new Set(row.enrollments.map((enrollment) => enrollment.studentId)).size === 3,
+      row.program.enrollments.length === 3 &&
+      new Set(row.program.enrollments.map((enrollment) => enrollment.studentId)).size === 3,
   );
 
-  if (!course) return skip("no seeded course with an instructor and three distinct students");
+  if (!course) return skip("no seeded course with an instructor and three distinct fellows");
 
   /* Read out once, because a hoisted function declaration below does not keep the narrowing. */
   const courseId = course.id;
+  const programId = course.programId;
 
-  /* Another cohort's student, for the checks about naming somebody from outside. */
+  /* Another matriculation's fellow, for the checks about naming somebody from outside. */
   const outsider = await db.enrollment.findFirst({
-    where: { courseId: { not: course.id } },
-    select: { id: true, courseId: true, studentId: true },
+    where: { programId: { not: course.programId } },
+    select: { id: true, programId: true, studentId: true },
   });
 
   const instructor = course.instructors[0]!;
-  const [alice, bob, cara] = course.enrollments as [
-    (typeof course.enrollments)[number],
-    (typeof course.enrollments)[number],
-    (typeof course.enrollments)[number],
+  const [alice, bob, cara] = course.program.enrollments as [
+    (typeof course.program.enrollments)[number],
+    (typeof course.program.enrollments)[number],
+    (typeof course.program.enrollments)[number],
   ];
   const createCaller = createCallerFactory(appRouter);
 
@@ -207,7 +219,7 @@ async function main() {
     );
     if (outsider) {
       check(
-        "a set cannot hold another cohort's student",
+        "a set cannot hold another matriculation's fellow",
         await refusal(() =>
           asInstructor.teamSets.setPlacements({
             teamSetId: set.id,
@@ -301,8 +313,9 @@ async function main() {
     const set = await tx.teamSet.create({
       data: {
         courseId: course.id,
+        programId,
         name: "Verify Partition",
-        // `courseId` is deliberately absent from each team: the relation is composite, so Prisma
+        // `teamSetId` is deliberately absent from each team: the relation is composite, so Prisma
         // fills both columns from the parent and refuses a write that names either.
         teams: {
           create: [
@@ -319,7 +332,7 @@ async function main() {
         {
           teamId: set.teams[0]!.id,
           teamSetId: set.id,
-          courseId: course.id,
+          programId,
           enrollmentId: alice.id,
         },
       ],
@@ -333,7 +346,7 @@ async function main() {
             {
               teamId: set.teams[1]!.id,
               teamSetId: set.id,
-              courseId: course.id,
+              programId,
               enrollmentId: alice.id,
             },
           ],
@@ -348,6 +361,7 @@ async function main() {
       const set = await tx.teamSet.create({
         data: {
           courseId: course.id,
+          programId,
           name: "Verify Outsider",
           teams: { create: [{ name: "Team 1", position: 0 }] },
         },
@@ -356,19 +370,25 @@ async function main() {
 
       /*
         The three composite keys, tested from the direction that would slip past a procedure: the
-        membership names the outsider's own course, which is the only value that satisfies the
-        enrollment key — and is then refused by the two that hold the team and the set to *this*
-        course. There is no course id that satisfies all three.
+        membership names the outsider's own matriculation, which is the only value that satisfies the
+        enrollment key — and is then refused by the one that holds the set to *this* matriculation.
+        There is no program id that satisfies all three.
+
+        **`programId` is the shared column, and this is the pair that proves it.** The keys are
+        `(teamId, teamSetId) → teams`, `(teamSetId, programId) → team_sets`, and
+        `(enrollmentId, programId) → enrollments`; the second and third share the column, so naming
+        another matriculation's fellow is unrepresentable rather than merely refused by the procedure
+        that writes it.
       */
       checkThat(
-        "a team cannot hold another cohort's student, whichever course the row claims",
+        "a team cannot hold another matriculation's fellow, whichever program the row claims",
         await refuses(() =>
           tx.teamMembership.createMany({
             data: [
               {
                 teamId: set.teams[0]!.id,
                 teamSetId: set.id,
-                courseId: outsider.courseId,
+                programId: outsider.programId,
                 enrollmentId: outsider.id,
               },
             ],
@@ -376,14 +396,14 @@ async function main() {
         ),
       );
       checkThat(
-        "and cannot borrow this course's id to name them either",
+        "and cannot borrow this matriculation's id to name them either",
         await refuses(() =>
           tx.teamMembership.createMany({
             data: [
               {
                 teamId: set.teams[0]!.id,
                 teamSetId: set.id,
-                courseId: course.id,
+                programId,
                 enrollmentId: outsider.id,
               },
             ],
@@ -422,6 +442,7 @@ async function main() {
         const set = await tx.teamSet.create({
           data: {
             courseId,
+            programId,
             name: "Verify Submissions",
             teams: { create: [{ name: "Team 1", position: 0 }] },
           },

@@ -194,7 +194,9 @@ async function main() {
   const stranger = await db.profile.findFirst({
     where: {
       role: "INSTRUCTOR",
-      instructorOf: { none: { courseId: course!.assignment.courseId } },
+      programsInstructing: {
+        none: { program: { courses: { some: { id: course!.assignment.courseId } } } },
+      },
     },
     select: { id: true },
   });

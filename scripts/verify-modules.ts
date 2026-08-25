@@ -28,7 +28,7 @@ async function main() {
 
   const course = await db.course.findFirst({
     where: { archivedAt: null },
-    select: { id: true },
+    select: { id: true, programId: true },
   });
   const instructor = course
     ? await db.courseInstructor.findFirst({
@@ -45,7 +45,8 @@ async function main() {
   */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id },
+        // On the matriculation's roster, which is what makes somebody a student of this course.
+        where: { programId: course.programId },
         orderBy: { createdAt: "asc" },
         select: { studentId: true },
       })
@@ -443,17 +444,27 @@ async function main() {
       );
 
       /*
-        An instructor of a different course is the check the role alone cannot make. INSTRUCTOR
-        says nothing about *which* courses, so without the course-level test one cohort's
+        An instructor of a different course is the check the role alone cannot make. INSTRUCTOR says
+        nothing about *which* programs, so without the program-level test one matriculation's
         instructor could rename another's modules.
+
+        A course belongs to a matriculation, so the fixture is a program with a course in it. Its
+        tokens are the program's now — a course has neither.
       */
-      const otherCourse = await tx.course.create({
+      const otherProgram = await tx.program.create({
         data: {
           name: "Elsewhere (verify:modules)",
-          cohortTerm: "Cohort Elsewhere",
-          cohortSlug: `vm-${crypto.randomUUID().slice(0, 8)}`,
+          matriculation: `Cohort Elsewhere ${crypto.randomUUID().slice(0, 8)}`,
           joinToken: `verify-modules-${crypto.randomUUID()}`,
-          coTeachToken: `verify-modules-ct-${crypto.randomUUID()}`,
+          instructorToken: `verify-modules-it-${crypto.randomUUID()}`,
+        },
+        select: { id: true },
+      });
+      const otherCourse = await tx.course.create({
+        data: {
+          programId: otherProgram.id,
+          name: "Elsewhere (verify:modules)",
+          slug: `vm-${crypto.randomUUID().slice(0, 8)}`,
         },
         select: { id: true },
       });
@@ -467,18 +478,21 @@ async function main() {
         reported a hole that is not there. Worse in the other direction: had it returned a real
         outsider it would have passed by luck rather than because the premise held.
 
-        `instructorOf: { none: ... }` is the predicate the check is actually about, and it
-        cannot go stale as the course gains or loses instructors.
+        `programsInstructing: { none: ... }` is the predicate the check is actually about, and it
+        cannot go stale as the matriculation gains or loses instructors.
       */
       const outsider = await tx.profile.findFirst({
-        where: { role: "INSTRUCTOR", instructorOf: { none: { courseId: course.id } } },
+        where: {
+          role: "INSTRUCTOR",
+          programsInstructing: { none: { programId: course.programId } },
+        },
         select: { id: true },
       });
 
       if (outsider) {
         const asOutsider = createCaller({ db: tx, user: { id: outsider.id } } as never);
         check(
-          "an instructor who does not teach the course cannot rename its modules",
+          "an instructor who does not instruct the program cannot rename its modules",
           await refusal(() =>
             asOutsider.courseUnits.update({ courseUnitId: second.id, name: "Not yours" }),
           ),
@@ -601,13 +615,20 @@ async function main() {
 
   try {
     await db.$transaction(async (tx) => {
-      const scratch = await tx.course.create({
+      const scratchProgram = await tx.program.create({
         data: {
           name: "Verify Reseed",
-          cohortTerm: "Cohort Verify Reseed",
-          cohortSlug: "verify-reseed",
+          matriculation: "Cohort Verify Reseed",
           joinToken: newJoinToken(),
-          coTeachToken: newJoinToken(),
+          instructorToken: newJoinToken(),
+        },
+        select: { id: true },
+      });
+      const scratch = await tx.course.create({
+        data: {
+          programId: scratchProgram.id,
+          name: "Verify Reseed",
+          slug: "verify-reseed",
         },
         select: { id: true },
       });
@@ -693,7 +714,7 @@ async function main() {
   check("no modules survived the rollback", leftover, 0);
   check(
     "...nor the course the re-seed check made",
-    await db.course.count({ where: { cohortSlug: "verify-reseed" } }),
+    await db.course.count({ where: { slug: "verify-reseed" } }),
     0,
   );
 

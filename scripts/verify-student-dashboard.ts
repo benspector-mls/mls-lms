@@ -37,29 +37,29 @@ async function main() {
   const as = (userId: string) => createCaller({ db, user: { id: userId } } as never);
 
   /*
-    A real student of a real cohort. Selected by having an active enrollment rather than by role,
-    because the property every check below needs is the enrollment — an account with the STUDENT
-    role and no cohort would pass the selection and then measure nothing.
+    A real fellow of a real matriculation. Selected by having an active enrollment rather than by
+    role, because the property every check below needs is the enrollment — an account with the
+    STUDENT role and no roster would pass the selection and then measure nothing.
   */
   const enrollment = await db.enrollment.findFirst({
-    where: { status: "ACTIVE", course: { archivedAt: null } },
+    where: { status: "ACTIVE", program: { archivedAt: null } },
     select: {
       studentId: true,
-      courseId: true,
+      programId: true,
       student: { select: { email: true, testStudentNumber: true } },
-      course: { select: { name: true } },
+      program: { select: { name: true, matriculation: true } },
     },
     orderBy: { createdAt: "asc" },
   });
 
   if (!enrollment) {
-    skip("no active enrollment in a cohort that is still running");
+    skip("no active enrollment in a program that is still running");
     return finish();
   }
 
   const student = as(enrollment.studentId);
-  console.log(`Student  ${enrollment.student.email ?? enrollment.studentId}`);
-  console.log(`Cohort   ${enrollment.course.name}\n`);
+  console.log(`Fellow   ${enrollment.student.email ?? enrollment.studentId}`);
+  console.log(`Program  ${enrollment.program.name} · ${enrollment.program.matriculation}\n`);
 
   // --- listMine: shape ---------------------------------------------------
 
@@ -107,7 +107,9 @@ async function main() {
   const undistributed = await db.assignment.count({
     where: {
       distributedAt: null,
-      course: { enrollments: { some: { studentId: enrollment.studentId, status: "ACTIVE" } } },
+      course: {
+        program: { enrollments: { some: { studentId: enrollment.studentId, status: "ACTIVE" } } },
+      },
     },
   });
   checkThat(
@@ -116,14 +118,26 @@ async function main() {
       (await db.assignment.count({
         where: { id: { in: rows.map((r) => r.id) }, distributedAt: null },
       })) === 0,
-    `${undistributed} unpublished in the caller's cohorts`,
+    `${undistributed} unpublished in the caller's courses`,
   );
 
-  // Archived cohorts stay readable on their own course page and are not deadlines any more.
+  // Archived courses stay readable on their own page and are not deadlines any more.
   const archivedReached = await db.assignment.count({
     where: { id: { in: rows.map((r) => r.id) }, course: { archivedAt: { not: null } } },
   });
-  check("no archived cohort's work reached the dashboard", archivedReached, 0);
+  check("no archived course's work reached the dashboard", archivedReached, 0);
+
+  /*
+    And an unpublished *course* is invisible the same way an unpublished assignment is, which is the
+    third of the three readers of `Course.publishedAt` that have to agree. Being on a matriculation's
+    roster makes somebody a student of every course in it, so publication is the only thing keeping a
+    course that begins in March off this list in September — and this feed is where a disagreement
+    would show up as a deadline for work nobody has been given.
+  */
+  const unpublishedReached = await db.assignment.count({
+    where: { id: { in: rows.map((r) => r.id) }, course: { publishedAt: null } },
+  });
+  check("no unpublished course's work reached the dashboard", unpublishedReached, 0);
 
   // Every submission attached belongs to the caller. The clause that guarantees it is the only
   // thing that does.
@@ -133,24 +147,24 @@ async function main() {
       studentId: { not: enrollment.studentId },
     },
   });
-  check("no other student's submission was attached", foreignSubmissions, 0);
+  check("no other fellow's submission was attached", foreignSubmissions, 0);
 
   /*
-    A second student, and the check that the first one's work does not reach them. Skipped rather
-    than approximated when the cohort has only one student: "another account" is not "another
-    student of this course", and the wrong fixture passes by luck.
+    A second fellow, and the check that the first one's work does not reach them. Skipped rather than
+    approximated when the roster has only one fellow: "another account" is not "another fellow of
+    this matriculation", and the wrong fixture passes by luck.
   */
   const other = await db.enrollment.findFirst({
     where: {
       status: "ACTIVE",
       studentId: { not: enrollment.studentId },
-      course: { archivedAt: null },
+      program: { archivedAt: null },
     },
     select: { studentId: true },
   });
 
   if (!other) {
-    skip("only one active student exists, so cross-student scoping cannot be measured");
+    skip("only one active fellow exists, so cross-fellow scoping cannot be measured");
   } else {
     const theirRows = await as(other.studentId).assignments.listMine();
     const leaked = theirRows.filter(
@@ -266,14 +280,17 @@ async function main() {
   // --- myWeek: the attendance strip -------------------------------------
 
   /*
-    The second cross-course read on this screen, and the second place a missing `where` clause
-    would hand one fellow another's record. The shape checks below matter for a different reason:
-    the strip draws squares from `days` and a figure from `summary`, and a procedure that returned
-    a week the columns do not cover draws a row of blanks that looks exactly like a quiet week.
+    The second cross-scope read on this screen, and the second place a missing `where` clause would
+    hand one fellow another's record. The shape checks below matter for a different reason: the strip
+    draws squares from `days` and a figure from `summary`, and a procedure that returned a week the
+    columns do not cover draws a row of blanks that looks exactly like a quiet week.
+
+    **One row per matriculation, not per course**, which is what attendance moving up bought here: a
+    fellow taking three courses that all met on a Tuesday had three rows saying the same thing.
   */
   const week = await student.attendance.myWeek();
   console.log(
-    `\nmyWeek    ${week.courses.length} course(s), ${week.columns.length} column(s), ` +
+    `\nmyWeek    ${week.programs.length} program(s), ${week.columns.length} column(s), ` +
       `week of ${week.week.from}\n`,
   );
 
@@ -284,36 +301,55 @@ async function main() {
     `${week.week.from} to ${week.week.to}`,
   );
 
+  /*
+    One row per matriculation the fellow is on the roster of, and no more. It is the check that says
+    the strip is program-shaped rather than course-shaped: a procedure that had kept its old scoping
+    would return a row per course, which is more rows than there are rosters.
+  */
+  check(
+    "there is one row per matriculation, not per course",
+    week.programs.length,
+    await db.enrollment.count({
+      where: {
+        studentId: enrollment.studentId,
+        status: "ACTIVE",
+        program: { archivedAt: null },
+      },
+    }),
+  );
+
   checkThat(
-    "every course draws one square per column",
-    week.courses.every((c) => c.days.length === week.columns.length),
+    "every matriculation draws one square per column",
+    week.programs.every((row) => row.days.length === week.columns.length),
   );
 
   checkThat(
     "the squares are the columns, in order",
-    week.courses.every((c) => c.days.every((d, i) => d.day === week.columns[i])),
+    week.programs.every((row) => row.days.every((day, i) => day.day === week.columns[i])),
   );
 
-  // Cumulative and never a weekly rate: the denominator is sessions somebody opened, so a week
-  // with a forgotten morning would read as a full one.
+  // Cumulative and never a weekly rate: the denominator is mornings somebody opened, so a week with
+  // a forgotten one would read as a full week.
   checkThat(
     "the figure beside the squares is the term's, not the week's",
-    week.courses.every((c) => c.summary.rate == null || c.summary.attended <= c.summary.eligible),
+    week.programs.every(
+      (row) => row.summary.rate == null || row.summary.attended <= row.summary.eligible,
+    ),
   );
 
   checkThat(
-    "no archived or dropped cohort is in the strip",
+    "no archived or dropped matriculation is in the strip",
     (await db.enrollment.count({
       where: {
         studentId: enrollment.studentId,
-        courseId: { in: week.courses.map((c) => c.course.id) },
-        OR: [{ status: { not: "ACTIVE" } }, { course: { archivedAt: { not: null } } }],
+        programId: { in: week.programs.map((row) => row.program.id) },
+        OR: [{ status: { not: "ACTIVE" } }, { program: { archivedAt: { not: null } } }],
       },
     })) === 0,
   );
 
   if (!other) {
-    skip("only one active student exists, so myWeek's scoping cannot be measured");
+    skip("only one active fellow exists, so myWeek's scoping cannot be measured");
   } else {
     /*
       The check this section exists for. `summarize` is handed the caller's own records and nobody
@@ -321,28 +357,28 @@ async function main() {
       thing making that true — Prisma connects as the owner and row level security does not apply.
     */
     const theirWeek = await as(other.studentId).attendance.myWeek();
-    const theirCourses = new Set(theirWeek.courses.map((c) => c.course.id));
-    const shared = week.courses.filter((c) => theirCourses.has(c.course.id));
+    const theirPrograms = new Set(theirWeek.programs.map((row) => row.program.id));
+    const shared = week.programs.filter((row) => theirPrograms.has(row.program.id));
 
     checkThat(
-      "two fellows of one cohort get their own figures, not the cohort's",
-      shared.every((c) => {
-        const theirs = theirWeek.courses.find((t) => t.course.id === c.course.id)!;
+      "two fellows of one matriculation get their own figures, not the roster's",
+      shared.every((row) => {
+        const theirs = theirWeek.programs.find((t) => t.program.id === row.program.id)!;
         // Their eligible counts may legitimately match; what must never match by construction is
         // one fellow's attendance being reported as the other's.
         return theirs.summary.attended <= theirs.summary.eligible;
       }),
-      `${shared.length} shared cohort(s)`,
+      `${shared.length} shared program(s)`,
     );
 
     const foreignRecords = await db.attendanceRecord.count({
       where: {
         enrollment: { studentId: { not: other.studentId } },
-        session: { courseId: { in: theirWeek.courses.map((c) => c.course.id) } },
+        session: { programId: { in: theirWeek.programs.map((row) => row.program.id) } },
         status: { in: ["PRESENT", "LATE"] },
       },
     });
-    const theirAttended = theirWeek.courses.reduce((sum, c) => sum + c.summary.attended, 0);
+    const theirAttended = theirWeek.programs.reduce((sum, row) => sum + row.summary.attended, 0);
     checkThat(
       "one fellow's attendance is not counted into another's rate",
       theirAttended <=
@@ -352,13 +388,32 @@ async function main() {
             status: { in: ["PRESENT", "LATE"] },
           },
         })),
-      `${theirAttended} attended, ${foreignRecords} belonging to others in the same cohorts`,
+      `${theirAttended} attended, ${foreignRecords} belonging to others on the same rosters`,
     );
   }
 
   // --- the progress bar, against the same rows the course page draws ----
 
-  const courseRows = await student.assignments.listForCourse({ courseId: enrollment.courseId });
+  /*
+    One course of the matriculation, because the bar is a course's. Published only: an unpublished
+    course is refused to a fellow, so naming one would report a working guard as a broken screen.
+  */
+  const barCourse = await db.course.findFirst({
+    where: {
+      programId: enrollment.programId,
+      archivedAt: null,
+      publishedAt: { not: null },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+
+  if (!barCourse) {
+    skip("the fellow's matriculation has no published course, so the progress bar cannot be read");
+    return finish();
+  }
+
+  const courseRows = await student.assignments.listForCourse({ courseId: barCourse.id });
   const segments = progressSegments(courseRows);
 
   check(

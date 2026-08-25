@@ -34,8 +34,10 @@ async function main() {
   const { createCallerFactory } = await import("../trpc/init");
 
   const course = await db.course.findFirst({
-    where: { archivedAt: null, enrollments: { some: { status: "ACTIVE" } } },
-    select: { id: true },
+    // A course whose matriculation has somebody on its roster. Enrollment belongs to the program
+    // now, so the condition reaches up through it rather than sitting on the course.
+    where: { archivedAt: null, program: { enrollments: { some: { status: "ACTIVE" } } } },
+    select: { id: true, programId: true },
   });
   const instructor = course
     ? await db.courseInstructor.findFirst({
@@ -45,14 +47,14 @@ async function main() {
     : null;
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id, status: "ACTIVE" },
+        where: { programId: course.programId, status: "ACTIVE" },
         orderBy: { createdAt: "asc" },
         select: { studentId: true, student: { select: { email: true } } },
       })
     : null;
 
   if (!course || !instructor || !enrollment) {
-    return skip("no seeded course with an instructor and an active student");
+    return skip("no seeded course with an instructor and an active fellow on its roster");
   }
 
   const studentId = enrollment.studentId;
@@ -88,9 +90,9 @@ async function main() {
 
       // --- reading -----------------------------------------------------------
 
-      const before = await asInstructor.gcf.forCourse({ courseId: course.id, group: "all" });
+      const before = await asInstructor.gcf.forCourse({ courseId: course.id, cohort: "all" });
       check(
-        "the cohort's tab lists its active students",
+        "the course's tab lists the roster's active fellows",
         before.activeStudents.some((s) => s.id === studentId),
         true,
       );
@@ -237,8 +239,8 @@ async function main() {
       // --- who may do any of it ----------------------------------------------
 
       check(
-        "a student cannot read the cohort's results",
-        await refusal(() => asStudent.gcf.forCourse({ courseId: course.id, group: "all" })),
+        "a fellow cannot read the course's results",
+        await refusal(() => asStudent.gcf.forCourse({ courseId: course.id, cohort: "all" })),
         "FORBIDDEN",
       );
 
@@ -261,11 +263,11 @@ async function main() {
 
       /*
         The check `courseProcedure` cannot make. It gates on the course, which stops somebody
-        writing into a cohort they do not teach — but `studentId` is a separate argument naming any
+        writing into a course they do not teach — but `studentId` is a separate argument naming any
         profile in the deployment, and teaching a course says nothing about that person.
       */
       const outsider = await tx.profile.findFirst({
-        where: { id: { not: studentId }, enrollments: { none: { courseId: course.id } } },
+        where: { id: { not: studentId }, enrollments: { none: { programId: course.programId } } },
         select: { id: true },
       });
 

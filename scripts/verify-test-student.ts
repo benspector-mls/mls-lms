@@ -95,13 +95,30 @@ async function main() {
   check("nor is the empty string", isUuid(""), false);
 
   // ---------------------------------------------------------------------------
-  // Fixtures. Every group below needs a course with a real student in it, an
-  // instructor of that course, and an admin.
+  // Fixtures. Every group below needs a matriculation with a real fellow on its
+  // roster, a course inside it, an instructor of that program, and an admin.
+  //
+  // A test student is enrolled on a roster rather than in a course, so the scope
+  // this script works in is the program — and the course is only needed where a
+  // check reads a course-shaped screen.
   // ---------------------------------------------------------------------------
-  const course = await db.course.findFirst({
-    where: { archivedAt: null, enrollments: { some: { status: "ACTIVE" } } },
+  const program = await db.program.findFirst({
+    where: {
+      archivedAt: null,
+      enrollments: { some: { status: "ACTIVE" } },
+      courses: { some: { archivedAt: null } },
+    },
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true },
+    select: {
+      id: true,
+      name: true,
+      courses: {
+        where: { archivedAt: null },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: { id: true },
+      },
+    },
   });
 
   const admin = await db.profile.findFirst({
@@ -124,9 +141,9 @@ async function main() {
     Optional rather than required, because a deployment can legitimately have no plain instructor.
     The group that needs one says so instead of substituting somebody.
   */
-  const instructor = course
-    ? await db.courseInstructor.findFirst({
-        where: { courseId: course.id, user: { role: "INSTRUCTOR" } },
+  const instructor = program
+    ? await db.programInstructor.findFirst({
+        where: { programId: program.id, user: { role: "INSTRUCTOR" } },
         select: { userId: true },
       })
     : null;
@@ -138,10 +155,10 @@ async function main() {
     a database where a previous run leaked would otherwise pick a test student to stand in for a
     real one, and every check comparing the two would pass without comparing anything.
   */
-  const realStudent = course
+  const realStudent = program
     ? await db.enrollment.findFirst({
         where: {
-          courseId: course.id,
+          programId: program.id,
           status: "ACTIVE",
           student: { role: "STUDENT", testStudentNumber: null },
         },
@@ -163,10 +180,10 @@ async function main() {
       })
     : null;
 
-  if (!course || !admin || !realStudent) {
+  if (!program || !admin || !realStudent) {
     skip(
-      "needs an unarchived course with an active student, plus an admin account. " +
-        `Found course=${Boolean(course)} admin=${Boolean(admin)} student=${Boolean(realStudent)}. ` +
+      "needs an unarchived program with an active fellow and a course, plus an admin account. " +
+        `Found program=${Boolean(program)} admin=${Boolean(admin)} fellow=${Boolean(realStudent)}. ` +
         "Seed with npm run db:seed and grant an admin with npm run grant:admin.",
     );
     finish();
@@ -181,27 +198,27 @@ async function main() {
     const asStudent = createCaller({ db: tx, user: { id: realStudent.studentId } } as never);
     const asAdmin = createCaller({ db: tx, user: { id: admin.id } } as never);
 
-    const courseId = course.id;
+    const programId = program.id;
 
     check(
-      "a student cannot list test students",
-      await refusal(() => asStudent.testStudents.list({ courseId })),
+      "a fellow cannot list test students",
+      await refusal(() => asStudent.testStudents.list({ programId })),
       "FORBIDDEN",
     );
     check(
-      "a student cannot create one",
-      await refusal(() => asStudent.testStudents.create({ courseId })),
+      "a fellow cannot create one",
+      await refusal(() => asStudent.testStudents.create({ programId })),
       "FORBIDDEN",
     );
     check(
-      "a student cannot enrol one",
+      "a fellow cannot enrol one",
       await refusal(() =>
-        asStudent.testStudents.enroll({ courseId, profileId: realStudent.studentId }),
+        asStudent.testStudents.enroll({ programId, profileId: realStudent.studentId }),
       ),
       "FORBIDDEN",
     );
     check(
-      "a student cannot delete one",
+      "a fellow cannot delete one",
       await refusal(() => asStudent.testStudents.remove({ profileId: realStudent.studentId })),
       "FORBIDDEN",
     );
@@ -210,7 +227,7 @@ async function main() {
     // procedures being broken for everybody.
     check(
       "an admin may list them",
-      Array.isArray(await asAdmin.testStudents.list({ courseId })),
+      Array.isArray(await asAdmin.testStudents.list({ programId })),
       true,
     );
   });
@@ -227,29 +244,29 @@ async function main() {
   */
   if (!instructor) {
     skip(
-      `${course.name} has no instructor who is not also an admin, so the checks that an ` +
+      `${program.name} has no instructor who is not also an admin, so the checks that an ` +
         "instructor is refused cannot be made. Redeem a staff invitation for a second account, or " +
-        "add a plain INSTRUCTOR to this course.",
+        "add a plain INSTRUCTOR to this program.",
     );
   } else {
     await inOwnTransaction(db, async (tx) => {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-      const courseId = course.id;
+      const programId = program.id;
 
       check(
         "an instructor cannot list test students",
-        await refusal(() => asInstructor.testStudents.list({ courseId })),
+        await refusal(() => asInstructor.testStudents.list({ programId })),
         "FORBIDDEN",
       );
       check(
         "an instructor cannot create one",
-        await refusal(() => asInstructor.testStudents.create({ courseId })),
+        await refusal(() => asInstructor.testStudents.create({ programId })),
         "FORBIDDEN",
       );
       check(
         "an instructor cannot enrol one",
         await refusal(() =>
-          asInstructor.testStudents.enroll({ courseId, profileId: realStudent.studentId }),
+          asInstructor.testStudents.enroll({ programId, profileId: realStudent.studentId }),
         ),
         "FORBIDDEN",
       );
@@ -278,7 +295,7 @@ async function main() {
       "an admin cannot enrol a real person this way",
       await refusal(() =>
         asAdmin.testStudents.enroll({
-          courseId: course.id,
+          programId: program.id,
           profileId: realStudent.studentId,
         }),
       ),
@@ -400,13 +417,13 @@ async function main() {
     with its last result.
   */
   const repoAssignment = await db.assignment.findFirst({
-    where: { courseId: course.id, kind: "REPO" },
+    where: { course: { programId: program.id }, kind: "REPO" },
     orderBy: { assignmentRepoName: "asc" },
     select: acceptableAssignmentSelect,
   });
 
   if (!repoAssignment) {
-    skip(`${course.name} has no repository assignment, so the accept refusals cannot be checked.`);
+    skip(`${program.name} has no repository assignment, so the accept refusals cannot be checked.`);
   } else {
     await inOwnTransaction(db, async (tx) => {
       const student = {
@@ -459,22 +476,22 @@ async function main() {
   // ---------------------------------------------------------------------------
   await inOwnTransaction(db, async (tx) => {
     // The admin, because this group is about the count rather than about who may read it — and an
-    // admin can read every course's, so it does not depend on a plain instructor existing.
+    // admin can read every program's, so it does not depend on a plain instructor existing.
     const asStaff = createCaller({ db: tx, user: { id: admin.id } } as never);
 
-    const before = (await asStaff.courses.listMine()).find((row) => row.id === course.id);
-    const rosterBefore = await asStaff.courses.roster({ courseId: course.id });
+    const before = (await asStaff.programs.listMine()).find((row) => row.id === program.id);
+    const rosterBefore = await asStaff.programs.roster({ programId: program.id });
 
     await tx.profile.update({
       where: { id: realStudent.studentId },
       data: { testStudentNumber: FAKE_NUMBER },
     });
 
-    const after = (await asStaff.courses.listMine()).find((row) => row.id === course.id);
-    const rosterAfter = await asStaff.courses.roster({ courseId: course.id });
+    const after = (await asStaff.programs.listMine()).find((row) => row.id === program.id);
+    const rosterAfter = await asStaff.programs.roster({ programId: program.id });
 
     check(
-      "the course card stops counting a student that becomes a test student",
+      "the program card stops counting a fellow that becomes a test student",
       after?._count.enrollments,
       (before?._count.enrollments ?? 0) - 1,
     );
@@ -507,24 +524,24 @@ async function main() {
 
     let createdId: string | null = null;
     try {
-      const created = await asAdmin.testStudents.create({ courseId: course.id });
+      const created = await asAdmin.testStudents.create({ programId: program.id });
       createdId = created.id;
 
       check("the new test student takes the next number", created.testStudentNumber, expected);
       check("it is named after it", created.displayName, testStudentName(expected));
       check("its handle is too", created.githubUsername, testStudentHandle(expected));
-      check("and it is in the cohort", created.enrollmentStatus, "ACTIVE");
+      check("and it is on the roster", created.enrollmentStatus, "ACTIVE");
 
-      const listed = await asAdmin.testStudents.list({ courseId: course.id });
+      const listed = await asAdmin.testStudents.list({ programId: program.id });
       checkThat(
-        "it appears on the list as already in this cohort",
+        "it appears on the list as already on this roster",
         listed.some((row) => row.id === createdId && row.enrollmentStatus === "ACTIVE"),
       );
 
       // Enrolling one that is already here is the same as enrolling it once, which is what makes
       // pressing the button twice harmless.
       const again = await asAdmin.testStudents.enroll({
-        courseId: course.id,
+        programId: program.id,
         profileId: createdId,
       });
       check("enrolling it again is idempotent", again.enrollmentStatus, "ACTIVE");
@@ -568,7 +585,7 @@ async function main() {
       );
       abandonedId = abandoned.id;
 
-      const claimed = await asAdmin.testStudents.create({ courseId: course.id });
+      const claimed = await asAdmin.testStudents.create({ programId: program.id });
       check("an abandoned account is claimed rather than skipped", claimed.id, abandonedId);
       check(
         "and it keeps the number whose address it holds",
@@ -599,7 +616,7 @@ async function main() {
         "repository and deletes it again.",
     );
   } else if (!repoAssignment) {
-    skip(`${course.name} has no repository assignment, so accepting for real cannot be checked.`);
+    skip(`${program.name} has no repository assignment, so accepting for real cannot be checked.`);
   } else if (!admin.githubUsername) {
     skip("the admin has no linked GitHub account, so there is nobody to invite to the repository.");
   } else {
@@ -613,7 +630,7 @@ async function main() {
     } else {
       let studentId: string | null = null;
       try {
-        const student = await asAdmin.testStudents.create({ courseId: course.id });
+        const student = await asAdmin.testStudents.create({ programId: program.id });
         studentId = student.id;
 
         const accepted = await acceptRepoAssignment(db, {
@@ -629,7 +646,7 @@ async function main() {
         const fullName = accepted.submission.repoFullName;
         checkThat("accepting generates a repository", fullName !== null, String(fullName));
         checkThat(
-          "named for the cohort and the test student",
+          "named for the course and the test student",
           fullName?.endsWith(`-${student.githubUsername}`) === true,
           String(fullName),
         );

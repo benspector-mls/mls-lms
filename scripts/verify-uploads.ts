@@ -551,9 +551,10 @@ async function main() {
       archivedAt: null,
       instructors: { some: {} },
       courseUnits: { some: {} },
-      enrollments: { some: {} },
+      // Somebody on the matriculation's roster, which is where enrollment lives now.
+      program: { enrollments: { some: {} } },
     },
-    select: { id: true },
+    select: { id: true, programId: true },
   });
   const instructor = course
     ? await db.courseInstructor.findFirst({
@@ -569,7 +570,7 @@ async function main() {
   */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id },
+        where: { programId: course.programId },
         orderBy: { createdAt: "asc" },
         select: { id: true, studentId: true, status: true },
       })

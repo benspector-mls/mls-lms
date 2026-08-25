@@ -73,34 +73,55 @@ async function main() {
     Selected by having an active enrollment in a cohort that is still running, which is the property
     every check below actually needs — an account with the STUDENT role and no cohort would pass a
     role-based selection and then measure nothing. A test student first, because rotating its token
-    and adding an assignment to its cohort cost nobody anything.
+    and adding an assignment to a course of its matriculation cost nobody anything.
+
+    **A published course of the program, named here rather than assumed.** An enrollment admits
+    somebody to every course of the matriculation, so the assignment this script creates has to hang
+    off one they can actually see — an unpublished course would keep the fixture out of the feed for
+    a second reason and the check would pass without measuring the rule.
   */
   const fixtureSelect = {
     studentId: true,
-    courseId: true,
+    programId: true,
+    program: {
+      select: {
+        courses: {
+          where: { archivedAt: null, publishedAt: { not: null } },
+          orderBy: { createdAt: "asc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    },
     student: { select: { email: true, calendarToken: true } },
+  } as const;
+
+  const withCourse = {
+    status: "ACTIVE",
+    program: {
+      archivedAt: null,
+      courses: { some: { archivedAt: null, publishedAt: { not: null } } },
+    },
   } as const;
 
   const enrollment =
     (await db.enrollment.findFirst({
-      where: {
-        status: "ACTIVE",
-        course: { archivedAt: null },
-        student: { testStudentNumber: { not: null } },
-      },
+      where: { ...withCourse, student: { testStudentNumber: { not: null } } },
       select: fixtureSelect,
       orderBy: { createdAt: "asc" },
     })) ??
     (await db.enrollment.findFirst({
-      where: { status: "ACTIVE", course: { archivedAt: null } },
+      where: withCourse,
       select: fixtureSelect,
       orderBy: { createdAt: "asc" },
     }));
 
   if (!enrollment) {
-    skip("no active enrollment in a cohort that is still running");
+    skip("no active enrollment in a program with a published course that is still running");
     return finish();
   }
+
+  const fixtureCourseId = enrollment.program.courses[0]!.id;
 
   // Is the application answering at all? Asked before anything is written, so a script run without
   // a dev server reports why rather than rotating a token and then failing every check.
@@ -117,12 +138,12 @@ async function main() {
   const priorToken = enrollment.student.calendarToken;
 
   /*
-    Somewhere to hang the assignment this script creates. Any unit of the student's own cohort will
-    do — what is being checked is `distributedAt`, and the unit only has to exist because an
+    Somewhere to hang the assignment this script creates. Any unit of a course the fellow can see
+    will do — what is being checked is `distributedAt`, and the unit only has to exist because an
     assignment cannot be created without one.
   */
   const unit = await db.courseUnit.findFirst({
-    where: { courseId: enrollment.courseId },
+    where: { courseId: fixtureCourseId },
     select: { id: true },
     orderBy: { position: "asc" },
   });
@@ -255,17 +276,17 @@ async function main() {
     // --- unpublished work, on a row made for the purpose --------------------
 
     if (!unit) {
-      skip("the fixture student's cohort has no unit to attach an assignment to");
+      skip("the fixture fellow's course has no unit to attach an assignment to");
     } else {
       const fixture = await db.assignment.create({
         data: {
-          courseId: enrollment.courseId,
+          courseId: fixtureCourseId,
           courseUnitId: unit.id,
           title: "verify:calendar — a deadline nobody was given",
           pointValue: 10,
           dueAt: new Date("2099-12-31T23:59:00Z"),
-          // The whole point of the row. Unpublished, in the student's own cohort, with a deadline —
-          // so the only reason to leave it out of the feed is the rule being checked.
+          // The whole point of the row. Unpublished, in a course the fellow can see, with a
+          // deadline — so the only reason to leave it out of the feed is the rule being checked.
           distributedAt: null,
         },
         select: { id: true },

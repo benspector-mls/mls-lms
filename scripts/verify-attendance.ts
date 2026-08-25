@@ -1,13 +1,18 @@
 /**
- * Taking attendance: starting a session, checking into it, correcting it, and ending it.
+ * Taking attendance: starting a day, checking into it, correcting it, ending it, and when people
+ * arrive.
  *
  * Run with `npm run verify:attendance`.
+ *
+ * **One morning per matriculation, not one per course**, which is the change this script now checks.
+ * A fellow taking three courses that all met on a Tuesday used to have three sessions to check into
+ * and three codes to type; there is one session, one code, and one record.
  *
  * Driven through the tRPC callers inside a transaction that is rolled back. What makes this a
  * script rather than a suite is that most of what these procedures *are* is authorization and
  * database constraints — a unique index deciding a race, a composite foreign key refusing another
- * cohort's student, a rate limit counting rows in the audit log. None of that can be asked of a
- * fixture, and Prisma is not restricted by row level security from ignoring any of it.
+ * matriculation's fellow, a rate limit counting rows in the audit log. None of that can be asked of
+ * a fixture, and Prisma is not restricted by row level security from ignoring any of it.
  *
  * **Every check is written in pairs.** Allowed and refused at the same call, because a one-sided
  * check passes against a guard that refuses everybody — and the counting checks assert the record
@@ -40,31 +45,65 @@ async function main() {
   const { codeFor, CODE_DIGITS } = await import("../lib/attendance/code");
   const { DEFAULT_SESSION_MINUTES } = await import("../lib/attendance/window");
   const { schoolDayOf, dateColumnFor } = await import("../lib/school-time");
-  const { ownerOf } = await import("../lib/courses/ownership");
+  const { ownerOf } = await import("../lib/programs/ownership");
+  const { arrivalAverages, arrivalSentence, MIN_ARRIVALS } = await import(
+    "../lib/attendance/arrival"
+  );
+  const { formatClockMinutes, minutesAfterMidnight, weekdayOf } = await import(
+    "../lib/school-time"
+  );
+
+  /**
+   * The instant at which the school clock reads a given time on a given day.
+   *
+   * Solved for rather than computed from an offset, because the offset is the thing being checked.
+   * Four Mondays in March 2026 straddle the change to daylight saving — the second is in EST and the
+   * rest are in EDT — so an arrival written at a fixed UTC hour would read as two different times of
+   * the morning and the weekday average would be an artefact of the calendar. Sliding the instant
+   * until `minutesAfterMidnight` agrees is what makes the fixture say what it means.
+   *
+   * It throws rather than returning a near miss. A silent wrap onto the previous evening would file
+   * the arrival under the wrong weekday, which is precisely the mistake these checks exist to catch.
+   */
+  function schoolInstant(day: string, hours: number, minutes: number): Date {
+    const target = hours * 60 + minutes;
+    let at = new Date(new Date(`${day}T00:00:00Z`).getTime() + target * 60_000);
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const drift = minutesAfterMidnight(at) - target;
+      if (drift === 0) break;
+      at = new Date(at.getTime() - drift * 60_000);
+    }
+
+    if (minutesAfterMidnight(at) !== target || schoolDayOf(at) !== day) {
+      throw new Error(`could not place ${hours}:${minutes} on ${day}`);
+    }
+    return at;
+  }
 
   /*
-    A course with at least two active students, because half the checks below are about one fellow
-    being unaffected by what another does. One would let "the record count did not change" pass
-    for the wrong reason.
+    A matriculation with at least two active fellows, because half the checks below are about one
+    fellow being unaffected by what another does. One would let "the record count did not change"
+    pass for the wrong reason.
   */
-  const course = await db.course.findFirst({
+  const program = await db.program.findFirst({
     where: { archivedAt: null, enrollments: { some: { status: "ACTIVE" } } },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, attendanceLateAfterMinutes: true },
   });
 
-  const instructor = course
+  const instructor = program
     ? ownerOf(
-        await db.courseInstructor.findMany({
-          where: { courseId: course.id },
+        await db.programInstructor.findMany({
+          where: { programId: program.id },
           select: { userId: true, isPrimary: true, createdAt: true },
         }),
       )
     : null;
 
-  const enrollments = course
+  const enrollments = program
     ? await db.enrollment.findMany({
-        where: { courseId: course.id, status: "ACTIVE" },
+        where: { programId: program.id, status: "ACTIVE" },
         orderBy: { createdAt: "asc" },
         take: 2,
         select: { id: true, studentId: true },
@@ -72,22 +111,22 @@ async function main() {
     : [];
 
   /*
-    An instructor who does not teach this course, chosen by the property rather than by a proxy.
-    "Some other instructor" is not "an instructor who does not teach this one" — see the note at
-    the top of the harness about how that passes by luck.
+    An instructor who does not instruct this matriculation, chosen by the property rather than by a
+    proxy. "Some other instructor" is not "an instructor who does not instruct this one" — see the
+    note at the top of the harness about how that passes by luck.
   */
-  const outsider = course
+  const outsider = program
     ? await db.profile.findFirst({
         where: {
           role: { in: ["INSTRUCTOR"] },
-          instructorOf: { none: { courseId: course.id } },
+          programsInstructing: { none: { programId: program.id } },
         },
         select: { id: true },
       })
     : null;
 
-  if (!course || !instructor || enrollments.length < 2) {
-    skip("needs a seeded course with an instructor and at least two active students");
+  if (!program || !instructor || enrollments.length < 2) {
+    skip("needs a seeded program with an instructor and at least two active fellows");
     return finish();
   }
 
@@ -111,19 +150,19 @@ async function main() {
           the transaction, so it is undone with everything else.
         */
         await tx.attendanceSession.deleteMany({
-          where: { courseId: course.id, date: dateColumnFor(today) },
+          where: { programId: program.id, date: dateColumnFor(today) },
         });
 
         // ---- Starting a session -------------------------------------------------
 
-        const started = await asInstructor.attendance.start({ courseId: course.id });
+        const started = await asInstructor.attendance.start({ programId: program.id });
         check("an instructor starts today's session", started.started, true);
         check("it is dated today", started.day, today);
         check("it is open", started.state, "open");
         check(
-          "it copied the course's on-time window",
+          "it copied the program's on-time window",
           started.lateAfterMinutes,
-          course.attendanceLateAfterMinutes,
+          program.attendanceLateAfterMinutes,
         );
 
         /*
@@ -131,36 +170,36 @@ async function main() {
           procedure that created a second row and reported `started: false` would pass on the flag
           alone, and the room would then be reading one code while the server accepted another.
         */
-        const again = await asInstructor.attendance.start({ courseId: course.id });
+        const again = await asInstructor.attendance.start({ programId: program.id });
         check("starting it again does not start a second one", again.started, false);
         check("and hands back the session that exists", again.id, started.id);
 
         check(
           "a student cannot start a session",
-          await refusal(() => asStudent.attendance.start({ courseId: course.id })),
+          await refusal(() => asStudent.attendance.start({ programId: program.id })),
           "FORBIDDEN",
         );
         if (asOutsider) {
           check(
-            "an instructor who does not teach this course cannot start one",
-            await refusal(() => asOutsider.attendance.start({ courseId: course.id })),
+            "an instructor who does not instruct this matriculation cannot start one",
+            await refusal(() => asOutsider.attendance.start({ programId: program.id })),
             "FORBIDDEN",
           );
         } else {
-          skip("no instructor exists who does not teach the fixture course");
+          skip("no instructor exists who does not instruct the fixture program");
         }
 
         check(
           "a session cannot be started for a day in the future",
           await refusal(() =>
-            asInstructor.attendance.start({ courseId: course.id, day: "2099-01-01" }),
+            asInstructor.attendance.start({ programId: program.id, day: "2099-01-01" }),
           ),
           "BAD_REQUEST",
         );
 
         // ---- The secret never leaves ---------------------------------------------
         //
-        // The `joinToken` precedent from `courses.roster`, and sharper: this one lets somebody
+        // The `joinToken` precedent from `programs.roster`, and sharper: this one lets somebody
         // mark themselves present from bed. A check rather than a convention, because the failure
         // is silent and total.
 
@@ -226,15 +265,15 @@ async function main() {
 
         check(
           "a wrong code is refused",
-          await refusal(() => asStudent.attendance.checkIn({ courseId: course.id, code: wrong })),
+          await refusal(() => asStudent.attendance.checkIn({ programId: program.id, code: wrong })),
           "UNAUTHORIZED",
         );
 
-        const later = await asOther.attendance.checkIn({ courseId: course.id, code: rightNow });
+        const later = await asOther.attendance.checkIn({ programId: program.id, code: rightNow });
         check("the code the instructor gave out is accepted", later.alreadyCheckedIn, false);
 
         const checkedIn = await asStudent.attendance.checkIn({
-          courseId: course.id,
+          programId: program.id,
           code: rightNow,
         });
         check("the current code is accepted", checkedIn.alreadyCheckedIn, false);
@@ -250,7 +289,7 @@ async function main() {
           where: { action: "ATTENDANCE_CHECKED_IN", subjectId: first.studentId },
         });
 
-        const twice = await asStudent.attendance.checkIn({ courseId: course.id, code: rightNow });
+        const twice = await asStudent.attendance.checkIn({ programId: program.id, code: rightNow });
         check("checking in twice returns the record that exists", twice.alreadyCheckedIn, true);
         check(
           "and writes no second record",
@@ -266,9 +305,9 @@ async function main() {
         );
 
         check(
-          "an instructor of the course cannot check in as a student of it",
+          "an instructor of the program cannot check in as a fellow of it",
           await refusal(() =>
-            asInstructor.attendance.checkIn({ courseId: course.id, code: rightNow }),
+            asInstructor.attendance.checkIn({ programId: program.id, code: rightNow }),
           ),
           "FORBIDDEN",
         );
@@ -277,11 +316,11 @@ async function main() {
 
         await asInstructor.enrollments.remove({ enrollmentId: second.id });
         const removedRefusal = await refusal(() =>
-          asOther.attendance.checkIn({ courseId: course.id, code: rightNow }),
+          asOther.attendance.checkIn({ programId: program.id, code: rightNow }),
         );
         check("a removed fellow cannot check in", removedRefusal, "FORBIDDEN");
         // They keep reading their own record, for the same reason they keep their feedback.
-        const removedHistory = await asOther.attendance.myHistory({ courseId: course.id });
+        const removedHistory = await asOther.attendance.myHistory({ programId: program.id });
         checkThat(
           "a removed fellow still reads their own attendance",
           removedHistory.days.length > 0,
@@ -290,9 +329,9 @@ async function main() {
 
         // ---- The grid shows everybody ----------------------------------------------
 
-        const grid = await asInstructor.attendance.grid({ courseId: course.id });
+        const grid = await asInstructor.attendance.grid({ programId: program.id });
         const activeCount = await tx.enrollment.count({
-          where: { courseId: course.id, status: "ACTIVE" },
+          where: { programId: program.id, status: "ACTIVE" },
         });
         check("the grid has a row per active enrollment", grid.rows.length, activeCount);
         checkThat(
@@ -327,7 +366,7 @@ async function main() {
           tests for an existing record before it looks at the code at all.
         */
         const overwritten = await asOther.attendance.checkIn({
-          courseId: course.id,
+          programId: program.id,
           code: rightNow,
         });
         check("a fellow's code does not overwrite an excusal", overwritten.status, "EXCUSED");
@@ -407,7 +446,7 @@ async function main() {
         check(
           "a lapsed session refuses a check-in",
           await refusal(() =>
-            asStudent.attendance.checkIn({ courseId: course.id, code: lapsedCode }),
+            asStudent.attendance.checkIn({ programId: program.id, code: lapsedCode }),
           ),
           "PRECONDITION_FAILED",
         );
@@ -425,7 +464,7 @@ async function main() {
         check("extending brings back the same code", liveCode, rightNow);
 
         const afterExtendCheckIn = await asStudent.attendance.checkIn({
-          courseId: course.id,
+          programId: program.id,
           code: liveCode,
         });
         check("and that code works again", afterExtendCheckIn.alreadyCheckedIn, false);
@@ -457,13 +496,13 @@ async function main() {
         check(
           "the code fellows were already given no longer works",
           await refusal(() =>
-            asStudent.attendance.checkIn({ courseId: course.id, code: rightNow }),
+            asStudent.attendance.checkIn({ programId: program.id, code: rightNow }),
           ),
           "UNAUTHORIZED",
         );
 
         const afterReplace = await asStudent.attendance.checkIn({
-          courseId: course.id,
+          programId: program.id,
           code: replacement,
         });
         check("and the replacement does", afterReplace.alreadyCheckedIn, false);
@@ -476,7 +515,7 @@ async function main() {
 
         const withoutRecord = await tx.enrollment.count({
           where: {
-            courseId: course.id,
+            programId: program.id,
             status: "ACTIVE",
             attendance: { none: { sessionId: session.id } },
           },
@@ -521,7 +560,7 @@ async function main() {
         await tx.attendanceRecord.create({
           data: {
             sessionId: session.id,
-            courseId: course.id,
+            programId: program.id,
             enrollmentId: first.id,
             status: "ABSENT",
             source: "FINALIZED",
@@ -532,7 +571,7 @@ async function main() {
         check(
           "a fellow holding only a finalized absence is refused rather than told they are in",
           await refusal(() =>
-            asStudent.attendance.checkIn({ courseId: course.id, code: liveCode }),
+            asStudent.attendance.checkIn({ programId: program.id, code: liveCode }),
           ),
           "PRECONDITION_FAILED",
         );
@@ -589,7 +628,7 @@ async function main() {
         await tx.attendanceRecord.create({
           data: {
             sessionId: session.id,
-            courseId: course.id,
+            programId: program.id,
             enrollmentId: first.id,
             status: "PRESENT",
             source: "SELF_CHECK_IN",
@@ -608,23 +647,206 @@ async function main() {
         const deleted = await asInstructor.attendance.deleteSession({ sessionId: session.id });
         check("a session nobody used can be", deleted.day, today);
 
-        // ---- The course setting ------------------------------------------------------------
+        // ---- The program setting -----------------------------------------------------------
 
-        const changed = await asInstructor.courses.setAttendanceLateAfter({
-          courseId: course.id,
+        const changed = await asInstructor.programs.setAttendanceLateAfter({
+          programId: program.id,
           minutes: 17,
         });
         check("an instructor sets the on-time window", changed.attendanceLateAfterMinutes, 17);
 
-        const afterSetting = await asInstructor.attendance.start({ courseId: course.id });
+        const afterSetting = await asInstructor.attendance.start({ programId: program.id });
         check("a new session copies it", afterSetting.lateAfterMinutes, 17);
 
         check(
           "a student cannot change it",
           await refusal(() =>
-            asStudent.courses.setAttendanceLateAfter({ courseId: course.id, minutes: 3 }),
+            asStudent.programs.setAttendanceLateAfter({ programId: program.id, minutes: 3 }),
           ),
           "FORBIDDEN",
+        );
+
+        /*
+          ---- When people arrive, against real rows -----------------------------------------
+
+          The detail that per-course attendance used to carry, recovered as the fact it actually was.
+          Taking attendance once a day loses "which course were they late to" and this replaces it
+          with "which morning of the week do they arrive late on", which is the question anybody was
+          ever really asking.
+
+          `arrivalAverages` is unit-tested against invented pairs; what earns a place here is the
+          arithmetic against rows the database produced, and the three rules that are easy to state
+          and easy to get wrong in a query:
+
+          - **only records carrying a `checkedInAt` count**, so an absence neither raises the figure
+            nor lowers it;
+          - **the weekday comes from the session's own day**, not from the arrival instant, so a
+            check-in a few minutes after midnight is not filed under the following day;
+          - **a weekday with fewer than three arrivals reports nothing**, because a mean over one
+            morning is a number somebody would quote.
+
+          Six Mondays and one Friday, written directly: the procedures cannot produce a term of
+          history inside one transaction, and the shape being checked is the aggregate rather than
+          the writing of a row.
+        */
+        await tx.attendanceSession.deleteMany({ where: { programId: program.id } });
+
+        /*
+          Mondays and Tuesdays in a real month, so `weekdayOf` has something to agree with rather
+          than a date this script asserted the weekday of. **March 2026 deliberately**, because
+          daylight saving starts on the 8th: the first Monday is in EST and the rest are in EDT, so
+          four arrivals averaging exactly 10:45 is the school clock being read correctly across the
+          change rather than a fixed offset happening to work.
+        */
+        const mondays = ["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23"];
+        const tuesdays = ["2026-03-03", "2026-03-10", "2026-03-17"];
+        checkThat(
+          "the fixture days really are Mondays and Tuesdays",
+          mondays.every((day) => weekdayOf(day) === 1) &&
+            tuesdays.every((day) => weekdayOf(day) === 2),
+          `${mondays.length} + ${tuesdays.length} days`,
+        );
+
+        /** One closed session on a given day, with one arrival at a given school-clock time. */
+        const programId = program.id;
+        async function arrivalOn(day: string, hours: number, minutes: number) {
+          const session = await tx.attendanceSession.create({
+            data: {
+              programId,
+              date: dateColumnFor(day),
+              startedAt: new Date(`${day}T${String(hours).padStart(2, "0")}:00:00Z`),
+              endsAt: new Date(`${day}T23:00:00Z`),
+              endedAt: new Date(`${day}T23:00:00Z`),
+              lateAfterMinutes: 5,
+              codeSecret: "a".repeat(64),
+            },
+            select: { id: true },
+          });
+
+          await tx.attendanceRecord.create({
+            data: {
+              sessionId: session.id,
+              programId,
+              enrollmentId: first.id,
+              status: "PRESENT",
+              source: "SELF_CHECK_IN",
+              checkedInAt: schoolInstant(day, hours, minutes),
+            },
+          });
+        }
+
+        // Late every Monday, on time every Tuesday. The pattern is the whole point: an overall
+        // average alone would say nothing worth telling anybody.
+        for (const day of mondays) await arrivalOn(day, 10, 45);
+        for (const day of tuesdays) await arrivalOn(day, 9, 0);
+
+        /*
+          And one absence, which must not move either figure. On a Monday deliberately — the weekday
+          that already has an average — because an absence dropped into a weekday with none would
+          leave both readings unchanged whether the rule held or not. Written FINALIZED, which is the
+          only source the CHECK constraints allow with no `checkedInAt`.
+        */
+        const absentSession = await tx.attendanceSession.create({
+          data: {
+            programId: program.id,
+            date: dateColumnFor("2026-03-30"),
+            startedAt: new Date("2026-03-30T09:00:00Z"),
+            endsAt: new Date("2026-03-30T23:00:00Z"),
+            endedAt: new Date("2026-03-30T23:00:00Z"),
+            lateAfterMinutes: 5,
+            codeSecret: "b".repeat(64),
+          },
+          select: { id: true },
+        });
+        await tx.attendanceRecord.create({
+          data: {
+            sessionId: absentSession.id,
+            programId: program.id,
+            enrollmentId: first.id,
+            status: "ABSENT",
+            source: "FINALIZED",
+          },
+        });
+
+        const history = await asInstructor.attendance.history({ programId: program.id });
+        const theirs = history.arrivals[first.id];
+
+        checkThat("the roster's arrivals are keyed by enrollment", theirs !== undefined, first.id);
+
+        check(
+          "the overall average counts every arrival and no absence",
+          theirs?.overall.count,
+          mondays.length + tuesdays.length,
+        );
+        check(
+          "...and every weekday is present, Monday first",
+          theirs?.byWeekday.map((entry) => entry.weekday),
+          [1, 2, 3, 4, 5, 6, 0],
+        );
+        check(
+          "Monday reports its own average",
+          theirs?.byWeekday.find((entry) => entry.weekday === 1)?.average.minutes,
+          10 * 60 + 45,
+        );
+        check(
+          "...and Tuesday a different one",
+          theirs?.byWeekday.find((entry) => entry.weekday === 2)?.average.minutes,
+          9 * 60,
+        );
+        /*
+          A weekday nobody has arrived on. Reported as an entry with a null average rather than
+          omitted, so a screen draws a stable set of rows — a table whose weekdays appeared and
+          disappeared as the term went on would move under the reader.
+        */
+        check(
+          "a weekday with no arrivals has no average",
+          theirs?.byWeekday.find((entry) => entry.weekday === 3)?.average,
+          { minutes: null, count: 0 },
+        );
+
+        /*
+          The floor, checked by taking one Tuesday away. Three is the smallest number where a mean
+          says something about a habit rather than about one morning, and the failure it prevents is
+          a screen quoting a figure over a single arrival.
+        */
+        const oneTuesday = await tx.attendanceSession.findFirstOrThrow({
+          where: { programId: program.id, date: dateColumnFor(tuesdays[0]!) },
+          select: { id: true },
+        });
+        await tx.attendanceRecord.deleteMany({ where: { sessionId: oneTuesday.id } });
+        const thinner = await asInstructor.attendance.history({ programId: program.id });
+        check(
+          `a weekday with fewer than ${MIN_ARRIVALS} arrivals reports none`,
+          thinner.arrivals[first.id]?.byWeekday.find((entry) => entry.weekday === 2)?.average,
+          { minutes: null, count: tuesdays.length - 1 },
+        );
+
+        /*
+          The sentence the three screens print, and the reason it is one function: a weekday within
+          five minutes of the overall mean is rounding rather than a pattern, and naming it would
+          invent one. Here Monday is more than an hour out, so it is named.
+        */
+        const sentence = arrivalSentence(theirs!);
+        checkThat(
+          "the sentence names the weekday that drifts",
+          sentence !== null &&
+            sentence.includes("Monday") &&
+            sentence.includes(formatClockMinutes(10 * 60 + 45)),
+          sentence ?? "null",
+        );
+        check(
+          "...and says nothing at all before there is anything to say",
+          arrivalSentence(arrivalAverages([])),
+          null,
+        );
+
+        // The fellow's own screen reads the same figures, which is what stops an instructor and a
+        // fellow being shown different accounts of the same mornings.
+        const asFirst = createCaller({ db: tx, user: { id: first.studentId } } as never);
+        check(
+          "a fellow's own record carries the same overall average",
+          (await asFirst.attendance.myHistory({ programId: program.id })).arrivals.overall.minutes,
+          thinner.arrivals[first.id]?.overall.minutes,
         );
 
         throw new Error("ROLLBACK");
@@ -642,14 +864,14 @@ async function main() {
     poisons the transaction it happened in.
   */
   await inOwnTransaction(db, async (tx) => {
-    const other = await tx.course.findFirst({
-      where: { id: { not: course.id }, enrollments: { some: {} } },
+    const other = await tx.program.findFirst({
+      where: { id: { not: program.id }, enrollments: { some: {} } },
       select: { id: true, enrollments: { take: 1, select: { id: true } } },
     });
 
     const session = await tx.attendanceSession.create({
       data: {
-        courseId: course.id,
+        programId: program.id,
         date: dateColumnFor("2099-12-31"),
         startedAt: new Date(),
         endsAt: new Date(Date.now() + 60_000),
@@ -661,15 +883,20 @@ async function main() {
 
     if (other && other.enrollments.length > 0) {
       /*
-        A record naming this course and another cohort's enrollment. The procedure refuses it in
-        words; this asks whether the *database* would, because that is the guarantee — a second
-        write path added later inherits it, and a check in a procedure does not.
+        A record naming this matriculation and another one's enrollment. The procedure refuses it in
+        words; this asks whether the *database* would, because that is the guarantee — a second write
+        path added later inherits it, and a check in a procedure does not.
+
+        The key is `(enrollmentId, programId) → enrollments(id, programId)`, which is the same
+        composite device with a new scoping column: `programId` is copied from the session the server
+        has already loaded and never taken from input, so `setStatus` cannot write against another
+        matriculation's fellow even when its input says to.
       */
-      const crossCourse = await refusal(() =>
+      const crossProgram = await refusal(() =>
         tx.attendanceRecord.create({
           data: {
             sessionId: session.id,
-            courseId: course.id,
+            programId: program.id,
             enrollmentId: other.enrollments[0].id,
             status: "PRESENT",
             source: "INSTRUCTOR",
@@ -677,19 +904,19 @@ async function main() {
         }),
       );
       checkThat(
-        "the database refuses a record against another cohort's student",
-        crossCourse !== "accepted",
-        crossCourse,
+        "the database refuses a record against another matriculation's fellow",
+        crossProgram !== "accepted",
+        crossProgram,
       );
     } else {
-      skip("needs a second course with an enrollment to check the cross-course constraint");
+      skip("needs a second program with an enrollment to check the cross-program constraint");
     }
   });
 
   await inOwnTransaction(db, async (tx) => {
     const session = await tx.attendanceSession.create({
       data: {
-        courseId: course.id,
+        programId: program.id,
         date: dateColumnFor("2099-12-30"),
         startedAt: new Date(),
         endsAt: new Date(Date.now() + 60_000),
@@ -708,7 +935,7 @@ async function main() {
       tx.attendanceRecord.create({
         data: {
           sessionId: session.id,
-          courseId: course.id,
+          programId: program.id,
           enrollmentId: first.id,
           status: "PRESENT",
           source: "FINALIZED",
@@ -725,7 +952,7 @@ async function main() {
       tx.attendanceRecord.create({
         data: {
           sessionId: session.id,
-          courseId: course.id,
+          programId: program.id,
           enrollmentId: first.id,
           status: "PRESENT",
           source: "SELF_CHECK_IN",

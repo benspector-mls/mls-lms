@@ -245,7 +245,7 @@ async function main() {
 
   const enrollment = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id },
+        where: { program: { courses: { some: { id: course.id } } } },
         select: { studentId: true },
       })
     : null;
@@ -446,7 +446,10 @@ async function main() {
         same question only while a course had one instructor.
       */
         const outsider = await tx.profile.findFirst({
-          where: { role: "INSTRUCTOR", instructorOf: { none: { courseId: course.id } } },
+          where: {
+            role: "INSTRUCTOR",
+            programsInstructing: { none: { program: { courses: { some: { id: course.id } } } } },
+          },
           select: { id: true },
         });
         if (outsider) {

@@ -465,7 +465,9 @@ async function handGradedLifecycle(db: Db) {
   */
   const student = course
     ? await db.enrollment.findFirst({
-        where: { courseId: course.id },
+        // On the roster of the matriculation this course belongs to, which is where enrollment
+        // lives now: one row admits a fellow to every course of the year.
+        where: { program: { courses: { some: { id: course.id } } } },
         orderBy: { createdAt: "asc" },
         select: { id: true, studentId: true, status: true },
       })
