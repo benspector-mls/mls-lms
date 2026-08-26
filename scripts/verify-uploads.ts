@@ -12,6 +12,7 @@
  * a check on the thing students use.
  */
 import { createChecker, loadEnvironment, refusal } from "./verify/harness";
+import { HandInMethod } from "../lib/generated/prisma/enums";
 
 loadEnvironment();
 
@@ -534,7 +535,8 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
-  const { assertCanHandIn, storeAndRecordUpload } = await import("../lib/uploads/submit");
+  const { assertCanHandIn, discardReplacedUpload, storeAndRecordUpload } =
+    await import("../lib/uploads/submit");
 
   /*
     A course that satisfies all four requirements at once, rather than the first active one.
@@ -618,7 +620,8 @@ async function main() {
         const { assignment } = await asInstructor.assignments.create({
           courseId: course.id,
           draft: {
-            kind: "FILE_UPLOAD",
+            kind: "SELF_DIRECTED",
+            handInMethods: ["FILE"],
             title: "Resume, first draft (verify:uploads)",
             courseUnitId,
             dueAt: null,
@@ -627,7 +630,7 @@ async function main() {
             sections: [{ grading: "manual", label: "Resume", pointValue: 20 }],
           },
         });
-        check("a file upload assignment can be authored", assignment.pointValue, 20);
+        check("an assignment handed in as a file can be authored", assignment.pointValue, 20);
 
         // Before publishing, an unpublished assignment is not something a student can hand in to
         // — and NOT_FOUND rather than FORBIDDEN, because whether a draft exists is not theirs
@@ -638,7 +641,7 @@ async function main() {
             assertCanHandIn(tx as never, {
               profileId: studentId,
               assignmentId: assignment.id,
-              expect: "file",
+              expect: HandInMethod.FILE,
             }),
           ),
           "NOT_FOUND",
@@ -652,7 +655,7 @@ async function main() {
         it, and two things would be authorities on the same columns.
       */
         check(
-          "submitWork refuses a file upload assignment",
+          "submitWork refuses an assignment handed in only as a file",
           await refusal(() =>
             asStudent.submissions.submitWork({
               assignmentId: assignment.id,
@@ -665,7 +668,7 @@ async function main() {
         const handIn = await assertCanHandIn(tx as never, {
           profileId: studentId,
           assignmentId: assignment.id,
-          expect: "file",
+          expect: HandInMethod.FILE,
         });
         check("a published assignment can be handed in to", handIn.acceptedFileTypes, ["pdf"]);
 
@@ -717,6 +720,131 @@ async function main() {
           await submissionUploadExists(row.uploadPath!),
           true,
         );
+
+        // --- replacing the work, and what happens to what it replaced ---------
+        //
+        // Whether the object is really gone is a fact about *this environment's* bucket rather
+        // than about this repository — the same reason a real notebook and a real .py file are
+        // stored further down rather than asserted about.
+        //
+        // Before a grade, a replacement is a correction: nothing describes the old file, so it
+        // goes. The graded case is the opposite and is checked further down.
+        const secondUpload = await storeAndRecordUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "Ben Spector resume v2.pdf",
+          bytes: body,
+        });
+
+        const afterSecond = await tx.submission.findUniqueOrThrow({
+          where: { id: secondUpload.id },
+          select: { uploadPath: true, gradedAt: true },
+        });
+        if (afterSecond.uploadPath) strays.push(afterSecond.uploadPath);
+
+        check(
+          "a second upload is stored beside the first rather than over it",
+          afterSecond.uploadPath !== row.uploadPath,
+          true,
+        );
+        check(
+          "and the object the first one left behind is gone",
+          await submissionUploadExists(row.uploadPath!),
+          false,
+        );
+        check(
+          "while the one now standing is there",
+          await submissionUploadExists(afterSecond.uploadPath!),
+          true,
+        );
+
+        /*
+          Handing the same work in the other way. This assignment takes only a file, so the link
+          form would be refused on it — the check that matters here is what happens to the stored
+          object when the columns that named it are cleared, which is the same act either way.
+        */
+        await tx.submission.update({
+          where: { id: secondUpload.id },
+          data: { uploadPath: null, uploadFilename: null, uploadSizeBytes: null },
+        });
+        await discardReplacedUpload(afterSecond);
+        check(
+          "clearing the columns takes the object with it",
+          await submissionUploadExists(afterSecond.uploadPath!),
+          false,
+        );
+
+        // Put the file back, so every check below reads the submission the rest of this expects.
+        const restored = await storeAndRecordUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "Ben Spector resume.pdf",
+          bytes: body,
+        });
+        const restoredRow = await tx.submission.findUniqueOrThrow({
+          where: { id: restored.id },
+          select: { uploadPath: true },
+        });
+        if (restoredRow.uploadPath) strays.push(restoredRow.uploadPath);
+
+        /*
+          --- and what a released grade protects ------------------------------
+
+          The other half of the rule, and the one worth having a check for: feedback is written
+          about a file, so once a grade exists the file it describes has to survive the next
+          hand-in. Otherwise a fellow disputing a score and the instructor defending it are
+          arguing about a document neither can open.
+
+          `gradedAt` is written directly here rather than by driving an approval, because what is
+          under test is the removal rule and not the grading pipeline — and the rule reads exactly
+          this one column.
+        */
+        await tx.submission.update({
+          where: { id: restored.id },
+          data: { gradedAt: new Date(), status: "GRADED" },
+        });
+
+        const afterGrade = await storeAndRecordUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "Ben Spector resume, revised.pdf",
+          bytes: body,
+        });
+        const revisedRow = await tx.submission.findUniqueOrThrow({
+          where: { id: afterGrade.id },
+          select: { uploadPath: true, gradedAt: true },
+        });
+        if (revisedRow.uploadPath) strays.push(revisedRow.uploadPath);
+
+        check(
+          "a resubmission keeps the file the grade was written about",
+          await submissionUploadExists(restoredRow.uploadPath!),
+          true,
+        );
+        check(
+          "and the revised file is the one the submission now points at",
+          revisedRow.uploadPath !== restoredRow.uploadPath &&
+            (await submissionUploadExists(revisedRow.uploadPath!)),
+          true,
+        );
+        check(
+          "a graded submission is what the rule reads, not its status",
+          revisedRow.gradedAt !== null,
+          true,
+        );
+
+        // Back to ungraded and pointing at one file, named as it was, which is what every check
+        // below expects.
+        await tx.submission.update({
+          where: { id: restored.id },
+          data: {
+            gradedAt: null,
+            status: "SUBMITTED",
+            uploadPath: restoredRow.uploadPath,
+            uploadFilename: "Ben Spector resume.pdf",
+          },
+        });
+        await discardReplacedUpload({ uploadPath: revisedRow.uploadPath, gradedAt: null });
 
         // --- the triage bucket it lands in ------------------------------------
         const queued = await asInstructor.submissions.listForAssignment({
@@ -773,7 +901,8 @@ async function main() {
         const { assignment: linkAssignment } = await asInstructor.assignments.create({
           courseId: course.id,
           draft: {
-            kind: "EXTERNAL_URL",
+            kind: "SELF_DIRECTED",
+            handInMethods: ["LINK"],
             title: "Personal site on Canva (verify:uploads)",
             courseUnitId,
             dueAt: null,
@@ -785,7 +914,7 @@ async function main() {
 
         // Nothing to hand out, so there is no Accept — the same as a file upload.
         check(
-          "an external-url assignment cannot be accepted",
+          "a self-directed assignment cannot be accepted",
           await refusal(() => asStudent.assignments.accept({ assignmentId: linkAssignment.id })),
           "PRECONDITION_FAILED",
         );
@@ -798,7 +927,7 @@ async function main() {
             assertCanHandIn(tx as never, {
               profileId: studentId,
               assignmentId: linkAssignment.id,
-              expect: "file",
+              expect: HandInMethod.FILE,
             }),
           ),
           "BAD_REQUEST",
@@ -831,7 +960,8 @@ async function main() {
         const { assignment: pyAssignment } = await asInstructor.assignments.create({
           courseId: course.id,
           draft: {
-            kind: "FILE_UPLOAD",
+            kind: "SELF_DIRECTED",
+            handInMethods: ["FILE"],
             title: "Temperature converter (verify:uploads)",
             courseUnitId,
             dueAt: null,
@@ -845,7 +975,7 @@ async function main() {
         const pyHandIn = await assertCanHandIn(tx as never, {
           profileId: studentId,
           assignmentId: pyAssignment.id,
-          expect: "file",
+          expect: HandInMethod.FILE,
         });
         check("an assignment can ask for Python", pyHandIn.acceptedFileTypes, ["python"]);
         check(

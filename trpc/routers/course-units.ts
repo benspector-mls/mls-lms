@@ -174,6 +174,9 @@ export const courseUnitsRouter = createTRPCRouter({
               id: true,
               title: true,
               kind: true,
+              // Read by the row's icon, which says what a fellow hands in — a question the kind
+              // alone cannot answer once one kind accepts a link, a file, or either.
+              handInMethods: true,
               pointValue: true,
               dueAt: true,
               distributedAt: true,

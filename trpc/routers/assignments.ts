@@ -22,6 +22,7 @@ import {
 import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/courses/membership";
 import { teachableAssignment } from "@/lib/courses/scope";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
+import type { HandInMethod } from "@/lib/generated/prisma/enums";
 import { effectiveSection } from "@/lib/grade/approve";
 import { threadSubmissionId, type ThreadComment, unreadCount } from "@/lib/submissions/comments";
 import { teamForStudent } from "@/lib/submissions/team";
@@ -57,10 +58,12 @@ const assignmentFields = {
   assignmentRepoName: true,
   distributedAt: true,
   courseId: true,
-  // All three student-facing. The template document is what Accept sends them to a copy of,
-  // the accepted types are what their upload control offers and refuses, and the instructions
-  // are what the assignment says about turning it in.
+  // All four student-facing. The template document is what Accept sends them to a copy of, the
+  // hand-in methods are which forms their screen draws, the accepted types are what the upload
+  // control offers and refuses, and the instructions are what the assignment says about turning
+  // it in.
   templateDriveUrl: true,
+  handInMethods: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
   /*
@@ -248,6 +251,7 @@ function writableFields(
     // column that silently keeps its old value on update and its default on create, which
     // for `templateDriveUrl` would be a Google Drive assignment with nothing to distribute.
     templateDriveUrl: spec.templateDriveUrl,
+    handInMethods: spec.handInMethods,
     acceptedFileTypes: spec.acceptedFileTypes,
     submissionInstructions: spec.submissionInstructions,
     teamSetId: spec.teamSetId,
@@ -312,6 +316,9 @@ export const assignmentsRouter = createTRPCRouter({
         id: true,
         title: true,
         kind: true,
+        // What the row's icon says the student hands in, which for a self-directed assignment
+        // the kind alone cannot answer.
+        handInMethods: true,
         dueAt: true,
         pointValue: true,
         courseUnit: { select: courseUnitSummarySelect },
@@ -621,12 +628,12 @@ export const assignmentsRouter = createTRPCRouter({
       }
 
       /*
-        A `switch` over every kind rather than the ifs this was, so a fifth kind is a compile
+        A `switch` over every kind rather than the ifs this was, so a fourth kind is a compile
         error here rather than a request that quietly falls through to the repository path.
 
-        FILE_UPLOAD and EXTERNAL_URL have no Accept at all, because there is nothing to hand
-        out. The refusal is what a request arriving anyway is answered with — the button is not
-        drawn for them, so reaching this means something else did.
+        SELF_DIRECTED has no Accept at all, because there is nothing to hand out. The refusal is
+        what a request arriving anyway is answered with — the button is not drawn for it, so
+        reaching this means something else did.
       */
       switch (assignment.kind) {
         case "GOOGLE_DRIVE":
@@ -646,16 +653,12 @@ export const assignmentsRouter = createTRPCRouter({
             team,
           });
 
-        case "FILE_UPLOAD":
-        case "EXTERNAL_URL":
+        case "SELF_DIRECTED":
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message:
-              assignment.kind === "FILE_UPLOAD"
-                ? "This assignment is not accepted — there is nothing to hand out. Upload your " +
-                  "work and submit it when you are ready."
-                : "This assignment is not accepted — there is nothing to hand out. Make your " +
-                  "work, then submit the link to it when you are ready.",
+              "This assignment is not accepted — there is nothing to hand out. Make your work, " +
+              "then hand it in when you are ready.",
           });
       }
     }),
@@ -800,6 +803,7 @@ export const assignmentsRouter = createTRPCRouter({
         runnerPreset: true,
         runnerConfig: true,
         templateDriveUrl: true,
+        handInMethods: true,
         acceptedFileTypes: true,
         submissionInstructions: true,
         teamSetId: true,
@@ -1200,6 +1204,7 @@ type CopyableAssignment = {
   runnerPreset: string;
   runnerConfig: unknown;
   templateDriveUrl: string | null;
+  handInMethods: HandInMethod[];
   acceptedFileTypes: string[];
   submissionInstructions: string | null;
   sections: unknown;
@@ -1222,6 +1227,7 @@ export const copyableAssignmentSelect = {
   runnerPreset: true,
   runnerConfig: true,
   templateDriveUrl: true,
+  handInMethods: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
   sections: true,
@@ -1334,6 +1340,7 @@ export async function copyAssignmentInto(
     runnerPreset: source.runnerPreset,
     runnerConfig: source.runnerConfig,
     templateDriveUrl: source.templateDriveUrl,
+    handInMethods: source.handInMethods,
     acceptedFileTypes: source.acceptedFileTypes,
     submissionInstructions: source.submissionInstructions,
     sections: source.sections,

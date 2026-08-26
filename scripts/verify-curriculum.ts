@@ -183,7 +183,8 @@ async function main() {
       const published = await asInstructor.assignments.create({
         courseId: course.id,
         draft: {
-          kind: "EXTERNAL_URL",
+          kind: "SELF_DIRECTED",
+          handInMethods: ["LINK"],
           courseUnitId: project.id,
           title: `Verify deliverable published ${stamp}`,
           completionThreshold: 0.75,
@@ -195,7 +196,8 @@ async function main() {
       const draft = await asInstructor.assignments.create({
         courseId: course.id,
         draft: {
-          kind: "EXTERNAL_URL",
+          kind: "SELF_DIRECTED",
+          handInMethods: ["LINK"],
           courseUnitId: project.id,
           title: `Verify deliverable draft ${stamp}`,
           completionThreshold: 0.75,

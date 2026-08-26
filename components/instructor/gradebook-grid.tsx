@@ -61,7 +61,7 @@ import {
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
 import {
-  ASSIGNMENT_KIND_META,
+  ASSIGNMENT_KIND_LABEL,
   formatDueDate,
   scoreLabel,
   scorePercent,
@@ -371,7 +371,7 @@ function Controls({
                     checked={filter.kinds.includes(kind)}
                     onCheckedChange={() => toggleKind(kind)}
                   >
-                    {ASSIGNMENT_KIND_META[kind].label}
+                    {ASSIGNMENT_KIND_LABEL[kind]}
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuGroup>

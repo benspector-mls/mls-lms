@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { isSectionType, SECTION_TYPES, type SectionType } from "../section-types";
-import { AssignmentKind } from "../generated/prisma/enums";
+import { AssignmentKind, HandInMethod } from "../generated/prisma/enums";
 import { resolveRunner, UnknownRunnerPresetError } from "../sandbox/presets";
 import { UPLOAD_FILE_TYPE_KEYS, type UploadFileTypeKey } from "../uploads/file-types";
 import { preprocessRepoRef } from "./repo-ref";
@@ -25,7 +25,7 @@ import { preprocessRepoRef } from "./repo-ref";
  * express "required for one kind" — this schema is where the requirement lives.
  */
 
-export { AssignmentKind };
+export { AssignmentKind, HandInMethod };
 
 /**
  * The section types, and the rubric each is graded against, both from `lib/section-types.ts`.
@@ -43,35 +43,51 @@ export { SECTION_TYPES, type SectionType as SectionTypeName } from "../section-t
  * Separate from the enum on purpose. The enum names the axis so that every code path
  * assuming a repository has to say so; this set says which of them are built.
  *
- * All four are built. What differs between them is not whether they work but how far the
+ * All three are built. What differs between them is not whether they work but how far the
  * pipeline reaches: a `REPO` assignment is distributed from a template, collected as a pull
- * request, and graded by the model, while the rest are distributed as a link or as instructions,
- * collected as a link the student pastes or a file they upload, and graded by an instructor
- * typing the score and the feedback. Reading a Drive file's contents or an uploaded file and
- * generating a report from it is a separate feature and needs instructor-authored rubrics.
+ * request, and graded by the model, while the other two are distributed as a link or as
+ * instructions, collected as a link the student pastes or a file they upload, and graded by an
+ * instructor typing the score and the feedback. Reading a Drive file's contents or an uploaded
+ * file and generating a report from it is a separate feature and needs instructor-authored
+ * rubrics.
  */
 export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
   AssignmentKind.REPO,
   AssignmentKind.GOOGLE_DRIVE,
-  AssignmentKind.FILE_UPLOAD,
-  AssignmentKind.EXTERNAL_URL,
+  AssignmentKind.SELF_DIRECTED,
 ]);
+
+/** The parts of an assignment that say how it is handed in. Structural, so a test can pass a literal. */
+export type HandInShape = {
+  kind: AssignmentKind;
+  /** Readonly, because every reader of this only asks what is in it. */
+  handInMethods: readonly HandInMethod[];
+};
 
 /**
- * Kinds a student hands in by pasting a link, as opposed to by uploading a file or by opening
- * a pull request.
+ * How an assignment is handed in: by pasting a link, by uploading a file, by both, or — for a
+ * repository — by neither, since opening a pull request is not a form anything here draws.
  *
- * Named rather than compared inline, because `submitWork` and the student's screen both have to
- * agree about it and a fifth kind added later must not be admitted by one and refused by the
- * other.
+ * **This asks about an assignment, not about a kind, and that is the whole point.** Two kinds
+ * have the answer fixed by what they hand out, and one leaves it to the instructor, so there is
+ * no question a kind alone can answer any more. Every caller that used to compare kinds inline
+ * asks this instead: `submitWork`, the upload route, and the student's screen all have to agree,
+ * and a method admitted by one and refused by another is a student told to paste a link into a
+ * form that will not take it.
+ *
+ * Exhaustive over the enum rather than a lookup with a fallback, so a fourth kind is a compile
+ * error here — the same guarantee `assignments.accept`'s switch gives, and for the same reason.
+ * `REPO` is empty rather than absent: it has a way in, and the way in is not one of these.
  */
-export const LINK_SUBMITTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
-  AssignmentKind.GOOGLE_DRIVE,
-  AssignmentKind.EXTERNAL_URL,
-]);
-
-export function isLinkSubmitted(kind: AssignmentKind): boolean {
-  return LINK_SUBMITTED_KINDS.has(kind);
+export function handInMethodsFor(assignment: HandInShape): readonly HandInMethod[] {
+  switch (assignment.kind) {
+    case AssignmentKind.REPO:
+      return [];
+    case AssignmentKind.GOOGLE_DRIVE:
+      return [HandInMethod.LINK];
+    case AssignmentKind.SELF_DIRECTED:
+      return assignment.handInMethods;
+  }
 }
 
 /** True when this kind's submissions live in a generated GitHub repository. */
@@ -84,14 +100,14 @@ export function requiresRepository(kind: AssignmentKind): boolean {
  *
  * A REPO assignment generates a repository from a template and a GOOGLE_DRIVE one builds a
  * `/copy` link, so for both of them there is something a student receives before there is
- * anything to hand in. FILE_UPLOAD and EXTERNAL_URL hand out nothing at all: the first thing
- * that happens to one is the student submitting.
+ * anything to hand in. SELF_DIRECTED hands out nothing at all: the first thing that happens to
+ * one is the student submitting.
  *
  * Named here rather than compared inline, because two places on a student's screen have to
  * agree about it — whether the row draws an Accept button, and whether the row opens so the
- * submission form inside it can be reached. When those two disagreed, an EXTERNAL_URL
+ * submission form inside it can be reached. When those two disagreed, a self-directed
  * assignment showed a student "Not started" with no button and no way to open the row, which
- * is to say no way to submit at all. `assignments.accept` refuses the same two kinds.
+ * is to say no way to submit at all. `assignments.accept` refuses the same kind.
  */
 export function hasAcceptStep(kind: AssignmentKind): boolean {
   return kind === AssignmentKind.REPO || kind === AssignmentKind.GOOGLE_DRIVE;
@@ -553,6 +569,18 @@ const noUpload = {
 };
 
 /**
+ * The same for `handInMethods`, on the two kinds whose distribution already decides how the
+ * work comes back: a pull request from a generated repository, a link to a copied Drive file.
+ *
+ * Empty rather than the true answer spelled out, because the column is not where that answer
+ * lives — `handInMethodsFor` is, and it reads the kind for these two. Writing `["LINK"]` onto
+ * every Drive assignment would put one fact in two places with nothing keeping them equal.
+ */
+const noHandInChoice = {
+  handInMethods: z.array(z.never()).max(0).default([]),
+};
+
+/**
  * A Google Drive editor URL the copy prompt can be built from.
  *
  * Anchored on the editor, the file id, and the final path segment rather than accepting any
@@ -651,6 +679,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       /** A repository assignment is distributed from a template, not from a document. */
       templateDriveUrl: z.null().default(null),
       ...noUpload,
+      ...noHandInChoice,
     })
     .strict()
     /*
@@ -691,61 +720,97 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
             "is built from",
         ),
       ...noUpload,
+      ...noHandInChoice,
     })
     .strict(),
 
   /**
-   * No template and therefore no Accept: there is nothing to hand out and nothing to copy.
-   * The assignment stays NOT_STARTED until the student submits, which is the one act.
-   */
-  z
-    .object({
-      kind: z.literal(AssignmentKind.FILE_UPLOAD),
-      ...shared,
-      ...noRepository,
-      templateDriveUrl: z.null().default(null),
-      /**
-       * What a student may hand in, and at least one is required.
-       *
-       * Not defaulted to "anything", because an assignment that accepts anything cannot
-       * tell a student their file is wrong until an instructor opens it and finds a
-       * screenshot where a PDF was wanted. The form ticks PDF by default; what it may not
-       * do is save nothing.
-       */
-      acceptedFileTypes: z
-        .array(z.enum(UPLOAD_FILE_TYPE_KEYS as [UploadFileTypeKey, ...UploadFileTypeKey[]]))
-        .min(1, "say at least one kind of file this assignment accepts")
-        .refine((types) => new Set(types).size === types.length, "no duplicates"),
-    })
-    .strict(),
-
-  /**
-   * Work made on a service this application knows nothing about, handed in as a link to it: a
-   * Canva design, a Loom recording, a deployed site, a Figma file.
+   * Work the student made wherever they liked, handed in as a link to it, as a file, or as
+   * either: a Canva design, a Loom recording, a slide deck, a reflection document.
    *
-   * **It has no template, and deliberately no field for one.** The obvious addition is a link to
-   * a starting point for the student to copy, and the reason not to add it is that it would be a
-   * second link doing what `submissionInstructions` already does better — that field is markdown,
-   * so an instructor writes "start from [this Canva template](…)" alongside everything else the
-   * student needs to know, rather than having a bare URL appear on the screen with no explanation
-   * of what to do with it. A column would also imply the copy-prompt machinery `GOOGLE_DRIVE` has,
-   * which no other service shares.
+   * **No template and therefore no Accept**: there is nothing to hand out and nothing to copy,
+   * so the assignment stays NOT_STARTED until the student submits, which is the one act.
+   *
+   * **`handInMethods` is the field this kind exists for.** An instructor who allows both is
+   * saying the work matters and its format does not — which is what a choose-your-own-path
+   * reflection is: a document from one student, a deck from another, a two-minute recording
+   * from a third, all answering the same prompt and all graded against the same sections.
    *
    * **And no shape check on what the student submits.** A `GOOGLE_DRIVE` submission is checked
    * against Google's URL pattern because the assignment was distributed as one; here the
    * assignment did not say where the work lives, so there is no pattern to check against and any
    * https link is a legitimate answer. Refusing one would mean guessing which services are
    * allowed and being wrong the first time an instructor names a new one.
+   *
+   * **It has no field for a starting link, deliberately.** The obvious addition is a link to a
+   * starting point for the student to copy, and the reason not to add it is that it would be a
+   * second link doing what `submissionInstructions` already does better — that field is markdown,
+   * so an instructor writes "start from [this Canva template](…)" alongside everything else the
+   * student needs to know, rather than having a bare URL appear on the screen with no explanation
+   * of what to do with it. A column would also imply the copy-prompt machinery `GOOGLE_DRIVE`
+   * has, which no other service shares.
    */
   z
     .object({
-      kind: z.literal(AssignmentKind.EXTERNAL_URL),
+      kind: z.literal(AssignmentKind.SELF_DIRECTED),
       ...shared,
       ...noRepository,
-      ...noUpload,
       templateDriveUrl: z.null().default(null),
+      /**
+       * How the student may hand it in, and at least one is required.
+       *
+       * An empty list is refused rather than read as "any way you like", because an assignment
+       * nobody said how to hand in is one the student's screen can draw no form for at all.
+       */
+      handInMethods: z
+        .array(z.enum([HandInMethod.LINK, HandInMethod.FILE]))
+        .min(1, "say at least one way this assignment may be handed in")
+        .refine((methods) => new Set(methods).size === methods.length, "no duplicates"),
+      /**
+       * Which kinds of file are accepted, when a file is one of the ways in.
+       *
+       * Not defaulted to "anything", because an assignment that accepts anything cannot
+       * tell a student their file is wrong until an instructor opens it and finds a
+       * screenshot where a PDF was wanted. The form ticks PDF by default; what it may not
+       * do is save nothing. The `superRefine` below is what ties it to the method.
+       */
+      acceptedFileTypes: z
+        .array(z.enum(UPLOAD_FILE_TYPE_KEYS as [UploadFileTypeKey, ...UploadFileTypeKey[]]))
+        .default([])
+        .refine((types) => new Set(types).size === types.length, "no duplicates"),
     })
-    .strict(),
+    .strict()
+    /*
+      The one rule the union cannot express in its shape, because it depends on a value inside
+      the branch rather than on the discriminant: file types are required when FILE is a way in
+      and refused when it is not.
+
+      Empty rather than nullable in the second case, by the same reasoning `noUpload` gives —
+      "which file types does a link-only assignment accept" has an answer, and it is none. An
+      instructor who ticks File, chooses PDF, then unticks File would otherwise leave a set of
+      types behind that nothing reads and the next reader has to wonder about.
+    */
+    .superRefine((spec, ctx) => {
+      const takesFile = spec.handInMethods.includes(HandInMethod.FILE);
+
+      if (takesFile && spec.acceptedFileTypes.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["acceptedFileTypes"],
+          message: "say at least one kind of file this assignment accepts",
+        });
+      }
+
+      if (!takesFile && spec.acceptedFileTypes.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["acceptedFileTypes"],
+          message:
+            "this assignment is not handed in as a file, so it accepts no file types — " +
+            "tick File above if it should",
+        });
+      }
+    }),
 ]);
 
 export type AssignmentSpec = z.infer<typeof assignmentSpecSchema>;

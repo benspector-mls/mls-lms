@@ -130,7 +130,7 @@ A module cannot be removed while an assignment is still in it. Move or remove th
 
 Every assignment belongs to a unit and has a title, a point value, a due date, and a **completion threshold** — the share of the points that counts as complete, 75 percent by default, matching the program's Complete/Incomplete policy.
 
-**Four kinds, and the kind cannot be changed once the assignment exists**, because changing it would change what its existing submissions are.
+**Three kinds, and the kind cannot be changed once the assignment exists**, because changing it would change what its existing submissions are. How a self-directed assignment is handed in *can* be changed afterwards, which is what lets you open an existing assignment up to a second format.
 
 **Handed in by** is the other choice that cannot be taken back. Leave it on **Each student, on their own** for ordinary work, or pick a **team set** and the assignment becomes one piece of work per team, with one grade shared by everybody on it. Any kind can be team work — a repository, a document, a file, a link. The readout under the picker says how many teams the set holds and how many fellows are on none of them, because a fellow on no team has nothing to accept.
 
@@ -140,15 +140,16 @@ It is editable up to the moment you publish and fixed afterwards. Turning it on 
 | ---------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------- |
 | **Repository**   | You name a template repository; pressing Accept generates a copy for that student                         | A pull request                                                     | A drafted report you review, or by hand |
 | **Google Drive** | You paste a link to a Doc, Sheet, or Slides file; pressing Accept opens Google's own "make a copy" prompt | A link to their copy                                               | By hand                                 |
-| **File upload**  | Nothing is handed out; the assignment is the instructions                                                 | A file, into private storage                                       | By hand                                 |
-| **Link**         | Nothing is handed out                                                                                     | A link to work made anywhere — Canva, Loom, Figma, a deployed site | By hand                                 |
+| **Link or file** | Nothing is handed out; the assignment is the instructions                                                 | A link to work made anywhere — Canva, Loom, Figma, a deployed site — or a file into private storage, or either, as you choose | By hand                                 |
 
 For a **code** assignment you name two repositories, pasted as ordinary browser addresses:
 
 - The **template**, which every student's repository is generated from. It has to have GitHub's template flag set — the form checks, because otherwise the failure lands on the first student who presses Accept. Private is fine if it is in an organization this deployment covers.
 - The **answer keys**, which are reference solutions the grading model reads. **This repository must be private**, and a public one is refused rather than warned about. You name a *folder* inside it and every file under that folder is used; the form lists exactly which files it resolved to, and names anything it skipped. Pasting the address of the folder you already have open in GitHub fills both fields at once.
 
-For a **file upload** assignment you tick which file types you will accept — PDF, images, Word and plain text, spreadsheets, Jupyter notebooks, Python. The size limit is 25MB and is the same everywhere. Ticking Python accepts a `.py` file and nothing else, which is the right shape for an exercise handed in as one script; Python work spread across several files belongs in a code assignment, where the repository holds all of it.
+For a **link or file** assignment you tick **how fellows may hand it in** — a link, a file, or both. Ticking both is how you run a choose-your-own-path assignment: the same reflection comes back as a Word document from one fellow, a Google Slides link from another, and a two-minute Loom recording from a third, all graded against the same sections. The fellow picks between the two forms on their own screen, and only their most recent hand-in counts — handing in one way replaces what they handed in the other way.
+
+If a file is one of the ways in, you also tick which file types you will accept — PDF, images, Word and plain text, spreadsheets, Jupyter notebooks, Python. The size limit is 25MB and is the same everywhere. Ticking Python accepts a `.py` file and nothing else, which is the right shape for an exercise handed in as one script; Python work spread across several files belongs in a code assignment, where the repository holds all of it.
 
 Every kind takes **submission instructions**, written in Markdown, which the student reads in the assignment panel. For a link assignment this is where you say where to start: a sentence linking to the Canva template your students copy reads better than a bare URL with no explanation of what to do with it.
 
@@ -361,7 +362,7 @@ Below that are the **modules**, in the order your instructor set. Every module s
 
 Pressing any row opens a panel over the list, with the instructions, what you have handed in, and your feedback. It has an address you can bookmark or send to somebody.
 
-**Accepting.** Only two kinds have an Accept button. A **code** assignment generates your own repository. A **Google Drive** assignment opens Google's own prompt to take your own copy. **File and link assignments hand out nothing**, so there is no Accept — the first thing you do is hand in.
+**Accepting.** Only two kinds have an Accept button. A **code** assignment generates your own repository. A **Google Drive** assignment opens Google's own prompt to take your own copy. **A link or file assignment hands out nothing**, so there is no Accept — the first thing you do is hand in.
 
 Accepting needs your GitHub account to be connected. If it is not, the course page says so.
 
@@ -371,7 +372,7 @@ Accepting needs your GitHub account to be connected. If it is not, the course pa
 
 The grade and the feedback arrive on everybody's own page at the same moment, and reading it is still your own: marking your feedback read does not mark it read for your teammates. If your instructor is part-way through reading your team's work, nobody can replace it until they are done — the panel says so rather than letting somebody try.
 
-**Handing in everything else.** A Drive or link assignment takes a link; a file assignment takes a file. The form tells you which of four things you are doing:
+**Handing in everything else.** A Drive assignment takes a link. A link or file assignment takes whichever your instructor allowed — and where they allowed both, you choose between **Paste a link** and **Upload a file** above the form. Only the most recent one counts: handing in one way replaces what you handed in the other way. The form tells you which of four things you are doing:
 
 - **Submitting** — you have not handed anything in yet.
 - **Changing what you handed in** — your work is waiting and nobody has started reading it. This replaces what is there and keeps your place in your instructor's queue. Use it if you pasted the wrong link or uploaded the wrong file.
@@ -408,7 +409,7 @@ For a **code** assignment, push your improved work to the same pull request. The
 
 Before you have pushed anything, the panel on work that came back incomplete says so and tells you that pushing is the next step. The button appears once there is a commit to review.
 
-For every other kind, hand in again.
+For every other kind, hand in again. Where your assignment accepts both a link and a file, you can switch between them: whichever you hand in last is the one your instructor sees. Correcting work that has not been graded yet replaces what was there. Once you have been graded, the file that feedback was written about is kept, so you can still read the feedback against the work it describes.
 
 ### If you leave a program, or it finishes
 

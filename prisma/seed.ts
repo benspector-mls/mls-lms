@@ -772,7 +772,7 @@ async function main() {
     shape of the feature, and the course's own screens are untouched. Publish one from the
     authoring form to try the student side.
 
-    **Not repository-backed.** These are `EXTERNAL_URL` and `FILE_UPLOAD`, so nothing here implies
+    **Not repository-backed.** These are all `SELF_DIRECTED`, so nothing here implies
     a GitHub template that does not exist, and every section is graded by hand — which is what
     `noRepository` in `lib/assignments/spec.ts` requires of those kinds anyway.
 
@@ -787,8 +787,20 @@ async function main() {
         "A worked example of a project, seeded so the Projects tab has something in it. Its " +
         "deliverables are unpublished, so no student can see them.",
       work: [
-        { title: "Sample Project — wireframes", kind: "EXTERNAL_URL" as const, days: 7 },
-        { title: "Sample Project — deployed site", kind: "EXTERNAL_URL" as const, days: 21 },
+        {
+          title: "Sample Project — wireframes",
+          kind: "SELF_DIRECTED" as const,
+          handInMethods: ["LINK" as const],
+          acceptedFileTypes: [] as string[],
+          days: 7,
+        },
+        {
+          title: "Sample Project — deployed site",
+          kind: "SELF_DIRECTED" as const,
+          handInMethods: ["LINK" as const],
+          acceptedFileTypes: [] as string[],
+          days: 21,
+        },
       ],
     },
     {
@@ -798,9 +810,32 @@ async function main() {
         "A worked example of an assessment: several parts, each handed in separately and in its " +
         "own format. Unpublished, so no student can see them.",
       work: [
-        { title: "Sample Assessment — short response", kind: "FILE_UPLOAD" as const, days: 3 },
-        { title: "Sample Assessment — ERD", kind: "EXTERNAL_URL" as const, days: 3 },
-        { title: "Sample Assessment — queries", kind: "EXTERNAL_URL" as const, days: 5 },
+        /*
+          Both ways in, deliberately: this is the one sample assignment that puts the hand-in
+          chooser on screen, so a fresh database shows what a choose-your-own-path assignment
+          looks like rather than only what the two single-method ones do.
+        */
+        {
+          title: "Sample Assessment — short response",
+          kind: "SELF_DIRECTED" as const,
+          handInMethods: ["LINK" as const, "FILE" as const],
+          acceptedFileTypes: ["pdf", "document"] as string[],
+          days: 3,
+        },
+        {
+          title: "Sample Assessment — ERD",
+          kind: "SELF_DIRECTED" as const,
+          handInMethods: ["LINK" as const],
+          acceptedFileTypes: [] as string[],
+          days: 3,
+        },
+        {
+          title: "Sample Assessment — queries",
+          kind: "SELF_DIRECTED" as const,
+          handInMethods: ["FILE" as const],
+          acceptedFileTypes: ["python"] as string[],
+          days: 5,
+        },
       ],
     },
   ];
@@ -835,6 +870,8 @@ async function main() {
           courseId: course.id,
           courseUnitId: unit.id,
           kind: item.kind,
+          handInMethods: item.handInMethods,
+          acceptedFileTypes: item.acceptedFileTypes,
           title: item.title,
           pointValue: 10,
           completionThreshold: 0.75,
@@ -850,7 +887,6 @@ async function main() {
           ),
           // Unpublished: this is what keeps the sample out of every student's course page.
           distributedAt: null,
-          acceptedFileTypes: item.kind === "FILE_UPLOAD" ? ["pdf"] : [],
           sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
         },
       });

@@ -702,15 +702,13 @@ model Rubric {
   @@schema("public")
 }
 
-/// What a student turns in, which decides how an assignment is distributed,
-/// what a submission consists of, and how feedback is delivered.
-///
-/// Only REPO is implemented. The other two are named now because every column
-/// and every code path that assumes a repository has to say so explicitly — a
-/// system where "assignment" silently means "GitHub repository" costs more to
-/// open up later than it costs to keep this enum honest from the start.
 /// What a student turns in. This decides how an assignment is distributed, what a
 /// submission consists of, and how feedback is delivered — see the README.
+///
+/// **Three kinds, distinguished by distribution rather than by collection.** How the work is
+/// handed in is `Assignment.handInMethods` for the one kind that leaves it open, and a
+/// property of the kind for the two that do not — `handInMethodsFor` in
+/// lib/assignments/spec.ts is where those three answers are given, in one exhaustive switch.
 enum AssignmentKind {
   /// Generated from a template repository; submitted as a pull request.
   REPO
@@ -722,16 +720,37 @@ enum AssignmentKind {
   /// hand. What distinguishes an assignment is the template it names, and the editor is a
   /// property of that link rather than of the assignment.
   GOOGLE_DRIVE
-  /// A file the student uploads into private storage.
-  FILE_UPLOAD
-  /// Work the student made on a service this application knows nothing about — a Canva
-  /// design, a Loom recording, a deployed site — submitted as a link to it.
+  /// Work the student made wherever they liked — a Canva design, a Loom recording, a deck, a
+  /// document, a deployed site — handed in as a link to it, as an uploaded file, or as
+  /// either, whichever the instructor allowed in `handInMethods`.
   ///
-  /// Distinct from GOOGLE_DRIVE even though both are submitted as a URL, because the
-  /// difference is distribution rather than collection: a Drive assignment hands out a
-  /// template to copy and can therefore check the link's shape, while this one hands out
-  /// nothing and cannot know what a valid link looks like.
-  EXTERNAL_URL
+  /// **Nothing is handed out, which is what separates this from GOOGLE_DRIVE.** A Drive
+  /// assignment distributes a template to copy and can therefore check the submitted link's
+  /// shape against it; this one distributes nothing, so there is no Accept and no pattern a
+  /// valid link could be checked against.
+  ///
+  /// One kind rather than one per collection method, by the same rule that made three Google
+  /// editors one kind: a link and a file differ in how the work arrives and in nothing else.
+  /// Both are made by the student somewhere this application cannot see, and both are graded
+  /// by hand. So the way in is a property of the assignment, and an assignment may name more
+  /// than one — which is what lets a reflection be a document, a deck, or a short recording,
+  /// at the student's choice.
+  SELF_DIRECTED
+
+  @@schema("public")
+}
+
+/// How work reaches an instructor, for an assignment whose kind does not decide it.
+///
+/// Deliberately not "the kind of thing submitted": a PDF and a Word document are one method,
+/// and a Loom recording and a Figma file are the other. What separates them is the machinery
+/// — bytes into a private bucket, against a URL in a column — and that is what every rule
+/// downstream branches on, from `assertCanHandIn` to which form the student is shown.
+enum HandInMethod {
+  /// A URL the student pastes, to work that lives somewhere this application does not control.
+  LINK
+  /// Bytes the student uploads into the private bucket, of a type the assignment accepts.
+  FILE
 
   @@schema("public")
 }
@@ -930,6 +949,19 @@ model Assignment {
   /// no second parent to derive this one from.
   courseUnitId        String         @map("course_unit_id") @db.Uuid
   kind                AssignmentKind @default(REPO)
+  /// How this is handed in, for the one kind that leaves it open.
+  ///
+  /// **Empty for REPO and GOOGLE_DRIVE, and read for neither.** Their kind already answers the
+  /// question — a pull request, a link to the student's copy — so recording it again here would
+  /// be a second place for a fact that has one source, free to disagree with it. That is the
+  /// same rule `courseUnitId` above states about the unit's category. `handInMethodsFor` in
+  /// lib/assignments/spec.ts gives all three answers in one exhaustive switch, and it is the
+  /// only thing that should read this column.
+  ///
+  /// Non-empty for SELF_DIRECTED, where the instructor chooses: a link, a file, or either. Both
+  /// is the case this exists for — a reflection handed in as a document by one student, a deck
+  /// by another, and a short recording by a third.
+  handInMethods       HandInMethod[] @map("hand_in_methods")
   pointValue          Int            @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
   /// working-with-assignments.md.
@@ -1002,10 +1034,14 @@ model Assignment {
   /// `/presentation/d/<id>/` — and it breaks if that changes.
   templateDriveUrl String? @map("template_drive_url")
 
-  /// Which kinds of file a FILE_UPLOAD assignment accepts, as keys of
-  /// UPLOAD_FILE_TYPES in lib/uploads/file-types.ts. Non-empty when `kind` is
-  /// FILE_UPLOAD and empty otherwise, enforced by the Zod schema for the same
-  /// reason the columns above are.
+  /// Which kinds of file this assignment accepts, as keys of UPLOAD_FILE_TYPES in
+  /// lib/uploads/file-types.ts. Non-empty when FILE is one of `handInMethods` and
+  /// empty otherwise, enforced by the Zod schema for the same reason the columns
+  /// above are.
+  ///
+  /// Keyed on the method rather than on the kind, because the kind no longer decides
+  /// it: a SELF_DIRECTED assignment accepting only a link wants none of these, and the
+  /// same kind accepting a file wants at least one.
   ///
   /// On the assignment rather than global because "one PDF" and "a screenshot of
   /// your finished page" are different assignments. The size limit is global and
@@ -1169,17 +1205,21 @@ model Submission {
 
   prNumber     Int?    @map("pr_number")
   prUrl        String? @map("pr_url")
-  /// Where the student's work is, for a kind that has no repository: the URL of
-  /// their own copy of a Google Doc, pasted in when they submit. Null for every
-  /// other kind, FILE_UPLOAD included — a path in a private bucket and a link to
-  /// a document are not the same thing, and the review screen opens them
-  /// differently, so the four columns below hold the stored file instead of this
-  /// one pretending to.
+  /// Where the student's work is, when they handed it in as a link: their own copy of a
+  /// Google Drive file, or whatever they made elsewhere. Null when they handed in a file
+  /// instead — a path in a private bucket and a link to a document are not the same thing,
+  /// and the review screen opens them differently, so the four columns below hold the stored
+  /// file instead of this one pretending to.
+  ///
+  /// **Nulled when the same submission is handed in as a file**, because an assignment may
+  /// accept both and a row carrying a link and a file is a row with two answers. Whichever
+  /// method was used last is the one standing, and it is the only one recorded.
   submittedUrl String? @map("submitted_url")
 
-  /// The uploaded file, for a FILE_UPLOAD assignment. All four are written
+  /// The uploaded file, when the work was handed in as one. All four are written
   /// together by the upload route or all four are null; there is no state where
-  /// some of them mean anything on their own.
+  /// some of them mean anything on their own. Nulled when the same submission is
+  /// later handed in as a link, for the reason `submittedUrl` above gives.
   ///
   /// `uploadPath` is the object's key inside the private bucket, and it is
   /// composed of this row's id and a generated name — never the filename the

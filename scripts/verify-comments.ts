@@ -11,8 +11,8 @@
  * started work, an unread count that is one person's answer given to another, and a question that
  * never reaches the instructor's screen.
  *
- * Driven through the tRPC callers inside transactions that are rolled back. `FILE_UPLOAD` and
- * `EXTERNAL_URL` assignments are used because neither needs GitHub, a sandbox, or a model, and
+ * Driven through the tRPC callers inside transactions that are rolled back. `SELF_DIRECTED`
+ * assignments are used because they need no GitHub, no sandbox, and no model, and
  * because a kind with no Accept is exactly the case where no submission row exists to begin with.
  *
  * Several groups run in their own transactions, because a refusal that comes from a constraint or
@@ -121,7 +121,8 @@ async function main() {
         courseId,
         courseUnitId: unitId,
         title: "Verify Comments Solo",
-        kind: "FILE_UPLOAD",
+        kind: "SELF_DIRECTED",
+        handInMethods: ["FILE"],
         pointValue: 10,
         acceptedFileTypes: [".py"],
         distributedAt: new Date("2026-09-01T09:00:00Z"),
@@ -159,7 +160,8 @@ async function main() {
         courseId,
         courseUnitId: unitId,
         title: "Verify Comments Team",
-        kind: "EXTERNAL_URL",
+        kind: "SELF_DIRECTED",
+        handInMethods: ["LINK"],
         pointValue: 10,
         distributedAt: new Date("2026-09-01T09:00:00Z"),
         teamSetId: set.id,
@@ -400,7 +402,8 @@ async function main() {
         courseId,
         courseUnitId: unitId,
         title: "Verify Comments Undistributed",
-        kind: "FILE_UPLOAD",
+        kind: "SELF_DIRECTED",
+        handInMethods: ["FILE"],
         pointValue: 10,
         acceptedFileTypes: [".py"],
         // Never handed out, which is what makes authoring safe.
@@ -516,7 +519,8 @@ async function main() {
         courseId,
         courseUnitId: unitId,
         title: "Verify Comments Solo Two",
-        kind: "FILE_UPLOAD",
+        kind: "SELF_DIRECTED",
+        handInMethods: ["FILE"],
         pointValue: 10,
         acceptedFileTypes: [".py"],
         distributedAt: new Date("2026-09-01T09:00:00Z"),

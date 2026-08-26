@@ -53,7 +53,7 @@ import {
   type SchoolClock,
 } from "@/lib/school-time";
 import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
-import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import type { AssignmentKind, HandInMethod } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
 import {
   formatBytes,
@@ -147,7 +147,12 @@ type FormState = {
   runnerPreset: string;
   runnerConfig: null;
   templateDriveUrl: string;
-  /** Keys of UPLOAD_FILE_TYPES. Only a FILE_UPLOAD assignment sends these. */
+  /**
+   * How a fellow may hand this in. Only a SELF_DIRECTED assignment sends these, and it must
+   * send at least one.
+   */
+  handInMethods: HandInMethod[];
+  /** Keys of UPLOAD_FILE_TYPES. Sent only when FILE is one of `handInMethods`. */
   acceptedFileTypes: UploadFileTypeKey[];
   submissionInstructions: string;
   /**
@@ -171,15 +176,22 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
     label: "Google Drive",
     hint: "Students take their own copy of a template Doc, Sheet, or Slides deck and submit the link. Graded by hand.",
   },
-  FILE_UPLOAD: {
-    label: "File upload",
-    hint: "Students hand in a file. No template and nothing to accept. Graded by hand.",
-  },
-  EXTERNAL_URL: {
-    label: "External URL",
-    hint: "Students make something on another service — Canva, Loom, a deployed site — and submit the link. No template and nothing to accept. Graded by hand.",
+  SELF_DIRECTED: {
+    label: "Link or file upload",
+    hint: "Students make the work wherever they like — a deck, a document, a Canva design, a Loom recording — and hand in a link, a file, or either. No template and nothing to accept. Graded by hand.",
   },
 };
+
+/**
+ * The two ways a self-directed assignment can be handed in, as they are offered.
+ *
+ * The hints name real services rather than describing the mechanism, because an instructor
+ * deciding whether to tick File is picturing what a fellow will turn in, not a request body.
+ */
+const HAND_IN_METHOD_META: { key: HandInMethod; label: string; hint: string }[] = [
+  { key: "LINK", label: "A link", hint: "Google Drive, Canva, Loom, a deployed site" },
+  { key: "FILE", label: "A file", hint: "uploaded and stored privately" },
+];
 
 /** True when this kind has a repository, a template, and a suite that can run. */
 function isRepoKind(kind: Kind): boolean {
@@ -232,18 +244,20 @@ function toDraft(state: FormState): unknown {
     return { ...shared, kind: "GOOGLE_DRIVE", templateDriveUrl: state.templateDriveUrl.trim() };
   }
 
-  if (state.kind === "FILE_UPLOAD") {
-    return {
-      ...shared,
-      kind: "FILE_UPLOAD",
-      acceptedFileTypes: state.acceptedFileTypes,
-    };
-  }
+  /*
+    File types are sent only when a file is one of the ways in, and omitted otherwise rather than
+    sent empty — the schema refuses a link-only assignment that carries them, so an instructor who
+    ticks File, picks PDF, then unticks File does not save a set nothing reads.
 
-  // Nothing of its own to send. What the student is asked to make, and where, is prose in
-  // `submissionInstructions` rather than a field — see the schema's own note on why there is no
-  // column for a starting link.
-  return { ...shared, kind: "EXTERNAL_URL" };
+    What the student is asked to make, and where, is prose in `submissionInstructions` rather than
+    a field — see the schema's own note on why there is no column for a starting link.
+  */
+  return {
+    ...shared,
+    kind: "SELF_DIRECTED",
+    handInMethods: state.handInMethods,
+    ...(state.handInMethods.includes("FILE") ? { acceptedFileTypes: state.acceptedFileTypes } : {}),
+  };
 }
 
 const DEBOUNCE_MS = 600;
@@ -718,7 +732,7 @@ function Editor({
                     }),
                   );
                 }}
-                // Without this the trigger shows the raw enum value — `FILE_UPLOAD` — while the
+                // Without this the trigger shows the raw enum value — `SELF_DIRECTED` — while the
                 // list it was chosen from showed "File upload". Base UI's trigger renders the
                 // value, not the item, so a select whose label differs from its value has to say
                 // how they map. The module select below needs it for the same reason; the runner
@@ -1086,11 +1100,54 @@ function Editor({
               )}
 
               {/*
+                Two ticks rather than a select, because the answer may be both — and both is the
+                case this field exists for. A reflection an instructor will take as a document, a
+                deck, or a two-minute recording is one assignment with two ways in, not two
+                assignments or a format nobody is allowed to choose.
+              */}
+              {state.kind === "SELF_DIRECTED" && (
+                <Field
+                  label="How fellows may hand it in"
+                  findings={fieldFindings("handInMethods")}
+                  hint="At least one. Tick both to let each fellow choose whichever suits their work."
+                >
+                  <div className="flex flex-wrap gap-x-5 gap-y-2">
+                    {HAND_IN_METHOD_META.map(({ key, label, hint }) => {
+                      const ticked = state.handInMethods.includes(key);
+                      return (
+                        <label key={key} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={ticked}
+                            onChange={() =>
+                              setState({
+                                ...state,
+                                handInMethods: ticked
+                                  ? state.handInMethods.filter((held) => held !== key)
+                                  : [...state.handInMethods, key],
+                              })
+                            }
+                            className="size-4 rounded border-input"
+                          />
+                          <span>{label}</span>
+                          <span className="text-xs text-muted-foreground">{hint}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </Field>
+              )}
+
+              {/*
                 Checkboxes from a fixed list rather than a text field, for the reason the runner
                 preset is a select: a typo'd MIME type is not an error an instructor sees, it is
                 a student being told their correct file is the wrong kind, on the due date.
+
+                Shown when a file is one of the ways in, rather than for a whole kind — which is
+                what puts it directly under the tick that turns it on, so the dependency between
+                the two reads top to bottom.
               */}
-              {state.kind === "FILE_UPLOAD" && (
+              {state.handInMethods.includes("FILE") && (
                 <Field
                   label="What students may hand in"
                   findings={fieldFindings("acceptedFileTypes")}
@@ -1710,8 +1767,18 @@ function blankDraft({
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
     templateDriveUrl: existingState?.templateDriveUrl ?? "",
-    // Ticked rather than empty, because every file-upload assignment needs at least one and a
-    // PDF is what almost all of them want. An instructor changes it; they cannot forget it.
+    /*
+      A link unless something already said otherwise, because it is the way in that needs no
+      further decisions — ticking File asks a second question about which file types, and an
+      instructor who wants that will tick it. Never empty: the schema refuses an assignment
+      nobody said how to hand in, and a form that starts in a refused state reads as broken.
+    */
+    handInMethods:
+      existingState?.handInMethods && existingState.handInMethods.length > 0
+        ? existingState.handInMethods
+        : ["LINK"],
+    // Ticked rather than empty, because an assignment handed in as a file needs at least one and
+    // a PDF is what almost all of them want. An instructor changes it; they cannot forget it.
     acceptedFileTypes:
       existingState?.acceptedFileTypes && existingState.acceptedFileTypes.length > 0
         ? existingState.acceptedFileTypes
@@ -1756,6 +1823,12 @@ function fromDraft(draft: Draft): FormState {
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
     templateDriveUrl: draft.templateDriveUrl ?? "",
+    /*
+      A link when the stored assignment names nothing, which is what a draft saved before this
+      field existed holds. That is the same answer `blankDraft` starts from, and it keeps the form
+      out of a state the schema would refuse the moment it was validated.
+    */
+    handInMethods: draft.handInMethods.length > 0 ? draft.handInMethods : ["LINK"],
     acceptedFileTypes: (draft.acceptedFileTypes ?? []).filter(isUploadFileTypeKey),
     submissionInstructions: draft.submissionInstructions ?? "",
     teamSetId: draft.teamSetId ?? null,

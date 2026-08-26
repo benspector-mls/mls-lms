@@ -26,8 +26,9 @@ import {
   assertKindImplemented,
   copyUrlFromTemplate,
   derivesTestEvidence,
+  handInMethodsFor,
+  hasAcceptStep,
   isAiGraded,
-  isLinkSubmitted,
   isManualOnly,
   manualSections,
   NotRepositoryBackedError,
@@ -621,12 +622,14 @@ check(
   true,
 );
 check(
-  "a file upload assignment may not either",
+  "a self-directed assignment may not either",
   refusedOn(
     {
-      kind: AssignmentKind.FILE_UPLOAD,
+      kind: AssignmentKind.SELF_DIRECTED,
       title: "Resume, first draft",
       courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
+      handInMethods: ["FILE"],
+      acceptedFileTypes: ["pdf"],
       sections: [codingSection],
     },
     "sections.0.grading",
@@ -634,15 +637,55 @@ check(
   true,
 );
 check(
-  "a file upload assignment needs no template of any kind",
+  "a self-directed assignment needs no template of any kind",
   rejects({
-    kind: AssignmentKind.FILE_UPLOAD,
+    kind: AssignmentKind.SELF_DIRECTED,
     title: "Resume, first draft",
     courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
+    handInMethods: ["FILE"],
     sections: [manualSection],
     acceptedFileTypes: ["pdf"],
   }),
   "accepted",
+);
+
+// --- how a self-directed assignment is handed in -----------------------------
+//
+// The field this kind exists for. At least one way in, and both is the case it was built for:
+// a reflection taken as a document, a deck, or a short recording is one assignment.
+const uploadSpec = {
+  kind: AssignmentKind.SELF_DIRECTED,
+  title: "Resume, first draft",
+  courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
+  handInMethods: ["FILE"],
+  sections: [manualSection],
+  acceptedFileTypes: ["pdf"],
+};
+
+check(
+  "a self-directed assignment must say at least one way in",
+  refusedOn({ ...uploadSpec, handInMethods: [] }, "handInMethods"),
+  true,
+);
+check(
+  "and is refused when the key is missing entirely",
+  refusedOn({ ...uploadSpec, handInMethods: undefined }, "handInMethods"),
+  true,
+);
+check(
+  "an unknown method is refused",
+  refusedOn({ ...uploadSpec, handInMethods: ["EMAIL"] }, "handInMethods.0"),
+  true,
+);
+check(
+  "a duplicated method is refused",
+  refusedOn({ ...uploadSpec, handInMethods: ["FILE", "FILE"] }, "handInMethods"),
+  true,
+);
+check(
+  "both ways in are accepted together",
+  parseAssignmentSpec({ ...uploadSpec, handInMethods: ["LINK", "FILE"] }).handInMethods,
+  ["LINK", "FILE"],
 );
 
 // --- what a file upload accepts ----------------------------------------------
@@ -650,16 +693,8 @@ check(
 // Not defaulted to "anything". An assignment that accepts anything cannot tell a student
 // their file is the wrong kind until an instructor opens it and finds a screenshot where a
 // PDF was wanted, by which point the due date has passed.
-const uploadSpec = {
-  kind: AssignmentKind.FILE_UPLOAD,
-  title: "Resume, first draft",
-  courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
-  sections: [manualSection],
-  acceptedFileTypes: ["pdf"],
-};
-
 check(
-  "a file upload assignment must say what it accepts",
+  "an assignment handed in as a file must say what it accepts",
   refusedOn({ ...uploadSpec, acceptedFileTypes: [] }, "acceptedFileTypes"),
   true,
 );
@@ -702,14 +737,15 @@ check(
 // Handed in as a link, like a Drive file, and distributed like nothing at all. The distinction
 // that matters is which of those two halves each rule follows.
 const linkSpec = {
-  kind: AssignmentKind.EXTERNAL_URL,
+  kind: AssignmentKind.SELF_DIRECTED,
   title: "Personal site (Canva)",
   courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
+  handInMethods: ["LINK"],
   sections: [manualSection],
 };
 
 check(
-  "an external-url assignment needs nothing but a title, a module, and a section",
+  "a link-only assignment needs nothing but a title, a module, a way in, and a section",
   rejects(linkSpec),
   "accepted",
 );
@@ -727,9 +763,12 @@ check(
   ),
   true,
 );
+// The mirror of "a file assignment must say what it accepts": the same kind, handed in the
+// other way, refuses the types rather than requiring them. Both halves live in the one
+// superRefine, so neither can be satisfied while the other is forgotten.
 check(
-  "nor may file types",
-  refusedOn({ ...linkSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes.0"),
+  "nor may file types, when a file is not one of the ways in",
+  refusedOn({ ...linkSpec, acceptedFileTypes: ["pdf"] }, "acceptedFileTypes"),
   true,
 );
 check(
@@ -746,12 +785,36 @@ check(
   true,
 );
 
+/*
+  How each kind is handed in, asked of the one function every caller asks. A repository answers
+  with nothing rather than with a method, because opening a pull request is not a form anything
+  draws — and a self-directed assignment answers with whatever its instructor chose, which is the
+  whole reason this cannot be a question about a kind alone.
+*/
 check(
-  "all four kinds are handed in one of three ways",
-  [...IMPLEMENTED_KINDS].map(isLinkSubmitted),
-  [...IMPLEMENTED_KINDS].map(
-    (kind) => kind === AssignmentKind.GOOGLE_DRIVE || kind === AssignmentKind.EXTERNAL_URL,
-  ),
+  "a repository is handed in by neither method",
+  handInMethodsFor({ kind: AssignmentKind.REPO, handInMethods: [] }),
+  [],
+);
+check(
+  "a Drive assignment is handed in as a link, whatever the column says",
+  handInMethodsFor({ kind: AssignmentKind.GOOGLE_DRIVE, handInMethods: [] }),
+  ["LINK"],
+);
+check(
+  "and a stray value on one is ignored rather than believed",
+  handInMethodsFor({ kind: AssignmentKind.GOOGLE_DRIVE, handInMethods: ["FILE"] }),
+  ["LINK"],
+);
+check(
+  "a self-directed assignment is handed in whichever ways it names",
+  handInMethodsFor({ kind: AssignmentKind.SELF_DIRECTED, handInMethods: ["LINK", "FILE"] }),
+  ["LINK", "FILE"],
+);
+check(
+  "the two fixed kinds store no choice of their own",
+  [parseAssignmentSpec(docSpec).handInMethods, parseAssignmentSpec(repoSpec).handInMethods],
+  [[], []],
 );
 
 // Optional on every kind, because each kind's own screen states the mechanical steps already.
@@ -771,20 +834,16 @@ check(
 check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
 check("GOOGLE_DRIVE does not", requiresRepository(AssignmentKind.GOOGLE_DRIVE), false);
 check(
-  "all four kinds are implemented",
+  "all three kinds are implemented",
   [...IMPLEMENTED_KINDS].sort(),
-  [
-    AssignmentKind.EXTERNAL_URL,
-    AssignmentKind.FILE_UPLOAD,
-    AssignmentKind.GOOGLE_DRIVE,
-    AssignmentKind.REPO,
-  ].sort(),
+  [AssignmentKind.GOOGLE_DRIVE, AssignmentKind.REPO, AssignmentKind.SELF_DIRECTED].sort(),
 );
 check(
-  "a link-submitted kind is not repository-backed",
-  requiresRepository(AssignmentKind.EXTERNAL_URL),
+  "a self-directed kind is not repository-backed",
+  requiresRepository(AssignmentKind.SELF_DIRECTED),
   false,
 );
+check("and it has no Accept", hasAcceptStep(AssignmentKind.SELF_DIRECTED), false);
 
 check(
   "repositorySource narrows a REPO row",

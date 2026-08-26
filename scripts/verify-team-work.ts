@@ -10,7 +10,7 @@
  * the grading pile once per member instead of once.
  *
  * Driven through the tRPC callers inside a transaction that is rolled back, with an
- * `EXTERNAL_URL` assignment created inside it. That kind is chosen because it needs no GitHub, no
+ * `SELF_DIRECTED` assignment created inside it. That kind is chosen because it needs no GitHub, no
  * sandbox and no model, and because it exercises the same `claimTeamWork` / `recordHandIn` /
  * `syncTeamRows` path a repository assignment does — the difference between them is where the
  * work is, which is exactly the part that never reaches a mirror.
@@ -117,7 +117,8 @@ async function main() {
         courseId,
         courseUnitId: unitId,
         title: "Verify Team Deliverable",
-        kind: "EXTERNAL_URL",
+        kind: "SELF_DIRECTED",
+        handInMethods: ["LINK"],
         pointValue: 10,
         distributedAt: new Date("2026-09-01T09:00:00Z"),
         dueAt: new Date("2026-09-10T23:59:00Z"),

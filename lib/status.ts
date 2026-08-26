@@ -6,6 +6,7 @@ import type {
   SubmissionStatus,
 } from "@/lib/generated/prisma/enums";
 
+import { handInMethodsFor, type HandInShape } from "@/lib/assignments/spec";
 import { SCHOOL_TIME_ZONE } from "@/lib/school-time";
 import { isSectionType, SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 
@@ -541,6 +542,21 @@ export const TONE_DOT: Record<StatusTone, string> = {
 };
 
 /**
+ * What a kind is called, where the question is genuinely about the kind and not about one
+ * assignment.
+ *
+ * One caller: the gradebook's column filter, which narrows by kind because that is the axis it
+ * filters on. Everywhere a *particular* assignment is on screen, `assignmentKindMeta` below is
+ * the right answer instead — it can say "Link" or "File" where this can only say what the whole
+ * kind covers.
+ */
+export const ASSIGNMENT_KIND_LABEL: Record<AssignmentKind, string> = {
+  REPO: "Code",
+  GOOGLE_DRIVE: "Google Drive",
+  SELF_DIRECTED: "Link or file",
+};
+
+/**
  * What a student hands in, in one word.
  *
  * No tone, because a kind is not a state: it does not change, nothing is waiting on it, and
@@ -548,25 +564,56 @@ export const TONE_DOT: Record<StatusTone, string> = {
  * needed attention. Both audiences read the same words — unlike a submission status, there is
  * nothing here a student should not be told.
  *
+ * **A function over the assignment rather than a map keyed by kind**, because three kinds do not
+ * key five answers: a self-directed assignment reads as a link, a file, or either, and which one
+ * is the instructor's choice rather than the kind's. Keying this by kind would put "Self-directed"
+ * on the badge, which tells a student nothing about what to do next — and what to do next is the
+ * only reason the badge is there.
+ *
  * The descriptions are what the badge carries as a tooltip, so they say how the work is handed
  * in rather than restating the label.
  */
-export const ASSIGNMENT_KIND_META: Record<AssignmentKind, { label: string; description: string }> =
-  {
-    REPO: {
-      label: "Code",
-      description: "Handed in as a pull request from your own copy of a repository.",
-    },
-    GOOGLE_DRIVE: {
-      label: "Google Drive",
-      description: "Handed in as a link to your own copy of a Doc, Sheet, or Slides deck.",
-    },
-    FILE_UPLOAD: { label: "File", description: "Handed in as an uploaded file." },
-    EXTERNAL_URL: {
-      label: "Link",
-      description: "Made somewhere else — Canva, Loom, a deployed site — and handed in as a link.",
-    },
-  };
+export function assignmentKindMeta(assignment: HandInShape): {
+  label: string;
+  description: string;
+} {
+  switch (assignment.kind) {
+    case "REPO":
+      return {
+        label: "Code",
+        description: "Handed in as a pull request from your own copy of a repository.",
+      };
+
+    case "GOOGLE_DRIVE":
+      return {
+        label: "Google Drive",
+        description: "Handed in as a link to your own copy of a Doc, Sheet, or Slides deck.",
+      };
+
+    case "SELF_DIRECTED": {
+      const methods = handInMethodsFor(assignment);
+      const takesLink = methods.includes("LINK");
+      const takesFile = methods.includes("FILE");
+
+      if (takesLink && takesFile) {
+        return {
+          label: "Link or file",
+          description:
+            "Handed in either way, whichever suits the work — a link to what you made, or " +
+            "the file itself.",
+        };
+      }
+
+      if (takesFile) return { label: "File", description: "Handed in as an uploaded file." };
+
+      return {
+        label: "Link",
+        description:
+          "Made somewhere else — Canva, Loom, a deployed site — and handed in as a link.",
+      };
+    }
+  }
+}
 
 /**
  * How sure the model was about a section, as a `StatusMeta` so it renders through the same

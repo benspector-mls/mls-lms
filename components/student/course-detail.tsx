@@ -583,7 +583,7 @@ function RowSummary({
           to leave the title a line of its own, and an icon costs sixteen pixels, so the narrow row
           keeps the one thing the wide row was telling it.
         */}
-        <AssignmentKindIcon kind={assignment.kind} />
+        <AssignmentKindIcon assignment={assignment} />
         <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
       </span>
 

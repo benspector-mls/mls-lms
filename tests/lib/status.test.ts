@@ -1,5 +1,6 @@
 import {
-  ASSIGNMENT_KIND_META,
+  ASSIGNMENT_KIND_LABEL,
+  assignmentKindMeta,
   CONFIDENCE_META,
   completionMeta,
   DRAFT_STATUS_META,
@@ -194,30 +195,65 @@ describe("every tone has a class and a dot", () => {
   });
 });
 
-describe("ASSIGNMENT_KIND_META", () => {
-  it("describes all four kinds", () => {
-    expect(Object.keys(ASSIGNMENT_KIND_META).sort()).toEqual([
-      "EXTERNAL_URL",
-      "FILE_UPLOAD",
-      "GOOGLE_DRIVE",
-      "REPO",
-    ]);
+describe("assignmentKindMeta", () => {
+  const REPO = { kind: "REPO", handInMethods: [] } as const;
+  const DRIVE = { kind: "GOOGLE_DRIVE", handInMethods: [] } as const;
+  const selfDirected = (...handInMethods: ("LINK" | "FILE")[]) =>
+    ({ kind: "SELF_DIRECTED", handInMethods }) as const;
+
+  it("names the two kinds whose distribution decides how work comes back", () => {
+    expect(assignmentKindMeta(REPO).label).toBe("Code");
+    expect(assignmentKindMeta(DRIVE).label).toBe("Google Drive");
+  });
+
+  it("says what a self-directed assignment takes, which its kind alone cannot", () => {
+    // The reason this is a function and not a map keyed by kind: one kind, three answers.
+    expect(assignmentKindMeta(selfDirected("LINK")).label).toBe("Link");
+    expect(assignmentKindMeta(selfDirected("FILE")).label).toBe("File");
+    expect(assignmentKindMeta(selfDirected("LINK", "FILE")).label).toBe("Link or file");
+  });
+
+  it("does not depend on the order the methods were ticked in", () => {
+    expect(assignmentKindMeta(selfDirected("FILE", "LINK")).label).toBe("Link or file");
+  });
+
+  it("ignores a stray method on a kind that does not use the column", () => {
+    // A Drive assignment is handed in as a link because of what it hands out, so a value in the
+    // column is not something to believe — see `handInMethodsFor`.
+    expect(assignmentKindMeta({ kind: "GOOGLE_DRIVE", handInMethods: ["FILE"] }).label).toBe(
+      "Google Drive",
+    );
   });
 
   it("says how the work is handed in rather than restating the label", () => {
-    for (const [kind, meta] of Object.entries(ASSIGNMENT_KIND_META)) {
+    for (const assignment of [
+      REPO,
+      DRIVE,
+      selfDirected("LINK"),
+      selfDirected("FILE"),
+      selfDirected("LINK", "FILE"),
+    ]) {
+      const meta = assignmentKindMeta(assignment);
       expect(meta.description.toLowerCase()).toContain("handed in");
       expect(meta.description).not.toContain(meta.label);
-      expect(kind).toMatch(/^[A-Z_]+$/);
     }
   });
 
   it("gives a kind no tone, because a kind is not a state", () => {
     // It does not change, nothing is waiting on it, and colouring it would make a permanent
     // property of an assignment look like something needing attention.
-    for (const meta of Object.values(ASSIGNMENT_KIND_META)) {
-      expect(meta).not.toHaveProperty("tone");
-    }
+    expect(assignmentKindMeta(REPO)).not.toHaveProperty("tone");
+    expect(assignmentKindMeta(selfDirected("LINK", "FILE"))).not.toHaveProperty("tone");
+  });
+});
+
+describe("ASSIGNMENT_KIND_LABEL", () => {
+  it("names all three kinds, for the one place that filters by kind", () => {
+    expect(Object.keys(ASSIGNMENT_KIND_LABEL).sort()).toEqual([
+      "GOOGLE_DRIVE",
+      "REPO",
+      "SELF_DIRECTED",
+    ]);
   });
 });
 

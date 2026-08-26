@@ -1,5 +1,5 @@
 /**
- * What a `FILE_UPLOAD` assignment may accept, and how big.
+ * What an assignment handed in as a file may accept, and how big.
  *
  * A closed vocabulary rather than a text field, for the same reason the runner preset is a
  * select: a typo'd MIME type is not a validation error an instructor sees, it is a student
@@ -29,7 +29,7 @@ export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 export const MAX_INLINE_TEXT_BYTES = 512 * 1024;
 
 /**
- * What a `FILE_UPLOAD` assignment may accept.
+ * What an assignment handed in as a file may accept.
  *
  * **Each type maps its extensions to the content type they are stored under**, rather than
  * keeping two lists side by side. The two have to agree — the extension decides whether a file

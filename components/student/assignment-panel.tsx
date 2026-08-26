@@ -40,7 +40,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { hasAcceptStep, isLinkSubmitted } from "@/lib/assignments/spec";
+import { handInMethodsFor, hasAcceptStep } from "@/lib/assignments/spec";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import {
   acceptAttributeFor,
@@ -323,7 +323,7 @@ function PanelHeader({
         changes among the two that do.
       */}
       <SheetTitle className="flex items-start gap-2 text-base leading-snug">
-        <AssignmentKindIcon kind={assignment.kind} className="mt-0.5" />
+        <AssignmentKindIcon assignment={assignment} className="mt-0.5" />
         {assignment.title}
       </SheetTitle>
 
@@ -445,7 +445,7 @@ function MarkFeedbackRead({ submission }: { submission: Submission }) {
  * student-safe — their own repository and the instructions — never a draft, a flag, or an
  * instructor note.
  *
- * `submission` is null for an assignment nobody has started: a FILE_UPLOAD or EXTERNAL_URL one,
+ * `submission` is null for an assignment nobody has started: a self-directed one,
  * where there is no Accept to create the row, and a REPO or GOOGLE_DRIVE one before it is
  * accepted.
  *
@@ -620,27 +620,16 @@ function SubmissionTab({
       )}
 
       {/*
-        A Drive assignment has no pull request to observe, so submitting is an act rather than
+        An assignment with no pull request to observe is handed in as an act rather than as
         something inferred. `handInMode` decides which act it is — a first submission, a
         correction to work still waiting, or a second attempt after a grade — and `locked` is
         where an instructor has it open, which `assertCanHandIn` refuses server-side.
-      */}
-      {isLinkSubmitted(assignment.kind) && mode !== "locked" && (
-        <SubmitWorkForm
-          assignmentId={assignment.id}
-          kind={assignment.kind}
-          currentUrl={submission?.submittedUrl ?? null}
-          mode={mode}
-        />
-      )}
 
-      {/* The same shape as the Drive form above and offered on exactly the same terms. */}
-      {assignment.kind === "FILE_UPLOAD" && mode !== "locked" && (
-        <UploadWorkForm
-          assignmentId={assignment.id}
-          acceptedFileTypes={assignment.acceptedFileTypes}
-          mode={mode}
-        />
+        Which forms are offered comes from the assignment rather than from its kind, because one
+        kind now answers this three ways. Both forms are offered on exactly the same terms.
+      */}
+      {mode !== "locked" && (
+        <HandInForms assignment={assignment} submission={submission ?? null} mode={mode} />
       )}
 
       {/*
@@ -747,6 +736,115 @@ function SubmissionTab({
     </div>
   );
 }
+/**
+ * The form, or the choice between two forms.
+ *
+ * **One method is the ordinary case and draws no chooser at all.** A Drive assignment, and every
+ * self-directed one an instructor ticked a single way in for, gets exactly the form it always
+ * got — the control that offers a choice appears only where there is a choice, because a picker
+ * with one option is a question with one answer.
+ *
+ * **Both methods is what this exists for.** A choose-your-own-path assignment takes a reflection
+ * as a document, as a deck, or as a two-minute recording, and the fellow decides which. The two
+ * forms are the same two components used unchanged; all this adds is which one is showing.
+ *
+ * It opens on the way the work was last handed in, so a fellow returning to correct a link finds
+ * the link form rather than being asked again. Before anything is handed in it opens on the link,
+ * matching the order the choices are offered in and the default the authoring form starts from.
+ */
+function HandInForms({
+  assignment,
+  submission,
+  mode,
+}: {
+  assignment: Assignment;
+  submission: Submission | null;
+  mode: Exclude<HandInMode, "locked">;
+}) {
+  const methods = handInMethodsFor(assignment);
+  const takesLink = methods.includes("LINK");
+  const takesFile = methods.includes("FILE");
+
+  /*
+    What is on screen, not what was handed in — those differ the moment a fellow presses the other
+    tab. Seeded from the work standing so returning to the panel shows the form that matches it,
+    and left alone afterwards: re-seeding on every render would drag a fellow back to the link form
+    the instant their upload landed.
+  */
+  const [showing, setShowing] = React.useState<"LINK" | "FILE">(() =>
+    submission?.uploadFilename ? "FILE" : "LINK",
+  );
+
+  const choosing = takesLink && takesFile;
+  const method = choosing ? showing : takesFile ? "FILE" : "LINK";
+
+  return (
+    <div className="flex flex-col gap-2">
+      {choosing && (
+        <div
+          className="flex gap-1 rounded-lg bg-muted p-1"
+          role="group"
+          aria-label="How to hand in this work"
+        >
+          {(
+            [
+              { key: "LINK", label: "Paste a link" },
+              { key: "FILE", label: "Upload a file" },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={method === option.key}
+              onClick={() => setShowing(option.key)}
+              className={cn(
+                "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                method === option.key
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {method === "LINK" ? (
+        <SubmitWorkForm
+          assignmentId={assignment.id}
+          kind={assignment.kind}
+          currentUrl={submission?.submittedUrl ?? null}
+          mode={mode}
+        />
+      ) : (
+        <UploadWorkForm
+          assignmentId={assignment.id}
+          acceptedFileTypes={assignment.acceptedFileTypes}
+          mode={mode}
+        />
+      )}
+
+      {/*
+        Said once, above both forms, because it is the one thing about handing in two ways that is
+        not obvious: the work is what was handed in last, not everything ever handed in. A fellow
+        who uploads a file after pasting a link has replaced the link.
+
+        It deliberately does not say what becomes of the file underneath. Whether a replaced
+        object is kept depends on whether a grade was written about it — see
+        `discardReplacedUpload` — and that is a rule about the storage bucket rather than
+        anything a fellow acts on. What they need to know is which hand-in counts.
+      */}
+      {choosing && (
+        <p className="text-xs text-muted-foreground">
+          Hand in whichever suits your work. Only the most recent one counts — handing in one way
+          replaces what you handed in the other way.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * What the link form is called, per act and per kind.
  *

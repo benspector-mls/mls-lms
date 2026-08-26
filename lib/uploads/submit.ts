@@ -2,7 +2,8 @@ import "server-only";
 
 import { TRPCError } from "@trpc/server";
 
-import { isLinkSubmitted } from "../assignments/spec";
+import { handInMethodsFor } from "../assignments/spec";
+import { HandInMethod } from "../generated/prisma/enums";
 import type { AssignmentKind } from "../generated/prisma/enums";
 import type { db as globalDb } from "../prisma";
 import { handInState } from "../submissions/hand-in";
@@ -15,7 +16,7 @@ import {
   type ResolvedTeam,
 } from "../submissions/team";
 import { checkUpload } from "./file-types";
-import { storeSubmissionUpload } from "./storage";
+import { removeSubmissionUpload, storeSubmissionUpload } from "./storage";
 
 /**
  * Handing in work that has no repository.
@@ -35,10 +36,11 @@ type Db = typeof globalDb | Parameters<Parameters<typeof globalDb.$transaction>[
 
 export type HandInAssignment = {
   id: string;
-  kind: string;
+  kind: AssignmentKind;
   courseId: string;
   dueAt: Date | null;
   acceptedFileTypes: string[];
+  handInMethods: HandInMethod[];
   /**
    * The team this caller hands in with, or null for work they do alone.
    *
@@ -68,11 +70,12 @@ export async function assertCanHandIn(
     profileId: string;
     assignmentId: string;
     /**
-     * How the caller collects work: `"link"` for a URL the student pastes, `"file"` for bytes
-     * they upload. Named for the mechanism rather than for a kind, because two kinds are handed
-     * in as a link and a third added later would otherwise have to be remembered here.
+     * How the caller collects work: `LINK` for a URL the student pastes, `FILE` for bytes they
+     * upload. The same vocabulary the assignment itself is written in, so there is no pair of
+     * spellings that have to be kept in step — this is compared straight against what
+     * `handInMethodsFor` returns.
      */
-    expect?: "link" | "file";
+    expect?: HandInMethod;
   },
 ): Promise<HandInAssignment> {
   const assignment = await db.assignment.findUnique({
@@ -84,6 +87,7 @@ export async function assertCanHandIn(
       dueAt: true,
       distributedAt: true,
       acceptedFileTypes: true,
+      handInMethods: true,
       teamSetId: true,
     },
   });
@@ -107,15 +111,19 @@ export async function assertCanHandIn(
     });
   }
 
-  const collectedAs: "link" | "file" = isLinkSubmitted(assignment.kind as AssignmentKind)
-    ? "link"
-    : "file";
+  /*
+    Whether this assignment takes work this way at all.
 
-  if (params.expect && collectedAs !== params.expect) {
+    A membership test rather than an equality, because an assignment may name more than one way
+    in — and the caller is one transport, which knows only how *it* collects work. The upload
+    route asks about FILE and the mutation about LINK, and an assignment that accepts both
+    answers yes to each.
+  */
+  if (params.expect && !handInMethodsFor(assignment).includes(params.expect)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        params.expect === "file"
+        params.expect === HandInMethod.FILE
           ? "This assignment is not handed in as a file."
           : "This assignment is not handed in as a link.",
     });
@@ -238,9 +246,63 @@ export async function assertCanHandIn(
     courseId: assignment.courseId,
     dueAt: assignment.dueAt,
     acceptedFileTypes: assignment.acceptedFileTypes,
+    handInMethods: assignment.handInMethods,
     team,
     teamSubmissionId,
   };
+}
+
+/**
+ * Removes the object a submission used to point at, once it has stopped pointing at it — unless
+ * a grade describes it.
+ *
+ * **Two acts make an unreferenced object, and this clears up after both.** Uploading a second file
+ * writes a *new* object rather than overwriting the first, because the path carries a generated
+ * segment — so the moment `uploadPath` is rewritten, the previous object is unreachable. Handing
+ * the same work in as a link instead does the same thing by nulling the column outright. Left
+ * alone, both leak bytes into a private bucket that nothing can ever name again.
+ *
+ * **A submission that has been graded keeps every file it replaces, and that is the whole of the
+ * rule.** Feedback is written *about* a file — a score, a paragraph naming what was on page two —
+ * and a released grade whose subject has been deleted is a judgment nobody can check. So once
+ * `gradedAt` is set, replaced objects stay: the cost is bytes in a bucket, and the cost of the
+ * other choice is a fellow disputing a grade on work neither of them can open. Before a grade,
+ * nothing describes the file, replacing it is a correction rather than a revision, and there is
+ * nothing to keep it for.
+ *
+ * It reads `gradedAt` rather than the status, because the status moves on: a graded submission
+ * handed in again reads `RESUBMITTED`, and asking about the status would start deleting the very
+ * files a grade describes the moment a fellow revised. `gradedAt` is set once and stays set.
+ *
+ * **Best-effort, and deliberately so.** A bucket that refuses must not fail a student's hand-in
+ * on the due date, and the worst outcome of giving up here is one unreferenced object — which is
+ * exactly the state every replacement left behind before this existed. So it is logged rather
+ * than thrown, which keeps the failure findable without making it the student's problem.
+ *
+ * **Called after the columns are written, never before.** A failure here leaves bytes nothing
+ * points at, which is harmless; deleting first and then failing to write would leave a submission
+ * pointing at bytes that no longer exist, which reads to an instructor as a corrupt file with
+ * nothing on the screen explaining why.
+ */
+export async function discardReplacedUpload(previous: {
+  /** The object the row pointed at before this hand-in, or null when there was none. */
+  uploadPath: string | null;
+  /**
+   * When this submission was last graded, or null if it never has been.
+   *
+   * Taken as an argument rather than looked up, so the caller passes the row it already read —
+   * and so this cannot be called without the fact that decides what it does.
+   */
+  gradedAt: Date | null;
+}): Promise<void> {
+  if (!previous.uploadPath) return;
+  if (previous.gradedAt !== null) return;
+
+  try {
+    await removeSubmissionUpload(previous.uploadPath);
+  } catch (err) {
+    console.error(`Could not remove the replaced upload at ${previous.uploadPath}`, err);
+  }
 }
 
 /**
@@ -249,17 +311,20 @@ export async function assertCanHandIn(
  * The order is what matters, and it is chosen so no failure can leave a submission that reads
  * as handed in with nothing behind it:
  *
- *   1. Ensure the row exists, without touching its status. A `FILE_UPLOAD` assignment has no
+ *   1. Ensure the row exists, without touching its status. A self-directed assignment has no
  *      Accept, so uploading is often the first thing that ever happens to it and there may be
  *      no row at all — and the path the bytes go to is built from the row's id, so the row has
  *      to come first.
  *   2. Store the bytes.
- *   3. Write the status, the timestamps, and the four upload columns in one update.
+ *   3. Write the status, the timestamps, and the four upload columns in one update, clearing
+ *      `submittedUrl` in the same write.
+ *   4. Remove the object this row pointed at before, which nothing can reach any more.
  *
  * A failure at step 2 leaves a row that reads as not started, which is true. A failure at
  * step 3 leaves a stored object nothing points at, which is unreferenced bytes rather than a
  * wrong grade. The reverse order — mark it submitted, then store — would put work in the
  * instructor's queue with nothing to open, and there is no version of that which is better.
+ * Step 4 comes last for the same reason and is best-effort — see `discardReplacedUpload`.
  */
 export async function storeAndRecordUpload(
   db: Db,
@@ -285,7 +350,7 @@ export async function storeAndRecordUpload(
   /*
     The row the bytes belong to, which for a team is the team's rather than the caller's.
 
-    `NOT_STARTED` on the create branch either way: a `FILE_UPLOAD` assignment has no Accept, so
+    `NOT_STARTED` on the create branch either way: a self-directed assignment has no Accept, so
     this row often exists only because the path is built from its id, and a failure at the next
     step must leave a row saying nothing happened — which is true.
   */
@@ -298,7 +363,14 @@ export async function storeAndRecordUpload(
       }).then(({ submissionId }) =>
         db.submission.findUniqueOrThrow({
           where: { id: submissionId },
-          select: { id: true, status: true, submittedAt: true, isLate: true },
+          select: {
+            id: true,
+            status: true,
+            submittedAt: true,
+            isLate: true,
+            uploadPath: true,
+            gradedAt: true,
+          },
         }),
       )
     : await db.submission.upsert({
@@ -319,7 +391,14 @@ export async function storeAndRecordUpload(
           is the row just made: no submission time, never late, and not yet started.
         */
         update: {},
-        select: { id: true, status: true, submittedAt: true, isLate: true },
+        select: {
+          id: true,
+          status: true,
+          submittedAt: true,
+          isLate: true,
+          uploadPath: true,
+          gradedAt: true,
+        },
       });
 
   const { path } = await storeSubmissionUpload({
@@ -364,7 +443,14 @@ export async function storeAndRecordUpload(
       // time inside `state` is the first hand-in and does not answer that.
       lastActivityAt: now,
       handedInById: params.profileId,
-      location: { uploadPath: path },
+      /*
+        `submittedUrl` nulled alongside the new path, because an assignment may accept both ways
+        in and a row holding a link *and* a file is a row with two answers to one question. The
+        review screen resolves that pair by preferring the file, so the link would not be shown
+        and would not be gone either — a stale address sitting under a grade that ignored it.
+        Whichever way the work came in last is the way it came in.
+      */
+      location: { uploadPath: path, submittedUrl: null },
       describe: {
         uploadFilename: params.filename,
         uploadSizeBytes: params.bytes.byteLength,
@@ -376,6 +462,12 @@ export async function storeAndRecordUpload(
   if (team) {
     await syncTeamRows(db, { submissionId: submission.id });
   }
+
+  /*
+    The object the row pointed at a moment ago, now that it points at this one instead — kept
+    rather than removed once this submission has a grade, because that grade was written about it.
+  */
+  await discardReplacedUpload(submission);
 
   /*
     The caller's own row, which is what their screen re-renders from. On a team assignment that is

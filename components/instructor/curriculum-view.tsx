@@ -509,7 +509,7 @@ function UnitSection({
                       icon is the same one the student's row carries, and hovering it says which
                       kind and how the work arrives.
                     */}
-                    <AssignmentKindIcon kind={assignment.kind} />
+                    <AssignmentKindIcon assignment={assignment} />
                     <Link
                       href={gradingQueueHref(courseId, assignment.id)}
                       className="truncate font-medium hover:underline"

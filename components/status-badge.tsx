@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Code,
   FileText,
+  Files,
   Link as LinkIcon,
   NotebookText,
   PlayCircle,
@@ -15,8 +16,8 @@ import {
 import type * as React from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { handInMethodsFor, type HandInShape } from "@/lib/assignments/spec";
 import type {
-  AssignmentKind,
   AttendanceStatus,
   GradingDraftStatus,
   ResourceKind,
@@ -24,7 +25,7 @@ import type {
 } from "@/lib/generated/prisma/enums";
 import { RESOURCE_KIND_LABEL } from "@/lib/resources/spec";
 import {
-  ASSIGNMENT_KIND_META,
+  assignmentKindMeta,
   ATTENDANCE_STATUS_META,
   CONFIDENCE_META,
   DRAFT_STATUS_META,
@@ -201,12 +202,27 @@ function KindIcon({
   );
 }
 
-const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
-  REPO: Code,
-  GOOGLE_DRIVE: FileText,
-  FILE_UPLOAD: Upload,
-  EXTERNAL_URL: LinkIcon,
-};
+/**
+ * The icon for what a student hands in.
+ *
+ * A function rather than a `Record` keyed by kind, for the same reason `assignmentKindMeta` is:
+ * a self-directed assignment is a link, a file, or either, and three kinds cannot key five
+ * answers. `Files` is the either case — two sheets, one behind the other, reading as "more than
+ * one form of the same thing" where `Upload` and `LinkIcon` each name exactly one.
+ */
+function kindIconFor(assignment: HandInShape): React.ElementType {
+  switch (assignment.kind) {
+    case "REPO":
+      return Code;
+    case "GOOGLE_DRIVE":
+      return FileText;
+    case "SELF_DIRECTED": {
+      const methods = handInMethodsFor(assignment);
+      if (methods.includes("LINK") && methods.includes("FILE")) return Files;
+      return methods.includes("FILE") ? Upload : LinkIcon;
+    }
+  }
+}
 
 /**
  * What a student hands in for this assignment.
@@ -221,17 +237,17 @@ const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
  * repository" is an instruction, and "Code" on its own is a category.
  */
 export function AssignmentKindIcon({
-  kind,
+  assignment,
   className,
 }: {
-  kind: AssignmentKind;
+  assignment: HandInShape;
   className?: string;
 }) {
-  const meta = ASSIGNMENT_KIND_META[kind];
+  const meta = assignmentKindMeta(assignment);
 
   return (
     <KindIcon
-      icon={KIND_ICON[kind]}
+      icon={kindIconFor(assignment)}
       label={meta.label}
       description={`${meta.label} — ${meta.description}`}
       className={className}

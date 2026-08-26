@@ -97,9 +97,9 @@ describe("the column filter", () => {
   });
 
   it("keeps only the chosen kinds", () => {
-    const filter: ColumnFilter = { ...NO_COLUMN_FILTER, kinds: ["FILE_UPLOAD"] };
+    const filter: ColumnFilter = { ...NO_COLUMN_FILTER, kinds: ["SELF_DIRECTED"] };
     expect(matchesColumnFilter(assignment({ kind: "REPO" }), filter, NOW)).toBe(false);
-    expect(matchesColumnFilter(assignment({ kind: "FILE_UPLOAD" }), filter, NOW)).toBe(true);
+    expect(matchesColumnFilter(assignment({ kind: "SELF_DIRECTED" }), filter, NOW)).toBe(true);
   });
 
   describe("the due-date windows", () => {
@@ -152,7 +152,7 @@ describe("the column filter", () => {
       true,
     );
     expect(
-      matchesColumnFilter(assignment({ courseUnitId: "u1", kind: "FILE_UPLOAD" }), filter, NOW),
+      matchesColumnFilter(assignment({ courseUnitId: "u1", kind: "SELF_DIRECTED" }), filter, NOW),
     ).toBe(false);
   });
 });

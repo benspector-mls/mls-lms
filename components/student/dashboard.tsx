@@ -266,7 +266,7 @@ function RowTitle({ row }: { row: DashboardAssignment }) {
           In front of the title and at every width. The pill this replaced was hidden on a phone,
           which is where a cross-course list is most often read — an icon fits there.
         */}
-        <AssignmentKindIcon kind={row.kind} />
+        <AssignmentKindIcon assignment={row} />
         <span className="min-w-0 truncate text-sm font-medium">{row.title}</span>
       </span>
       <span className="truncate text-xs text-muted-foreground">

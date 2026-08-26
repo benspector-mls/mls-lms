@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { formatBytes, MAX_UPLOAD_BYTES } from "@/lib/uploads/file-types";
+import { HandInMethod } from "@/lib/generated/prisma/enums";
 import { assertCanHandIn, storeAndRecordUpload } from "@/lib/uploads/submit";
 
 /**
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
     const assignment = await assertCanHandIn(db, {
       profileId: profile.id,
       assignmentId,
-      expect: "file",
+      expect: HandInMethod.FILE,
     });
 
     const submission = await storeAndRecordUpload(db, {
