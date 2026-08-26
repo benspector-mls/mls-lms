@@ -430,12 +430,12 @@ async function main() {
     it is published — an unpublished course is invisible to fellows, which is not what a development
     database wants.
   */
-  const PROGRAM_NAME = "Software Engineering Fellowship";
+  const PROGRAM_NAME = "Test Program";
   // "Cohort Test" would read as a *cohort* now that the word means a division of a roster, so
   // the seeded term is one a person would actually write. It is also what makes the suggested
   // short name come out as `fse-f26` rather than `fse-cohort-test`.
   const TERM = "Fall 2026";
-  const COURSE_NAME = "Fullstack Software Engineering";
+  const COURSE_NAME = "Test Course";
 
   const program =
     (await prisma.program.findFirst({
