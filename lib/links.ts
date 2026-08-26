@@ -147,9 +147,13 @@ export function newAssignmentHref(courseId: string, courseUnitId?: string): stri
   const base = `/instructor/courses/${courseId}/curriculum/new`;
   /*
     Carried in the query rather than the path, because it is a starting value for a field on the
-    form rather than a different form. Opened from inside a unit on the Curriculum screen it
-    arrives filled in and the form stops asking which unit — which is the whole reason that
-    screen puts the button inside the unit.
+    form rather than a different form. Opened from inside a unit on the Curriculum screen the form
+    arrives with that unit chosen and its heading naming it — which is the whole reason that screen
+    puts the button inside the unit — and the field stays changeable, so this answers the question
+    rather than settling it.
+
+    Not to be trusted on arrival: `startingUnitId` ignores an id that is not one of the course's
+    units, because the select has no label for one and would render a raw uuid.
   */
   return courseUnitId ? `${base}?unit=${courseUnitId}` : base;
 }

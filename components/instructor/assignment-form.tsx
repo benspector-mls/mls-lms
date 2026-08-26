@@ -38,7 +38,12 @@ import {
   repoNameFromRef,
   repoPathFromRef,
 } from "@/lib/assignments/repo-ref";
-import { CATEGORY_META, UNIT_CATEGORIES, compareByPosition } from "@/lib/course-units";
+import {
+  CATEGORY_META,
+  UNIT_CATEGORIES,
+  compareByPosition,
+  startingUnitId,
+} from "@/lib/course-units";
 import { curriculumHref } from "@/lib/links";
 import {
   END_OF_DAY,
@@ -351,10 +356,33 @@ function Editor({
    *
    * Held outside `state` for the reason `kind` is: the form reads it while deciding what else to
    * show, and an existing assignment always has one because the column is not nullable.
+   *
+   * `startingUnitId` decides rather than a chain of `??` here, because one of its rules is silent:
+   * a `?unit=` naming something that is not one of this course's units would reach the select as a
+   * value it has no label for, and the trigger would render a raw uuid where the unit's name should
+   * be. Both this and the draft below read the same function, so the field and the value that gets
+   * saved cannot start out disagreeing.
    */
-  const [courseUnitId, setCourseUnitId] = React.useState<string>(
-    existing?.courseUnitId ?? initialCourseUnitId ?? units[0]?.id ?? "",
-  );
+  const startingUnit = startingUnitId({
+    existing: existing?.courseUnitId,
+    requested: initialCourseUnitId,
+    units,
+  });
+
+  const [courseUnitId, setCourseUnitId] = React.useState<string>(startingUnit);
+
+  /*
+    The unit this form opened into, for the heading.
+
+    Looked up from `startingUnit` rather than from `initialCourseUnitId`, so the heading always names
+    whatever the field below is actually on and the two cannot contradict each other. A stale
+    `?unit=` therefore reads as "Adding to Mod 1" — true about the form, and better than naming a
+    unit the field is not on or than saying nothing while the field says something.
+  */
+  const openedInUnit =
+    initialCourseUnitId !== undefined
+      ? (units.find((unit) => unit.id === startingUnit) ?? null)
+      : null;
 
   /*
     The draft lives here rather than a level up, because it can only be built once the
@@ -378,7 +406,7 @@ function Editor({
       ? fromDraft(existing)
       : blankDraft({
           kind: "REPO",
-          courseUnitId: initialCourseUnitId ?? units[0]?.id ?? "",
+          courseUnitId: startingUnit,
           defaults: {
             githubOrg: context.defaultGithubOrg,
             answerKeyRepo: context.defaultAnswerKeyRepo,
@@ -616,7 +644,24 @@ function Editor({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title={existing ? `Edit ${existing.title}` : "New assignment"}
-        description={`${context.course.name} · ${context.course.matriculation}`}
+        /*
+          The unit it opened into, named up here as well as chosen in the field below.
+
+          Pressing "Add assignment" inside a unit on the Curriculum screen has already answered
+          which unit this goes in, and the form is a long one — a pre-selected field two thirds of
+          the way down is an answer somebody has to go looking for to confirm. Saying it in the
+          heading is what makes the button's promise visible without scrolling.
+
+          Only where the unit was asked for, and only when creating. On an edit, or on a form opened
+          without a `?unit=`, the field below is the only claim being made and repeating it here
+          would say the reader had chosen something they had not.
+        */
+        description={[
+          `${context.course.name} · ${context.course.matriculation}`,
+          !existing && openedInUnit ? `Adding to ${openedInUnit.name}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
         /*
           The point total, and nothing to press. It is a readout of what the sections below add up
           to, which is worth seeing while they are edited; the button that commits them is at the

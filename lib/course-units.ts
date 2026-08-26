@@ -170,3 +170,45 @@ export function compareByPosition(
 ): number {
   return a.position - b.position || a.name.localeCompare(b.name);
 }
+
+/**
+ * Which unit a new assignment starts in, given what the address asked for.
+ *
+ * **The `?unit=` in the address is the whole point of the "Add …" button being *inside* a unit on
+ * the Curriculum screen.** Pressing it there has already answered "which unit does this go in", so
+ * the form arrives with the answer chosen rather than asking again.
+ *
+ * Three rules, in this order:
+ *
+ * - **An assignment being edited keeps its own unit.** It already has one, the column is not
+ *   nullable, and a `?unit=` on an edit address would be a way to move an assignment by typing —
+ *   which is a different act from editing one and is not offered.
+ * - **A requested unit is used only if it is one of this course's.** This is the case worth having
+ *   a function for: an id that is not in the list reaches the select as a value it has no label
+ *   for, and the trigger then renders a raw uuid where the unit's name should be. It happens
+ *   whenever the link has gone stale — a unit removed in another tab, an address kept from last
+ *   term — and it fails silently, looking like the pre-fill is broken rather than like the link is.
+ * - **Otherwise the first unit**, which is the first module in course order. Not an empty
+ *   selection: every assignment belongs to a unit, so the form should open on a real one and let
+ *   somebody change it, rather than on a blank the save would refuse.
+ *
+ * Returns `""` for a course with no units at all, which the form draws as an explanation rather
+ * than as an empty select — a course with nothing to put an assignment in cannot hold one, and the
+ * foreign key says so.
+ */
+export function startingUnitId({
+  existing,
+  requested,
+  units,
+}: {
+  /** The unit an assignment already belongs to, when one is being edited. */
+  existing?: string | null;
+  /** What the address asked for, which is not to be trusted. */
+  requested?: string | null;
+  /** This course's units, in the order they will be offered. */
+  units: readonly { id: string }[];
+}): string {
+  if (existing) return existing;
+  if (requested && units.some((unit) => unit.id === requested)) return requested;
+  return units[0]?.id ?? "";
+}

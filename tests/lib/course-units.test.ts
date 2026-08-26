@@ -5,6 +5,7 @@ import {
   compareByPosition,
   partCount,
   sortByDueDate,
+  startingUnitId,
   type SortableWork,
 } from "@/lib/course-units";
 
@@ -132,5 +133,55 @@ describe("the category vocabulary", () => {
         expect(word.length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+/**
+ * Which unit a new assignment opens in.
+ *
+ * The rule is a function rather than a chain of `??` in the form because one of its cases is
+ * silent: a `?unit=` naming something that is not one of this course's units would reach the select
+ * as a value it has no label for, and the trigger would render a raw uuid where a name should be.
+ * That reads as a broken pre-fill rather than as a stale link, and nothing throws.
+ */
+describe("startingUnitId", () => {
+  const units = [{ id: "mod-1" }, { id: "mod-2" }, { id: "project-1" }];
+
+  it("uses the unit the address asked for", () => {
+    expect(startingUnitId({ requested: "project-1", units })).toBe("project-1");
+  });
+
+  it("falls back to the first unit when the address asked for nothing", () => {
+    expect(startingUnitId({ units })).toBe("mod-1");
+    expect(startingUnitId({ requested: null, units })).toBe("mod-1");
+    expect(startingUnitId({ requested: "", units })).toBe("mod-1");
+  });
+
+  /*
+    The case the function exists for. A stale link must not put an id the select cannot label into
+    the select — the reader would see a uuid and no way to tell whether the form had understood
+    them.
+  */
+  it("ignores a unit that is not one of this course's", () => {
+    expect(startingUnitId({ requested: "somebody-elses-unit", units })).toBe("mod-1");
+  });
+
+  /*
+    An assignment being edited keeps its own unit whatever the address says. A `?unit=` on an edit
+    address would be a way to move an assignment by typing, which is a different act from editing
+    one — and it would move it silently, since the field would simply show somewhere else.
+  */
+  it("keeps an existing assignment's own unit, whatever the address asks for", () => {
+    expect(startingUnitId({ existing: "mod-2", requested: "project-1", units })).toBe("mod-2");
+    expect(startingUnitId({ existing: "mod-2", units })).toBe("mod-2");
+  });
+
+  /*
+    A course with nothing to put an assignment in. Empty rather than a guess, because the form draws
+    an explanation from it — an empty select would read as a list that failed to load.
+  */
+  it("is empty when the course has no units", () => {
+    expect(startingUnitId({ units: [] })).toBe("");
+    expect(startingUnitId({ requested: "mod-1", units: [] })).toBe("");
   });
 });

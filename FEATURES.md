@@ -126,7 +126,9 @@ A module cannot be removed while an assignment is still in it. Move or remove th
 
 ### Writing an assignment
 
-**Assignments → New assignment.** Every assignment belongs to a module and has a title, a point value, a due date, and a **completion threshold** — the share of the points that counts as complete, 75 percent by default, matching the program's Complete/Incomplete policy.
+**Add assignment**, from inside the module, project, or assessment it belongs to on the **Curriculum** screen. The form opens with that unit already chosen — its heading says which, and **Belongs to** is set to it — so pressing the button inside a unit is the whole of answering "where does this go". The field stays changeable, so reaching for the wrong one is fixed on the form rather than by going back.
+
+Every assignment belongs to a unit and has a title, a point value, a due date, and a **completion threshold** — the share of the points that counts as complete, 75 percent by default, matching the program's Complete/Incomplete policy.
 
 **Four kinds, and the kind cannot be changed once the assignment exists**, because changing it would change what its existing submissions are.
 

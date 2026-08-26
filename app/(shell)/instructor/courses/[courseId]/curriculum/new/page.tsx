@@ -11,6 +11,11 @@ import { PageFallback } from "@/components/list-states";
  * nothing but pre-select which unit the assignment goes in — so there is one place every field is
  * defined rather than a second form that a later field could be added to only one of.
  *
+ * **Passed down unchecked and checked in the form**, by `startingUnitId`, which is where the
+ * course's units are known: this page has not read them and would have to fetch them to say
+ * whether the id names one. An id that names nothing here is ignored rather than refused — a stale
+ * link should open the form on the first unit, not on an error page.
+ *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here — a route
  * may not read uncached data outside `<Suspense>`, and `params` counts.
  */

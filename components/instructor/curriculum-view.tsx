@@ -449,10 +449,12 @@ function UnitSection({
 
         <CollapsibleContent>
           {/*
-            The two ways to put something in this unit, inside the unit. Neither asks which unit
-            it goes in, because the button was already in one — which is the whole point of the
-            screen and the reason the assignment form's module selector disappears when it is
-            opened from here.
+            The two ways to put something in this unit, inside the unit. Neither has to ask which
+            unit it goes in, because the button was already in one — which is the whole point of
+            the screen. The assignment form arrives with this unit chosen and its heading naming
+            it, and the field stays changeable: the address answers the question rather than
+            settling it, so an instructor who reaches for the wrong unit fixes it on the form
+            instead of going back.
           */}
           <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2 bg-muted/40">
             <Link
