@@ -9,9 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * Who is in this matriculation, and the link that puts them there.
+ * Who is in this program, and the link that puts them there.
  *
- * **One roster where there used to be one per course.** A fellow joins a matriculation once and is
+ * **One roster where there used to be one per course.** A fellow joins a program once and is
  * a student of every course in it, so this is entered once rather than once per course of a term —
  * which is the duplication the program above the course removed.
  *
@@ -72,7 +72,7 @@ async function Roster({ params }: { params: Promise<{ programId: string }> }) {
           before somebody opens it.
         */
         description={[
-          `${active} ${active === 1 ? "fellow" : "fellows"} in ${data.program.matriculation}`,
+          `${active} ${active === 1 ? "fellow" : "fellows"} in ${data.program.term}`,
           cohorts.cohorts.length === 0
             ? "no cohorts yet"
             : `${cohorts.cohorts.length} ${cohorts.cohorts.length === 1 ? "cohort" : "cohorts"}`,
@@ -80,7 +80,7 @@ async function Roster({ params }: { params: Promise<{ programId: string }> }) {
       />
       {/*
         The roster first, and it is the tab an instructor lands on. Enrolling is what you do once at
-        the start of a matriculation; reading the roster is what you do every week after that. The
+        the start of a program; reading the roster is what you do every week after that. The
         cohorts sit between them because that is where they fall on the same scale.
 
         Every query is fetched above regardless of which tab is open. They are one round trip on a

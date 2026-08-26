@@ -14,14 +14,14 @@ import type { RouterOutputs } from "@/trpc/types";
 /**
  * Taking up an instructor link.
  *
- * **The link admits somebody to a matriculation rather than to one course**, which is the change
+ * **The link admits somebody to a program rather than to one course**, which is the change
  * that made one link enough: an instructor of a program may act in any of its courses, so there is
  * one grant to make and one link to send. Which courses their name goes on is a separate decision
  * the owner makes on the program's settings screen, and it grants nothing either way.
  *
  * **A button rather than joining on arrival**, the same as the fellow's join screen and for the
- * same reason: opening a link is not consent to take on a matriculation, and this is the one screen
- * where which matriculation it is can be said.
+ * same reason: opening a link is not consent to take on a program, and this is the one screen
+ * where which program it is can be said.
  *
  * **The ineligible case is answered here rather than by a failed button.** A student account cannot
  * be made staff from a program link — that would be a second path to staff access with no admin
@@ -49,7 +49,7 @@ export function AcceptInstructorLink({
         );
         /*
           Into the roster rather than a course's triage, which is where a new instructor of a
-          matriculation actually starts: they have been given no course yet, and the roster is the
+          program actually starts: they have been given no course yet, and the roster is the
           one screen that is theirs the moment the link is redeemed.
         */
         router.push(rosterHref(result.programId));
@@ -82,7 +82,7 @@ export function AcceptInstructorLink({
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold text-balance">{preview.name}</h1>
           <p className="text-sm text-muted-foreground">
-            {preview.matriculation}
+            {preview.term}
             {preview.owner && ` · ${preview.owner}`}
           </p>
         </div>
@@ -101,7 +101,7 @@ export function AcceptInstructorLink({
         ) : !preview.eligible ? (
           /*
             The one refusal with an answer, so it is stated rather than left to the button.
-            Everything else on this screen is about a matriculation; this is about the account.
+            Everything else on this screen is about a program; this is about the account.
           */
           <div className="flex flex-col gap-2">
             <p className="text-sm text-muted-foreground">
@@ -121,12 +121,12 @@ export function AcceptInstructorLink({
           <>
             {/*
               What the grant actually reaches, said plainly. It is wider than a course — every
-              course of the matriculation, every fellow's work in them, and the roster and
+              course of the program, every fellow's work in them, and the roster and
               attendance above them — and somebody pressing this should know that before they do.
             */}
             <p className="text-sm text-muted-foreground">
-              Taking this up lets you author assignments in any course of this matriculation, read
-              every fellow&apos;s work, approve grades, and take attendance.
+              Taking this up lets you author assignments in any course of this program, read every
+              fellow&apos;s work, approve grades, and take attendance.
             </p>
             <Button disabled={accept.isPending} onClick={() => accept.mutate({ token })}>
               {accept.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}

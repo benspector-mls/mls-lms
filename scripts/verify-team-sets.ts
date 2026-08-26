@@ -16,7 +16,7 @@
  *
  * The strongest checks are the last group. Everything above them asks whether the procedures do
  * what they say; those ask whether the mistakes they prevent are possible at all — a fellow on two
- * teams of one set, a team holding another matriculation's fellow, two rows claiming to hold one team's
+ * teams of one set, a team holding another program's fellow, two rows claiming to hold one team's
  * work, and a mirror pointing at a mirror. Each runs in its own transaction, because a constraint
  * violation aborts the transaction it happens in.
  */
@@ -53,9 +53,9 @@ async function main() {
       instructors: { take: 1, select: { userId: true } },
       assignments: { take: 1, select: { id: true } },
       /*
-        The fellows are the matriculation's, reached through it. A team set divides them for one
+        The fellows are the term's, reached through it. A team set divides them for one
         course's projects, so both scopes are named here — and a membership's keys share
-        `programId`, which is what makes a cross-matriculation row unrepresentable.
+        `programId`, which is what makes a cross-term row unrepresentable.
 
         Any status. They are made active inside the throwaway transaction below, so a roster whose
         third fellow has been removed in the running application is still usable.
@@ -84,7 +84,7 @@ async function main() {
   const courseId = course.id;
   const programId = course.programId;
 
-  /* Another matriculation's fellow, for the checks about naming somebody from outside. */
+  /* Another program's fellow, for the checks about naming somebody from outside. */
   const outsider = await db.enrollment.findFirst({
     where: { programId: { not: course.programId } },
     select: { id: true, programId: true, studentId: true },
@@ -219,7 +219,7 @@ async function main() {
     );
     if (outsider) {
       check(
-        "a set cannot hold another matriculation's fellow",
+        "a set cannot hold another program's fellow",
         await refusal(() =>
           asInstructor.teamSets.setPlacements({
             teamSetId: set.id,
@@ -370,18 +370,18 @@ async function main() {
 
       /*
         The three composite keys, tested from the direction that would slip past a procedure: the
-        membership names the outsider's own matriculation, which is the only value that satisfies the
-        enrollment key — and is then refused by the one that holds the set to *this* matriculation.
+        membership names the outsider's own program, which is the only value that satisfies the
+        enrollment key — and is then refused by the one that holds the set to *this* term.
         There is no program id that satisfies all three.
 
         **`programId` is the shared column, and this is the pair that proves it.** The keys are
         `(teamId, teamSetId) → teams`, `(teamSetId, programId) → team_sets`, and
         `(enrollmentId, programId) → enrollments`; the second and third share the column, so naming
-        another matriculation's fellow is unrepresentable rather than merely refused by the procedure
+        another term's fellow is unrepresentable rather than merely refused by the procedure
         that writes it.
       */
       checkThat(
-        "a team cannot hold another matriculation's fellow, whichever program the row claims",
+        "a team cannot hold another program's fellow, whichever program the row claims",
         await refuses(() =>
           tx.teamMembership.createMany({
             data: [
@@ -396,7 +396,7 @@ async function main() {
         ),
       );
       checkThat(
-        "and cannot borrow this matriculation's id to name them either",
+        "and cannot borrow this program's id to name them either",
         await refuses(() =>
           tx.teamMembership.createMany({
             data: [

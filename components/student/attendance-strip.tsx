@@ -16,9 +16,9 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * A fellow's week, one block per matriculation, at the top of the dashboard.
+ * A fellow's week, one block per program, at the top of the dashboard.
  *
- * **One block per matriculation, not per course**, which is what attendance moving up to the program
+ * **One block per program, not per course**, which is what attendance moving up to the program
  * bought here: a fellow taking three courses that all met on a Tuesday had three blocks and three
  * codes to type, and the three said the same thing while pushing the work off the one screen that
  * answers "what is due".
@@ -34,7 +34,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * as a full week. Squares report each day and leave the empty ones blank; the percentage beside
  * them is cumulative, which has a denominator worth quoting.
  *
- * **It renders nothing when the week holds no session in any matriculation.** Silence at the
+ * **It renders nothing when the week holds no session in any program.** Silence at the
  * weekend and over winter break, for the reason `CheckInCard` gives: a strip of empty squares
  * announcing its own absence is a false alarm on every day nobody meets.
  *

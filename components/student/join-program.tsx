@@ -11,17 +11,17 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Joining a matriculation from its link.
+ * Joining a program from its link.
  *
  * **One link where there used to be one per course**, and it admits somebody to every course of the
- * matriculation at once. So the screen names them: a fellow pressing Join is agreeing to more than
+ * program at once. So the screen names them: a fellow pressing Join is agreeing to more than
  * one course, and a page that said only the program's name would be asking them to agree to a list
  * it had not shown them.
  *
  * **A button rather than joining on arrival.** Opening a link is not consent to be enrolled, and
  * a page that enrolled on load would enrol anybody who clicked a URL in a group chat to see what
  * it was. It also gives the one screen where this can be said a place to say it: which
- * matriculation, who owns it, and what is in it.
+ * program, who owns it, and what is in it.
  *
  * Every refusal is a message from the procedure rather than a state handled here — an expired
  * link, a finished program, an enrollment they were removed from. The procedure is the authority on
@@ -45,7 +45,7 @@ export function JoinProgram({
         );
         /*
           Straight to the course list rather than into one course, because joining admits them to
-          every course of the matriculation and there is no single one to pick. Landing back on this
+          every course of the program and there is no single one to pick. Landing back on this
           screen after succeeding would read as nothing having happened.
         */
         router.push("/courses");
@@ -95,7 +95,7 @@ export function JoinProgram({
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold text-balance">{preview.name}</h1>
           <p className="text-sm text-muted-foreground">
-            {preview.matriculation}
+            {preview.term}
             {preview.owner && ` · ${preview.owner}`}
           </p>
         </div>
@@ -157,7 +157,7 @@ export function JoinProgram({
           <>
             {/*
               What they are agreeing to, named. Joining enrolls somebody in every course of the
-              matriculation at once, so a screen that offered the button without listing them would
+              program at once, so a screen that offered the button without listing them would
               be asking for consent to a set it had not shown. Nothing is listed for a program whose
               courses are all still unpublished — there is nothing to name yet, and the sentence
               below says what joining does either way.

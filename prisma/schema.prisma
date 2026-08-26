@@ -163,10 +163,10 @@ model InstructorInvite {
 }
 
 // ===========================================================================
-// Programs: the matriculation a fellow is admitted to, and what it owns
+// Programs: what a fellow is admitted to, and what it owns
 // ===========================================================================
 
-/// One matriculation of a program — "Software Engineering Fellowship", starting "Fall 2026".
+/// One run of a program — "Software Engineering Fellowship", starting "Fall 2026".
 ///
 /// **The thing a fellow is admitted to, and the thing a morning belongs to.** A program owns its
 /// courses, one roster, one set of attendance days, its cohorts, and its instructors. A course goes
@@ -181,25 +181,25 @@ model InstructorInvite {
 /// instructors was rebuilt inside each course as its own set of groups.
 ///
 /// **One row is one *run*.** "Software Engineering Fellowship" starting "Fall 2026" and the same
-/// program starting "Fall 2027" are two rows, which is what `@@unique([name, matriculation])` says.
+/// program starting "Fall 2027" are two rows, which is what `@@unique([name, term])` says.
 /// A second table holding the name once would be a third level in every URL, every query, and every
 /// guard for the sake of one string. A run is created empty; carrying a term forward is
 /// `courses.create` copying a previous course, once per course.
 model Program {
   id String @id @default(uuid()) @db.Uuid
 
-  /// What the program is called, repeated by every matriculation of it. See above for why that
+  /// What the program is called, repeated by every run of it. See above for why that
   /// repetition is preferred to a table holding it once.
   name String
 
-  /// When this matriculation begins, as a person says it — "Fall 2026".
+  /// When this run of the program begins, as a person says it — "Fall 2026".
   ///
   /// **Free text, and nothing parses it.** There are no term dates and no record of which weekdays
   /// the program meets, so a morning nobody opened stays indistinguishable from a morning the
   /// program did not meet, and no warning fires about a forgotten Tuesday. It is displayed, it is
   /// half of the identity, and it is an input to a course's suggested short name. See
   /// `AttendanceSession` for what the absence of a calendar costs and why the cost is accepted.
-  matriculation String
+  term String
 
   /// The one link that enrolls a fellow in this program, and so in every published course of it.
   ///
@@ -223,7 +223,7 @@ model Program {
   /// `InstructorInvite` and an admin, so this grants a program and nothing more.
   instructorToken String @unique @map("instructor_token")
 
-  /// Set when a matriculation finishes. The program leaves every active list and stays readable to
+  /// Set when a run of the program finishes. It leaves every active list and stays readable to
   /// the people who were in it; nothing new can be submitted in it. Reversible, because a tidying
   /// action that cannot be undone gets avoided instead of used. A course carries its own, because
   /// courses inside one program finish at different times.
@@ -247,7 +247,7 @@ model Program {
   attendanceSessions AttendanceSession[]
 
   /// One "Software Engineering Fellowship (Fall 2026)".
-  @@unique([name, matriculation])
+  @@unique([name, term])
   @@map("programs")
   @@schema("public")
 }
@@ -372,18 +372,18 @@ model Course {
   /// The course's short name, which prefixes every repository it generates:
   /// `{slug}-{assignmentRepoName}-{github login}`.
   ///
-  /// This is what makes two matriculations of one course distinct on GitHub —
+  /// This is what makes two runs of one course distinct on GitHub —
   /// `swe-f26-swe-1-4-loops-benspector3` beside `swe-s27-swe-1-4-loops-benspector3`. Without it the
   /// name carries no term, so a fellow repeating a program would want the repository their previous
-  /// matriculation already holds, and copying a course to test it would collide with the original
+  /// run already holds, and copying a course to test it would collide with the original
   /// for anybody in both.
   ///
   /// **On the course rather than on the program**, deliberately. A program-level prefix would make
   /// an assignment's repository name have to be unique across the whole program, so two courses of
-  /// one matriculation could not both hold an assignment named `project-1`.
+  /// one program could not both hold an assignment named `project-1`.
   /// `@@unique([courseId, assignmentRepoName])` on `Assignment` is what keeps that free.
   ///
-  /// Suggested from the course name **and** the program's `matriculation`, then editable — a course
+  /// Suggested from the course name **and** the program's `term`, then editable — a course
   /// called "Fullstack Software Engineering" in a program starting "Fall 2026" offers `fse-f26`,
   /// which an instructor may edit to `swe-f26`. Both halves are in the suggestion because neither is
   /// unique on its own: every program a school runs starts in the fall, so a term-only slug would be
@@ -456,7 +456,7 @@ model Course {
 ///
 /// There is deliberately no `isPrimary` here. Ownership is a program fact — see
 /// `ProgramInstructor.isPrimary` — because the actions it gates (archiving, deleting, deciding who
-/// teaches what) are about the matriculation rather than about one of its courses.
+/// teaches what) are about the program rather than about one of its courses.
 model CourseInstructor {
   id        String   @id @default(uuid()) @db.Uuid
   courseId  String   @map("course_id") @db.Uuid
@@ -496,7 +496,7 @@ enum EnrollmentStatus {
 /// should not yet see is a course that has not been published — see `Course.publishedAt` — rather
 /// than a fellow who has not been enrolled.
 ///
-/// **A fellow who repeats, repeats the program.** They enroll in the next matriculation and take
+/// **A fellow who repeats, repeats the program.** They enroll in the next run of it and take
 /// every course in it. There is no way to join a single course, and that is deliberate rather than
 /// an oversight: it is what gives the roster, the cohort, and the morning exactly one answer each.
 ///
@@ -976,7 +976,7 @@ model Assignment {
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories are named
   /// `{slug}-{assignmentRepoName}-{student github login}`, where the slug comes from the course —
   /// see `Course.slug`. **The uniqueness below is per course rather than per program**, which is
-  /// what lets two courses of one matriculation both hold an assignment named `project-1`.
+  /// what lets two courses of one program both hold an assignment named `project-1`.
   assignmentRepoName String? @map("assignment_repo_name")
   githubOrg          String? @map("github_org")
   /// Which template commit the tests come from. Null means the template's
@@ -1599,7 +1599,7 @@ model AuditEvent {
 
   /// The course this happened in, for the acts that are about one: a released grade, an assignment
   /// published, a course archived. **Both pairs exist rather than one replacing the other**, because
-  /// "which matriculation was this" and "which course was this" are different questions and a
+  /// "which program was this" and "which course was this" are different questions and a
   /// released grade is the only thing in this log that answers the second.
   courseId    String? @map("course_id") @db.Uuid
   courseLabel String? @map("course_label")
@@ -1708,7 +1708,7 @@ enum AttendanceSource {
 /// One day of one program, on one civil date.
 ///
 /// **A program day rather than a course meeting**, which is the change this whole layer exists for. A
-/// fellow takes several courses inside one matriculation and arrives at the building once, so there
+/// fellow takes several courses inside one program and arrives at the building once, so there
 /// is one session to check into and one code to type. Before the program existed, `Course` was the
 /// only cohort-shaped thing in the schema and a fellow in three courses had three of each.
 ///
@@ -1811,7 +1811,7 @@ model AttendanceSession {
 /// program writing a record against another program's fellow unrepresentable rather than merely
 /// refused by the procedure. `programId` is copied from the session the server just loaded, never
 /// taken from input, and it pays for itself twice — the compliance export reads one table instead of
-/// joining through the session to ask which matriculation a row belongs to.
+/// joining through the session to ask which program a row belongs to.
 ///
 /// **`@@unique([sessionId, enrollmentId])` is what makes checking in twice harmless.** A fellow who
 /// types the code, sees nothing happen, and types it again gets the record they already have:

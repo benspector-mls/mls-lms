@@ -24,7 +24,7 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Who instructs this matriculation, who teaches which of its courses, and who owns it.
+ * Who instructs this program, who teaches which of its courses, and who owns it.
  *
  * **One link and one grant, where there used to be one per course.** An instructor of a program may
  * act in any of its courses — `assertTeaches` asks for a `ProgramInstructor` row and never for a
@@ -38,12 +38,12 @@ import type { RouterOutputs } from "@/trpc/types";
  *
  * **Everybody here can do the same work; the owner decides two more things.** Every instructor
  * authors, reads every fellow's work, and approves grades. The owner additionally archives the
- * matriculation, says who teaches what, and removes people — the actions with reach beyond the
+ * program, says who teaches what, and removes people — the actions with reach beyond the
  * person performing them. Before that distinction existed, anybody who taught could remove the
  * person who set the term up.
  *
- * **It sits on the settings screen rather than one of its own.** Who runs a matriculation is a fact
- * about the matriculation, in the same way its term and its lateness rule are; and these are three
+ * **It sits on the settings screen rather than one of its own.** Who runs a program is a fact
+ * about the program, in the same way its term and its lateness rule are; and these are three
  * cards read when somebody joins or leaves, which is rarer than anything else on that screen. A
  * sidebar item for them was a door onto a section.
  */
@@ -60,7 +60,7 @@ export function ProgramInstructors({ data }: { data: Data }) {
   );
 }
 
-/** Everybody who instructs this matriculation, with the two actions ownership gates. */
+/** Everybody who instructs this program, with the two actions ownership gates. */
 function InstructorsCard({ data }: { data: Data }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -70,7 +70,7 @@ function InstructorsCard({ data }: { data: Data }) {
       settled({
         onSuccess: (result) => {
           /*
-            Who owns it now, when that changed. An owner who leaves without handing the matriculation
+            Who owns it now, when that changed. An owner who leaves without handing the program
             on gives it to the longest-serving instructor left — the right default, and not a thing
             anybody would guess, so it is said rather than left to be noticed.
           */
@@ -100,7 +100,7 @@ function InstructorsCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Instructors</h2>
         <p className="text-xs text-muted-foreground">
-          Everyone here can author assignments in every course of this matriculation, read every
+          Everyone here can author assignments in every course of this program, read every
           fellow&apos;s work, approve grades, and take attendance.
         </p>
       </div>
@@ -125,7 +125,7 @@ function InstructorsCard({ data }: { data: Data }) {
                 The owner can leave, and nobody else can remove them.
 
                 Leaving is a decision about your own work; removing the person who runs a
-                matriculation is a decision about theirs. The procedure refuses either way — this
+                program is a decision about theirs. The procedure refuses either way — this
                 only decides whether the button is offered, and offering one that always fails is
                 worse than not offering it.
               */
@@ -143,7 +143,7 @@ function InstructorsCard({ data }: { data: Data }) {
                       <div className="flex min-w-0 flex-col">
                         <span className="flex items-center gap-2 truncate font-medium">
                           {name}
-                          {/* Whose matriculation this is. Read from `ownerId`, which the server
+                          {/* Whose program this is. Read from `ownerId`, which the server
                               derived — `isPrimary` is only half the rule, and a row can hold none
                               of it while the program still has an owner. */}
                           {isOwner && (
@@ -177,7 +177,7 @@ function InstructorsCard({ data }: { data: Data }) {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       {/*
-                        Handing the matriculation on, offered only by whoever currently holds it.
+                        Handing the program on, offered only by whoever currently holds it.
                         This is what makes "the owner cannot be removed" livable: without it that
                         rule reads as "whoever set this up runs it forever".
                       */}
@@ -204,7 +204,7 @@ function InstructorsCard({ data }: { data: Data }) {
                           className="text-destructive hover:text-destructive"
                           /*
                             Not offered when it is the last one, and the procedure refuses it
-                            regardless — a matriculation with no instructors cannot be authored in
+                            regardless — a program with no instructors cannot be authored in
                             or graded, and only a database edit would bring it back.
                           */
                           disabled={busy || onlyOne}
@@ -230,18 +230,18 @@ function InstructorsCard({ data }: { data: Data }) {
 
       {onlyOne ? (
         <p className="text-xs text-muted-foreground">
-          The only instructor on this matriculation cannot be removed. Add another one first.
+          The only instructor on this program cannot be removed. Add another one first.
         </p>
       ) : (
         /*
           The rule, said once beside the table rather than discovered by a refusal. The second
           sentence is the one nobody would guess: an owner who leaves without handing the
-          matriculation on does not leave it ownerless.
+          program on does not leave it ownerless.
         */
         <p className="text-xs text-muted-foreground">
-          The owner archives this matriculation, says who teaches which course, and removes people.
-          Only they can leave it — anybody else here can be removed by anyone. If the owner leaves
-          without handing it on, the matriculation goes to the longest-serving instructor left.
+          The owner archives this program, says who teaches which course, and removes people. Only
+          they can leave it — anybody else here can be removed by anyone. If the owner leaves
+          without handing it on, the program goes to the longest-serving instructor left.
         </p>
       )}
     </section>
@@ -249,7 +249,7 @@ function InstructorsCard({ data }: { data: Data }) {
 }
 
 /**
- * Which of this matriculation's courses each instructor's name is on.
+ * Which of this program's courses each instructor's name is on.
  *
  * **A checkbox grid, and this is the one place in the application where that is the right shape.** A
  * cohort and a team set are partitions and use one select per person; teaching is not — three people
@@ -407,14 +407,14 @@ function ReadOnlyTeaching({
 }
 
 /**
- * The link that makes somebody an instructor of this matriculation.
+ * The link that makes somebody an instructor of this program.
  *
- * **The link grants a matriculation, never a role.** Only an account that is already an instructor or
+ * **The link grants a program, never a role.** Only an account that is already an instructor or
  * an admin can redeem it; a fellow opening it is refused and told an admin has to send them an
  * instructor invitation first. A program-level link that made somebody staff would be a second path
  * to staff access with no admin involved, which is the escalation the Admin screen exists to control.
  *
- * Reusable rather than single use, unlike an instructor invitation, because a matriculation gains
+ * Reusable rather than single use, unlike an instructor invitation, because a program gains
  * instructors one at a time over a year. What bounds it is the role check rather than the token being
  * spent, and replacing it is the control over a link that reached the wrong person.
  */
@@ -448,8 +448,8 @@ function InstructorLinkCard({ data }: { data: Data }) {
           Instructor link
         </span>
         <span className="text-xs text-muted-foreground">
-          Send this to a colleague who should instruct {data.program.matriculation} with you. It works
-          only for accounts that are already instructors — if they have never signed in here, an admin
+          Send this to a colleague who should instruct {data.program.term} with you. It works only
+          for accounts that are already instructors — if they have never signed in here, an admin
           has to send them an instructor invitation from the Staff screen first.
         </span>
       </div>
@@ -478,15 +478,15 @@ function InstructorLinkCard({ data }: { data: Data }) {
         work in them, and the roster and attendance above them.
       */}
       <p className="text-xs text-muted-foreground">
-        Whoever redeems it can author in every course of this matriculation, read every fellow&apos;s
-        work, approve grades, and take attendance. It puts their name on no course — that is the grid
-        above.
+        Whoever redeems it can author in every course of this program, read every fellow&apos;s
+        work, approve grades, and take attendance. It puts their name on no course — that is the
+        grid above.
       </p>
 
       {confirming ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
-            The current link stops working immediately. Instructors already on this matriculation are
+            The current link stops working immediately. Instructors already on this program are
             unaffected — anyone you have sent it to and who has not used it yet will need the new
             link.
           </span>

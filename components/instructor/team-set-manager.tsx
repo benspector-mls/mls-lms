@@ -27,7 +27,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * Making a course's team sets, naming the teams in one, and placing fellows on them.
  *
  * **On its own screen beside the course's curriculum**, which is where a set belongs: it divides
- * the matriculation's fellows for one course's projects, and it is the course that owns it. A
+ * the program's fellows for one course's projects, and it is the course that owns it. A
  * **cohort** is the other division and lives on the program — it splits the marking between
  * instructors, fellows never see it, and it changes nothing about the work. A **team** hands in one
  * piece of work, receives one grade, and its members can see each other.
@@ -45,7 +45,7 @@ import type { RouterOutputs } from "@/trpc/types";
 type TeamSets = RouterOutputs["teamSets"]["listForCourse"];
 type TeamSet = TeamSets["sets"][number];
 /**
- * Every active fellow of the matriculation, which placement needs and this component does not fetch.
+ * Every active fellow of the program, which placement needs and this component does not fetch.
  *
  * Read from the cohorts router because it is already the list of active enrollments with their
  * students. Only `enrollmentId` and `student` are used here; which cohort somebody is in is the
@@ -467,7 +467,7 @@ function TeamSetRow({
           {/* Who is on which. A select, because a set is a partition. */}
           {roster.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
-              Nobody has joined this matriculation yet.
+              Nobody has joined this program yet.
             </p>
           ) : (
             <div className="flex flex-col gap-1">

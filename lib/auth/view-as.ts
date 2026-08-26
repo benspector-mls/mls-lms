@@ -44,7 +44,7 @@ export const VIEW_AS_COOKIE = "mls_view_as";
  * wrong program's roster. Keeping the checked thing to one uuid is what makes it obvious that it
  * is checked.
  *
- * **A matriculation rather than a course**, because the roster is the program's: the View as button
+ * **A program rather than a course**, because the roster is the program's: the View as button
  * is on that screen, and a test student enrolled in several programs gives "which one did the admin
  * come from" no answer that can be derived at the point of leaving.
  */

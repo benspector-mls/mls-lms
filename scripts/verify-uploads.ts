@@ -551,7 +551,7 @@ async function main() {
       archivedAt: null,
       instructors: { some: {} },
       courseUnits: { some: {} },
-      // Somebody on the matriculation's roster, which is where enrollment lives now.
+      // Somebody on the program's roster, which is where enrollment lives now.
       program: { enrollments: { some: {} } },
     },
     select: { id: true, programId: true },

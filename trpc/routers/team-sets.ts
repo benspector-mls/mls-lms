@@ -16,7 +16,7 @@ import { personSelect } from "../selects";
  * each other. Nothing in `cohorts.ts` changed to make room for this.
  *
  * **The two also sit at different scopes**, which is the sharper difference: a cohort divides the
- * matriculation's roster and a team set divides it for one *course's* projects. That is why a set
+ * program's roster and a team set divides it for one *course's* projects. That is why a set
  * carries a `programId` beside its `courseId` — the enrollment a membership names is the program's.
  *
  * **A set partitions the roster.** A fellow is on at most one team of any one set, which is what
@@ -29,7 +29,7 @@ import { personSelect } from "../selects";
  * membership — never from a team id they could pass in.
  *
  * Every write is `instructorProcedure` *and* a `teachable*` loader, exactly as the groups router
- * is: the role alone would let one matriculation's instructor regroup another's fellows.
+ * is: the role alone would let one program's instructor regroup another's fellows.
  */
 
 /** Trimmed, because " Team 1" and "Team 1" are the same team to everyone but the database. */
@@ -108,7 +108,7 @@ export const teamSetsRouter = createTRPCRouter({
       ctx.db.enrollment.count({
         where: {
           // The program's roster, reached through the course. A team divides the fellows of a
-          // matriculation for one of its courses' projects, so the count is of the roster.
+          // program for one of its courses' projects, so the count is of the roster.
           program: { courses: { some: { id: input.courseId } } },
           status: "ACTIVE",
         },
@@ -168,7 +168,7 @@ export const teamSetsRouter = createTRPCRouter({
           data: {
             courseId: input.courseId,
             /*
-              Carried so a membership can hold a set and an enrollment to the same matriculation at
+              Carried so a membership can hold a set and an enrollment to the same term at
               once — see `TeamSet.programId`. Read from the course rather than taken from input,
               which is what keeps it equal to the course's own program; the composite foreign key
               refuses anything else, and this is what stops that refusal ever being reached.
@@ -256,7 +256,11 @@ export const teamSetsRouter = createTRPCRouter({
   addTeam: instructorProcedure
     .input(z.object({ teamSetId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const set = await teachableTeamSet(ctx, input.teamSetId, { id: true, courseId: true, programId: true });
+      const set = await teachableTeamSet(ctx, input.teamSetId, {
+        id: true,
+        courseId: true,
+        programId: true,
+      });
 
       /*
         Named and positioned from the highest position rather than from the count, so a set whose
@@ -367,7 +371,11 @@ export const teamSetsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const set = await teachableTeamSet(ctx, input.teamSetId, { id: true, courseId: true, programId: true });
+      const set = await teachableTeamSet(ctx, input.teamSetId, {
+        id: true,
+        courseId: true,
+        programId: true,
+      });
 
       /*
         Last wins, rather than refusing a repeated enrollment. Two entries for one fellow is a

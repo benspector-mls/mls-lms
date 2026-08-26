@@ -2,9 +2,9 @@
  * A course's short name, as it appears in every repository the course generates.
  *
  * A student's repository is `{courseSlug}-{assignmentRepoName}-{github login}`, so the slug is
- * what makes two matriculations distinct on GitHub — `swe-f26-swe-1-4-loops-benspector3` beside
+ * what makes two programs distinct on GitHub — `swe-f26-swe-1-4-loops-benspector3` beside
  * `swe-s27-swe-1-4-loops-benspector3`. Without it, a student repeating a module would want the
- * repository their previous matriculation already holds.
+ * repository their previous term already holds.
  *
  * **It names the course and the term, not the term alone.** A term on its own is not unique: a
  * school running three programs starts all of them in the fall, so `fall-2026` is the short name
@@ -77,13 +77,13 @@ export function slugify(text: string, max: number): string {
 }
 
 /**
- * A matriculation, or a course name, as a slug.
+ * A term, or a course name, as a slug.
  *
  * This is the raw transformation. `suggestCourseSlug` below is what a new course actually gets,
  * and it is the one to call unless you specifically want a slug of one string.
  */
-export function slugifyCourse(matriculation: string): string {
-  return slugify(matriculation, MAX_COURSE_SLUG);
+export function slugifyCourse(term: string): string {
+  return slugify(term, MAX_COURSE_SLUG);
 }
 
 /**
@@ -123,8 +123,8 @@ const MAX_COMPACT_TERM = 4;
  * form is still legible — `f26` is obvious and `c12e` is not. The caller keeps the full slug for
  * anything else, and makes room for it by shortening the course name instead.
  */
-function compactTerm(matriculation: string): string | null {
-  const lower = matriculation.toLowerCase();
+function compactTerm(term: string): string | null {
+  const lower = term.toLowerCase();
 
   const season = SEASONS.find(([pattern]) => pattern.test(lower))?.[1];
   if (!season) return null;
@@ -156,24 +156,24 @@ function compactTerm(matriculation: string): string | null {
  * the review step on the creation form is the point at which this suggestion is meant to be read
  * and usually replaced.
  */
-export function suggestCourseSlug(params: { courseName: string; matriculation: string }): string {
-  const compact = compactTerm(params.matriculation);
-  const term = compact ?? slugifyCourse(params.matriculation);
+export function suggestCourseSlug(params: { courseName: string; term: string }): string {
+  const compact = compactTerm(params.term);
+  const termSlug = compact ?? slugifyCourse(params.term);
   const course = slugifyCourse(params.courseName);
 
   // Either half missing is a form half filled in, and half a suggestion is better than none.
-  if (course === "") return term;
-  if (term === "") return course;
+  if (course === "") return termSlug;
+  if (termSlug === "") return course;
 
-  const budget = MAX_COURSE_SLUG - 1 - (compact === null ? term.length : MAX_COMPACT_TERM);
-  if (course.length <= budget) return `${course}-${term}`;
+  const budget = MAX_COURSE_SLUG - 1 - (compact === null ? termSlug.length : MAX_COMPACT_TERM);
+  if (course.length <= budget) return `${course}-${termSlug}`;
 
   const initials = course
     .split("-")
     .map((word) => word[0])
     .join("");
 
-  return slugifyCourse(`${initials}-${term}`);
+  return slugifyCourse(`${initials}-${termSlug}`);
 }
 
 /** Why this is not a usable slug, or null when it is. */
@@ -218,7 +218,7 @@ export function studentRepoName(params: {
  * Team names are unique within a set but not within a course, so two sets can each hold a "Team
  * 1" and the set is not in the name. The accept path reads `repoFullName` before it creates
  * anything and refuses a collision in words, which is the same guard it already applies to one
- * student holding one repository across two matriculations.
+ * student holding one repository across two programs.
  */
 export function teamRepoName(params: {
   courseSlug: string;

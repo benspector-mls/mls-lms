@@ -8,7 +8,7 @@ import { attendanceSourceLabel, formatPercent } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * A fellow's own attendance, in one matriculation.
+ * A fellow's own attendance, in one program.
  *
  * **One record where there used to be one per course**, because there is one morning: a fellow taking
  * three courses that all met on a Tuesday had three records of the same arrival.

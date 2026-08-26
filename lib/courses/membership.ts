@@ -199,7 +199,7 @@ export async function assertActiveStudent(ctx: AuthedCtx, courseId: string): Pro
  * co-teacher covering for somebody must be able to approve their drafts.
  *
  * The check the INSTRUCTOR role cannot make on its own. Holding the role says somebody is staff, not
- * which matriculations are theirs, so without this one program's instructor could author in
+ * which programs are theirs, so without this one program's instructor could author in
  * another's, rename its units, or reassign its fellows.
  *
  * Here rather than private to a router because several of them want it and an identical guard copied
@@ -235,7 +235,10 @@ export async function assertInstructsProgram(ctx: AuthedCtx, programId: string):
   });
 
   if (!instructs) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "You are not an instructor of this program." });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not an instructor of this program.",
+    });
   }
 }
 
@@ -246,10 +249,7 @@ export async function assertInstructsProgram(ctx: AuthedCtx, programId: string):
  * attendance record, and an instructor reading anybody's. A removed fellow is admitted, for the
  * reason they are admitted to a course they have left — their record is theirs.
  */
-export async function assertProgramMember(
-  ctx: AuthedCtx,
-  programId: string,
-): Promise<Membership> {
+export async function assertProgramMember(ctx: AuthedCtx, programId: string): Promise<Membership> {
   if (ctx.profile.role === "ADMIN") return { as: "admin" };
 
   const [enrollment, instructorRow] = await Promise.all([
@@ -333,7 +333,7 @@ export async function assertOwnsOrTeaches(
 // enrollment says "active on this roster", which is a program fact; the course says "this course's
 // work", which the enrollment used to say and no longer can. Carrying the course scope inside the
 // fragment rather than leaving it to each caller is deliberate: a caller who forgot it would widen
-// a screen from one course to every course of the matriculation, and nothing would throw.
+// a screen from one course to every course of the program, and nothing would throw.
 // =======================================================================================
 
 /**
@@ -356,7 +356,9 @@ function cohortCondition(selection: CohortSelection) {
 function activeFellow(programId: string, selection: CohortSelection) {
   return {
     student: {
-      enrollments: { some: { programId, status: "ACTIVE" as const, ...cohortCondition(selection) } },
+      enrollments: {
+        some: { programId, status: "ACTIVE" as const, ...cohortCondition(selection) },
+      },
     },
   };
 }
@@ -381,7 +383,7 @@ function activeFellow(programId: string, selection: CohortSelection) {
  * different enrollment.
  *
  * A cohort belonging to some other program matches nothing, because no enrollment on *this* roster
- * can hold it. That is the safe direction — an empty screen rather than another matriculation's
+ * can hold it. That is the safe direction — an empty screen rather than another program's
  * fellows — so a stale id costs a query rather than a check on every call.
  */
 export function activeStudentWork(

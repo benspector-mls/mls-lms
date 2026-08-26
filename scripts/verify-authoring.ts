@@ -882,10 +882,10 @@ check(
 // =====================================================================================
 
 /**
- * Fixed ids for the second matriculation and course this script needs, so a re-run reuses two rows
+ * Fixed ids for the second program and course this script needs, so a re-run reuses two rows
  * rather than adding more. Nothing else uses them, and the script deletes them before it exits.
  *
- * Two rather than one, because a course belongs to a matriculation: the tokens the second course
+ * Two rather than one, because a course belongs to a program: the tokens the second course
  * used to carry are the program's now.
  */
 const ELSEWHERE_PROGRAM_ID = "e7c1a1d0-0000-4000-8000-00000000fffe";
@@ -940,7 +940,7 @@ async function procedures() {
     stopped this entire group of checks while the script went on reporting a pass.
   */
   const student = await db.enrollment.findFirst({
-    // On the roster of the matriculation the seeded course belongs to, which is what makes somebody
+    // On the roster of the program the seeded course belongs to, which is what makes somebody
     // a student of it.
     where: { programId: seeded.course.programId },
     orderBy: { createdAt: "asc" },
@@ -1035,7 +1035,7 @@ async function procedures() {
     create: {
       id: ELSEWHERE_PROGRAM_ID,
       name: "Another program (verify:authoring)",
-      matriculation: "Cohort Other",
+      term: "Cohort Other",
       joinToken: `verify-authoring-${ELSEWHERE_PROGRAM_ID}`,
       instructorToken: `verify-authoring-it-${ELSEWHERE_PROGRAM_ID}`,
     },
@@ -1345,7 +1345,7 @@ async function procedures() {
     validation instead, reporting a hole that is not there. The reverse is the worse case: on a
     different set of rows it would have picked a real outsider and passed by luck.
 
-    `programsInstructing: { none: ... }` cannot go stale as a matriculation gains or loses
+    `programsInstructing: { none: ... }` cannot go stale as a term gains or loses
     instructors. ADMIN is excluded by asking for the role exactly, which is correct — an admin may
     author anywhere.
   */

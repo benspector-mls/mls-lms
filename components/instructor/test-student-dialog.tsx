@@ -87,10 +87,9 @@ export function TestStudentDialog({
         <DialogHeader>
           <DialogTitle>Add a test student</DialogTitle>
           <DialogDescription>
-            A student-shaped account you can look through to meet this matriculation the way a
-            fellow does — accept the work of any of its courses, push to its repositories, and grade
-            the result. It is left out of the roster count, and shown with a Test badge everywhere
-            else.
+            A student-shaped account you can look through to meet this program the way a fellow does
+            — accept the work of any of its courses, push to its repositories, and grade the result.
+            It is left out of the roster count, and shown with a Test badge everywhere else.
           </DialogDescription>
         </DialogHeader>
 

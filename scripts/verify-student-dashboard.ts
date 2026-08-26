@@ -37,7 +37,7 @@ async function main() {
   const as = (userId: string) => createCaller({ db, user: { id: userId } } as never);
 
   /*
-    A real fellow of a real matriculation. Selected by having an active enrollment rather than by
+    A real fellow of a real term. Selected by having an active enrollment rather than by
     role, because the property every check below needs is the enrollment — an account with the
     STUDENT role and no roster would pass the selection and then measure nothing.
   */
@@ -47,7 +47,7 @@ async function main() {
       studentId: true,
       programId: true,
       student: { select: { email: true, testStudentNumber: true } },
-      program: { select: { name: true, matriculation: true } },
+      program: { select: { name: true, term: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -59,7 +59,7 @@ async function main() {
 
   const student = as(enrollment.studentId);
   console.log(`Fellow   ${enrollment.student.email ?? enrollment.studentId}`);
-  console.log(`Program  ${enrollment.program.name} · ${enrollment.program.matriculation}\n`);
+  console.log(`Program  ${enrollment.program.name} · ${enrollment.program.term}\n`);
 
   // --- listMine: shape ---------------------------------------------------
 
@@ -129,7 +129,7 @@ async function main() {
 
   /*
     And an unpublished *course* is invisible the same way an unpublished assignment is, which is the
-    third of the three readers of `Course.publishedAt` that have to agree. Being on a matriculation's
+    third of the three readers of `Course.publishedAt` that have to agree. Being on a term's
     roster makes somebody a student of every course in it, so publication is the only thing keeping a
     course that begins in March off this list in September — and this feed is where a disagreement
     would show up as a deadline for work nobody has been given.
@@ -152,7 +152,7 @@ async function main() {
   /*
     A second fellow, and the check that the first one's work does not reach them. Skipped rather than
     approximated when the roster has only one fellow: "another account" is not "another fellow of
-    this matriculation", and the wrong fixture passes by luck.
+    this term", and the wrong fixture passes by luck.
   */
   const other = await db.enrollment.findFirst({
     where: {
@@ -285,7 +285,7 @@ async function main() {
     draws squares from `days` and a figure from `summary`, and a procedure that returned a week the
     columns do not cover draws a row of blanks that looks exactly like a quiet week.
 
-    **One row per matriculation, not per course**, which is what attendance moving up bought here: a
+    **One row per program, not per course**, which is what attendance moving up bought here: a
     fellow taking three courses that all met on a Tuesday had three rows saying the same thing.
   */
   const week = await student.attendance.myWeek();
@@ -302,12 +302,12 @@ async function main() {
   );
 
   /*
-    One row per matriculation the fellow is on the roster of, and no more. It is the check that says
+    One row per term the fellow is on the roster of, and no more. It is the check that says
     the strip is program-shaped rather than course-shaped: a procedure that had kept its old scoping
     would return a row per course, which is more rows than there are rosters.
   */
   check(
-    "there is one row per matriculation, not per course",
+    "there is one row per program, not per course",
     week.programs.length,
     await db.enrollment.count({
       where: {
@@ -319,7 +319,7 @@ async function main() {
   );
 
   checkThat(
-    "every matriculation draws one square per column",
+    "every program draws one square per column",
     week.programs.every((row) => row.days.length === week.columns.length),
   );
 
@@ -338,7 +338,7 @@ async function main() {
   );
 
   checkThat(
-    "no archived or dropped matriculation is in the strip",
+    "no archived or dropped program is in the strip",
     (await db.enrollment.count({
       where: {
         studentId: enrollment.studentId,
@@ -361,7 +361,7 @@ async function main() {
     const shared = week.programs.filter((row) => theirPrograms.has(row.program.id));
 
     checkThat(
-      "two fellows of one matriculation get their own figures, not the roster's",
+      "two fellows of one program get their own figures, not the roster's",
       shared.every((row) => {
         const theirs = theirWeek.programs.find((t) => t.program.id === row.program.id)!;
         // Their eligible counts may legitimately match; what must never match by construction is
@@ -395,7 +395,7 @@ async function main() {
   // --- the progress bar, against the same rows the course page draws ----
 
   /*
-    One course of the matriculation, because the bar is a course's. Published only: an unpublished
+    One course of the term, because the bar is a course's. Published only: an unpublished
     course is refused to a fellow, so naming one would report a working guard as a broken screen.
   */
   const barCourse = await db.course.findFirst({
@@ -409,7 +409,7 @@ async function main() {
   });
 
   if (!barCourse) {
-    skip("the fellow's matriculation has no published course, so the progress bar cannot be read");
+    skip("the fellow's program has no published course, so the progress bar cannot be read");
     return finish();
   }
 

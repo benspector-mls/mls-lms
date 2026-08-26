@@ -1,5 +1,5 @@
 /**
- * Who instructs a matriculation, who owns it, and how one is retired and deleted.
+ * Who instructs a program, who owns it, and how one is retired and deleted.
  *
  * Run with `npm run verify:programs`.
  *
@@ -9,7 +9,7 @@
  * **Three groups are worth reading.**
  *
  * The instructor-link group takes one account, has it refused while it is a fellow, promotes it, and
- * has it admitted: the link grants a matriculation and never a role, and one account doing both
+ * has it admitted: the link grants a program and never a role, and one account doing both
  * halves is what makes that a comparison rather than two unrelated facts about two people. If that
  * guard were wrong, any instructor could hand out staff access by forwarding a link.
  *
@@ -21,7 +21,7 @@
  * procedure.
  *
  * The teaching group is the one that says what being assigned to a course does **not** do. Every
- * instructor of a matriculation can already work in every course of it, so the checks are that a
+ * instructor of a program can already work in every course of it, so the checks are that a
  * `CourseInstructor` row changes the name on a course and changes nothing about access.
  */
 import { createChecker, loadEnvironment, refusal } from "./verify/harness";
@@ -47,7 +47,7 @@ async function main() {
   const { ownerOf } = await import("../lib/programs/ownership");
 
   /*
-    Any seeded matriculation with an instructor, and its owner rather than whichever row comes back
+    Any seeded term with an instructor, and its owner rather than whichever row comes back
     first: everything below is owner-gated, so a script that picked a co-teacher would report a
     working guard as a broken feature — or pick the owner by luck on one run and not the next.
   */
@@ -94,16 +94,18 @@ async function main() {
         /*
           The owner is demoted to INSTRUCTOR for the whole of this script, and put back at the end.
 
-          Not a detail. `assertOwnsProgram` lets an admin through, and the seeded matriculation's
+          Not a detail. `assertOwnsProgram` lets an admin through, and the seeded term's
           creator is the deployment's admin — so run as it stands, every check saying "the owner may"
           would be passing on the admin bypass while claiming to measure ownership, and would keep
           passing if ownership were removed entirely. The first version of this group did exactly
           that, and the check that caught it is the one at the end that expects the bypass on purpose.
         */
-        const ownerRole = (await tx.profile.findUniqueOrThrow({
-          where: { id: instructor.userId },
-          select: { role: true },
-        })).role;
+        const ownerRole = (
+          await tx.profile.findUniqueOrThrow({
+            where: { id: instructor.userId },
+            select: { role: true },
+          })
+        ).role;
         await tx.profile.update({
           where: { id: instructor.userId },
           data: { role: "INSTRUCTOR" },
@@ -111,12 +113,12 @@ async function main() {
 
         // ---- The instructor link -----------------------------------------------
         //
-        // One link per matriculation, where there used to be one per course. It admits somebody to
+        // One link per program, where there used to be one per course. It admits somebody to
         // authoring and to every fellow's grade in every course of the year, so its refusals matter
         // more than its successes.
         const program = await asInstructor.programs.create({
           name: "Verify Instructors",
-          matriculation: "Program Verify A",
+          term: "Program Verify A",
         });
         const tokens = (await tx.program.findUniqueOrThrow({
           where: { id: program.id },
@@ -124,11 +126,7 @@ async function main() {
         }))!;
 
         check("a new program gets an instructor token", tokens.instructorToken.length >= 32, true);
-        check(
-          "...which is not its join token",
-          tokens.instructorToken === tokens.joinToken,
-          false,
-        );
+        check("...which is not its join token", tokens.instructorToken === tokens.joinToken, false);
 
         check(
           "an unknown instructor token previews as nothing",
@@ -142,11 +140,11 @@ async function main() {
         });
         check("a fellow is told they are not eligible", studentPreview?.eligible, false);
         check(
-          "...and the preview still names the matriculation",
+          "...and the preview still names the program",
           studentPreview?.name,
           "Verify Instructors",
         );
-        check("...and its term", studentPreview?.matriculation, "Program Verify A");
+        check("...and its term", studentPreview?.term, "Program Verify A");
 
         const studentRefusal = await refusalMessage(() =>
           asStudent.programs.acceptInstructorLink({ token: tokens.instructorToken }),
@@ -180,7 +178,7 @@ async function main() {
         await tx.profile.update({ where: { id: studentId }, data: { role: "INSTRUCTOR" } });
         const asNewInstructor = createCaller({ db: tx, user: { id: studentId } } as never);
 
-        // Before redeeming, so it is genuinely somebody outside the matriculation. Holding the role
+        // Before redeeming, so it is genuinely somebody outside the program. Holding the role
         // says nothing about which programs, which is the distinction every gate here rests on.
         check(
           "an instructor who does not instruct it cannot replace its link",
@@ -213,12 +211,12 @@ async function main() {
 
         /*
           The check the whole feature is for. A `ProgramInstructor` row that exists but does not
-          actually let somebody work in the matriculation would look completely correct in the
+          actually let somebody work in the term would look completely correct in the
           database — every authoring procedure gates on this table, so the proof is calling one.
         */
         const theirSettings = await asNewInstructor.programs.settings({ programId: program.id });
         check(
-          "...and they can now read the matriculation they instruct",
+          "...and they can now read the program they instruct",
           theirSettings.program.id,
           program.id,
         );
@@ -271,18 +269,20 @@ async function main() {
         // ---- The refusals that are about the program rather than the account ----
         const archivedProgram = await asInstructor.programs.create({
           name: "Verify Instructors Archived",
-          matriculation: "Program Verify B",
+          term: "Program Verify B",
         });
         await asInstructor.programs.setArchived({
           programId: archivedProgram.id,
           archived: true,
         });
-        const archivedToken = (await tx.program.findUniqueOrThrow({
-          where: { id: archivedProgram.id },
-          select: { instructorToken: true },
-        })).instructorToken;
+        const archivedToken = (
+          await tx.program.findUniqueOrThrow({
+            where: { id: archivedProgram.id },
+            select: { instructorToken: true },
+          })
+        ).instructorToken;
         check(
-          "an archived matriculation takes no new instructors",
+          "an archived program takes no new instructors",
           await refusal(() =>
             asNewInstructor.programs.acceptInstructorLink({ token: archivedToken }),
           ),
@@ -296,7 +296,7 @@ async function main() {
         */
         const bothProgram = await asInstructor.programs.create({
           name: "Verify Instructors Enrolled",
-          matriculation: "Program Verify C",
+          term: "Program Verify C",
         });
         const bothTokens = (await tx.program.findUniqueOrThrow({
           where: { id: bothProgram.id },
@@ -308,7 +308,7 @@ async function main() {
           data: { programId: bothProgram.id, studentId, status: "ACTIVE" },
         });
         check(
-          "somebody enrolled as a fellow cannot also instruct the matriculation",
+          "somebody enrolled as a fellow cannot also instruct the program",
           await refusal(() =>
             asNewInstructor.programs.acceptInstructorLink({ token: bothTokens.instructorToken }),
           ),
@@ -342,7 +342,7 @@ async function main() {
         // ---- Who teaches which course -------------------------------------------
         //
         // The one thing that is still per course, and the checks are about what it does *not* do:
-        // every instructor of the matriculation can already work in every course of it, so a
+        // every instructor of the program can already work in every course of it, so a
         // `CourseInstructor` row decides whose name is on a course and nothing about access.
         const taught = await asInstructor.courses.create({
           programId: program.id,
@@ -404,7 +404,7 @@ async function main() {
         /*
           The composite foreign key's guarantee, turned into a sentence. `(programId, userId)`
           references `program_instructors`, so naming somebody who does not instruct the
-          matriculation is unrepresentable — this is the procedure saying so in words rather than
+          term is unrepresentable — this is the procedure saying so in words rather than
           letting the database refuse.
         */
         const stranger = await tx.profile.findFirst({
@@ -425,7 +425,7 @@ async function main() {
           "BAD_REQUEST",
         );
         /*
-          A course of another matriculation, refused rather than silently reassigned. The composite
+          A course of another term, refused rather than silently reassigned. The composite
           key would refuse it too — `(courseId, programId)` references `courses(id, programId)` — and
           this is the procedure turning that into something an instructor can read.
         */
@@ -448,7 +448,7 @@ async function main() {
         );
 
         /*
-          ---- Who owns the matriculation -----------------------------------------
+          ---- Who owns the program -----------------------------------------
 
           Two instructors on one program, which is what makes any of this checkable: the creator owns
           it and the one who redeemed the link does not, and every check here is a pair — the owner is
@@ -460,7 +460,7 @@ async function main() {
           guarded.
         */
         const ownerView = await asInstructor.programs.settings({ programId: program.id });
-        check("the creator owns the matriculation", ownerView.ownerId, instructor.userId);
+        check("the creator owns the program", ownerView.ownerId, instructor.userId);
         check("...and is told they may act as owner", ownerView.callerActsAsOwner, true);
 
         const coTeacherView = await asNewInstructor.programs.settings({ programId: program.id });
@@ -474,7 +474,7 @@ async function main() {
         // Archiving is the one action a single instructor takes that changes what every fellow on
         // the roster sees, in every course at once, which is why it is owner-gated.
         check(
-          "a co-teacher cannot archive the matriculation",
+          "a co-teacher cannot archive the program",
           await refusal(() =>
             asNewInstructor.programs.setArchived({ programId: program.id, archived: true }),
           ),
@@ -496,7 +496,7 @@ async function main() {
           true,
         );
         // Reopening is the same gate, because it is the same mutation with a boolean. A co-teacher
-        // can read an archived matriculation in full and cannot bring it back.
+        // can read an archived program in full and cannot bring it back.
         check(
           "...and a co-teacher cannot reopen it either",
           await refusal(() =>
@@ -523,7 +523,7 @@ async function main() {
         );
 
         check(
-          "a co-teacher cannot hand the matriculation to themselves",
+          "a co-teacher cannot hand the program to themselves",
           await refusal(() =>
             asNewInstructor.programs.transferOwnership({
               programId: program.id,
@@ -573,7 +573,7 @@ async function main() {
           procedure, since each takes the first row it finds.
         */
         check(
-          "the owner can hand the matriculation on",
+          "the owner can hand the program on",
           (
             await asInstructor.programs.transferOwnership({
               programId: program.id,
@@ -594,9 +594,8 @@ async function main() {
         );
         check(
           "...the new owner can now archive it",
-          (
-            await asNewInstructor.programs.setArchived({ programId: program.id, archived: true })
-          ).archivedAt !== null,
+          (await asNewInstructor.programs.setArchived({ programId: program.id, archived: true }))
+            .archivedAt !== null,
           true,
         );
         await asNewInstructor.programs.setArchived({ programId: program.id, archived: false });
@@ -608,7 +607,7 @@ async function main() {
           "FORBIDDEN",
         );
 
-        // Handed back, so the checks after this group see the matriculation they were written
+        // Handed back, so the checks after this group see the program they were written
         // against. The assertion is that it moves in both directions rather than only away from
         // whoever created the program.
         check(
@@ -655,7 +654,7 @@ async function main() {
           ---- Ownership when no row holds it -------------------------------------
 
           `ProgramInstructor` cascades on the profile, so deleting an owner's account takes the
-          `isPrimary` row with it and leaves a matriculation with instructors and nobody who can
+          `isPrimary` row with it and leaves a term with instructors and nobody who can
           archive it. Nothing in the application deletes a profile — that is a database edit somebody
           makes by hand — which is exactly why the fallback has to hold with nobody there to invoke
           it, and why it is checked by clearing the column directly rather than through a procedure.
@@ -663,12 +662,14 @@ async function main() {
         */
         const derived = await asInstructor.programs.create({
           name: "Verify Derived Ownership",
-          matriculation: "Program Verify D",
+          term: "Program Verify D",
         });
-        const derivedToken = (await tx.program.findUniqueOrThrow({
-          where: { id: derived.id },
-          select: { instructorToken: true },
-        })).instructorToken;
+        const derivedToken = (
+          await tx.program.findUniqueOrThrow({
+            where: { id: derived.id },
+            select: { instructorToken: true },
+          })
+        ).instructorToken;
         await asNewInstructor.programs.acceptInstructorLink({ token: derivedToken });
         await tx.programInstructor.updateMany({
           where: { programId: derived.id },
@@ -680,7 +681,7 @@ async function main() {
           Both rows were written inside this transaction, and Postgres resolves `now()` to the
           transaction's start time — so they share a `createdAt` to the microsecond and the fallback
           would be decided by its tie-break rather than by the rule it claims to be about. A day apart
-          is what the difference looks like in a matriculation somebody is running.
+          is what the difference looks like in a term somebody is running.
         */
         await tx.programInstructor.updateMany({
           where: { programId: derived.id, userId: instructor.userId },
@@ -707,7 +708,7 @@ async function main() {
         await asInstructor.programs.setArchived({ programId: derived.id, archived: false });
 
         /*
-          An owner who leaves without handing the matriculation on gives it to the longest-serving
+          An owner who leaves without handing the term on gives it to the longest-serving
           instructor left, by the same rule. Said back by the procedure rather than left to be
           noticed, because it is the right default and not one anybody would guess.
         */
@@ -723,7 +724,7 @@ async function main() {
         );
 
         /*
-          ---- Deleting a matriculation -------------------------------------------
+          ---- Deleting a program -------------------------------------------
 
           The one irreversible operation on a whole year, so the checks that earn their place are the
           refusals — and each of them asserts the program is **still there** afterwards, which is the
@@ -735,7 +736,7 @@ async function main() {
         */
         const doomed = await asInstructor.programs.create({
           name: "Verify Deletion",
-          matriculation: "Program Verify E",
+          term: "Program Verify E",
         });
         const doomedCourse = await asInstructor.courses.create({
           programId: doomed.id,
@@ -765,19 +766,21 @@ async function main() {
             },
           });
         }
-        // Before archiving, because an archived matriculation takes no new instructors.
-        const doomedToken = (await tx.program.findUniqueOrThrow({
-          where: { id: doomed.id },
-          select: { instructorToken: true },
-        })).instructorToken;
+        // Before archiving, because an archived program takes no new instructors.
+        const doomedToken = (
+          await tx.program.findUniqueOrThrow({
+            where: { id: doomed.id },
+            select: { instructorToken: true },
+          })
+        ).instructorToken;
         await asNewInstructor.programs.acceptInstructorLink({ token: doomedToken });
 
         check(
-          "a matriculation that is still running cannot be deleted",
+          "a program that is still running cannot be deleted",
           await refusal(() =>
             asInstructor.programs.remove({
               programId: doomed.id,
-              confirmMatriculation: "Program Verify E",
+              confirmTerm: "Program Verify E",
             }),
           ),
           "PRECONDITION_FAILED",
@@ -791,11 +794,11 @@ async function main() {
         await asInstructor.programs.setArchived({ programId: doomed.id, archived: true });
 
         check(
-          "a co-teacher cannot delete an archived matriculation",
+          "a co-teacher cannot delete an archived program",
           await refusal(() =>
             asNewInstructor.programs.remove({
               programId: doomed.id,
-              confirmMatriculation: "Program Verify E",
+              confirmTerm: "Program Verify E",
             }),
           ),
           "FORBIDDEN",
@@ -820,33 +823,29 @@ async function main() {
           bystander ? impact.enrollments : "no spare fellow to enrol",
           bystander ? 1 : "no spare fellow to enrol",
         );
-        check(
-          "...and asks for the matriculation rather than the name",
-          impact.confirm,
-          "Program Verify E",
-        );
+        check("...and asks for the term rather than the name", impact.confirm, "Program Verify E");
 
         check(
           "the wrong confirmation is refused",
           await refusal(() =>
             asInstructor.programs.remove({
               programId: doomed.id,
-              confirmMatriculation: "Verify Deletion",
+              confirmTerm: "Verify Deletion",
             }),
           ),
           "BAD_REQUEST",
         );
         check(
-          "...and the matriculation is still there",
+          "...and the program is still there",
           await tx.program.count({ where: { id: doomed.id } }),
           1,
         );
 
         const deleted = await asInstructor.programs.remove({
           programId: doomed.id,
-          confirmMatriculation: "Program Verify E",
+          confirmTerm: "Program Verify E",
         });
-        check("the owner can delete an archived matriculation", deleted.name, "Verify Deletion");
+        check("the owner can delete an archived program", deleted.name, "Verify Deletion");
         check("...and it is gone", await tx.program.count({ where: { id: doomed.id } }), 0);
         /*
           The cascade, asserted rather than assumed. Every one of these is a separate foreign key
@@ -858,11 +857,7 @@ async function main() {
           await tx.course.count({ where: { id: doomedCourse.course.id } }),
           0,
         );
-        check(
-          "...its cohorts",
-          await tx.cohort.count({ where: { id: doomedCohort.id } }),
-          0,
-        );
+        check("...its cohorts", await tx.cohort.count({ where: { id: doomedCohort.id } }), 0);
         check(
           "...its enrollments",
           await tx.enrollment.count({ where: { programId: doomed.id } }),
@@ -883,17 +878,17 @@ async function main() {
           await refusal(() =>
             asInstructor.programs.remove({
               programId: doomed.id,
-              confirmMatriculation: "Program Verify E",
+              confirmTerm: "Program Verify E",
             }),
           ),
           "NOT_FOUND",
         );
 
         /*
-          ---- An admin acts as owner on every matriculation ----------------------
+          ---- An admin acts as owner on every program ----------------------
 
           A decision rather than a consequence of a guard written for something else. An admin is the
-          recovery path for an owner who has left the school without handing the matriculation on, and
+          recovery path for an owner who has left the school without handing the term on, and
           without one every rule above is a way for a program to end up with nobody who can administer
           it.
 
@@ -904,7 +899,7 @@ async function main() {
         await tx.profile.update({ where: { id: instructor.userId }, data: { role: "ADMIN" } });
 
         check(
-          "an admin does not instruct this matriculation",
+          "an admin does not instruct this program",
           await tx.programInstructor.count({
             where: { programId: derived.id, userId: instructor.userId },
           }),
@@ -940,7 +935,7 @@ async function main() {
         // ---- Removing an instructor --------------------------------------------
         //
         // The last one is refused, the same shape and the same reasoning as revoking the last admin:
-        // a matriculation with no instructors cannot be authored in or graded by anybody, and the
+        // a program with no instructors cannot be authored in or graded by anybody, and the
         // only way back is a database edit. The count is asserted first, because a spare instructor
         // lying around would make that refusal pass while testing nothing.
         check(
@@ -1013,7 +1008,7 @@ async function main() {
   );
   check(
     "no programs this script created survived the rollback",
-    await db.program.count({ where: { matriculation: { startsWith: "Program Verify" } } }),
+    await db.program.count({ where: { term: { startsWith: "Program Verify" } } }),
     0,
   );
 

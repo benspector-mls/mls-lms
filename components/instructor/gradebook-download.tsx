@@ -20,11 +20,11 @@ import { gradebookCsvFilename } from "@/lib/gradebook/csv";
  */
 export function GradebookDownload({
   csv,
-  matriculation,
+  term,
   cohortLabel,
 }: {
   csv: string;
-  matriculation: string;
+  term: string;
   /** Null when the whole roster is on screen. */
   cohortLabel: string | null;
 }) {
@@ -45,7 +45,7 @@ export function GradebookDownload({
     */
     const link = document.createElement("a");
     link.href = url;
-    link.download = gradebookCsvFilename({ matriculation, cohortLabel, date: new Date() });
+    link.download = gradebookCsvFilename({ term, cohortLabel, date: new Date() });
     document.body.append(link);
     link.click();
     link.remove();

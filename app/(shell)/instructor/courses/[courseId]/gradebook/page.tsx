@@ -87,8 +87,8 @@ async function FullGradebook({
         */
         description={
           cohortLabel === null
-            ? `${data.course.program.matriculation} · every fellow against every assignment`
-            : `${data.course.program.matriculation} · ${cohortLabel} against every assignment`
+            ? `${data.course.program.term} · every fellow against every assignment`
+            : `${data.course.program.term} · ${cohortLabel} against every assignment`
         }
         actions={
           <>
@@ -102,7 +102,7 @@ async function FullGradebook({
             {!gradebookIsEmpty(data) && (
               <GradebookDownload
                 csv={gradebookCsv(data)}
-                matriculation={data.course.program.matriculation}
+                term={data.course.program.term}
                 cohortLabel={cohortLabel}
               />
             )}

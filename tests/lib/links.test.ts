@@ -199,7 +199,7 @@ describe("authoring an assignment inside a unit", () => {
 /**
  * The program switcher's arithmetic, checked exhaustively for the reason its sibling is: a view
  * missing from `sameViewInProgram` does not throw, it falls through to settings — so switching
- * matriculation from the roster would silently land somewhere else and read as the switcher losing
+ * program from the roster would silently land somewhere else and read as the switcher losing
  * your place.
  */
 describe("sameViewInProgram", () => {
@@ -216,7 +216,7 @@ describe("sameViewInProgram", () => {
   });
 
   /*
-    One day of attendance does not travel. The other matriculation may not have met on it, and
+    One day of attendance does not travel. The other term may not have met on it, and
     landing on an empty screen offering to record a morning that never happened is worse than
     landing on settings — which is also where a fellow's record lands, because a person is on one
     roster or the other and a page naming somebody absent from this one would refuse rather than

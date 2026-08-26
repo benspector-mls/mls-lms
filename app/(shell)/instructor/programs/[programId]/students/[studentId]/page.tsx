@@ -7,11 +7,11 @@ import { displayNameOf } from "@/lib/people";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * One fellow, across the whole matriculation.
+ * One fellow, across the whole program.
  *
  * **The first of two student pages, and they answer different questions.** This one is about the
  * person: their attendance and arrival averages, their cohort, their GCF history, and a row per
- * course of the matriculation. The other, under `/instructor/courses/[courseId]/students/`, is about
+ * course of the program. The other, under `/instructor/courses/[courseId]/students/`, is about
  * their work in one course and is where grading happens. Splitting them is what lets grading stay
  * per course while the roster lives above every course.
  *
@@ -35,11 +35,7 @@ export default function ProgramStudentPage({
   );
 }
 
-async function Student({
-  params,
-}: {
-  params: Promise<{ programId: string; studentId: string }>;
-}) {
+async function Student({ params }: { params: Promise<{ programId: string; studentId: string }> }) {
   const { programId, studentId } = await params;
   const data = await getQueryClient().fetchQuery(
     trpc.programs.student.queryOptions({ programId, studentId }),
@@ -49,7 +45,7 @@ async function Student({
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title={displayNameOf(data.student, "Fellow")}
-        description={`${data.program.name} · ${data.program.matriculation}`}
+        description={`${data.program.name} · ${data.program.term}`}
       />
       <ProgramStudent data={data} />
     </div>

@@ -40,7 +40,7 @@ describe("codeFor", () => {
   });
 
   /*
-    Two matriculations meeting on the same Tuesday must not share a code, or a fellow in one could check
+    Two programs meeting on the same Tuesday must not share a code, or a fellow in one could check
     into the other. Each session carries its own secret, so this holds twice over — but the id is in
     the message as well, and this is the case that says so.
   */

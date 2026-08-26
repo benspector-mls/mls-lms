@@ -6,11 +6,11 @@ import { PageHeader } from "@/components/page-header";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * The team sets of one course: the divisions of the matriculation's fellows that hand work in
+ * The team sets of one course: the divisions of the program's fellows that hand work in
  * together.
  *
  * **Its own screen rather than a card on the roster it used to share.** The roster moved up to the
- * program and a team set did not: a set divides one matriculation's fellows for one *course's*
+ * program and a team set did not: a set divides one program's fellows for one *course's*
  * projects, and it is that course's assignments that point at it. So it belongs beside that
  * course's curriculum, and a screen that held both would have put a decision about one course under
  * a list of people who are in four.
@@ -38,7 +38,7 @@ async function Teams({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = await params;
   const queryClient = getQueryClient();
 
-  // The course first, because the roster belongs to its matriculation and this address names only
+  // The course first, because the roster belongs to its program and this address names only
   // the course. The heading reads it too, so it is one read serving both.
   const course = await queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId }));
 

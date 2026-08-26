@@ -126,7 +126,7 @@ function useActiveCourseId(): string | null {
 }
 
 /**
- * Which matriculation the reader is in, according to the address and nothing else.
+ * Which program the reader is in, according to the address and nothing else.
  *
  * The counterpart of `useActiveCourseId`, and null rather than a guess for the same reason: a
  * sidebar naming a different program than the screen is worse than one naming none.
@@ -151,7 +151,7 @@ function useActiveProgramId(): string | null {
  *
  * A course address names no program, and the sidebar still has to draw the program group while an
  * instructor is inside a course. Reading it off `courses.listMine` rather than fetching it is what
- * keeps that free: every course in that payload carries its matriculation, so this is a lookup
+ * keeps that free: every course in that payload carries its program, so this is a lookup
  * rather than a request.
  *
  * Null where the list has no row for the id — an address naming a course the caller is not in,
@@ -176,7 +176,7 @@ interface Crumb {
 
 function useBreadcrumbs(
   courses: { id: string; name: string; program: { id: string } }[],
-  programs: { id: string; name: string; matriculation: string }[],
+  programs: { id: string; name: string; term: string }[],
 ): Crumb[] {
   const trpc = useTRPC();
   const pathname = usePathname();
@@ -200,20 +200,20 @@ function useBreadcrumbs(
   });
 
   /*
-    The matriculation as well as the name, because a program runs every term under the same name:
+    The term as well as the name, because a program runs every term under the same name:
     "Software Engineering Fellowship" is the first step of an identical trail in every year of it,
     and the term is what tells two of them apart.
 
     Parenthesised rather than a middot, because a breadcrumb already separates its steps and a
     second free-standing separator inside one step reads as another step.
 
-    "Program" where the list has no row for the id — an address naming a matriculation the caller
+    "Program" where the list has no row for the id — an address naming a program the caller
     is not in, which every procedure behind the screen refuses anyway. There is no term to give
     alongside it, which is why the fallback is the bare word rather than a half-built label.
   */
   const programLabel = (id: string) => {
     const program = programs.find((p) => p.id === id);
-    return program ? `${program.name} (${program.matriculation})` : "Program";
+    return program ? `${program.name} (${program.term})` : "Program";
   };
 
   /*
@@ -227,7 +227,7 @@ function useBreadcrumbs(
    *
    * **Two steps rather than one, and this is what the program above the course changed.** The
    * trail used to begin with the course, because a course was the whole scope; a course now
-   * belongs to a matriculation, and reading "Fullstack Software Engineering" without knowing
+   * belongs to a program, and reading "Fullstack Software Engineering" without knowing
    * which year of it leaves the same question the sidebar used to answer wrongly.
    *
    * Both are plain text rather than links. There is no program home and no course home — the bare
@@ -306,14 +306,14 @@ function useBreadcrumbs(
     A student's screens that are not one course. One step and no parent: the dashboard spans every
     course rather than sitting under one, and a trail claiming otherwise would be describing a
     hierarchy this side of the application does not have. The GCF is the same case for a sharper
-    reason — a result carries no matriculation at all.
+    reason — a result carries no program at all.
   */
   if (segments[0] === "dashboard") return [{ label: "Dashboard" }];
   if (segments[0] === "gcf") return [{ label: "My GCF" }];
 
   /*
     A fellow's own attendance, which is the one screen on this side addressed by program. Its
-    parent is the matriculation rather than a course, because there is one morning to check into
+    parent is the program rather than a course, because there is one morning to check into
     however many courses somebody is taking.
   */
   if (segments[0] === "programs" && segments[1]) {
@@ -323,10 +323,7 @@ function useBreadcrumbs(
   if (segments[0] === "programs") return [{ label: "Programs" }];
 
   if (segments[0] === "courses" && segments[1]) {
-    return [
-      { label: "Courses", href: "/courses" },
-      { label: courseLabel(segments[1]) },
-    ];
+    return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }];
   }
   return [{ label: "Courses" }];
 }
@@ -336,33 +333,33 @@ function useBreadcrumbs(
 // ---------------------------------------------------------------------------
 
 /**
- * Which matriculation an instructor is working in, and the way into another one.
+ * Which program an instructor is working in, and the way into another one.
  *
  * **Instructors only**, and the asymmetry is deliberate rather than unfinished. An instructor works
- * a handful of matriculations whose screens are identical, so a switcher trades one click for a
+ * a handful of programs whose screens are identical, so a switcher trades one click for a
  * sidebar that stays the same height however many years they accumulate. A fellow is in one
- * matriculation at a time and lands on `/dashboard`, which names none — a switcher in the header
+ * program at a time and lands on `/dashboard`, which names none — a switcher in the header
  * would greet them every morning with a control pointing at something the screen is not about, and
  * the alternative of guessing one is what the note on `useActiveCourseId` records going wrong.
  * Their own programs are listed instead. See `StudentPrograms`.
  *
  * **It is selected from a course address too.** An instructor inside a course is inside its
- * matriculation, and a switcher that emptied itself there would be blank on the screens where they
+ * program, and a switcher that emptied itself there would be blank on the screens where they
  * spend the most time. `programOfCourse` is what fills it in.
  */
 function ProgramSwitcher({
   programs,
   selected,
 }: {
-  programs: { id: string; name: string; matriculation: string; archivedAt: Date | null }[];
-  /** The matriculation the address is in, resolved through the course where it names one. */
+  programs: { id: string; name: string; term: string; archivedAt: Date | null }[];
+  /** The program the address is in, resolved through the course where it names one. */
   selected: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
 
   // Nothing to select between and nothing to say, which is where anybody starts before their
-  // first matriculation exists.
+  // first program exists.
   if (programs.length === 0) return null;
 
   /*
@@ -373,7 +370,7 @@ function ProgramSwitcher({
   const value = programs.some((p) => p.id === selected) ? selected : null;
 
   /*
-    Archived matriculations last, and labelled, rather than mixed in by date.
+    Archived programs last, and labelled, rather than mixed in by date.
 
     They belong in here — it is how somebody gets back into a finished year — but a switcher is a
     list of places to work, and the ones still running are what it should open on.
@@ -384,21 +381,19 @@ function ProgramSwitcher({
   ];
 
   const label = (p: (typeof programs)[number]) =>
-    p.archivedAt != null
-      ? `${p.name} · ${p.matriculation} · Archived`
-      : `${p.name} · ${p.matriculation}`;
+    p.archivedAt != null ? `${p.name} · ${p.term} · Archived` : `${p.name} · ${p.term}`;
 
   return (
     <Select
       value={value}
       /*
-        The same view in the other matriculation, not its front page. Somebody comparing two
+        The same view in the other program, not its front page. Somebody comparing two
         years' attendance asks for the other year's attendance; being dropped at a front page
         means finding the way again on every switch.
       */
       onValueChange={(id) => {
         // Typed as nullable because `value` is: the trigger sits on a placeholder wherever the
-        // address names no matriculation, and clearing the selection is not a navigation.
+        // address names no program, and clearing the selection is not a navigation.
         if (id) router.push(sameViewInProgram(pathname, id));
       }}
       /*
@@ -415,7 +410,7 @@ function ProgramSwitcher({
       </SelectTrigger>
       {/*
         Under the trigger, not over it. The default positioning puts the *selected* row on top of
-        the trigger, so an instructor whose current matriculation is third in the list opens the
+        the trigger, so an instructor whose current program is third in the list opens the
         switcher onto a popup whose first two rows are above the top of the window and cannot be
         scrolled to. Anchoring the popup below the trigger starts the list at its first row, which
         is the only arrangement where every program is reachable.
@@ -433,7 +428,7 @@ function ProgramSwitcher({
               <span className="flex min-w-0 flex-col">
                 <span className="truncate">{p.name}</span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {p.archivedAt != null ? `${p.matriculation} · Archived` : p.matriculation}
+                  {p.archivedAt != null ? `${p.term} · Archived` : p.term}
                 </span>
               </span>
             </SelectItem>
@@ -445,7 +440,7 @@ function ProgramSwitcher({
 }
 
 /**
- * The matriculation's courses, each opening to its own five views.
+ * The program's courses, each opening to its own five views.
  *
  * **A list rather than a picker**, which is the difference between choosing a course and being shown
  * what there is. A select answered "which one am I in" and hid the rest behind a click; an
@@ -463,7 +458,7 @@ function ProgramSwitcher({
  * decides, and where the view cannot travel — an assignment's queue belongs to one course — it lands
  * on settings rather than on an id the other course does not have.
  *
- * **Only this matriculation's courses**, which is what keeps the list readable: courses are named for
+ * **Only this program's courses**, which is what keeps the list readable: courses are named for
  * what they teach and every year runs the same ones, so an unscoped list would hold four rows
  * reading "Fullstack Software Engineering" that nothing on the row could tell apart. Reaching another
  * year is the program switcher in the header.
@@ -479,7 +474,7 @@ function CourseList({
 }) {
   /*
     Archived courses last, and labelled. They belong in here — it is how somebody gets back into a
-    course that has finished while the rest of the matriculation runs on — but this is a list of
+    course that has finished while the rest of the program runs on — but this is a list of
     places to work, and the ones still running are what it should open on.
   */
   const ordered = [
@@ -496,9 +491,7 @@ function CourseList({
           <SidebarMenuItem key={course.id}>
             <SidebarMenuButton
               isActive={open}
-              tooltip={
-                course.archivedAt != null ? `${course.name} · Archived` : course.name
-              }
+              tooltip={course.archivedAt != null ? `${course.name} · Archived` : course.name}
               // `h-auto` because an archived row is two lines where every other one is one.
               className="h-auto py-1.5"
               render={<Link href={sameViewInCourse(pathname, course.id)} />}
@@ -534,7 +527,7 @@ function CourseList({
 }
 
 /**
- * The three views a matriculation has, in the order they are offered.
+ * The three views a program has, in the order they are offered.
  *
  * Attendance leads, and it is the only item in either group touched at a fixed time every single
  * morning — being findable without thinking is most of what it needs. The roster is second because
@@ -543,7 +536,7 @@ function CourseList({
  *
  * **Three rather than five, and the two that went were sections rather than screens.** Cohorts are a
  * tab on the roster, because placing fellows is a thing done to it; instructors are a card on the
- * settings, because who runs a matriculation is a fact about it. Each had its own address while the
+ * settings, because who runs a program is a fact about it. Each had its own address while the
  * question was open, and running it answered them — five sidebar items were five doors onto three
  * rooms, and a menu that long stops being read.
  */
@@ -563,7 +556,7 @@ const PROGRAM_VIEWS = [
  *
  * Triage leads, because "what is waiting on me" is the question an instructor opens this
  * application to ask. Attendance and the roster are not here at all any more: a fellow arrives at
- * the building once and joins one roster, so both are the matriculation's above.
+ * the building once and joins one roster, so both are the program's above.
  */
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
@@ -615,7 +608,7 @@ function MainNav({
   const inInstructorArea = pathname.startsWith("/instructor/");
   const navCourseId = inInstructorArea ? activeCourseId : null;
   /*
-    The matriculation of the address, from the program in it or from the course in it. A course
+    The program of the address, from the program id in it or from the course in it. A course
     address names no program, so without the second half the program group would vanish on the
     screens an instructor uses most — and the sidebar would stop offering attendance exactly where
     it is opened every morning.
@@ -624,7 +617,7 @@ function MainNav({
     ? (activeProgramId ?? programOfCourse(courses, activeCourseId))
     : null;
 
-  // Only this matriculation's courses, for the reason `CourseSwitcher` records: every year runs
+  // Only this program's courses, for the reason `CourseSwitcher` records: every year runs
   // the same courses under the same names, so an unscoped list cannot be read.
   const programCourses = navProgramId
     ? courses.filter((course) => course.teaches && course.program.id === navProgramId)
@@ -634,7 +627,7 @@ function MainNav({
     <>
       {/*
         Its own group, above the two scopes and separated from them. Everything below is scoped to
-        one matriculation or one of its courses; this is the way out of all of them, and grouping
+        one program or one of its courses; this is the way out of all of them, and grouping
         it among them made it read as one more view of the program you were already in.
       */}
       <SidebarGroup>
@@ -656,7 +649,7 @@ function MainNav({
         <SidebarGroup>
           <SidebarSeparator className="mx-0 mb-2" />
           {/*
-            No label. The switcher in the header names the matriculation, and a heading reading
+            No label. The switcher in the header names the program, and a heading reading
             "Program" over five items that are all this program would be a second, vaguer answer
             to a question already answered.
           */}
@@ -678,9 +671,9 @@ function MainNav({
       )}
 
       {/*
-        The matriculation's courses, under a heading rather than behind a control.
+        The program's courses, under a heading rather than behind a control.
 
-        **Drawn whenever a matriculation is known, whether or not a course is**, which is what makes
+        **Drawn whenever a program is known, whether or not a course is**, which is what makes
         it a list and not a picker: an instructor standing on the roster is shown what the year holds
         rather than an empty select. Nothing expands until one of them is open.
       */}
@@ -701,11 +694,11 @@ function MainNav({
 type StudentCourse = {
   id: string;
   name: string;
-  /** The matriculation the course belongs to, which is what the fellow's own list groups by. */
-  program: { id: string; name: string; matriculation: string; archivedAt: Date | null };
+  /** The program the course belongs to, which is what the fellow's own list groups by. */
+  program: { id: string; name: string; term: string; archivedAt: Date | null };
   archivedAt: Date | null;
   enrolledAs: "ACTIVE" | "REMOVED" | null;
-  /** Whether the caller instructs the course's matriculation, which scopes the course switcher. */
+  /** Whether the caller instructs the course's program, which scopes the course switcher. */
   teaches: boolean;
 };
 
@@ -713,7 +706,7 @@ type StudentCourse = {
  * The screen that spans a fellow's courses, above the courses themselves.
  *
  * **A group of one, and separated from the list below deliberately.** Everything under a program's
- * heading belongs to one matriculation; this is the view across all of them, and putting it among
+ * heading belongs to one program; this is the view across all of them, and putting it among
  * them would make it read as a course. It is where signing in lands and what the sidebar opens on,
  * because "what is due" is the question a fellow arrives with and no single course can answer it.
  *
@@ -739,7 +732,7 @@ function StudentWork({ pathname }: { pathname: string }) {
 }
 
 /**
- * A fellow's matriculations, each holding its attendance and its courses.
+ * A fellow's programs, each holding its attendance and its courses.
  *
  * Most of their navigation, and every course they are in rather than a link to a list of them. It
  * replaced a single "My courses" item under a heading reading "Student", which spent a row telling
@@ -762,19 +755,13 @@ function StudentWork({ pathname }: { pathname: string }) {
  * offer and the screen explains what to do.
  *
  * **Archived programs and courses stay, labelled**, exactly as the course list shows them. A
- * matriculation somebody has finished or been removed from is still theirs to read — that is what
+ * program somebody has finished or been removed from is still theirs to read — that is what
  * removal being a status rather than a deletion is for — and one sitting here unlabelled among the
  * ones they are in would be the sidebar telling them something false.
  */
-function StudentPrograms({
-  courses,
-  pathname,
-}: {
-  courses: StudentCourse[];
-  pathname: string;
-}) {
+function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; pathname: string }) {
   /*
-    Grouped by matriculation, current ones first and finished ones after, preserving the order
+    Grouped by program, current ones first and finished ones after, preserving the order
     `listMine` sent — the same ordering the instructor switchers apply and for the same reason: this
     is a list of places to work, and the ones still running are what it should open on.
   */
@@ -830,21 +817,21 @@ function StudentPrograms({
         return (
           <SidebarGroup key={program.id}>
             {/*
-              The matriculation as the heading, because a program runs every year under the same
+              The term in the heading, because a program runs every year under the same
               name and somebody repeating one would otherwise see two identical headings. Archived
               is said here rather than on every course beneath it: it is a fact about the whole
-              matriculation, and repeating it per course would say the same thing four times.
+              program, and repeating it per course would say the same thing four times.
             */}
             <SidebarGroupLabel>
               {program.archivedAt != null
-                ? `${program.name} · ${program.matriculation} · Archived`
-                : `${program.name} · ${program.matriculation}`}
+                ? `${program.name} · ${program.term} · Archived`
+                : `${program.name} · ${program.term}`}
             </SidebarGroupLabel>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   isActive={pathname === attendance}
-                  tooltip={`Attendance · ${program.matriculation}`}
+                  tooltip={`Attendance · ${program.term}`}
                   render={<Link href={attendance} />}
                 >
                   <CalendarCheck />
@@ -898,10 +885,10 @@ function StudentPrograms({
 }
 
 /**
- * The GCF, outside every matriculation.
+ * The GCF, outside every program.
  *
  * **A record that follows a person rather than a program.** CodeSignal has no idea what a
- * matriculation is, a fellow sits the assessment on their own schedule, and somebody who repeats a
+ * program is, a fellow sits the assessment on their own schedule, and somebody who repeats a
  * year should find one history rather than two halves of it. So it is addressed like `/courses` is —
  * outside every scope — and it sits in its own group beneath them all rather than under any one
  * program's heading, which would be claiming a result belonged to that year.
@@ -927,7 +914,7 @@ function StudentGcf({ pathname }: { pathname: string }) {
  * Why a course is in the list but not one somebody is currently in, or null when it is.
  *
  * Removal wins over archiving when both are true, because it is the fact about *this reader*: a
- * matriculation that ended is something everybody in it shares, and having left one is not.
+ * program that ended is something everybody in it shares, and having left one is not.
  */
 function courseNote(course: StudentCourse): string | null {
   if (course.enrolledAs === "REMOVED") return "No longer enrolled";
@@ -972,7 +959,7 @@ function isActiveCourseView(pathname: string, courseId: string, segment: string)
 
 /**
  * Who may teach at all, which is a different kind of capability from everything above it:
- * those are scoped to a matriculation, and this decides who gets one.
+ * those are scoped to a program, and this decides who gets one.
  *
  * Hidden from an instructor, and that is presentation only — `/admin` reads through
  * `adminProcedure`, so an instructor who types the URL is refused by the procedures rather than
@@ -1188,8 +1175,8 @@ function ShellSidebar() {
   const { data: courses } = useSuspenseQuery(trpc.courses.listMine.queryOptions());
   /*
     Both lists, because the sidebar has two scopes to name and neither payload holds the other's
-    facts. `courses.listMine` carries each course's matriculation, which is what resolves the
-    program of a course address; it cannot carry a matriculation that has no courses yet, and an
+    facts. `courses.listMine` carries each course's program, which is what resolves the
+    program of a course address; it cannot carry one that has no courses yet, and an
     instructor setting one up needs its roster and its settings before it does.
   */
   const { data: programs } = useSuspenseQuery(trpc.programs.listMine.queryOptions());

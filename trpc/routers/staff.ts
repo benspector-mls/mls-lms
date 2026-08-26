@@ -27,7 +27,7 @@ import { personNameSelect } from "../selects";
  * invite people" actually reachable.
  *
  * **A third, for the case neither covers.** `setPrograms` puts an existing instructor onto a
- * matriculation without a link changing hands. The instructor link is how somebody joins a program
+ * program without a link changing hands. The instructor link is how somebody joins a program
  * they were *sent* one for; this is how an admin repairs the list — an instructor who redeemed an
  * invitation and was never added to anything, or one who left the school and has to come off every
  * program at once. It grants no role and refuses an account that is not already staff, so it is not
@@ -62,13 +62,13 @@ export const staffRouter = createTRPCRouter({
         role: true,
         createdAt: true,
         /*
-          Which matriculations they instruct, rather than a count. Revoking somebody's admin does not
+          Which programs they instruct, rather than a count. Revoking somebody's admin does not
           un-teach them anything, so the programs are context for the decision rather than a
           consequence of it — and an instructor listed against no program is the interesting row,
           because it usually means an invitation was redeemed and nothing followed.
         */
         programsInstructing: {
-          select: { program: { select: { id: true, name: true, matriculation: true } } },
+          select: { program: { select: { id: true, name: true, term: true } } },
           orderBy: { program: { createdAt: "desc" } },
         },
       },
@@ -92,7 +92,7 @@ export const staffRouter = createTRPCRouter({
   }),
 
   /**
-   * Puts an instructor onto a set of matriculations, and takes them off the rest.
+   * Puts an instructor onto a set of programs, and takes them off the rest.
    *
    * **The whole list rather than "add this one"**, for the reason `programs.setCourseInstructors`
    * takes the whole list: it is idempotent, it cannot leave a half-applied state, and the screen
@@ -108,18 +108,18 @@ export const staffRouter = createTRPCRouter({
    * - **A fellow of a program cannot also instruct it**, the mirror of `enrollments.join` refusing
    *   an instructor. Being both would put their own submissions in the queue they work through.
    * - **A program cannot be left with no instructors.** Every authoring procedure gates on
-   *   `ProgramInstructor`, so a matriculation with no rows there cannot be authored in or graded by
+   *   `ProgramInstructor`, so a program with no rows there cannot be authored in or graded by
    *   anybody, and the only way back is a database edit. The same shape as revoking the last admin.
    * - **The target must be staff**, above.
    *
-   * **An archived matriculation is allowed here, unlike through the link**, and the difference is
+   * **An archived program is allowed here, unlike through the link**, and the difference is
    * deliberate. The link refuses one because somebody redeeming a link into a finished year is
    * almost certainly holding a stale link. An admin editing the record of who ran a year that is
    * over is the case an admin exists for, and refusing it would leave no way to correct it at all.
    *
    * **Removing somebody takes their `CourseInstructor` rows with them**, by the cascade on
    * `(programId, userId)` — that is the cleanup step the composite key removes rather than leaving
-   * to be remembered. And removing an owner hands the matriculation to the longest-serving
+   * to be remembered. And removing an owner hands the program to the longest-serving
    * instructor left, by `ownerOf`, which is the same rule a deleted account falls through. It is not
    * a thing anybody would guess, so the result names every program whose ownership moved.
    */
@@ -168,7 +168,8 @@ export const staffRouter = createTRPCRouter({
       if (named.length !== wanted.length) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "That list names a program that no longer exists. Reload the page and try again.",
+          message:
+            "That list names a program that no longer exists. Reload the page and try again.",
         });
       }
 
@@ -222,9 +223,7 @@ export const staffRouter = createTRPCRouter({
       const inherited: { program: string; newOwner: string }[] = [];
 
       for (const row of removing) {
-        const instructors = rosters.filter(
-          (instructor) => instructor.programId === row.programId,
-        );
+        const instructors = rosters.filter((instructor) => instructor.programId === row.programId);
 
         if (instructors.length <= 1) {
           throw new TRPCError({
@@ -264,7 +263,7 @@ export const staffRouter = createTRPCRouter({
 
         if (adding.length > 0) {
           /*
-            `isPrimary: false`, always. The owner is whoever created the matriculation, and that is a
+            `isPrimary: false`, always. The owner is whoever created the term, and that is a
             fact about how it came to exist rather than a rank an admin confers by adding somebody
             to a list — `transferOwnership` is the deliberate act that moves it.
           */

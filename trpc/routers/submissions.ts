@@ -395,7 +395,7 @@ export const submissionsRouter = createTRPCRouter({
       /*
         The student who owns this, or an instructor of its course. Holding the INSTRUCTOR role
         is not enough, for the reason every authoring procedure checks the same thing: it says
-        nothing about *which* programs, so without this one matriculation's instructor could read
+        nothing about *which* programs, so without this one term's instructor could read
         another cohort's submissions.
       */
       await assertOwnsOrTeaches(ctx, {
@@ -649,7 +649,7 @@ export const submissionsRouter = createTRPCRouter({
       });
 
       // Empty rather than a refusal, because the two reasons to be here are not worth telling apart
-      // on this screen: a course that is archived and a course in somebody else's matriculation both
+      // on this screen: a course that is archived and a course in somebody else's program both
       // have nothing in them waiting on the caller.
       if (!course) {
         return { submissions: [], gradedCount: 0 };
@@ -667,7 +667,7 @@ export const submissionsRouter = createTRPCRouter({
 
             The course scope is inside the fragment rather than a key of its own, so a reader cannot
             narrow by the roster and forget to narrow by the course — which would widen this pile
-            from one course to every course of the matriculation with nothing to say so.
+            from one course to every course of the term with nothing to say so.
           */
           ...teamAwareWork(course.programId, input.courseId, selection),
           OR: [
@@ -862,7 +862,7 @@ export const submissionsRouter = createTRPCRouter({
         dueAt: true,
         kind: true,
         sections: true,
-        // The matriculation whose roster the cohort filter narrows, which the assignment reaches
+        // The program whose roster the cohort filter narrows, which the assignment reaches
         // through its course.
         course: { select: { programId: true } },
       });
@@ -989,7 +989,7 @@ export const submissionsRouter = createTRPCRouter({
         The enrollment is what proves the fellow is on the roster of this course's program, so it is
         the access check as well as a fact for the header. Without it, any student id plus a course
         the caller teaches would return an empty list rather than a refusal — which reads as "this
-        fellow has done nothing" instead of "this fellow is not in this matriculation".
+        fellow has done nothing" instead of "this fellow is not in this term".
       */
       const enrollment = await ctx.db.enrollment.findFirst({
         where: {
@@ -1003,7 +1003,7 @@ export const submissionsRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
-              matriculation: true,
+              term: true,
               archivedAt: true,
               courses: {
                 where: { id: input.courseId },
@@ -1066,7 +1066,7 @@ export const submissionsRouter = createTRPCRouter({
         by what the caller instructs, so it does not report the existence of courses they cannot open.
       */
       /*
-        Every other course of every matriculation this fellow is on the roster of and the caller can
+        Every other course of every term this fellow is on the roster of and the caller can
         see, so the selector on the screen holds the full set. Reached through the program, because
         that is where an enrollment lives.
       */
@@ -1084,7 +1084,7 @@ export const submissionsRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
-              matriculation: true,
+              term: true,
               courses: {
                 orderBy: { createdAt: "asc" },
                 select: { id: true, name: true },
@@ -1096,12 +1096,12 @@ export const submissionsRouter = createTRPCRouter({
 
       return {
         student: enrollment.student,
-        /** The course being read, and the matriculation it belongs to. */
+        /** The course being read, and the program it belongs to. */
         course: enrollment.program.courses[0]!,
         program: {
           id: enrollment.program.id,
           name: enrollment.program.name,
-          matriculation: enrollment.program.matriculation,
+          term: enrollment.program.term,
           archivedAt: enrollment.program.archivedAt,
         },
         /** So the screen can say they have left, the way every other reader of this does. */
@@ -1111,7 +1111,7 @@ export const submissionsRouter = createTRPCRouter({
           row.program.courses.map((course) => ({
             ...course,
             programName: row.program.name,
-            matriculation: row.program.matriculation,
+            term: row.program.term,
             enrolledAs: row.status,
           })),
         ),

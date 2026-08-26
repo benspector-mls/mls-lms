@@ -120,7 +120,7 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
             {attendanceCsvIsEmpty(csvData) ? null : (
               <AttendanceDownload
                 csv={attendanceCsv(csvData)}
-                matriculation={history.program.matriculation}
+                term={history.program.term}
                 from={days[0] ?? null}
                 to={days[days.length - 1] ?? null}
               />

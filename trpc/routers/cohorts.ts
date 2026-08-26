@@ -18,7 +18,7 @@ import { personSelect } from "../selects";
  *
  * **A cohort belongs to the program, which is the change that made this worth doing.** The division
  * of a roster between instructors was never a per-course fact, so rebuilding it inside every course
- * of a matriculation produced the same answer several times over. One cohort now narrows every
+ * of a program produced the same answer several times over. One cohort now narrows every
  * course an instructor teaches.
  *
  * **A fellow is in at most one cohort, and that is a column rather than a join table.** So there is
@@ -77,7 +77,7 @@ export const cohortsRouter = createTRPCRouter({
       /*
         Null for an admin, who has no `ProgramInstructor` row in any program and therefore nowhere
         to remember a selection. That is the right answer rather than a gap: an admin reading
-        somebody else's matriculation is looking rather than working it, and the picker simply opens
+        somebody else's program is looking rather than working it, and the picker simply opens
         on All Fellows each time.
       */
       ctx.db.programInstructor.findFirst({
@@ -131,16 +131,18 @@ export const cohortsRouter = createTRPCRouter({
     }));
   }),
 
-  create: programProcedure.input(z.object({ name: cohortName })).mutation(async ({ ctx, input }) => {
-    try {
-      return await ctx.db.cohort.create({
-        data: { programId: input.programId, name: input.name },
-        select: { id: true, name: true },
-      });
-    } catch (err) {
-      refuseDuplicate(err, input.name);
-    }
-  }),
+  create: programProcedure
+    .input(z.object({ name: cohortName }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await ctx.db.cohort.create({
+          data: { programId: input.programId, name: input.name },
+          select: { id: true, name: true },
+        });
+      } catch (err) {
+        refuseDuplicate(err, input.name);
+      }
+    }),
 
   /**
    * Renames a cohort.

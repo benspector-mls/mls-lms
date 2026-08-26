@@ -13,13 +13,13 @@ import { cn } from "@/lib/utils";
  * own assignments otherwise.
  *
  * **A fellow's way around**, and for an instructor the sibling of `/programs`: this lists courses
- * across every matriculation, that one lists the matriculations themselves. Archived courses belong
+ * across every program, that one lists the programs themselves. Archived courses belong
  * here for the same reason, in a section beneath the running ones rather than mixed in — a finished
  * course is not something anybody is working in, and a list that made no distinction would put last
  * year beside this week.
  *
- * **Creating a course is not offered here.** A course belongs to one matriculation, so it is made
- * from that matriculation's settings screen, where the term it will belong to is already decided.
+ * **Creating a course is not offered here.** A course belongs to one program, so it is made
+ * from that program's settings screen, where the term it will belong to is already decided.
  * A button here would have had to ask which program first, which is the question `/programs`
  * already answers by being the screen somebody was on.
  *
@@ -31,8 +31,8 @@ import { cn } from "@/lib/utils";
 type Course = {
   id: string;
   name: string;
-  /** The matriculation the course belongs to, which is what tells two years of one course apart. */
-  program: { name: string; matriculation: string };
+  /** The program the course belongs to, which is what tells two years of one course apart. */
+  program: { name: string; term: string };
   archivedAt: Date | null;
   teaches: boolean;
   /**
@@ -53,7 +53,7 @@ type Course = {
    */
   completion: "complete" | "incomplete" | "pending" | null;
   _count: { assignments: number };
-  /** How many active fellows are on the roster of the matriculation this course belongs to. */
+  /** How many active fellows are on the roster of the program this course belongs to. */
   rosterCount: number;
 };
 
@@ -106,7 +106,7 @@ export function CoursesList({
           ) : (
             /*
               Said rather than left as an empty page above a list. Everything the caller
-              belongs to being archived is a real state — the months between two matriculations —
+              belongs to being archived is a real state — the months between two programs —
               and a screen showing only the archived section reads as a bug otherwise.
             */
             <EmptyState
@@ -189,14 +189,13 @@ function CourseCard({ course }: { course: Course }) {
               )}
             </div>
             {/*
-              The matriculation and not only the term, because a school runs several programs a year
+              The program's name and not only the term, because a school runs several programs a year
               and "Fall 2026" alone would not say which of them this course belongs to. The roster
               count is the program's — one roster serves every course in it, which is the whole
               point of the program owning it.
             */}
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {course.program.name} · {course.program.matriculation} ·{" "}
-              {course._count.assignments}{" "}
+              {course.program.name} · {course.program.term} · {course._count.assignments}{" "}
               {course._count.assignments === 1 ? "assignment" : "assignments"} ·{" "}
               {course.rosterCount} {course.rosterCount === 1 ? "fellow" : "fellows"}
             </p>

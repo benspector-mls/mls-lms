@@ -42,7 +42,7 @@ async function main() {
       programId: true,
       instructors: { take: 1, select: { userId: true } },
       courseUnits: { take: 1, select: { id: true } },
-      // The roster is the matriculation's, so the fellows are reached through it. A team set divides
+      // The roster is the program's, so the fellows are reached through it. A team set divides
       // them for one course's projects, which is why both scopes are named here.
       program: {
         select: {
@@ -88,7 +88,7 @@ async function main() {
     });
 
     /*
-      The set carries its matriculation as well as its course, which is what makes a membership's
+      The set carries its term as well as its course, which is what makes a membership's
       three keys share a column: the enrollment is program-scoped and the set is course-scoped, so
       without `programId` on the set the two ends of a membership would share nothing.
     */

@@ -17,7 +17,7 @@ import type { Db } from "../prisma";
  * it up.
  *
  * **Ownership is a program fact rather than a course fact**, which is why this moved up with the
- * rest. Every action it gates is about the matriculation — who is on the roster, who teaches what,
+ * rest. Every action it gates is about the program — who is on the roster, who teaches what,
  * whether the term is over — and none of them is about one course in isolation.
  *
  * **The derivation lives here and nowhere else.** The settings screen draws a badge and several
@@ -27,7 +27,7 @@ import type { Db } from "../prisma";
  *
  * An admin is above all of it. `assertTeaches` already lets an admin act on any course and this does
  * not narrow that, deliberately: an admin is the recovery path for an owner who left the school
- * without handing the program on, and without one every rule here is a way for a matriculation to
+ * without handing the program on, and without one every rule here is a way for a program to
  * end up with nobody who can administer it.
  */
 
@@ -134,7 +134,7 @@ export async function assertOwnsProgram(
 /**
  * The same refusal, for an action named against a course rather than against its program.
  *
- * Archiving one course of a matriculation is an owner's act like archiving the whole of it, and the
+ * Archiving one course of a program is an owner's act like archiving the whole of it, and the
  * person refused should be told about the course they were looking at rather than about the program
  * above it. One extra lookup, so that no caller has to resolve the program itself and then remember
  * which of the two words the message should use.

@@ -24,11 +24,7 @@ import {
   parseCohortSelection,
   type CohortChoice,
 } from "@/lib/programs/cohorts";
-import {
-  groupByAssignment,
-  nameSubtext,
-  type AssignmentGroup,
-} from "@/lib/grade/triage-groups";
+import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
 import { gradingQueueHref } from "@/lib/links";
 import { formatRelative } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -55,11 +51,7 @@ type Row = Triage["submissions"][number];
  * flight needs waiting on rather than doing, and it sits at the foot of the screen.
  */
 type BucketKey =
-  | "needs_report"
-  | "needs_manual_grade"
-  | "draft_ready"
-  | "grading_failed"
-  | "comment_not_posted";
+  "needs_report" | "needs_manual_grade" | "draft_ready" | "grading_failed" | "comment_not_posted";
 
 /** Every bucket that counts toward "how much is left", in the order they are worked. */
 const WORK_BUCKETS: BucketKey[] = [
@@ -123,7 +115,7 @@ const BUCKET_META: Record<
 export function TriageOverview({
   triage,
   courseName,
-  matriculation,
+  term,
   archived,
   cohorts,
   now,
@@ -131,7 +123,7 @@ export function TriageOverview({
   triage: Triage;
   courseName: string;
   /** The program's term, "Fall 2026". The heading names it beside the course. */
-  matriculation: string;
+  term: string;
   archived: boolean;
   /** The picker's options and the selection this pile was built for, from `resolveCohort`. */
   cohorts: CohortChoice;
@@ -159,7 +151,7 @@ export function TriageOverview({
       <PageHeader
         title="Grading triage"
         description={[
-          `${courseName} · ${matriculation}`,
+          `${courseName} · ${term}`,
           /*
             The cohort, whenever the pile is not the whole roster. Every figure beside it counts
             the selected fellows only, so a screen that said "Caught up" without naming what it

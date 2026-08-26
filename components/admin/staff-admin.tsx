@@ -52,7 +52,7 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type People = RouterOutputs["staff"]["people"];
 type Invites = RouterOutputs["staff"]["invites"];
-/** Every matriculation in the deployment, which is what an admin's own list already is. */
+/** Every program in the deployment, which is what an admin's own list already is. */
 type Programs = RouterOutputs["programs"]["listMine"];
 
 export function StaffAdmin({
@@ -206,7 +206,7 @@ function PeopleTab({ people, programs }: { people: People; programs: Programs })
                   <TableCell className="hidden sm:table-cell">
                     {person.programs.length === 0 ? (
                       // Worth naming rather than leaving blank, and in amber rather than grey. An
-                      // instructor on no matriculation is usually somebody who redeemed an
+                      // instructor on no program is usually somebody who redeemed an
                       // invitation and was never added to anything — a loose end rather than a
                       // normal state, and the one this screen's Programs control exists to close.
                       <span className="text-xs text-amber-600 dark:text-amber-500">
@@ -217,7 +217,7 @@ function PeopleTab({ people, programs }: { people: People; programs: Programs })
                         {person.programs.map((program) => (
                           <span key={program.id} className="truncate text-xs">
                             {program.name}{" "}
-                            <span className="text-muted-foreground">· {program.matriculation}</span>
+                            <span className="text-muted-foreground">· {program.term}</span>
                           </span>
                         ))}
                       </div>
@@ -235,7 +235,7 @@ function PeopleTab({ people, programs }: { people: People; programs: Programs })
                       {/*
                         Programs before the role control, because it is the one somebody comes to
                         this screen for repeatedly. Granting admin is rare and permanent-feeling;
-                        putting somebody on a matriculation is the ordinary September act.
+                        putting somebody on a program is the ordinary September act.
                       */}
                       <Button
                         size="sm"
@@ -253,7 +253,9 @@ function PeopleTab({ people, programs }: { people: People; programs: Programs })
                         <Button
                           size="sm"
                           variant="ghost"
-                          className={isAdmin ? "text-destructive hover:text-destructive" : undefined}
+                          className={
+                            isAdmin ? "text-destructive hover:text-destructive" : undefined
+                          }
                           disabled={setAdmin.isPending}
                           onClick={() => setAdmin.mutate({ profileId: person.id, admin: !isAdmin })}
                         >
@@ -275,11 +277,11 @@ function PeopleTab({ people, programs }: { people: People; programs: Programs })
       </div>
 
       <p className="text-sm text-muted-foreground">
-        An admin can invite staff, put anybody here onto a matriculation, and grant admin. Revoking
-        the last admin is refused — it would leave nobody able to use this screen, and no way back
+        An admin can invite staff, put anybody here onto a program, and grant admin. Revoking the
+        last admin is refused — it would leave nobody able to use this screen, and no way back
         except editing the database. Making somebody staff in the first place is an invitation, so
         that there is a record of how they got access; <strong>Programs</strong> only decides which
-        matriculations an existing instructor works in.
+        programs an existing instructor works in.
       </p>
 
       {/*

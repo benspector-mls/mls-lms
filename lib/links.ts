@@ -2,7 +2,7 @@
 // gradebook cells agree on where a submission opens.
 //
 // **There are two scopes now, and each address names exactly one of them.** A program address names
-// a matriculation — its attendance, its roster, its settings. A course address names one course of
+// a program — its attendance, its roster, its settings. A course address names one course of
 // one program — its triage, gradebook, curriculum, team sets, settings.
 // The program is never in a course address: it is resolved from the course, because carrying both
 // would give every link two ids that could disagree and nothing to reconcile them with.
@@ -23,7 +23,7 @@
 //
 // Three rather than five, because two of them turned out to be sections of the others. Placing
 // fellows in cohorts is a thing done *to* the roster, and it now shares that screen's tabs; who
-// instructs the matriculation is a fact about the matriculation, and it sits on its settings. Both
+// instructs the program is a fact about the program, and it sits on its settings. Both
 // had their own address while the question was whether they were separate screens, and running them
 // answered it — a sidebar item apiece was five doors onto three rooms.
 // ---------------------------------------------------------------------------------------------
@@ -61,19 +61,19 @@ export function attendanceDayHref(programId: string, day: string): string {
  * The projected code, on its own address and outside the shell.
  *
  * Its own window is the point: it goes on a second monitor, or it is the one window shared into
- * Zoom — and neither works if the page carries a sidebar naming every other matriculation.
+ * Zoom — and neither works if the page carries a sidebar naming every other program.
  */
 export function attendancePresentHref(programId: string): string {
   return `/present/attendance/${programId}`;
 }
 
-/** A fellow's own attendance record for one matriculation. */
+/** A fellow's own attendance record for one program. */
 export function myAttendanceHref(programId: string): string {
   return `/programs/${programId}/attendance`;
 }
 
 /**
- * The roster: everybody who has ever joined this matriculation, and the link that lets them.
+ * The roster: everybody who has ever joined this program, and the link that lets them.
  *
  * **The program's, and this is the duplication it removed.** One roster where there used to be one
  * per course, entered once instead of once per course of a term.
@@ -82,13 +82,13 @@ export function rosterHref(programId: string): string {
   return `/instructor/programs/${programId}/roster`;
 }
 
-/** The matriculation's own settings: what it is, its courses, who instructs it, and how it ends. */
+/** The program's own settings: what it is, its courses, who instructs it, and how it ends. */
 export function programSettingsHref(programId: string): string {
   return `/instructor/programs/${programId}/settings`;
 }
 
 /**
- * One fellow, across the whole matriculation.
+ * One fellow, across the whole program.
  *
  * **About the person rather than about their work**, which is what makes it a different screen from
  * `studentHref` below: who they are, their attendance and arrival averages, which cohort they are
@@ -103,7 +103,7 @@ export function programStudentHref(programId: string, studentId: string): string
  * A fellow's own General Coding Framework results.
  *
  * **The one address here that names no scope at all**, and deliberately: the GCF is sat at
- * CodeSignal on a fellow's own schedule, a result carries no matriculation, and somebody who repeats
+ * CodeSignal on a fellow's own schedule, a result carries no program, and somebody who repeats
  * a program should find one history rather than two halves of it. Scoping it would mean choosing
  * which of their enrollments a sitting belonged to, and there is no honest answer.
  *
@@ -170,7 +170,7 @@ export function gradebookHref(courseId: string): string {
  * The team sets of one course: the divisions of the program's fellows that hand work in together.
  *
  * Its own screen rather than a card on the roster it used to share, because the roster moved up to
- * the program and a team set did not — a set divides a matriculation's fellows for one course's
+ * the program and a team set did not — a set divides a program's fellows for one course's
  * projects, so it belongs beside that course's curriculum.
  */
 export function teamsHref(courseId: string): string {
@@ -250,13 +250,13 @@ export function sameViewInCourse(pathname: string, courseId: string): string {
 }
 
 /**
- * The same view in a different matriculation, for the program switcher.
+ * The same view in a different program, for the program switcher.
  *
  * The counterpart of `sameViewInCourse`, and it exists for the same reason: somebody comparing two
  * years' attendance wants the other year's attendance rather than to be dropped at its front page.
  *
  * **One day of attendance does not travel**, which is the one case worth naming. The other
- * matriculation may not have met that day, and landing on an empty screen offering to record a
+ * program may not have met that day, and landing on an empty screen offering to record a
  * morning that never happened is worse than landing on today.
  *
  * A fellow's record does not travel either: a person is on one roster or another, and a page naming

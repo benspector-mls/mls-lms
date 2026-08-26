@@ -45,7 +45,7 @@ async function main() {
   */
   const enrollment = course
     ? await db.enrollment.findFirst({
-        // On the matriculation's roster, which is what makes somebody a student of this course.
+        // On the program's roster, which is what makes somebody a student of this course.
         where: { programId: course.programId },
         orderBy: { createdAt: "asc" },
         select: { studentId: true },
@@ -102,7 +102,9 @@ async function main() {
 
       check(
         "a blank name is refused",
-        await refusal(() => asInstructor.courseUnits.create({ category: "MODULE", courseId: course.id, name: "   " })),
+        await refusal(() =>
+          asInstructor.courseUnits.create({ category: "MODULE", courseId: course.id, name: "   " }),
+        ),
         "BAD_REQUEST",
       );
 
@@ -267,12 +269,16 @@ async function main() {
       // --- who may do any of this ------------------------------------------
       check(
         "a student cannot create a module",
-        await refusal(() => asStudent.courseUnits.create({ category: "MODULE", courseId: course.id, name: "Nope" })),
+        await refusal(() =>
+          asStudent.courseUnits.create({ category: "MODULE", courseId: course.id, name: "Nope" }),
+        ),
         "FORBIDDEN",
       );
       check(
         "a student cannot rename one",
-        await refusal(() => asStudent.courseUnits.update({ courseUnitId: second.id, name: "Nope" })),
+        await refusal(() =>
+          asStudent.courseUnits.update({ courseUnitId: second.id, name: "Nope" }),
+        ),
         "FORBIDDEN",
       );
       check(
@@ -393,9 +399,9 @@ async function main() {
       const asInstructorSees = (
         await asInstructor.courseUnits.listForCourse({ courseId: course.id })
       ).find((row) => row.id === draftHome.id)!;
-      const asStudentSees = (await asStudent.courseUnits.listForCourse({ courseId: course.id })).find(
-        (row) => row.id === draftHome.id,
-      )!;
+      const asStudentSees = (
+        await asStudent.courseUnits.listForCourse({ courseId: course.id })
+      ).find((row) => row.id === draftHome.id)!;
 
       check(
         "an instructor sees an unpublished assignment in the module",
@@ -445,16 +451,16 @@ async function main() {
 
       /*
         An instructor of a different course is the check the role alone cannot make. INSTRUCTOR says
-        nothing about *which* programs, so without the program-level test one matriculation's
+        nothing about *which* programs, so without the program-level test one term's
         instructor could rename another's modules.
 
-        A course belongs to a matriculation, so the fixture is a program with a course in it. Its
+        A course belongs to a term, so the fixture is a program with a course in it. Its
         tokens are the program's now — a course has neither.
       */
       const otherProgram = await tx.program.create({
         data: {
           name: "Elsewhere (verify:modules)",
-          matriculation: `Cohort Elsewhere ${crypto.randomUUID().slice(0, 8)}`,
+          term: `Cohort Elsewhere ${crypto.randomUUID().slice(0, 8)}`,
           joinToken: `verify-modules-${crypto.randomUUID()}`,
           instructorToken: `verify-modules-it-${crypto.randomUUID()}`,
         },
@@ -479,7 +485,7 @@ async function main() {
         outsider it would have passed by luck rather than because the premise held.
 
         `programsInstructing: { none: ... }` is the predicate the check is actually about, and it
-        cannot go stale as the matriculation gains or loses instructors.
+        cannot go stale as the term gains or loses instructors.
       */
       const outsider = await tx.profile.findFirst({
         where: {
@@ -539,7 +545,13 @@ async function main() {
     });
     check(
       "a duplicate name in one course is refused",
-      await refusal(() => asInstructor.courseUnits.create({ category: "MODULE", courseId: course.id, name: made.name })),
+      await refusal(() =>
+        asInstructor.courseUnits.create({
+          category: "MODULE",
+          courseId: course.id,
+          name: made.name,
+        }),
+      ),
       "CONFLICT",
     );
   });
@@ -618,7 +630,7 @@ async function main() {
       const scratchProgram = await tx.program.create({
         data: {
           name: "Verify Reseed",
-          matriculation: "Cohort Verify Reseed",
+          term: "Cohort Verify Reseed",
           joinToken: newJoinToken(),
           instructorToken: newJoinToken(),
         },

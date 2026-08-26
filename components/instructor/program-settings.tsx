@@ -19,7 +19,7 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * The matriculation itself: what it is, its courses, when a fellow counts as late, and how it is
+ * The program itself: what it is, its courses, when a fellow counts as late, and how it is
  * retired.
  *
  * **The counterpart of the course's own settings screen, and the split is what the program above the
@@ -44,14 +44,14 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
     <div className="flex flex-col gap-6">
       {/*
         The banner lives here, beside the control that caused it. It answers "why is nothing
-        happening" across every course of the matriculation at once, which is what archiving a
+        happening" across every course of the program at once, which is what archiving a
         program reaches.
       */}
       {archived && (
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This matriculation is archived. Every course in it is off everyone&apos;s active list and
+            This program is archived. Every course in it is off everyone&apos;s active list and
             their submissions are out of grading triage, no attendance day can be started, and
             nobody new can join. Everything stays readable to the people who were in it.
           </p>
@@ -63,7 +63,7 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
       <AttendanceCard data={data} />
       <ArchiveCard data={data} />
       {/*
-        Only on an archived matriculation, and only for whoever owns it — the same two conditions the
+        Only on an archived program, and only for whoever owns it — the same two conditions the
         procedures enforce. A control that can destroy a year and then refuses is worse than one that
         is not there.
       */}
@@ -75,14 +75,14 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
 /** What `NewCourseDialog` needs to offer a course to copy from. */
 type CopyableCourses = React.ComponentProps<typeof NewCourseDialog>["courses"];
 
-/** Whoever the matriculation belongs to, for the sentences that have to name them. */
+/** Whoever the program belongs to, for the sentences that have to name them. */
 function ownerNameIn(data: Data): string {
   const owner = data.program.instructors.find((row) => row.user.id === data.ownerId);
   return owner ? displayNameOf(owner.user, "its owner") : "its owner";
 }
 
 /**
- * What this matriculation is, and when it was started.
+ * What this program is, and when it was started.
  *
  * Read-only, and the doc comment above says why. It is here rather than left off the screen because
  * the term is what tells two years of one program apart everywhere else in the application — in the
@@ -95,25 +95,25 @@ function IdentityCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{data.program.name}</h2>
         <p className="text-xs text-muted-foreground">
-          {data.program.matriculation} · started {formatDate(data.program.createdAt)} ·{" "}
+          {data.program.term} · started {formatDate(data.program.createdAt)} ·{" "}
           {countLabel(data.program.instructors.length, "instructor")}
         </p>
       </div>
       <p className="text-xs text-muted-foreground">
-        The name and the term are settled when the matriculation is created. Together they are what
-        tells this year of {data.program.name} from every other one — in the switcher, in every
+        The name and the term are settled when the program is created. Together they are what tells
+        this year of {data.program.name} from every other one — in the switcher, in every
         breadcrumb, and in the name of every file exported from it — so neither can be changed
-        afterwards. A matriculation is created empty, so one named by mistake is best created again.
+        afterwards. A program is created empty, so one named by mistake is best created again.
       </p>
     </section>
   );
 }
 
 /**
- * The courses of this matriculation, and where a new one is made.
+ * The courses of this program, and where a new one is made.
  *
  * **This is where a course is created**, and not the course list. A course belongs to exactly one
- * matriculation, so making one from a screen that spans every year would have to ask which year
+ * program, so making one from a screen that spans every year would have to ask which year
  * first — a question this screen answers by being the screen somebody is already on.
  *
  * Publication is shown and not set here. It is the course's own control, on the course's own
@@ -128,21 +128,16 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Courses</h2>
           <p className="text-xs text-muted-foreground">
-            Every course of {data.program.matriculation}. Everybody on the roster is a student of all
-            of them, so publishing is what decides which ones they can find yet.
+            Every course of {data.program.term}. Everybody on the roster is a student of all of
+            them, so publishing is what decides which ones they can find yet.
           </p>
         </div>
-        <NewCourseDialog
-          programId={data.program.id}
-          matriculation={data.program.matriculation}
-          courses={courses}
-        />
+        <NewCourseDialog programId={data.program.id} term={data.program.term} courses={courses} />
       </div>
 
       {data.program.courses.length === 0 ? (
         <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-          No courses yet. A matriculation is created empty — add the first one, or copy last
-          year&apos;s.
+          No courses yet. A program is created empty — add the first one, or copy last year&apos;s.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -184,7 +179,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
 /**
  * How long after check-in opens a fellow still counts as on time.
  *
- * The matriculation's own number, because it is one: a program that starts with fifteen minutes of
+ * The program's own number, because it is one: a program that starts with fifteen minutes of
  * standup and one that starts with a quiz disagree about when the door closes, and neither is wrong.
  * **One value rather than one per course**, which is the duplication attendance moving up removed —
  * there is one morning, so there is one answer.
@@ -223,7 +218,7 @@ function AttendanceCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Attendance</h2>
         <p className="text-xs text-muted-foreground">
-          One check-in a day for the whole matriculation, however many courses somebody is taking. A
+          One check-in a day for the whole program, however many courses somebody is taking. A
           session runs until you end it, or for ninety minutes — whichever comes first, and you can
           extend it while it is open.
         </p>
@@ -264,7 +259,7 @@ function AttendanceCard({ data }: { data: Data }) {
 }
 
 /**
- * Retiring a whole matriculation, or bringing it back.
+ * Retiring a whole program, or bringing it back.
  *
  * Two clicks to archive and one to unarchive, deliberately asymmetric. Archiving is the one that
  * changes what every fellow on the roster sees, in every course at once, so it says what it will do
@@ -276,7 +271,7 @@ function AttendanceCard({ data }: { data: Data }) {
  *
  * **The owner's, in both directions.** Reopening is the same gate because it is the same mutation
  * with a boolean, and the consequence is worth stating: a co-teacher can read an archived
- * matriculation in full and cannot bring it back.
+ * program in full and cannot bring it back.
  */
 function ArchiveCard({ data }: { data: Data }) {
   const trpc = useTRPC();
@@ -306,7 +301,7 @@ function ArchiveCard({ data }: { data: Data }) {
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
-          {archived ? "Reopen" : "Archive"} {data.program.matriculation}
+          {archived ? "Reopen" : "Archive"} {data.program.term}
         </h2>
         <p className="text-xs text-muted-foreground">
           {archived
@@ -321,8 +316,8 @@ function ArchiveCard({ data }: { data: Data }) {
           is it broken, am I doing it wrong — and the answer here is a fact about who to ask.
         */
         <p className="text-xs text-muted-foreground">
-          Only {ownerNameIn(data)} can {archived ? "reopen" : "archive"} this matriculation, because
-          they own it. Everything else on this screen is yours as much as theirs.
+          Only {ownerNameIn(data)} can {archived ? "reopen" : "archive"} this program, because they
+          own it. Everything else on this screen is yours as much as theirs.
         </p>
       ) : archived ? (
         <Button
@@ -333,7 +328,7 @@ function ArchiveCard({ data }: { data: Data }) {
           onClick={() => setArchived.mutate({ programId: data.program.id, archived: false })}
         >
           <RotateCcw data-icon="inline-start" />
-          Reopen this matriculation
+          Reopen this program
         </Button>
       ) : confirming ? (
         <div className="flex items-center gap-2">
@@ -357,7 +352,7 @@ function ArchiveCard({ data }: { data: Data }) {
           onClick={() => setConfirming(true)}
         >
           <Archive data-icon="inline-start" />
-          Archive this matriculation
+          Archive this program
         </Button>
       )}
     </section>
@@ -365,13 +360,13 @@ function ArchiveCard({ data }: { data: Data }) {
 }
 
 /**
- * Deleting a matriculation, which is the largest thing in this application that cannot be undone.
+ * Deleting a program, which is the largest thing in this application that cannot be undone.
  *
  * **The counts come first and the confirmation second.** "This cannot be undone" is a generality
  * nobody reads; "4 courses, 24 fellows, 187 submissions, 143 released grades" is a sentence somebody
  * can weigh, and it is read before the box that unlocks the button rather than beside it.
  *
- * **The matriculation is what has to be typed, not the name.** A program runs every year under the
+ * **The term is what has to be typed, not the name.** A program runs every year under the
  * same name, so typing "Software Engineering Fellowship" would confirm the wrong year as readily as
  * the right one — and the term is the thing that is unique to this one. That is the mirror image of
  * deleting a course, which asks for the short name because a program runs the same courses every
@@ -401,7 +396,7 @@ function DeleteProgramCard({ data }: { data: Data }) {
             nothing points at any more, so this message is the only record of either.
           */
           const parts = [
-            `${result.name} · ${result.matriculation} is gone`,
+            `${result.name} · ${result.term} is gone`,
             `${result.courses} ${result.courses === 1 ? "course" : "courses"}`,
             `${result.enrollments} ${result.enrollments === 1 ? "fellow" : "fellows"}`,
             `${result.submissions} ${result.submissions === 1 ? "submission" : "submissions"}`,
@@ -430,13 +425,13 @@ function DeleteProgramCard({ data }: { data: Data }) {
     return (
       <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-sm font-medium">Delete this matriculation</h2>
+          <h2 className="text-sm font-medium">Delete this program</h2>
           <p className="text-xs text-muted-foreground">
             Permanent, and the widest thing on any screen here. {data.program.name} ·{" "}
-            {data.program.matriculation} goes, and with it every course in it, their assignments and
+            {data.program.term} goes, and with it every course in it, their assignments and
             submissions and grades, the roster, the cohorts, and the whole attendance record. The
             database&apos;s own backups are the only way back. Archiving is the reversible version
-            and this matriculation is already archived.
+            and this program is already archived.
           </p>
         </div>
         <Button
@@ -446,7 +441,7 @@ function DeleteProgramCard({ data }: { data: Data }) {
           onClick={() => setOpen(true)}
         >
           <Trash2 data-icon="inline-start" />
-          Delete this matriculation
+          Delete this program
         </Button>
       </section>
     );
@@ -456,7 +451,7 @@ function DeleteProgramCard({ data }: { data: Data }) {
     <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
-          Delete {data.program.name} · {data.program.matriculation}?
+          Delete {data.program.name} · {data.program.term}?
         </h2>
         <p className="text-xs text-muted-foreground">
           There is no undo and no recovery path here. The database&apos;s own backups are the only
@@ -517,19 +512,18 @@ function DeleteProgramCard({ data }: { data: Data }) {
           </dl>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium" htmlFor="confirm-matriculation">
+            <label className="text-xs font-medium" htmlFor="confirm-term">
               Type <code className="font-mono">{impact.data.confirm}</code> to confirm
             </label>
             <Input
-              id="confirm-matriculation"
+              id="confirm-term"
               value={typed}
               autoComplete="off"
               placeholder={impact.data.confirm}
               onChange={(event) => setTyped(event.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              The matriculation, not the name — every year of this program is called{" "}
-              {impact.data.name}.
+              The term, not the name — every year of this program is called {impact.data.name}.
             </p>
           </div>
         </>
@@ -545,12 +539,10 @@ function DeleteProgramCard({ data }: { data: Data }) {
           variant="outline"
           className="text-destructive hover:text-destructive"
           disabled={!ready || remove.isPending}
-          onClick={() =>
-            remove.mutate({ programId: data.program.id, confirmMatriculation: typed.trim() })
-          }
+          onClick={() => remove.mutate({ programId: data.program.id, confirmTerm: typed.trim() })}
         >
           {remove.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
-          Delete this matriculation permanently
+          Delete this program permanently
         </Button>
         <Button
           size="sm"

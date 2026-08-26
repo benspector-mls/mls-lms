@@ -2,7 +2,7 @@
  * The two pieces every "what would this destroy" list is built from.
  *
  * Their own module because there are two such lists — deleting a course and deleting a
- * matriculation — and they have to read identically. A reader who has weighed one of these
+ * program — and they have to read identically. A reader who has weighed one of these
  * confirmations should not have to work out the shape of the other while holding a permanent
  * action, and two copies of a labelled row is how the two come to be laid out differently.
  */

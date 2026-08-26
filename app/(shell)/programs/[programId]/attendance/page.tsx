@@ -8,14 +8,14 @@ import { schoolDayOf } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * A fellow's own attendance in one matriculation, and where they check in.
+ * A fellow's own attendance in one program, and where they check in.
  *
  * **Both halves on one screen**, which is the whole reason check-in moved off the dashboard. A
  * fellow had a card stacked above the one screen that answers "what is due", and typing a code is
  * not something anybody does from a list of overdue assignments. Here the code goes in beside the
  * record it becomes a row of.
  *
- * **One address per matriculation rather than per course.** A fellow arrives at the building once, so
+ * **One address per program rather than per course.** A fellow arrives at the building once, so
  * three courses meeting on a Tuesday are one morning and one code — which is why this screen is
  * reached from beside the program's name in the sidebar rather than from inside a course.
  *

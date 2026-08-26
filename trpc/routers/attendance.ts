@@ -17,7 +17,11 @@ import {
   statusForCheckIn,
   type WindowSession,
 } from "@/lib/attendance/window";
-import { assertActiveInProgram, assertProgramMember, enrollmentsIn } from "@/lib/courses/membership";
+import {
+  assertActiveInProgram,
+  assertProgramMember,
+  enrollmentsIn,
+} from "@/lib/courses/membership";
 import { teachableAttendanceSession } from "@/lib/courses/scope";
 import { displayNameOf } from "@/lib/people";
 import { inTransaction, type Tx } from "@/lib/prisma";
@@ -874,7 +878,7 @@ export const attendanceRouter = createTRPCRouter({
     const [program, sessions, enrollments] = await Promise.all([
       ctx.db.program.findUniqueOrThrow({
         where: { id: input.programId },
-        select: { id: true, name: true, matriculation: true, archivedAt: true },
+        select: { id: true, name: true, term: true, archivedAt: true },
       }),
       ctx.db.attendanceSession.findMany({
         where: { programId: input.programId },
@@ -956,7 +960,7 @@ export const attendanceRouter = createTRPCRouter({
       program: {
         id: program.id,
         name: program.name,
-        matriculation: program.matriculation,
+        term: program.term,
         archived: program.archivedAt !== null,
       },
       sessions: sessions.map((session) => publicSession(session, now)),
@@ -980,10 +984,10 @@ export const attendanceRouter = createTRPCRouter({
   // =====================================================================================
 
   /**
-   * Whatever a fellow can check into right now, across every matriculation they are in.
+   * Whatever a fellow can check into right now, across every program they are in.
    *
    * A list rather than one session, because somebody repeating a year is on two rosters at once and
-   * both could have opened a morning. It is one session per matriculation rather than one per course,
+   * both could have opened a morning. It is one session per program rather than one per course,
    * which is the change attendance moving up made: a fellow taking three courses that all meet on a
    * Tuesday types one code.
    *
@@ -1210,9 +1214,9 @@ export const attendanceRouter = createTRPCRouter({
     }),
 
   /**
-   * A fellow's own week, across every matriculation they are in.
+   * A fellow's own week, across every program they are in.
    *
-   * **One row per matriculation rather than one per course**, which is the whole change attendance
+   * **One row per program rather than one per course**, which is the whole change attendance
    * moving up made here: a fellow taking three courses that all meet on a Tuesday had three rows of
    * squares and three codes to type, and the three said the same thing.
    *
@@ -1279,7 +1283,7 @@ export const attendanceRouter = createTRPCRouter({
     }));
 
     /*
-      One column set for every matriculation, so two rows of squares line up under one row of
+      One column set for every term, so two rows of squares line up under one row of
       headings. A Saturday session in any of them widens all of them, which is right: the columns
       are days of the week, not days of a program.
     */
@@ -1360,7 +1364,7 @@ export const attendanceRouter = createTRPCRouter({
   }),
 
   /**
-   * A fellow's own attendance in one matriculation.
+   * A fellow's own attendance in one program.
    *
    * `assertProgramMember` rather than `assertActiveInProgram`: somebody removed from a program keeps
    * reading their own record, for the same reason they keep reading the feedback they were given.

@@ -28,7 +28,7 @@ async function Staff() {
   const queryClient = getQueryClient();
 
   /*
-    Every matriculation, which is what `programs.listMine` already answers for an admin: they belong
+    Every program, which is what `programs.listMine` already answers for an admin: they belong
     to none of them and see all. A read of its own rather than a field on `staff.people`, because it
     is a list of what exists rather than a fact about any of these people.
   */

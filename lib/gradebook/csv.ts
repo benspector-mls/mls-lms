@@ -211,7 +211,7 @@ export function gradebookCsv(data: GradebookCsvData): string {
  * twenty-four character ceiling is set by GitHub repository names and is merely a convenience here.
  */
 export function gradebookCsvFilename(params: {
-  matriculation: string;
+  term: string;
   /** Null when the whole roster is exported, which needs no qualifier in the name. */
   cohortLabel: string | null;
   date: Date;
@@ -226,7 +226,7 @@ export function gradebookCsvFilename(params: {
   // transliterate leaves a shorter name rather than a doubled hyphen.
   const parts = [
     "gradebook",
-    slugifyCourse(params.matriculation),
+    slugifyCourse(params.term),
     params.cohortLabel === null ? "" : slugifyCourse(params.cohortLabel),
     stamp,
   ].filter((part) => part !== "");

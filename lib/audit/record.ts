@@ -114,7 +114,7 @@ export type AuditEventInput = {
   /** Who or what was acted upon. */
   subject?: AuditReference;
   /**
-   * The matriculation it happened in, where it happened in one — which is most acts, since
+   * The program it happened in, where it happened in one — which is most acts, since
    * enrollment, the roster, cohorts, and attendance all belong to a program.
    */
   program?: AuditReference;
@@ -122,7 +122,7 @@ export type AuditEventInput = {
    * The course it happened in, for the acts that are about one: a released grade, an assignment
    * published, a course archived.
    *
-   * **Both, rather than one replacing the other.** "Which matriculation was this" and "which course
+   * **Both, rather than one replacing the other.** "Which program was this" and "which course
    * was this" are different questions, and a released grade is the only thing in this log that
    * answers the second. An event may name either, both, or neither.
    */

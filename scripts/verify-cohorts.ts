@@ -13,7 +13,7 @@
  *
  * **A cohort belongs to the program and the four screens belong to a course**, which is the new
  * thing to check rather than a restatement of the old: one placement now narrows every course of a
- * matriculation, so the checks read the program's cohorts and then a course's piles.
+ * program, so the checks read the program's cohorts and then a course's piles.
  *
  * The strongest checks here are the ones comparing a filtered read against the unfiltered one: a
  * cohort's pile plus the rest of the roster's pile must be the whole pile, exactly. A filter that
@@ -132,9 +132,7 @@ async function main() {
 
         check(
           "a blank name is refused",
-          await refusal(() =>
-            asInstructor.cohorts.create({ programId: program.id, name: "   " }),
-          ),
+          await refusal(() => asInstructor.cohorts.create({ programId: program.id, name: "   " })),
           "BAD_REQUEST",
         );
 
@@ -176,9 +174,9 @@ async function main() {
         });
         check(
           "...and placing the same fellow again changes nothing",
-          (
-            await asInstructor.cohorts.listForProgram({ programId: program.id })
-          ).cohorts.find((row) => row.id === squad.id)?.memberCount,
+          (await asInstructor.cohorts.listForProgram({ programId: program.id })).cohorts.find(
+            (row) => row.id === squad.id,
+          )?.memberCount,
           1,
         );
 
@@ -191,9 +189,9 @@ async function main() {
         });
         check(
           "...and a longer list places both",
-          (
-            await asInstructor.cohorts.listForProgram({ programId: program.id })
-          ).cohorts.find((row) => row.id === squad.id)?.memberCount,
+          (await asInstructor.cohorts.listForProgram({ programId: program.id })).cohorts.find(
+            (row) => row.id === squad.id,
+          )?.memberCount,
           2,
         );
 
@@ -217,9 +215,9 @@ async function main() {
         );
         check(
           "...and the first cohort's count falls to match",
-          (
-            await asInstructor.cohorts.listForProgram({ programId: program.id })
-          ).cohorts.find((row) => row.id === squad.id)?.memberCount,
+          (await asInstructor.cohorts.listForProgram({ programId: program.id })).cohorts.find(
+            (row) => row.id === squad.id,
+          )?.memberCount,
           1,
         );
 
@@ -385,7 +383,7 @@ async function main() {
         /*
           Fail closed rather than fail open. A cohort id from another program cannot match any
           enrollment on this roster, so the filter returns nothing — an empty screen rather than
-          another matriculation's fellows, which is the direction that costs a query rather than a
+          another term's fellows, which is the direction that costs a query rather than a
           leak.
         */
         const elsewhere = await tx.program.findFirst({
@@ -452,9 +450,9 @@ async function main() {
         );
         check(
           "...and out of its member count",
-          (
-            await asInstructor.cohorts.listForProgram({ programId: program.id })
-          ).cohorts.find((row) => row.id === squad.id)?.memberCount,
+          (await asInstructor.cohorts.listForProgram({ programId: program.id })).cohorts.find(
+            (row) => row.id === squad.id,
+          )?.memberCount,
           1,
         );
         check(
@@ -471,9 +469,9 @@ async function main() {
         await asInstructor.enrollments.restore({ enrollmentId: outside.id });
         check(
           "restoring puts them back in the cohort they were in",
-          (
-            await asInstructor.cohorts.listForProgram({ programId: program.id })
-          ).cohorts.find((row) => row.id === squad.id)?.memberCount,
+          (await asInstructor.cohorts.listForProgram({ programId: program.id })).cohorts.find(
+            (row) => row.id === squad.id,
+          )?.memberCount,
           2,
         );
         await asInstructor.cohorts.setPlacements({
@@ -483,7 +481,7 @@ async function main() {
 
         // --- the remembered filter ---------------------------------------------
         //
-        // One value for the whole matriculation rather than one per course, which is most of the
+        // One value for the whole program rather than one per course, which is most of the
         // duplication moving cohorts up removed: the fact it records is "I grade these fifteen
         // fellows" and never "in this course I grade these fifteen".
         check(
@@ -507,9 +505,7 @@ async function main() {
         // --- who may do any of this --------------------------------------------
         check(
           "a fellow cannot create a cohort",
-          await refusal(() =>
-            asStudent.cohorts.create({ programId: program.id, name: "Nope" }),
-          ),
+          await refusal(() => asStudent.cohorts.create({ programId: program.id, name: "Nope" })),
           "FORBIDDEN",
         );
         check(
@@ -519,9 +515,7 @@ async function main() {
         );
         check(
           "a fellow cannot read who is in them",
-          await refusal(() =>
-            asStudent.cohorts.membershipsForProgram({ programId: program.id }),
-          ),
+          await refusal(() => asStudent.cohorts.membershipsForProgram({ programId: program.id })),
           "FORBIDDEN",
         );
 
@@ -530,7 +524,7 @@ async function main() {
           about. "An instructor who is not the one this script acts as" was the same question only
           while a program had one instructor, and co-teaching made it false — the query started
           returning somebody who does instruct it. `programsInstructing: { none: ... }` cannot go
-          stale as a matriculation gains or loses instructors.
+          stale as a term gains or loses instructors.
         */
         const outsider = await tx.profile.findFirst({
           where: {
@@ -650,7 +644,7 @@ async function main() {
     The composite foreign key, which is the guarantee that replaced a validation rule. `setPlacements`
     checks that a named cohort belongs to the program, and this is what holds when something else
     writes the column: `(cohortId, programId)` references `cohorts(id, programId)`, so no value
-    `programId` can hold satisfies both halves while naming another matriculation's cohort. The old
+    `programId` can hold satisfies both halves while naming another term's cohort. The old
     grading-group version validated this by hand and said so in a comment; the key makes it
     unrepresentable.
   */

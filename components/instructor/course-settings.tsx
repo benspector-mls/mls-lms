@@ -4,16 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as React from "react";
-import {
-  Archive,
-  Eye,
-  EyeOff,
-  GitBranch,
-  Loader2,
-  RotateCcw,
-  Trash2,
-  Users,
-} from "lucide-react";
+import { Archive, Eye, EyeOff, GitBranch, Loader2, RotateCcw, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
@@ -35,7 +26,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * rather than a leftover: a reader who names a course and nothing more is asking about the course,
  * which is what this screen is.
  *
- * **The matriculation's own settings are a separate screen**, and the split is the whole shape of
+ * **The program's own settings are a separate screen**, and the split is the whole shape of
  * this change. Attendance, the roster, the cohorts, the join link and the instructor link belong to
  * the program above this course and are the same for every course in it, so editing them here would
  * have been four places to change one fact. What is left is what is genuinely this course's: its
@@ -58,9 +49,10 @@ export function CourseSettings({ data }: { data: Data }) {
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This course is archived. It is off everyone&apos;s active course list and its submissions
-            are out of grading triage. Everything stays readable to the people who were in it — the
-            gradebook, and every assignment&apos;s own queue — and nothing new can be handed in.
+            This course is archived. It is off everyone&apos;s active course list and its
+            submissions are out of grading triage. Everything stays readable to the people who were
+            in it — the gradebook, and every assignment&apos;s own queue — and nothing new can be
+            handed in.
           </p>
         </div>
       )}
@@ -77,7 +69,7 @@ export function CourseSettings({ data }: { data: Data }) {
         ownerName={ownerNameIn(data)}
       />
       {/*
-        Only on an archived course, and only for whoever owns the matriculation — the same two
+        Only on an archived course, and only for whoever owns the program — the same two
         conditions the procedures enforce. A destructive control that appears and then refuses is
         worse than one that is not there, and here it would appear on every course somebody teaches.
       */}
@@ -88,7 +80,7 @@ export function CourseSettings({ data }: { data: Data }) {
   );
 }
 
-/** Whoever the matriculation belongs to, for the sentences that have to name them. */
+/** Whoever the program belongs to, for the sentences that have to name them. */
 function ownerNameIn(data: Data): string {
   const owner = data.course.program.instructors.find((row) => row.user.id === data.ownerId);
   return owner ? displayNameOf(owner.user, "its owner") : "its owner";
@@ -107,7 +99,7 @@ function ownerNameIn(data: Data): string {
  * question somebody will have, and the two cards answer it by sitting together — the second says in
  * words what it would cost.
  *
- * Any instructor of the matriculation may, unlike publishing and archiving. Those decide whether a
+ * Any instructor of the program may, unlike publishing and archiving. Those decide whether a
  * fellow can reach the course at all; this decides what it is called, which is the same kind of act
  * as renaming a module.
  */
@@ -133,8 +125,8 @@ function NameCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Course name</h2>
         <p className="text-xs text-muted-foreground">
-          What fellows see on their course list, what every heading in it says, and what a subscribed
-          calendar names beside each deadline. Changing it changes all of them.
+          What fellows see on their course list, what every heading in it says, and what a
+          subscribed calendar names beside each deadline. Changing it changes all of them.
         </p>
       </div>
 
@@ -149,11 +141,7 @@ function NameCard({ data }: { data: Data }) {
       >
         <label className="flex min-w-64 flex-1 flex-col gap-1.5">
           <span className="text-xs font-medium">Name</span>
-          <Input
-            value={name}
-            maxLength={200}
-            onChange={(event) => setName(event.target.value)}
-          />
+          <Input value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
         </label>
         <Button
           type="submit"
@@ -187,7 +175,7 @@ function NameCard({ data }: { data: Data }) {
 /**
  * Whether fellows can see this course at all.
  *
- * **This is what replaced "do not enrol anybody yet".** Being on a matriculation's roster now makes
+ * **This is what replaced "do not enrol anybody yet".** Being on a program's roster now makes
  * somebody a student of every course in it, so not enrolling them is no longer available as the way
  * to keep a course that begins in March off a fellow's screen in September. One nullable timestamp
  * does it, and it means exactly what `Assignment.distributedAt` means: instructors author in it,
@@ -220,11 +208,13 @@ function PublishCard({ data }: { data: Data }) {
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">{published ? "Visible to fellows" : "Not published"}</h2>
+        <h2 className="text-sm font-medium">
+          {published ? "Visible to fellows" : "Not published"}
+        </h2>
         <p className="text-xs text-muted-foreground">
           {published
-            ? `Everybody on the ${data.course.program.matriculation} roster can open this course, see its published assignments, and hand work in.`
-            : `Only this matriculation's instructors can see this course. Everybody on the ${data.course.program.matriculation} roster is already a student of it — publishing is what lets them find it.`}
+            ? `Everybody on the ${data.course.program.term} roster can open this course, see its published assignments, and hand work in.`
+            : `Only this program's instructors can see this course. Everybody on the ${data.course.program.term} roster is already a student of it — publishing is what lets them find it.`}
         </p>
       </div>
 
@@ -235,7 +225,7 @@ function PublishCard({ data }: { data: Data }) {
         */
         <p className="text-xs text-muted-foreground">
           Only {ownerNameIn(data)} can {published ? "unpublish" : "publish"} this course, because
-          they own the matriculation. Everything you author in it is yours as much as theirs.
+          they own the program. Everything you author in it is yours as much as theirs.
         </p>
       ) : (
         <Button
@@ -243,15 +233,9 @@ function PublishCard({ data }: { data: Data }) {
           variant="outline"
           className="self-start"
           disabled={setPublished.isPending}
-          onClick={() =>
-            setPublished.mutate({ courseId: data.course.id, published: !published })
-          }
+          onClick={() => setPublished.mutate({ courseId: data.course.id, published: !published })}
         >
-          {published ? (
-            <EyeOff data-icon="inline-start" />
-          ) : (
-            <Eye data-icon="inline-start" />
-          )}
+          {published ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
           {published ? "Hide from fellows" : "Publish to the roster"}
         </Button>
       )}
@@ -259,8 +243,8 @@ function PublishCard({ data }: { data: Data }) {
       {published && (
         <p className="text-xs text-muted-foreground">
           Unpublishing takes it off their list again and leaves everything in it untouched. Use it
-          for a course that went out early; a course that has finished should be archived instead, so
-          the people who did the work keep it in their record.
+          for a course that went out early; a course that has finished should be archived instead,
+          so the people who did the work keep it in their record.
         </p>
       )}
     </section>
@@ -276,7 +260,7 @@ function PublishCard({ data }: { data: Data }) {
  * their own course's short name by reading a fellow's repository has been told to work it out rather
  * than told.
  *
- * **It stays on the course rather than moving to the matriculation**, which is what keeps two
+ * **It stays on the course rather than moving to the program**, which is what keeps two
  * courses of one year able to hold an assignment with the same name: the short name is what tells
  * their repositories apart.
  *
@@ -296,8 +280,8 @@ function RepositoryNamingCard({ data }: { data: Data }) {
         <h2 className="text-sm font-medium">Short name</h2>
         <p className="text-xs text-muted-foreground">
           Every repository this course generates is named after it. It carries the course and the
-          term, which is what keeps two courses of one matriculation — and two years of the same
-          course — apart on GitHub.
+          term, which is what keeps two courses of one program — and two years of the same course —
+          apart on GitHub.
         </p>
       </div>
 
@@ -306,7 +290,7 @@ function RepositoryNamingCard({ data }: { data: Data }) {
           {data.course.slug}
         </code>
         <span className="text-xs text-muted-foreground">
-          {data.course.name} · {data.course.program.matriculation}
+          {data.course.name} · {data.course.program.term}
         </span>
       </div>
 
@@ -361,14 +345,14 @@ function RepositoryNamingCard({ data }: { data: Data }) {
  * Whose name is on this course, read here and changed elsewhere.
  *
  * **Being assigned to a course grants nothing and withholds nothing**, which is the decision this
- * card exists to state. Every instructor of the matriculation can already author in every course of
+ * card exists to state. Every instructor of the program can already author in every course of
  * it, read every fellow's work, and approve grades — `assertTeaches` asks for a `ProgramInstructor`
  * row and never for this one. What being assigned decides is whose name is on the course, who is
  * added as a collaborator on the repositories it generates, and which course an instructor's screens
  * open on.
  *
  * So it is a list and a link rather than a control. Changing it is one decision about a whole
- * matriculation — who works which course — and it is made once on the program's settings screen
+ * program — who works which course — and it is made once on the program's settings screen
  * rather than course by course, where four screens would each hold a quarter of the answer.
  */
 function TeachingCard({ data }: { data: Data }) {
@@ -381,17 +365,17 @@ function TeachingCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Who teaches this course</h2>
         <p className="text-xs text-muted-foreground">
-          Every instructor of {data.course.program.name} · {data.course.program.matriculation} can
-          author in this course, read every fellow&apos;s work, and approve grades. Being named here
-          decides whose course it is called, who is added as a collaborator on the repositories it
+          Every instructor of {data.course.program.name} · {data.course.program.term} can author in
+          this course, read every fellow&apos;s work, and approve grades. Being named here decides
+          whose course it is called, who is added as a collaborator on the repositories it
           generates, and which course their screens open on.
         </p>
       </div>
 
       {teaching.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Nobody is assigned to this course yet. Fellows see no instructor named on it, and nobody is
-          added as a collaborator on the repositories it generates.
+          Nobody is assigned to this course yet. Fellows see no instructor named on it, and nobody
+          is added as a collaborator on the repositories it generates.
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
@@ -410,8 +394,9 @@ function TeachingCard({ data }: { data: Data }) {
       <p className="text-xs text-muted-foreground">
         {others.length > 0 && (
           <>
-            {countLabel(others.length, "other instructor")} of this matriculation{" "}
-            {others.length === 1 ? "is" : "are"} not named on this course, and can still work in it.{" "}
+            {countLabel(others.length, "other instructor")} of this program{" "}
+            {others.length === 1 ? "is" : "are"} not named on this course, and can still work in
+            it.{" "}
           </>
         )}
         <Link
@@ -420,7 +405,7 @@ function TeachingCard({ data }: { data: Data }) {
         >
           Change who teaches what
         </Link>{" "}
-        on the matriculation&apos;s settings screen.
+        on the program&apos;s settings screen.
       </p>
     </section>
   );
@@ -433,10 +418,10 @@ function TeachingCard({ data }: { data: Data }) {
  * changes what every fellow on the roster sees, so it says what it will do first; unarchiving only
  * undoes it, and a confirmation on an undo is a confirmation nobody reads.
  *
- * **Per course rather than per matriculation, and both exist.** Courses of one year finish at
+ * **Per course rather than per program, and both exist.** Courses of one year finish at
  * different times — a prework course ends in September while the fellowship runs to June — so
- * archiving one must not retire the rest. Archiving the whole matriculation is the program's own
- * control and reaches every course in it.
+ * archiving one must not retire the rest. Archiving the whole program is a separate control on
+ * the program's own settings screen, and it reaches every course in it.
  *
  * **The owner's, in both directions.** This is one of the two actions a single instructor takes that
  * changes what every fellow sees. Reopening is the same gate because it is the same mutation with a
@@ -453,7 +438,7 @@ function ArchiveCard({
   courseId: string;
   archived: boolean;
   name: string;
-  /** Whether this caller owns the matriculation, or is an admin, which acts as owner everywhere. */
+  /** Whether this caller owns the program, or is an admin, which acts as owner everywhere. */
   canArchive: boolean;
   ownerName: string;
 }) {
@@ -483,14 +468,14 @@ function ArchiveCard({
         <p className="text-xs text-muted-foreground">
           {archived
             ? `${name} is archived. Reopening puts it back on everyone's active course list and lets work be handed in again.`
-            : "Archiving takes the course off everyone’s active course list and its submissions out of grading triage. Fellows keep reading their feedback, and nothing new can be handed in. It is reversible, and it leaves the rest of the matriculation running."}
+            : "Archiving takes the course off everyone’s active course list and its submissions out of grading triage. Fellows keep reading their feedback, and nothing new can be handed in. It is reversible, and it leaves the rest of the program running."}
         </p>
       </div>
 
       {!canArchive ? (
         <p className="text-xs text-muted-foreground">
           Only {ownerName} can {archived ? "reopen" : "archive"} this course, because they own the
-          matriculation. Everything else you do in it is yours as much as theirs.
+          program. Everything else you do in it is yours as much as theirs.
         </p>
       ) : archived ? (
         <Button
@@ -540,7 +525,7 @@ function ArchiveCard({
  * read before the box that unlocks the button rather than beside it. Same shape as removing an
  * assignment, at the grain of a whole course.
  *
- * **It leaves the roster standing**, which is the difference from deleting the matriculation and the
+ * **It leaves the roster standing**, which is the difference from deleting the program and the
  * reason the impact list names the roster size without counting it as a loss. Enrollments, cohorts
  * and attendance belong to the program: deleting one course of four leaves everybody exactly where
  * they were, in the other three.
@@ -605,8 +590,8 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
           <p className="text-xs text-muted-foreground">
             Permanent. {name} and everything in it — assignments, submissions, grades, and the
             feedback that was given — go, and the database&apos;s own backups are the only way back.
-            The roster, the cohorts and the attendance belong to the matriculation and stay.
-            Archiving is the reversible version and this course is already archived.
+            The roster, the cohorts and the attendance belong to the program and stay. Archiving is
+            the reversible version and this course is already archived.
           </p>
         </div>
         <Button
@@ -654,14 +639,14 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
             />
             {/*
               The roster, named as something that survives rather than counted as a loss. It belongs
-              to the matriculation, so a reader weighing this needs to know it is the denominator of
+              to the program, so a reader weighing this needs to know it is the denominator of
               the numbers above and not one of them.
             */}
             <Detail
               label="Stays"
               value={
                 `${countLabel(impact.data.enrollments, "fellow")} on the ` +
-                `${impact.data.matriculation} roster, with their cohorts and attendance`
+                `${impact.data.term} roster, with their cohorts and attendance`
               }
             />
             {/*

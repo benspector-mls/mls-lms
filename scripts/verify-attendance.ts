@@ -4,14 +4,14 @@
  *
  * Run with `npm run verify:attendance`.
  *
- * **One morning per matriculation, not one per course**, which is the change this script now checks.
+ * **One morning per program, not one per course**, which is the change this script now checks.
  * A fellow taking three courses that all met on a Tuesday used to have three sessions to check into
  * and three codes to type; there is one session, one code, and one record.
  *
  * Driven through the tRPC callers inside a transaction that is rolled back. What makes this a
  * script rather than a suite is that most of what these procedures *are* is authorization and
  * database constraints — a unique index deciding a race, a composite foreign key refusing another
- * matriculation's fellow, a rate limit counting rows in the audit log. None of that can be asked of
+ * program's fellow, a rate limit counting rows in the audit log. None of that can be asked of
  * a fixture, and Prisma is not restricted by row level security from ignoring any of it.
  *
  * **Every check is written in pairs.** Allowed and refused at the same call, because a one-sided
@@ -46,12 +46,10 @@ async function main() {
   const { DEFAULT_SESSION_MINUTES } = await import("../lib/attendance/window");
   const { schoolDayOf, dateColumnFor } = await import("../lib/school-time");
   const { ownerOf } = await import("../lib/programs/ownership");
-  const { arrivalAverages, arrivalSentence, MIN_ARRIVALS } = await import(
-    "../lib/attendance/arrival"
-  );
-  const { formatClockMinutes, minutesAfterMidnight, weekdayOf } = await import(
-    "../lib/school-time"
-  );
+  const { arrivalAverages, arrivalSentence, MIN_ARRIVALS } =
+    await import("../lib/attendance/arrival");
+  const { formatClockMinutes, minutesAfterMidnight, weekdayOf } =
+    await import("../lib/school-time");
 
   /**
    * The instant at which the school clock reads a given time on a given day.
@@ -82,7 +80,7 @@ async function main() {
   }
 
   /*
-    A matriculation with at least two active fellows, because half the checks below are about one
+    A term with at least two active fellows, because half the checks below are about one
     fellow being unaffected by what another does. One would let "the record count did not change"
     pass for the wrong reason.
   */
@@ -111,7 +109,7 @@ async function main() {
     : [];
 
   /*
-    An instructor who does not instruct this matriculation, chosen by the property rather than by a
+    An instructor who does not instruct this term, chosen by the property rather than by a
     proxy. "Some other instructor" is not "an instructor who does not instruct this one" — see the
     note at the top of the harness about how that passes by luck.
   */
@@ -181,7 +179,7 @@ async function main() {
         );
         if (asOutsider) {
           check(
-            "an instructor who does not instruct this matriculation cannot start one",
+            "an instructor who does not instruct this program cannot start one",
             await refusal(() => asOutsider.attendance.start({ programId: program.id })),
             "FORBIDDEN",
           );
@@ -888,14 +886,14 @@ async function main() {
 
     if (other && other.enrollments.length > 0) {
       /*
-        A record naming this matriculation and another one's enrollment. The procedure refuses it in
+        A record naming this term and another one's enrollment. The procedure refuses it in
         words; this asks whether the *database* would, because that is the guarantee — a second write
         path added later inherits it, and a check in a procedure does not.
 
         The key is `(enrollmentId, programId) → enrollments(id, programId)`, which is the same
         composite device with a new scoping column: `programId` is copied from the session the server
         has already loaded and never taken from input, so `setStatus` cannot write against another
-        matriculation's fellow even when its input says to.
+        term's fellow even when its input says to.
       */
       const crossProgram = await refusal(() =>
         tx.attendanceRecord.create({
@@ -909,7 +907,7 @@ async function main() {
         }),
       );
       checkThat(
-        "the database refuses a record against another matriculation's fellow",
+        "the database refuses a record against another program's fellow",
         crossProgram !== "accepted",
         crossProgram,
       );

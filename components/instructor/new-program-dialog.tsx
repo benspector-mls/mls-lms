@@ -12,11 +12,11 @@ import { rosterHref } from "@/lib/links";
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Starting a matriculation.
+ * Starting a program.
  *
  * **Two fields and no review step**, which is the opposite of creating a course and deliberately so.
  * A course settles a short name that every repository it generates is named after, so it cannot be
- * taken back and gets a page of its own to be read on. A matriculation is created empty: nothing is
+ * taken back and gets a page of its own to be read on. A program is created empty: nothing is
  * named after it, nothing has been generated, and one made by mistake is deleted in three clicks.
  *
  * **Both fields, because either alone is ambiguous.** A school runs several programs a year and each
@@ -25,7 +25,7 @@ import { useTRPC } from "@/trpc/client";
  * says which half to check.
  *
  * **Nothing is copied.** Carrying a term forward is done course by course, from the new
- * matriculation's settings screen, where each course names the one it is copying from. A whole-program
+ * program's settings screen, where each course names the one it is copying from. A whole-program
  * copy is that same operation once per course and is deliberately not built yet.
  */
 export function NewProgramDialog() {
@@ -34,17 +34,17 @@ export function NewProgramDialog() {
 
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
-  const [matriculation, setMatriculation] = React.useState("");
+  const [term, setTerm] = React.useState("");
 
   const create = useMutation(
     trpc.programs.create.mutationOptions({
       onSuccess: (program) => {
-        toast.success(`Created ${program.name} · ${program.matriculation}. It has no courses yet.`);
+        toast.success(`Created ${program.name} · ${program.term}. It has no courses yet.`);
         setOpen(false);
         setName("");
-        setMatriculation("");
+        setTerm("");
         /*
-          The roster, which is the first thing a new matriculation needs: who is expected, and the
+          The roster, which is the first thing a new program needs: who is expected, and the
           link to send them. Its courses come next and are added from its settings screen, but a
           course with nobody on the roster has nobody to hand anything to.
         */
@@ -54,7 +54,7 @@ export function NewProgramDialog() {
     }),
   );
 
-  const ready = name.trim() !== "" && matriculation.trim() !== "";
+  const ready = name.trim() !== "" && term.trim() !== "";
 
   if (!open) {
     return (
@@ -70,7 +70,7 @@ export function NewProgramDialog() {
       className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:min-w-96"
       onSubmit={(event) => {
         event.preventDefault();
-        if (ready) create.mutate({ name: name.trim(), matriculation: matriculation.trim() });
+        if (ready) create.mutate({ name: name.trim(), term: term.trim() });
       }}
     >
       <div className="flex flex-col gap-1.5">
@@ -87,19 +87,20 @@ export function NewProgramDialog() {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium" htmlFor="program-matriculation">
-          Matriculation
+        <label className="text-xs font-medium" htmlFor="program-term">
+          Term
         </label>
         <Input
-          id="program-matriculation"
-          value={matriculation}
+          id="program-term"
+          value={term}
           placeholder="Fall 2026"
-          onChange={(event) => setMatriculation(event.target.value)}
+          onChange={(event) => setTerm(event.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          When this run of the program starts, in whatever words you use for it. It is what tells this
-          year of {name.trim() || "a program"} from every other one, so it appears beside the name
-          everywhere — in the switcher, in every breadcrumb, and in the name of every exported file.
+          When this run of the program starts, in whatever words you use for it. It is what tells
+          this year of {name.trim() || "a program"} from every other one, so it appears beside the
+          name everywhere — in the switcher, in every breadcrumb, and in the name of every exported
+          file.
         </p>
       </div>
 

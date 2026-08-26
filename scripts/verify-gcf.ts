@@ -34,7 +34,7 @@ async function main() {
   const { createCallerFactory } = await import("../trpc/init");
 
   const course = await db.course.findFirst({
-    // A course whose matriculation has somebody on its roster. Enrollment belongs to the program
+    // A course whose program has somebody on its roster. Enrollment belongs to the program
     // now, so the condition reaches up through it rather than sitting on the course.
     where: { archivedAt: null, program: { enrollments: { some: { status: "ACTIVE" } } } },
     select: { id: true, programId: true },

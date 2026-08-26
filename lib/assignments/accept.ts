@@ -483,16 +483,20 @@ export async function acceptRepoAssignment(
     **The instructors assigned to this course, not every instructor of its program.** Authority is
     program-wide — an instructor of the program may grade in any course of it — but a collaborator
     invitation is a real GitHub notification sent to a real person, and inviting the whole of a
-    matriculation's staff onto every fellow's repository is noise nobody asked for. `CourseInstructor`
+    term's staff onto every fellow's repository is noise nobody asked for. `CourseInstructor`
     exists to record exactly this: who is actually working the course. Somebody covering a colleague
     grades through this application without needing the repository.
   */
   const instructors = await db.courseInstructor.findMany({
     where: { courseId: assignment.courseId },
-    select: { programInstructor: { select: { user: { select: { githubUsername: true, email: true } } } } },
+    select: {
+      programInstructor: { select: { user: { select: { githubUsername: true, email: true } } } },
+    },
   });
 
-  for (const { programInstructor: { user } } of instructors) {
+  for (const {
+    programInstructor: { user },
+  } of instructors) {
     if (!user.githubUsername) {
       // An instructor who has not linked GitHub cannot be added. This must not fail the
       // student's accept — they would be blocked by someone else's incomplete setup.

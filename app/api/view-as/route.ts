@@ -3,12 +3,7 @@ import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 
 import { recordEvent, viewAsActor } from "@/lib/audit/record";
-import {
-  isUuid,
-  resolveViewAs,
-  VIEW_AS_COOKIE,
-  VIEW_AS_PROGRAM_COOKIE,
-} from "@/lib/auth/view-as";
+import { isUuid, resolveViewAs, VIEW_AS_COOKIE, VIEW_AS_PROGRAM_COOKIE } from "@/lib/auth/view-as";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -95,7 +90,7 @@ export async function POST(request: NextRequest) {
   jar.set(VIEW_AS_COOKIE, viewingAs.testStudent.id, options);
 
   /*
-    Where to go back to. Set from the matriculation whose roster this was pressed on, and *cleared*
+    Where to go back to. Set from the program whose roster this was pressed on, and *cleared*
     rather than left when there is none — a stale value from a previous switch would send the admin
     back to a program they were not in this time, which is worse than the fallback.
   */

@@ -73,10 +73,10 @@ async function main() {
     Selected by having an active enrollment in a cohort that is still running, which is the property
     every check below actually needs — an account with the STUDENT role and no cohort would pass a
     role-based selection and then measure nothing. A test student first, because rotating its token
-    and adding an assignment to a course of its matriculation cost nobody anything.
+    and adding an assignment to a course of its term cost nobody anything.
 
     **A published course of the program, named here rather than assumed.** An enrollment admits
-    somebody to every course of the matriculation, so the assignment this script creates has to hang
+    somebody to every course of the term, so the assignment this script creates has to hang
     off one they can actually see — an unpublished course would keep the fixture out of the feed for
     a second reason and the check would pass without measuring the rule.
   */

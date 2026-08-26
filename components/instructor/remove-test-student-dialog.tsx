@@ -25,8 +25,8 @@ import { useTRPC } from "@/trpc/client";
  * **Wider than the roster's Remove**, and the difference is the reason this is a separate control.
  * Remove takes somebody off one roster and keeps everything they submitted, which is what an
  * instructor wants for a real fellow. This deletes the identity itself, so it reaches every
- * matriculation the test student is on, not only the one whose roster the button was pressed on.
- * The dialog names those matriculations, because a roster belongs to one of them and this is not an
+ * program the test student is on, not only the one whose roster the button was pressed on.
+ * The dialog names those programs, because a roster belongs to one of them and this is not an
  * act on one of them.
  *
  * **No typed confirmation**, unlike removing an assignment. That check exists there because the

@@ -350,7 +350,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
               if (id) router.push(studentHref(id, data.student.id));
             }}
             items={Object.fromEntries(
-              data.courses.map((course) => [course.id, `${course.name} · ${course.matriculation}`]),
+              data.courses.map((course) => [course.id, `${course.name} · ${course.term}`]),
             )}
           >
             <SelectTrigger size="sm" aria-label="Which course">
@@ -363,7 +363,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">{course.name}</span>
                       <span className="truncate text-xs text-muted-foreground">
-                        {course.matriculation}
+                        {course.term}
                         {course.enrolledAs !== "ACTIVE" && " · removed"}
                       </span>
                     </span>
@@ -374,7 +374,7 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
           </Select>
         ) : (
           <span className="text-xs text-muted-foreground">
-            {data.course.name} · {data.program.matriculation}
+            {data.course.name} · {data.program.term}
           </span>
         )}
 

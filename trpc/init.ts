@@ -160,7 +160,7 @@ export const instructorProcedure = requireRole("INSTRUCTOR", "ADMIN");
  * An instructor **of this course's program**, for every procedure whose input names a course.
  *
  * The check the INSTRUCTOR role cannot make on its own: holding it says somebody is staff, not
- * which matriculations are theirs, so without this one program's instructor could author in
+ * which programs are theirs, so without this one program's instructor could author in
  * another's, rename its units, or reassign its fellows. It was
  * `await assertTeaches(ctx, input.courseId)` written out as the first line of about twenty
  * procedures — correct at every one of them, and forgettable at the twenty-first.

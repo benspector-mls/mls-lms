@@ -26,7 +26,7 @@ async function Settings({ params }: { params: Promise<{ courseId: string }> }) {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Settings"
-        description={`${data.course.name} · ${data.course.program.matriculation}`}
+        description={`${data.course.name} · ${data.course.program.term}`}
       />
       <CourseSettings data={data} />
     </div>

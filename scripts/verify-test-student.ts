@@ -95,7 +95,7 @@ async function main() {
   check("nor is the empty string", isUuid(""), false);
 
   // ---------------------------------------------------------------------------
-  // Fixtures. Every group below needs a matriculation with a real fellow on its
+  // Fixtures. Every group below needs a program with a real fellow on its
   // roster, a course inside it, an instructor of that program, and an admin.
   //
   // A test student is enrolled on a roster rather than in a course, so the scope

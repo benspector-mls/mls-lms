@@ -157,13 +157,13 @@ function weekdayOf(day: SchoolDay): string {
  * downloads called `attendance-swe-f26.csv` in one folder are three files nobody can tell apart.
  */
 export function attendanceCsvFilename(params: {
-  matriculation: string;
+  term: string;
   from: SchoolDay | null;
   to: SchoolDay | null;
 }): string {
   const parts = [
     "attendance",
-    slugifyCourse(params.matriculation),
+    slugifyCourse(params.term),
     params.from && params.to ? `${params.from}-to-${params.to}` : "",
   ].filter((part) => part !== "");
 

@@ -69,7 +69,7 @@ async function Triage({
     <TriageOverview
       triage={triage}
       courseName={course.name}
-      matriculation={course.program.matriculation}
+      term={course.program.term}
       archived={course.archivedAt !== null}
       cohorts={cohorts}
       now={new Date()}

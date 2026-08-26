@@ -1,5 +1,5 @@
 /**
- * Starting a matriculation, getting fellows into it, taking them out again, and the courses inside.
+ * Starting a program, getting fellows into it, taking them out again, and the courses inside.
  *
  * Run with `npm run verify:enrollment`.
  *
@@ -8,7 +8,7 @@
  * may replace its join link or remove somebody from it — and a check that only holds when the
  * function is called some other way is not a check on what an instructor uses.
  *
- * **A fellow joins a matriculation, not a course**, which is the change this script is mostly
+ * **A fellow joins a program, not a course**, which is the change this script is mostly
  * about. One roster, one join link, and one enrollment admit somebody to every course of the year;
  * the checks that used to be per course are now per program, and the ones about a course are about
  * its curriculum and its short name rather than about who is in it.
@@ -20,7 +20,7 @@
  * in code that otherwise reads identically, so getting one right and the other wrong is the failure
  * this design can actually produce.
  *
- * Who instructs a matriculation, who owns it, and how it is deleted are `verify:programs`.
+ * Who instructs a program, who owns it, and how it is deleted are `verify:programs`.
  */
 import { createChecker, loadEnvironment, refusal } from "./verify/harness";
 
@@ -40,9 +40,8 @@ async function refusalMessage(work: () => Promise<unknown>): Promise<string> {
 
 async function main() {
   const { db } = await import("../lib/prisma");
-  const { studentRepoName, slugifyCourse, suggestCourseSlug, courseSlugProblem } = await import(
-    "../lib/courses/course-slug"
-  );
+  const { studentRepoName, slugifyCourse, suggestCourseSlug, courseSlugProblem } =
+    await import("../lib/courses/course-slug");
   const links = await import("../lib/links");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
@@ -64,7 +63,7 @@ async function main() {
   });
 
   /*
-    The matriculation's **owner**, not whichever instructor row comes back first.
+    The term's **owner**, not whichever instructor row comes back first.
 
     `findFirst` with no ordering was fine while a program had one instructor and stopped being fine
     the day it could have two: archiving is owner-gated, so a script that picked a co-teacher would
@@ -138,7 +137,7 @@ async function main() {
         /*
           ---- The short name a new course is offered -----------------------------
 
-          **The course and the matriculation, not the matriculation alone.** That is the whole reason
+          **The course name and the term, not the term alone.** That is the whole reason
           this function exists: every program a school runs starts in the fall, so a term-only
           suggestion made `fall-2026` the short name of whichever course was created first and a
           refusal for the rest — and the instructor hitting the refusal had done nothing wrong.
@@ -170,24 +169,24 @@ async function main() {
           ["", "Fall 2026", "f26"],
           ["Data Science", "", "data-science"],
         ];
-        for (const [courseName, matriculation, expected] of suggestions) {
+        for (const [courseName, term, expected] of suggestions) {
           check(
-            `"${courseName}" + "${matriculation}" suggests "${expected}"`,
-            suggestCourseSlug({ courseName, matriculation }),
+            `"${courseName}" + "${term}" suggests "${expected}"`,
+            suggestCourseSlug({ courseName, term }),
             expected,
           );
         }
 
         // Every one of them has to be a legal repository name, which is the only property that
         // actually matters — a suggestion the form would then reject is worse than no suggestion.
-        for (const [courseName, matriculation] of suggestions) {
-          const slug = suggestCourseSlug({ courseName, matriculation });
+        for (const [courseName, term] of suggestions) {
+          const slug = suggestCourseSlug({ courseName, term });
           if (slug === "") continue;
           check(`..."${slug}" is a usable short name`, courseSlugProblem(slug), null);
         }
 
         /*
-          ---- Moving between courses, and between matriculations -----------------
+          ---- Moving between courses, and between programs -----------------
 
           Pure too, and checked because it is the arithmetic the two switchers do. Switching keeps
           the view where the view exists in every course, and lands on settings where it does not —
@@ -242,7 +241,7 @@ async function main() {
           ["the roster", links.rosterHref(alpha), links.rosterHref(beta)],
           ["settings", links.programSettingsHref(alpha), links.programSettingsHref(beta)],
           /*
-            One day of attendance does not travel. The other matriculation may not have met that
+            One day of attendance does not travel. The other term may not have met that
             day, and landing on an empty screen offering to record a morning that never happened is
             worse than landing on today.
           */
@@ -286,19 +285,19 @@ async function main() {
           `/instructor/courses/${alpha}/students/stu-1?submission=sub-1`,
         );
         check(
-          "...while a fellow's record names the matriculation instead",
+          "...while a fellow's record names the program instead",
           links.programStudentHref(alpha, "stu-1"),
           `/instructor/programs/${alpha}/students/stu-1`,
         );
 
-        // ---- Starting a matriculation -----------------------------------------
+        // ---- Starting a program -----------------------------------------
         //
         // Created empty, which is the decision and not a limitation: carrying a term forward is
         // `courses.create` copying a course, once per course, and a program-level copy is that
         // same operation called several times.
         const program = await asInstructor.programs.create({
           name: "Verify Program",
-          matriculation: "Cohort Verify A",
+          term: "Cohort Verify A",
         });
         check("a program is created", program.name, "Verify Program");
 
@@ -307,7 +306,7 @@ async function main() {
           await refusal(() =>
             asInstructor.programs.create({
               name: "Verify Program",
-              matriculation: "Cohort Verify A",
+              term: "Cohort Verify A",
             }),
           ),
           "CONFLICT",
@@ -317,9 +316,9 @@ async function main() {
           (
             await asInstructor.programs.create({
               name: "Verify Program",
-              matriculation: "Cohort Verify A2",
+              term: "Cohort Verify A2",
             })
-          ).matriculation,
+          ).term,
           "Cohort Verify A2",
         );
 
@@ -344,9 +343,7 @@ async function main() {
 
         check(
           "a fellow cannot create a program",
-          await refusal(() =>
-            asStudent.programs.create({ name: "Nope", matriculation: "Nope" }),
-          ),
+          await refusal(() => asStudent.programs.create({ name: "Nope", term: "Nope" })),
           "FORBIDDEN",
         );
 
@@ -366,7 +363,7 @@ async function main() {
         /*
           Unpublished, which is what replaced "do not enrol anybody yet" as the way to keep a course
           that begins in March off a fellow's screen in September. Being on the roster now makes
-          somebody a student of every course of the matriculation, so publication is the only lever
+          somebody a student of every course of the term, so publication is the only lever
           left — and a course arriving visible would put an empty shell in front of the roster the
           moment it was created.
         */
@@ -379,9 +376,7 @@ async function main() {
 
         check(
           "a fellow cannot create a course",
-          await refusal(() =>
-            asStudent.courses.create({ programId: program.id, name: "Nope" }),
-          ),
+          await refusal(() => asStudent.courses.create({ programId: program.id, name: "Nope" })),
           "FORBIDDEN",
         );
 
@@ -477,7 +472,7 @@ async function main() {
 
           A fellow's repository is `{courseSlug}-{assignmentRepoName}-{github login}`, which is what
           keeps two years of the same course apart on GitHub — and what lets two courses of one
-          matriculation both hold an assignment called `project-1`. It is why the short name stayed
+          term both hold an assignment called `project-1`. It is why the short name stayed
           on the course rather than moving up to the program with everything else.
 
           Checked here because copying is exactly how a collision arises, and because the slug is
@@ -562,14 +557,14 @@ async function main() {
         );
 
         /*
-          Nothing usable in the course name at all leaves the matriculation carrying the short name
+          Nothing usable in the course name at all leaves the term carrying the short name
           on its own, which is the point of the suggestion naming both halves. Nothing is invented —
           it is still derived from what somebody typed — so this is a fallback rather than a refusal.
         */
         check(
           "a course name with nothing usable in it leaves the term carrying it",
           (await asInstructor.courses.create({ programId: program.id, name: "!!!" })).course.slug,
-          suggestCourseSlug({ courseName: "", matriculation: "Cohort Verify A" }),
+          suggestCourseSlug({ courseName: "", term: "Cohort Verify A" }),
         );
 
         /*
@@ -592,8 +587,8 @@ async function main() {
         const token = createdProgram!.joinToken;
 
         const preview = await asStudent.enrollments.preview({ token });
-        check("the link says which matriculation it is", preview?.name, "Verify Program");
-        check("...and its term", preview?.matriculation, "Cohort Verify A");
+        check("the link says which program it is", preview?.name, "Verify Program");
+        check("...and its term", preview?.term, "Cohort Verify A");
         check("...and that the caller is not in it yet", preview?.alreadyIn, null);
 
         check(
@@ -714,8 +709,12 @@ async function main() {
         });
         check(
           "a course can be renamed, and the name is trimmed",
-          (await asInstructor.courses.rename({ courseId: empty.course.id, name: "  Verify Renamed  " }))
-            .name,
+          (
+            await asInstructor.courses.rename({
+              courseId: empty.course.id,
+              name: "  Verify Renamed  ",
+            })
+          ).name,
           "Verify Renamed",
         );
         check(
@@ -730,7 +729,9 @@ async function main() {
         );
         check(
           "a blank name is refused",
-          await refusal(() => asInstructor.courses.rename({ courseId: empty.course.id, name: "  " })),
+          await refusal(() =>
+            asInstructor.courses.rename({ courseId: empty.course.id, name: "  " }),
+          ),
           "BAD_REQUEST",
         );
         check(
@@ -783,7 +784,7 @@ async function main() {
         await asInstructor.courses.setPublished({ courseId: empty.course.id, published: false });
 
         /*
-          **One enrollment admits them to every published course of the matriculation**, which is the
+          **One enrollment admits them to every published course of the program**, which is the
           duplication this whole change removed. Before it, one fellow taking four courses meant four
           rosters, four links, and four rows saying the same thing.
 
@@ -874,20 +875,18 @@ async function main() {
 
         check(
           "a fellow cannot regenerate a join link",
-          await refusal(() =>
-            asStudent.programs.regenerateJoinToken({ programId: program.id }),
-          ),
+          await refusal(() => asStudent.programs.regenerateJoinToken({ programId: program.id })),
           "FORBIDDEN",
         );
 
         /*
-          An archived matriculation takes no new fellows, which is the same "readable, accepts
+          An archived term takes no new fellows, which is the same "readable, accepts
           nothing" pair a removed fellow gets. Its own program rather than this one, because
           archiving reaches every course and the checks below still need this one running.
         */
         const closed = await asInstructor.programs.create({
           name: "Verify Closed",
-          matriculation: "Cohort Verify B",
+          term: "Cohort Verify B",
         });
         await asInstructor.programs.setArchived({ programId: closed.id, archived: true });
         const closedToken = (await tx.program.findUnique({
@@ -1026,7 +1025,7 @@ async function main() {
           { id: studentId, hasEmail: true, hasGithub: true },
         );
         check("...and the course it is scoped to", record.course.id, course.id);
-        check("...and the matriculation above it", record.program.id, course.programId);
+        check("...and the program above it", record.program.id, course.programId);
 
         /*
           **A row per assignment, not per submission.** "Has not begun this" is a fact about a fellow
@@ -1127,11 +1126,11 @@ async function main() {
         }
 
         /*
-          ---- One fellow across the whole matriculation --------------------------
+          ---- One fellow across the whole program --------------------------
 
           The other student page, and it is a different question: who they are rather than what they
           handed in. The check that earns its place is the last one — a row per course of the
-          matriculation, which is what makes it the way into the per-course record above.
+          term, which is what makes it the way into the per-course record above.
         */
         const person = await asInstructor.programs.student({
           programId: course.programId,
@@ -1139,7 +1138,7 @@ async function main() {
         });
         check("the fellow's record names them", person.student.id, studentId);
         check(
-          "...and carries a row per course of the matriculation",
+          "...and carries a row per course of the program",
           person.courses.length,
           await tx.course.count({ where: { programId: course.programId } }),
         );
@@ -1239,9 +1238,9 @@ async function main() {
         // read's job to keep a departed fellow visible.
         check(
           "...and is still on the roster, so they can be put back",
-          (
-            await asInstructor.programs.roster({ programId: course.programId })
-          ).enrollments.some((row) => row.student.id === studentId),
+          (await asInstructor.programs.roster({ programId: course.programId })).enrollments.some(
+            (row) => row.student.id === studentId,
+          ),
           true,
         );
 
@@ -1372,9 +1371,9 @@ async function main() {
         );
 
         /*
-          A roster belongs to one matriculation, so being expected on one says nothing about another.
+          A roster belongs to one term, so being expected on one says nothing about another.
           That is the point of the allowlist being the program's rather than the school's, and it is
-          what makes a fellow repeating a year join the new matriculation rather than inherit the old
+          what makes a fellow repeating a year join the new term rather than inherit the old
           one's admission.
         */
         check(
@@ -1386,7 +1385,7 @@ async function main() {
         /*
           An enrollment id says nothing about which program it is in until the row is read, which is
           why the procedure loads it before checking who is asking. Removing the fellow from a
-          matriculation this instructor does instruct is allowed; `asStudent` above covers the role,
+          term this instructor does instruct is allowed; `asStudent` above covers the role,
           and this covers the program.
         */
         const secondEnrollment = await tx.enrollment.findFirstOrThrow({
@@ -1401,7 +1400,7 @@ async function main() {
 
         // ---- Deleting a course -------------------------------------------------
         //
-        // The course, not the matriculation: `verify:programs` deletes one of those. What earns its
+        // The course, not the program: `verify:programs` deletes one of those. What earns its
         // place here is the pair the program above the course created — deleting one course of four
         // leaves the roster, the cohorts and the attendance exactly where they were.
         const doomed = await asInstructor.courses.create({
@@ -1442,7 +1441,7 @@ async function main() {
         );
         /*
           The roster is named and not counted as a loss, which is the whole difference between this
-          and deleting the matriculation. A reader weighing the numbers above needs to know the
+          and deleting the term. A reader weighing the numbers above needs to know the
           roster is their denominator rather than one of them.
         */
         check(
@@ -1481,7 +1480,7 @@ async function main() {
         );
         /*
           And leaving the roster alone, which is the check the program above the course made possible
-          and the one worth reading. Enrollments belong to the matriculation now: deleting one course
+          and the one worth reading. Enrollments belong to the term now: deleting one course
           of several must not remove a single fellow from it.
         */
         check(
@@ -1530,7 +1529,7 @@ async function main() {
   );
   check(
     "no programs this script created survived the rollback",
-    await db.program.count({ where: { matriculation: { startsWith: "Cohort Verify" } } }),
+    await db.program.count({ where: { term: { startsWith: "Cohort Verify" } } }),
     0,
   );
 

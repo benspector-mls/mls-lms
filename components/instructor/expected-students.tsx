@@ -30,7 +30,7 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Who is expected in this matriculation, and the box that says so.
+ * Who is expected in this program, and the box that says so.
  *
  * **This is the other half of the join link, and it goes above it on the screen for that reason.**
  * The link on its own admits whoever holds it; with this list it admits whoever holds it *and* was
@@ -45,13 +45,7 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Entries = RouterOutputs["enrollments"]["roster"];
 
-export function ExpectedStudents({
-  programId,
-  entries,
-}: {
-  programId: string;
-  entries: Entries;
-}) {
+export function ExpectedStudents({ programId, entries }: { programId: string; entries: Entries }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 

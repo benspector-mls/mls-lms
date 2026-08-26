@@ -115,7 +115,7 @@ export function CopyAssignmentDialog({
           const into = targets.find((course) => course.id === targetCourseId);
           toast.success(
             into && into.id !== courseId
-              ? `Copied ${result.assignment.title} into ${into.name} · ${into.program.matriculation}. It is not visible to fellows yet.`
+              ? `Copied ${result.assignment.title} into ${into.name} · ${into.program.term}. It is not visible to fellows yet.`
               : `Copied ${result.assignment.title}. It is not visible to students yet.`,
           );
           if (result.warnings.length > 0) {
@@ -176,10 +176,7 @@ export function CopyAssignmentDialog({
                   said below the select instead, where there is room for it to be a sentence.
                 */
                 items={Object.fromEntries(
-                  targets.map((course) => [
-                    course.id,
-                    `${course.name} · ${course.program.matriculation}`,
-                  ]),
+                  targets.map((course) => [course.id, `${course.name} · ${course.program.term}`]),
                 )}
               >
                 <SelectTrigger id="copy-target-course" className="w-full min-w-0">
@@ -191,7 +188,7 @@ export function CopyAssignmentDialog({
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{course.name}</span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {course.program.matriculation}
+                          {course.program.term}
                           {course.id === courseId ? " · this one" : ""}
                         </span>
                       </span>
@@ -227,7 +224,12 @@ export function CopyAssignmentDialog({
                 <Select
                   value={targetCourseUnitId}
                   onValueChange={(value) => setTargetCourseUnitId(value)}
-                  items={Object.fromEntries(units.map((unit) => [unit.id, `${CATEGORY_META[unit.category].noun}: ${unit.name}`]))}
+                  items={Object.fromEntries(
+                    units.map((unit) => [
+                      unit.id,
+                      `${CATEGORY_META[unit.category].noun}: ${unit.name}`,
+                    ]),
+                  )}
                 >
                   <SelectTrigger id="copy-target-module" className="w-full min-w-0">
                     <SelectValue placeholder="Choose a unit" />

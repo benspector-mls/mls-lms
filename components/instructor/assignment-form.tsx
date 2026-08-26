@@ -657,7 +657,7 @@ function Editor({
           would say the reader had chosen something they had not.
         */
         description={[
-          `${context.course.name} · ${context.course.matriculation}`,
+          `${context.course.name} · ${context.course.term}`,
           !existing && openedInUnit ? `Adding to ${openedInUnit.name}` : null,
         ]
           .filter(Boolean)

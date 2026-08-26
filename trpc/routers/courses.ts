@@ -95,16 +95,16 @@ export const coursesRouter = createTRPCRouter({
         publishedAt: true,
         archivedAt: true,
         /*
-          The matriculation the course belongs to. The breadcrumb names both — "Software Engineering
+          The term the course belongs to. The breadcrumb names both — "Software Engineering
           Fellowship (Fall 2026)" — because a program runs every term under the same name, and the
           switcher groups a caller's courses by it.
         */
-        program: { select: { id: true, name: true, matriculation: true, archivedAt: true } },
+        program: { select: { id: true, name: true, term: true, archivedAt: true } },
         // Counted here rather than fetched and measured in the interface, so the card
         // does not pull every assignment and enrollment across to say how many there
         // are.
         //
-        // ACTIVE only, unlike the `where` above: this is "how many fellows does this matriculation
+        // ACTIVE only, unlike the `where` above: this is "how many fellows does this program
         // have", which a departed one is not the answer to.
         //
         // Test students are excluded for the same reason and it is the same question. This figure
@@ -120,7 +120,7 @@ export const coursesRouter = createTRPCRouter({
       The roster size and the caller's own standing, per program rather than per course.
 
       One query for both rather than a relation on every course, because they are the same facts for
-      every course of one matriculation — reading them through each course would ask the same
+      every course of one term — reading them through each course would ask the same
       question four times and invite the four answers to look independent.
     */
     const programIds = [...new Set(courses.map((course) => course.program.id))];
@@ -150,7 +150,7 @@ export const coursesRouter = createTRPCRouter({
                 select: { status: true },
                 take: 1,
               },
-              // Whether the caller instructs this matriculation, which is not the same as their
+              // Whether the caller instructs this program, which is not the same as their
               // role: an admin instructs none of them but sees all.
               instructors: {
                 where: { userId: ctx.profile.id },
@@ -268,7 +268,7 @@ export const coursesRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
-              matriculation: true,
+              term: true,
               archivedAt: true,
               instructors: { where: { userId: ctx.profile.id }, select: { id: true }, take: 1 },
             },
@@ -325,7 +325,7 @@ export const coursesRouter = createTRPCRouter({
         program: {
           id: program.id,
           name: program.name,
-          matriculation: program.matriculation,
+          term: program.term,
           archivedAt: program.archivedAt,
         },
         teaches,
@@ -365,7 +365,7 @@ export const coursesRouter = createTRPCRouter({
           programId: true,
           publishedAt: true,
           archivedAt: true,
-          program: { select: { id: true, name: true, matriculation: true } },
+          program: { select: { id: true, name: true, term: true } },
           // For the filter menu, which offers the course's whole module list rather than only
           // the modules that happen to hold an assignment — filtering to an empty module is a
           // legitimate way to find out that it is empty.
@@ -469,7 +469,7 @@ export const coursesRouter = createTRPCRouter({
    * it out rather than told.
    *
    * **The two links are not here.** Both belong to the program — one admits a fellow to the roster,
-   * the other admits an instructor to the whole matriculation — so they are on `programs.settings`,
+   * the other admits an instructor to the whole program — so they are on `programs.settings`,
    * behind `programProcedure`. There is nothing about a course that grants anybody anything.
    */
   settings: courseProcedure.query(async ({ ctx, input }) => {
@@ -486,10 +486,10 @@ export const coursesRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            matriculation: true,
+            term: true,
             archivedAt: true,
             /*
-              Every instructor of the matriculation, so the screen can offer the ones who are not yet
+              Every instructor of the term, so the screen can offer the ones who are not yet
               assigned to this course. Authority is theirs already — see `assertTeaches` — so this is
               a list of candidates for a name on a course, not a list of people to be granted
               anything.
@@ -553,7 +553,7 @@ export const coursesRouter = createTRPCRouter({
       acceptedCount,
       /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
       callerId: ctx.profile.id,
-      /** Which of them owns the matriculation this course belongs to. */
+      /** Which of them owns the program this course belongs to. */
       ownerId,
       /**
        * Whether this caller may do the things ownership gates — publish, archive, reopen, delete,
@@ -597,7 +597,7 @@ export const coursesRouter = createTRPCRouter({
           programId: true,
           publishedAt: true,
           archivedAt: true,
-          program: { select: { id: true, name: true, matriculation: true } },
+          program: { select: { id: true, name: true, term: true } },
         },
       });
 
@@ -774,13 +774,13 @@ export const coursesRouter = createTRPCRouter({
   create: instructorProcedure
     .input(
       z.object({
-        /** The matriculation this course belongs to. Any instructor of it may add a course. */
+        /** The program this course belongs to. Any instructor of it may add a course. */
         programId: z.string().uuid(),
         name: courseName,
         /**
          * The course's short name, which prefixes every repository it generates.
          *
-         * Optional, and derived from the course name and the program's matriculation when absent —
+         * Optional, and derived from the course name and the program's term when absent —
          * so a caller that does not care gets `fse-f26` and the form can offer `swe-f26` instead.
          * Validated rather than slugified on arrival: silently rewriting somebody's `F26` to `f26`
          * is fine, but silently rewriting `spring/26` to `spring-26` would put a name they did not
@@ -801,7 +801,7 @@ export const coursesRouter = createTRPCRouter({
 
       const program = await ctx.db.program.findUnique({
         where: { id: input.programId },
-        select: { id: true, name: true, matriculation: true, archivedAt: true },
+        select: { id: true, name: true, term: true, archivedAt: true },
       });
 
       if (!program) {
@@ -815,9 +815,7 @@ export const coursesRouter = createTRPCRouter({
         });
       }
 
-      const slug =
-        input.slug ||
-        suggestCourseSlug({ courseName: input.name, matriculation: program.matriculation });
+      const slug = input.slug || suggestCourseSlug({ courseName: input.name, term: program.term });
       const slugProblem = courseSlugProblem(slug);
       if (slugProblem) {
         throw new TRPCError({ code: "BAD_REQUEST", message: slugProblem });
@@ -1001,7 +999,7 @@ export const coursesRouter = createTRPCRouter({
    * used, and an instructor who archives the wrong cohort should not need the database.
    *
    * **Owner only, in both directions** — the owner of the program this course belongs to, since
-   * ownership is a matriculation fact. This is one of the two actions a single instructor takes that
+   * ownership is a program fact. This is one of the two actions a single instructor takes that
    * change what every fellow sees, which is why it is not merely teach-gated like everything else on
    * the settings screen. Reopening is the same gate because it is the same mutation with a boolean,
    * and the consequence is worth knowing rather than discovering: a co-teacher finds an archived
@@ -1038,15 +1036,13 @@ export const coursesRouter = createTRPCRouter({
    * whether a fellow can reach the course at all; this changes what it is called, which is the same
    * kind of act as renaming a module or a cohort — and both of those are any instructor's.
    */
-  rename: courseProcedure
-    .input(z.object({ name: courseName }))
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.course.update({
-        where: { id: input.courseId },
-        data: { name: input.name },
-        select: { id: true, name: true },
-      }),
-    ),
+  rename: courseProcedure.input(z.object({ name: courseName })).mutation(async ({ ctx, input }) =>
+    ctx.db.course.update({
+      where: { id: input.courseId },
+      data: { name: input.name },
+      select: { id: true, name: true },
+    }),
+  ),
 
   /**
    * Publishes a course, or takes it back to a draft.
@@ -1089,7 +1085,7 @@ export const coursesRouter = createTRPCRouter({
    * is not. Same shape as `assignments.removalImpact`, at the grain of a whole course.
    *
    * **The roster is not part of it.** Enrollments, cohorts, and attendance belong to the program, so
-   * deleting one course of a matriculation leaves every fellow exactly where they were. That is the
+   * deleting one course of a program leaves every fellow exactly where they were. That is the
    * difference between this and `programs.remove`, and the confirmation should say so.
    *
    * **Archived only**, like the removal itself, so this cannot be used to preview an action
@@ -1120,7 +1116,7 @@ export const coursesRouter = createTRPCRouter({
 
       return {
         name: course.name,
-        matriculation: course.program.matriculation,
+        term: course.program.term,
         /** What has to be typed to confirm. Returned so the screen and the procedure agree. */
         slug: course.slug,
         /**
@@ -1128,7 +1124,7 @@ export const coursesRouter = createTRPCRouter({
          *
          * Named here anyway, because it is what the submission and grade counts below are measured
          * against and a reader would otherwise have to guess the denominator. Enrollments belong to
-         * the matriculation and survive: deleting one course of four leaves everybody on the roster,
+         * the program and survive: deleting one course of four leaves everybody on the roster,
          * in their cohort, with their attendance intact.
          */
         enrollments,
@@ -1168,7 +1164,7 @@ export const coursesRouter = createTRPCRouter({
    * that can destroy a term of work.
    *
    * **The roster survives.** Enrollments, cohorts, and attendance belong to the program, so this
-   * leaves every fellow where they were. Deleting the matriculation is `programs.remove`.
+   * leaves every fellow where they were. Deleting the program is `programs.remove`.
    *
    * **Archived first**, always. Archiving is reversible and this is not, so making it the only
    * path means the destructive action always has a survivable step in front of it — somebody
@@ -1181,7 +1177,7 @@ export const coursesRouter = createTRPCRouter({
    * of it: the interface warns and the procedure is what refuses. It asks for the short name rather
    * than the course name, because a program runs the same courses every term — "Fullstack Software
    * Engineering" would confirm last year's as readily as this year's, and the short name is the thing
-   * that is unique across every course of every matriculation.
+   * that is unique across every course of every program.
    */
   remove: instructorProcedure
     .input(z.object({ courseId: z.string().uuid(), confirmSlug: z.string() }))
@@ -1238,7 +1234,7 @@ export const coursesRouter = createTRPCRouter({
 
       return {
         name: course.name,
-        matriculation: course.program.matriculation,
+        term: course.program.term,
         /** The program's roster, untouched by this — see `removalImpact`. */
         enrollments,
         assignments,
@@ -1278,7 +1274,7 @@ export const coursesRouter = createTRPCRouter({
   /*
     There is deliberately nothing here about the join link, co-teaching, instructors, or ownership.
 
-    All four belong to the matriculation rather than to one of its courses, and all four are in
+    All four belong to the term rather than to one of its courses, and all four are in
     `programs.ts`: `regenerateJoinToken`, the instructor link and the pair that redeems it,
     `setCourseInstructors`, `removeInstructor`, and `transferOwnership`. What is left in this router
     is a course's curriculum, its gradebook, and its own life cycle — which is the division the
@@ -1388,7 +1384,7 @@ async function assertArchivedAndOwned(ctx: AuthedCtx, courseId: string, action: 
       slug: true,
       programId: true,
       archivedAt: true,
-      program: { select: { matriculation: true } },
+      program: { select: { term: true } },
     },
   });
 

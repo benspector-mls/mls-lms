@@ -4,7 +4,7 @@ import { JoinProgram } from "@/components/student/join-program";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * Where a matriculation's join link lands.
+ * Where a program's join link lands.
  *
  * Inside `(shell)`, so it is behind the same authentication as every other page: the proxy
  * sends an unauthenticated visitor to `/auth/login` and they arrive back here signed in. That

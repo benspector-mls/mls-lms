@@ -604,7 +604,7 @@ export const assignmentsRouter = createTRPCRouter({
     const [course, courseUnits, rubrics, siblings, teamSets, activeCount] = await Promise.all([
       ctx.db.course.findUnique({
         where: { id: input.courseId },
-        select: { id: true, name: true, programId: true, program: { select: { matriculation: true } } },
+        select: { id: true, name: true, programId: true, program: { select: { term: true } } },
       }),
       // The course's own units, which are the only ones an assignment may be filed under.
       // Empty is a real state and the form has to say so rather than offering an empty select:
@@ -643,7 +643,7 @@ export const assignmentsRouter = createTRPCRouter({
         },
       }),
       // The program's roster, reached through the course. A team set divides the fellows of a
-      // matriculation, so the count the form offers is of the roster.
+      // program, so the count the form offers is of the roster.
       ctx.db.enrollment.count({
         where: { program: { courses: { some: { id: input.courseId } } }, status: "ACTIVE" },
       }),
@@ -676,7 +676,7 @@ export const assignmentsRouter = createTRPCRouter({
       course: {
         id: course.id,
         name: course.name,
-        matriculation: course.program.matriculation,
+        term: course.program.term,
         courseUnits,
       },
       rubrics,

@@ -17,7 +17,7 @@ import { rosterHref } from "@/lib/links";
  * That is the reason this is a route handler rather than a mutation: the way out must not depend on
  * the privileges the switch gives up.
  *
- * **The destination is the roster of the matriculation the admin switched in from**, recorded at
+ * **The destination is the roster of the program the admin switched in from**, recorded at
  * that moment rather than derived here, because a test student can be enrolled in several and the
  * question is not which one it is in. The roster because that is the screen the View as button is
  * on: leaving returns somebody to where they left, which also puts them a press away from switching

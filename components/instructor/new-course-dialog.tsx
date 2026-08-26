@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Creating a course in a matriculation, optionally from a course of an earlier one.
+ * Creating a course in a program, optionally from a course of an earlier one.
  *
  * **Copying is the point of this screen, not a convenience on it.** A new year's course is last
  * year's modules and assignments with new dates, so the alternative to copying is re-entering
@@ -36,24 +36,25 @@ import { useTRPC } from "@/trpc/client";
  * template made private since last year, an answer key folder renamed upstream — and discarding
  * a whole new course because one of twelve needs attention would be the wrong trade.
  *
- * **The term is not asked for.** It is the matriculation the course is being created in, which the
+ * **The term is not asked for.** It is the term of the program the course is being created in,
+ * which the
  * screen already knows — asking again would be a second place for the same fact to be written down,
  * and two courses of one year could then disagree about what year it is.
  */
 export function NewCourseDialog({
   programId,
-  matriculation,
+  term,
   courses,
 }: {
-  /** The matriculation the new course belongs to. */
+  /** The program the new course belongs to. */
   programId: string;
   /** Its term, which the short name is suggested from and the review step names. */
-  matriculation: string;
+  term: string;
   /** Courses the caller can copy from — the ones they teach, archived ones included. */
   courses: {
     id: string;
     name: string;
-    program: { matriculation: string };
+    program: { term: string };
     archivedAt: Date | null;
     teaches: boolean;
     _count: { assignments: number };
@@ -90,13 +91,13 @@ export function NewCourseDialog({
   const [slug, setSlug] = React.useState("");
   const [slugEdited, setSlugEdited] = React.useState(false);
   /*
-    Suggested from the course name *and* the matriculation, not the term alone.
+    Suggested from the course name *and* the term, not from the term alone.
 
     Every program a school runs starts in the fall, so a term-only suggestion made `fall-2026`
     the short name of whichever course was created first and a refusal for the rest — and the
     instructor hitting the refusal was the one who had done nothing wrong.
   */
-  const effectiveSlug = slugEdited ? slug : suggestCourseSlug({ courseName: name, matriculation });
+  const effectiveSlug = slugEdited ? slug : suggestCourseSlug({ courseName: name, term });
   const slugProblem = effectiveSlug === "" ? null : courseSlugProblem(effectiveSlug);
 
   /*
@@ -107,7 +108,7 @@ export function NewCourseDialog({
     They are labelled rather than hidden, because a year nobody is teaching is a reasonable thing
     to copy and a confusing thing to copy by accident.
 
-    **Every matriculation the caller instructs, not only this one.** Copying within one year is the
+    **Every program the caller instructs, not only this one.** Copying within one year is the
     rare case; the ordinary one is last year's course into this year's, which is a different program
     by definition.
   */
@@ -116,8 +117,8 @@ export function NewCourseDialog({
 
   const sourceLabel = (course: (typeof courses)[number]) =>
     course.archivedAt != null
-      ? `${course.name} · ${course.program.matriculation} · Archived`
-      : `${course.name} · ${course.program.matriculation}`;
+      ? `${course.name} · ${course.program.term} · Archived`
+      : `${course.name} · ${course.program.term}`;
 
   /** Whether the form is filled in enough to be worth reviewing. */
   const ready = name.trim() !== "" && effectiveSlug !== "" && slugProblem === null;
@@ -188,7 +189,7 @@ export function NewCourseDialog({
 
         <dl className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
           <Detail label="Course" value={name.trim()} />
-          <Detail label="Matriculation" value={matriculation} />
+          <Detail label="Term" value={term} />
           {/*
             The pattern rather than the bare slug, because the slug on its own does not show what
             it is for. This is the string fellows read for the next nine months.
@@ -203,7 +204,7 @@ export function NewCourseDialog({
             label="Copying"
             value={
               source
-                ? `${source.name} · ${source.program.matriculation} — its modules and ` +
+                ? `${source.name} · ${source.program.term} — its modules and ` +
                   `${source._count.assignments} ` +
                   `${source._count.assignments === 1 ? "assignment" : "assignments"}, ` +
                   `unpublished, with due dates cleared`
@@ -271,7 +272,7 @@ export function NewCourseDialog({
         see, clone, and read for the next nine months.
 
         Suggested rather than asked for, because typing one per course is a chore and the course
-        name and the matriculation together already imply it. Editable in the same breath, because
+        name and the term together already imply it. Editable in the same breath, because
         `swe-f26` is what somebody reading forty repository names actually wants where the
         suggestion offers `fullstack-software-e-f26` — and this is the only moment it is editable at
         all, which is what the review step exists to make sure gets read.

@@ -73,7 +73,7 @@ export { displayNameOf } from "@/lib/people";
  * so rather than leave them wondering why nobody has submitted.
  *
  * The program comes with it because a course's name does not identify it on its own — a program runs
- * the same courses every term, so "Fullstack Software Engineering" needs the matriculation beside it
+ * the same courses every term, so "Fullstack Software Engineering" needs the term beside it
  * before anybody knows which one they are looking at.
  */
 export const courseHeaderSelect = {
@@ -81,7 +81,7 @@ export const courseHeaderSelect = {
   name: true,
   publishedAt: true,
   archivedAt: true,
-  program: { select: { id: true, name: true, matriculation: true } },
+  program: { select: { id: true, name: true, term: true } },
 } satisfies Prisma.CourseSelect;
 
 /**

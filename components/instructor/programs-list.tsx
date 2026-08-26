@@ -7,27 +7,23 @@ import { NewProgramDialog } from "@/components/instructor/new-program-dialog";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  attendanceHref,
-  programSettingsHref,
-  rosterHref,
-} from "@/lib/links";
+import { attendanceHref, programSettingsHref, rosterHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Every matriculation the caller belongs to, and the way out of all of them.
+ * Every program the caller belongs to, and the way out of all of them.
  *
  * **The instructor's top-level screen**, and the counterpart of `/courses`: this lists the years, that
  * one lists the courses inside them. Both exist because they answer different questions — "which term
  * am I working in" and "which course am I opening" — and the sidebar's two groups are the same split.
  *
  * **There is no program home to link to**, which is why each card offers three doors rather than one.
- * A matriculation is not a screen; it is a roster, a set of mornings, and a set of courses, and a card
+ * A program is not a screen; it is a roster, a set of mornings, and a set of courses, and a card
  * that led to one of them arbitrarily would be choosing for the reader. The roster comes first because
  * it is what everything else is about.
  *
- * Archived matriculations are in a section beneath the running ones rather than mixed in: a finished
+ * Archived programs are in a section beneath the running ones rather than mixed in: a finished
  * year is not something anybody is working in, and a list that made no distinction would put the year
  * before last beside this week.
  */
@@ -40,7 +36,7 @@ export function ProgramsList({
 }: {
   programs: Program[];
   /**
-   * Whether to offer starting one. Any instructor may — a matriculation belongs to whoever runs it —
+   * Whether to offer starting one. Any instructor may — a program belongs to whoever runs it —
    * and the procedure is what refuses, so this only decides whether the button is there.
    */
   canCreate: boolean;
@@ -52,7 +48,7 @@ export function ProgramsList({
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Programs"
-        description="Every matriculation you belong to."
+        description="Every program you belong to."
         actions={canCreate ? <NewProgramDialog /> : undefined}
       />
 
@@ -63,7 +59,7 @@ export function ProgramsList({
           description={
             canCreate
               ? "Start one, then add its courses and send the roster its join link."
-              : "When you are added to a matriculation, it will appear here."
+              : "When you are added to a program, it will appear here."
           }
         />
       ) : (
@@ -77,13 +73,13 @@ export function ProgramsList({
           ) : (
             /*
               Said rather than left as an empty page above a list. Everything the caller belongs to
-              being archived is a real state — the months between two matriculations — and a screen
+              being archived is a real state — the months between two programs — and a screen
               showing only the archived section reads as a bug otherwise.
             */
             <EmptyState
               icon={<Archive />}
               title="Nothing running right now"
-              description="Every matriculation you belong to has been archived. They are below, and they stay readable."
+              description="Every program you belong to has been archived. They are below, and they stay readable."
             />
           )}
 
@@ -92,9 +88,9 @@ export function ProgramsList({
               <div className="flex flex-col gap-0.5 border-t border-border pt-5">
                 <h2 className="text-sm font-medium">Archived</h2>
                 <p className="text-xs text-muted-foreground">
-                  Finished matriculations. Everything in them stays readable — the work, the grades,
-                  the feedback that was given, and the whole attendance record — and nothing new can
-                  be handed in.
+                  Finished programs. Everything in them stays readable — the work, the grades, the
+                  feedback that was given, and the whole attendance record — and nothing new can be
+                  handed in.
                 </p>
               </div>
               {archived.map((program) => (
@@ -131,7 +127,7 @@ function ProgramCard({ program }: { program: Program }) {
                 </span>
               )}
               {/*
-                Said on the card rather than only inside the matriculation, because this is where
+                Said on the card rather than only inside the program, because this is where
                 somebody would otherwise be misled: a year they have left, sitting in the same list
                 as the ones they are in.
               */}
@@ -147,16 +143,15 @@ function ProgramCard({ program }: { program: Program }) {
               the two figures that say how big this year is.
             */}
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {program.matriculation} · {program._count.courses}{" "}
-              {program._count.courses === 1 ? "course" : "courses"} ·{" "}
-              {program._count.enrollments}{" "}
+              {program.term} · {program._count.courses}{" "}
+              {program._count.courses === 1 ? "course" : "courses"} · {program._count.enrollments}{" "}
               {program._count.enrollments === 1 ? "fellow" : "fellows"}
             </p>
           </div>
         </div>
 
         {/*
-          Three doors rather than one, because a matriculation has no front page — see the note above.
+          Three doors rather than one, because a program has no front page — see the note above.
           Only for somebody who instructs it: a fellow reading this list has their own attendance page
           and their own course list, and every screen behind these would refuse them.
         */}

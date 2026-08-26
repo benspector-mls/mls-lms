@@ -4,7 +4,7 @@ import { AcceptInstructorLink } from "@/components/instructor/accept-instructor-
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * Where a matriculation's instructor link lands.
+ * Where a program's instructor link lands.
  *
  * Inside `(shell)` for the same reason `/join/[token]` is: the proxy sends an unauthenticated
  * visitor to `/auth/login` and they arrive back here signed in, which is the whole of the
@@ -28,7 +28,7 @@ export default function TeachPage({ params }: { params: Promise<{ token: string 
 async function Teach({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
-  // Read on the server so the screen can name the matriculation, and say whether this account is
+  // Read on the server so the screen can name the program, and say whether this account is
   // eligible at all, before anybody presses anything. Null when the token is unknown, which the
   // component reports as a link that no longer works rather than as an error.
   const preview = await getQueryClient().fetchQuery(

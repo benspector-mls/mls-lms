@@ -81,9 +81,21 @@ function headerRowCount(csv: string): number {
 describe("column order follows the course, not the alphabet", () => {
   it("sorts by module position, then module name, then title", () => {
     const sorted = sortGradebookAssignments([
-      assignment({ id: "c", title: "Arrays", courseUnit: { id: "u2", position: 2, name: "Module 3", category: "MODULE" } }),
-      assignment({ id: "b", title: "Zebras", courseUnit: { id: "u1", position: 1, name: "Module 2", category: "MODULE" } }),
-      assignment({ id: "a", title: "Async", courseUnit: { id: "u1", position: 1, name: "Module 2", category: "MODULE" } }),
+      assignment({
+        id: "c",
+        title: "Arrays",
+        courseUnit: { id: "u2", position: 2, name: "Module 3", category: "MODULE" },
+      }),
+      assignment({
+        id: "b",
+        title: "Zebras",
+        courseUnit: { id: "u1", position: 1, name: "Module 2", category: "MODULE" },
+      }),
+      assignment({
+        id: "a",
+        title: "Async",
+        courseUnit: { id: "u1", position: 1, name: "Module 2", category: "MODULE" },
+      }),
     ]);
 
     expect(sorted.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
@@ -93,8 +105,16 @@ describe("column order follows the course, not the alphabet", () => {
     const csv = gradebookCsv(
       gradebook({
         assignments: [
-          assignment({ id: "a2", title: "Recursion", courseUnit: { id: "u1", position: 1, name: "Module 2", category: "MODULE" } }),
-          assignment({ id: "a1", title: "Loops", courseUnit: { id: "u0", position: 0, name: "Module 1", category: "MODULE" } }),
+          assignment({
+            id: "a2",
+            title: "Recursion",
+            courseUnit: { id: "u1", position: 1, name: "Module 2", category: "MODULE" },
+          }),
+          assignment({
+            id: "a1",
+            title: "Loops",
+            courseUnit: { id: "u0", position: 0, name: "Module 1", category: "MODULE" },
+          }),
         ],
         cells: [
           { assignmentId: "a2", studentId: "s1", finalScore: 4 },
@@ -308,19 +328,19 @@ describe("the filename", () => {
   const DATE = new Date(2026, 7, 11);
 
   it("names the cohort and the day", () => {
-    expect(gradebookCsvFilename({ matriculation: "Fall 2026", cohortLabel: null, date: DATE })).toBe(
+    expect(gradebookCsvFilename({ term: "Fall 2026", cohortLabel: null, date: DATE })).toBe(
       "gradebook-fall-2026-2026-08-11.csv",
     );
   });
 
   it("names the group when the screen was filtered", () => {
-    expect(
-      gradebookCsvFilename({ matriculation: "Fall 2026", cohortLabel: "Section A", date: DATE }),
-    ).toBe("gradebook-fall-2026-section-a-2026-08-11.csv");
+    expect(gradebookCsvFilename({ term: "Fall 2026", cohortLabel: "Section A", date: DATE })).toBe(
+      "gradebook-fall-2026-section-a-2026-08-11.csv",
+    );
   });
 
   it("leaves no doubled hyphen when a term slugifies to nothing", () => {
-    expect(gradebookCsvFilename({ matriculation: "!!!", cohortLabel: null, date: DATE })).toBe(
+    expect(gradebookCsvFilename({ term: "!!!", cohortLabel: null, date: DATE })).toBe(
       "gradebook-2026-08-11.csv",
     );
   });
@@ -328,7 +348,7 @@ describe("the filename", () => {
   it("pads a single-digit month and day", () => {
     expect(
       gradebookCsvFilename({
-        matriculation: "Spring 2027",
+        term: "Spring 2027",
         cohortLabel: null,
         date: new Date(2027, 0, 5),
       }),
@@ -377,7 +397,11 @@ describe("which unit a column belongs to", () => {
     rather than filtering some of them and leaving a remainder.
   */
   it("fills every field, because every assignment belongs to a unit", () => {
-    expect(headerRow(data0(data), "Unit").slice(4).every((field) => field !== "")).toBe(true);
+    expect(
+      headerRow(data0(data), "Unit")
+        .slice(4)
+        .every((field) => field !== ""),
+    ).toBe(true);
   });
 
   // The row has to line up with the titles above it, or it describes the wrong columns.

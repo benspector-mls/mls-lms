@@ -23,7 +23,7 @@ import {
 import { displayNameOf, personNameSelect, personSelect } from "../selects";
 
 /**
- * A program: the matriculation a fellow is admitted to, and everything it owns above the course.
+ * A program: the program a fellow is admitted to, and everything it owns above the course.
  *
  * The roster, the attendance days, the cohorts, and the instructors all belong here. What a course
  * still owns is the work — its units, its assignments, its gradebook, and its team sets — and
@@ -52,14 +52,14 @@ const attendanceSessionSelect = {
 } as const;
 
 const programName = z.string().trim().min(1, "A program needs a name.").max(200);
-const matriculation = z.string().trim().min(1, "A program needs a matriculation.").max(120);
+const term = z.string().trim().min(1, "A program needs a term.").max(120);
 
 export const programsRouter = createTRPCRouter({
   /**
    * Programs the caller belongs to, either enrolled as a fellow or listed as an instructor. Admins
    * see every one.
    *
-   * **Archived matriculations are returned, labelled, rather than filtered out**, for the reason
+   * **Archived programs are returned, labelled, rather than filtered out**, for the reason
    * `courses.listMine` returns archived courses: every procedure still admits their members, so
    * filtering here would leave a program reachable only by a URL somebody happened to keep.
    * Archiving takes something off the active list; it does not lose it.
@@ -80,12 +80,12 @@ export const programsRouter = createTRPCRouter({
       select: {
         id: true,
         name: true,
-        matriculation: true,
+        term: true,
         archivedAt: true,
         /*
           ACTIVE only, and test students excluded. This figure is the one somebody quotes — a
           roster of 25 must not read as 26 because an admin previewed a course — and a fellow who
-          has left is not the answer to "how many fellows does this matriculation have".
+          has left is not the answer to "how many fellows does this program have".
 
           The course count is every course, published or not, because the reader is an instructor
           list. A fellow's own sidebar is built from `courses.listMine`, which applies publication.
@@ -144,7 +144,7 @@ export const programsRouter = createTRPCRouter({
         select: {
           id: true,
           name: true,
-          matriculation: true,
+          term: true,
           archivedAt: true,
           courses: {
             // Instructors author unpublished courses; fellows must not see them at all.
@@ -199,7 +199,7 @@ export const programsRouter = createTRPCRouter({
       select: {
         id: true,
         name: true,
-        matriculation: true,
+        term: true,
         archivedAt: true,
         /*
           The join link. Safe here and nowhere a fellow can reach: this procedure is
@@ -229,7 +229,7 @@ export const programsRouter = createTRPCRouter({
   }),
 
   /**
-   * One fellow, across the whole matriculation.
+   * One fellow, across the whole program.
    *
    * **About the person rather than about their work**, which is what makes it a different read from
    * `submissions.listForStudent`. That one is a fellow's submissions in one course, opened from the
@@ -267,7 +267,7 @@ export const programsRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
-              matriculation: true,
+              term: true,
               archivedAt: true,
               /*
                 Every course, published or not: the reader is an instructor, and a course they are
@@ -333,7 +333,7 @@ export const programsRouter = createTRPCRouter({
               select: { assignmentId: true, studentId: true, isComplete: true },
             }),
         /*
-          Their whole GCF history, and it names no matriculation. A result is sat at CodeSignal on a
+          Their whole GCF history, and it names no program. A result is sat at CodeSignal on a
           fellow's own schedule and carries no program, so somebody who repeats a year has one history
           rather than two halves of it — see `gcfHref` for the same decision about the address.
         */
@@ -425,7 +425,7 @@ export const programsRouter = createTRPCRouter({
     }),
 
   /**
-   * The matriculation itself: what it is called, its two links, who instructs it, and which of them
+   * The program itself: what it is called, its two links, who instructs it, and which of them
    * teaches which course.
    *
    * **Both tokens are returned here and nowhere else.** `programProcedure` is what makes that safe:
@@ -438,7 +438,7 @@ export const programsRouter = createTRPCRouter({
       select: {
         id: true,
         name: true,
-        matriculation: true,
+        term: true,
         archivedAt: true,
         createdAt: true,
         attendanceLateAfterMinutes: true,
@@ -495,7 +495,7 @@ export const programsRouter = createTRPCRouter({
   }),
 
   // =====================================================================================
-  // Creating and retiring a matriculation
+  // Creating and retiring a program
   // =====================================================================================
 
   /**
@@ -511,26 +511,26 @@ export const programsRouter = createTRPCRouter({
    * schema change, so it is deliberately not here yet.
    */
   create: instructorProcedure
-    .input(z.object({ name: programName, matriculation }))
+    .input(z.object({ name: programName, term }))
     .mutation(async ({ ctx, input }) => {
       try {
         return await ctx.db.program.create({
           data: {
             name: input.name,
-            matriculation: input.matriculation,
+            term: input.term,
             joinToken: newJoinToken(),
             instructorToken: newJoinToken(),
             instructors: { create: { userId: ctx.profile.id, isPrimary: true } },
           },
-          select: { id: true, name: true, matriculation: true },
+          select: { id: true, name: true, term: true },
         });
       } catch (err) {
         if ((err as { code?: string }).code === "P2002") {
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              `There is already a "${input.name}" starting "${input.matriculation}". A program ` +
-              `runs every term under the same name, so the matriculation is what tells two of ` +
+              `There is already a "${input.name}" starting "${input.term}". A program ` +
+              `runs every term under the same name, so the term is what tells two of ` +
               `them apart — check whether the one you want already exists.`,
           });
         }
@@ -539,7 +539,7 @@ export const programsRouter = createTRPCRouter({
     }),
 
   /**
-   * Retires a matriculation, or brings it back.
+   * Retires a program, or brings it back.
    *
    * The program leaves every active list and stays readable to the people who were in it; nothing
    * new can be submitted in any of its courses. Reversible on purpose — a tidying action that cannot
@@ -624,7 +624,7 @@ export const programsRouter = createTRPCRouter({
   }),
 
   // =====================================================================================
-  // Instructors: who may teach in this matriculation, and who teaches what
+  // Instructors: who may teach in this program, and who teaches what
   //
   // A second link, deliberately not the join link, because the two grant opposite things. The join
   // link admits a stranger to the roster as a fellow; this one admits them to authoring, to the
@@ -663,7 +663,7 @@ export const programsRouter = createTRPCRouter({
         select: {
           id: true,
           name: true,
-          matriculation: true,
+          term: true,
           archivedAt: true,
           instructors: {
             where: { isPrimary: true },
@@ -683,7 +683,7 @@ export const programsRouter = createTRPCRouter({
       return {
         programId: program.id,
         name: program.name,
-        matriculation: program.matriculation,
+        term: program.term,
         archived: program.archivedAt !== null,
         owner: program.instructors[0]?.user.displayName ?? null,
         /** Whether this account may hold the grant at all — staff only. */
@@ -700,7 +700,7 @@ export const programsRouter = createTRPCRouter({
    * `@@unique([programId, userId])` means a second redemption returns the row that exists rather
    * than adding another, so a bookmarked link is not a case to handle.
    *
-   * `isPrimary: false`, always. The owner is whoever created the matriculation, and that is a fact
+   * `isPrimary: false`, always. The owner is whoever created the program, and that is a fact
    * about how it came to exist rather than a rank a link can confer.
    *
    * **It adds them to the program and to no course.** Which courses somebody teaches is the owner's
@@ -906,7 +906,7 @@ export const programsRouter = createTRPCRouter({
    * a database edit. The check is cheap and the failure is not.
    *
    * **The owner cannot be removed by anybody else**, which is the permission this whole area exists
-   * for: before it, anybody who taught could remove the person who set the matriculation up. They
+   * for: before it, anybody who taught could remove the person who set the program up. They
    * can still remove *themselves* — somebody who leaves the school should not be permanent, and
    * refusing would make "who created this" outrank "who runs it now" — and ownership then falls to
    * the longest-serving instructor left. `transferOwnership` is how they choose who instead of
@@ -926,7 +926,7 @@ export const programsRouter = createTRPCRouter({
       /*
         Every instructor of the program in one read, rather than the target row and a count. Three of
         the four things decided below — who the target is, whether this would empty the list, and who
-        owns the matriculation — are questions about the same set, and asking separately is how two of
+        owns the program — are questions about the same set, and asking separately is how two of
         them come to be answered about different sets.
       */
       const instructors = await ctx.db.programInstructor.findMany({
@@ -963,13 +963,18 @@ export const programsRouter = createTRPCRouter({
         The owner is removable by the owner and by an admin, and by nobody else.
 
         Leaving on your own account is a decision about your own work; removing the person who runs a
-        matriculation is a decision about theirs. An admin passes because an admin is the recovery
+        program is a decision about theirs. An admin passes because an admin is the recovery
         path when an owner has left the school without handing it on.
       */
       const owner = ownerOf(instructors);
       const callerIsOwner = owner?.userId === ctx.profile.id;
 
-      if (owner && owner.userId === input.userId && !callerIsOwner && ctx.profile.role !== "ADMIN") {
+      if (
+        owner &&
+        owner.userId === input.userId &&
+        !callerIsOwner &&
+        ctx.profile.role !== "ADMIN"
+      ) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
@@ -999,10 +1004,10 @@ export const programsRouter = createTRPCRouter({
     }),
 
   /**
-   * Hands the matriculation to another of its instructors.
+   * Hands the program to another of its instructors.
    *
    * **What makes "the owner cannot be removed" livable.** Without it that rule reads as "the person
-   * who set this up runs it forever", and somebody leaving the school leaves behind a matriculation
+   * who set this up runs it forever", and somebody leaving the school leaves behind a program
    * nobody else can take responsibility for. Leaving afterwards is then the ordinary
    * `removeInstructor` they already have.
    *
@@ -1060,7 +1065,7 @@ export const programsRouter = createTRPCRouter({
     }),
 
   /**
-   * What deleting this matriculation would destroy. Read-only.
+   * What deleting this program would destroy. Read-only.
    *
    * Exists so the confirmation states facts rather than generalities — "4 courses, 24 fellows, 187
    * submissions, 143 released grades" is a sentence somebody can act on, and "this cannot be undone"
@@ -1096,9 +1101,9 @@ export const programsRouter = createTRPCRouter({
 
       return {
         name: program.name,
-        matriculation: program.matriculation,
+        term: program.term,
         /** What has to be typed to confirm. Returned so the screen and the procedure agree. */
-        confirm: program.matriculation,
+        confirm: program.term,
         courses,
         enrollments,
         instructors,
@@ -1120,7 +1125,7 @@ export const programsRouter = createTRPCRouter({
          */
         uploadedFiles: submissions.filter((row) => row.uploadPath !== null).length,
         /**
-         * Left alone, and reported so they can be dealt with deliberately. Losing a matriculation's
+         * Left alone, and reported so they can be dealt with deliberately. Losing a program's
          * work on GitHub because somebody tidied a list is the worse failure.
          */
         repositories: submissions
@@ -1130,7 +1135,7 @@ export const programsRouter = createTRPCRouter({
     }),
 
   /**
-   * Deletes a matriculation and everything cascading from it.
+   * Deletes a program and everything cascading from it.
    *
    * Permanent, and there is no recovery path in the application: the program takes its courses,
    * their units, assignments, submissions, grading drafts, sections and test runs, its roster, its
@@ -1145,23 +1150,21 @@ export const programsRouter = createTRPCRouter({
    * ownership rules would buy nothing.
    *
    * **The typed confirmation is enforced here rather than in the dialog**, which is the whole point
-   * of it: the interface warns and the procedure is what refuses. It asks for the matriculation
+   * of it: the interface warns and the procedure is what refuses. It asks for the term
    * rather than the name, because a program runs every term under the same name — "Software
    * Engineering Fellowship" would confirm the wrong year as readily as the right one.
    */
   remove: instructorProcedure
-    .input(z.object({ programId: z.string().uuid(), confirmMatriculation: z.string() }))
+    .input(z.object({ programId: z.string().uuid(), confirmTerm: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const program = await assertArchivedAndOwned(ctx, input.programId, "delete");
 
-      if (
-        input.confirmMatriculation.trim().toLowerCase() !== program.matriculation.toLowerCase()
-      ) {
+      if (input.confirmTerm.trim().toLowerCase() !== program.term.toLowerCase()) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            `Type the matriculation exactly to delete it. Expected "${program.matriculation}" — ` +
-            `every matriculation of this program is called "${program.name}", so the term is ` +
+            `Type the term exactly to delete it. Expected "${program.term}" — ` +
+            `every year of this program is called "${program.name}", so the term is ` +
             `what says which one.`,
         });
       }
@@ -1188,7 +1191,7 @@ export const programsRouter = createTRPCRouter({
         The stored files, after the rows and best effort.
 
         After, because the database is the authoritative act: a bucket that refuses should not leave
-        a matriculation half deleted. Best effort for the same reason — the paths that would not go
+        a program half deleted. Best effort for the same reason — the paths that would not go
         are named in the result, which is the only way anybody could find them, rather than thrown as
         a failure of an operation that has already succeeded.
       */
@@ -1206,7 +1209,7 @@ export const programsRouter = createTRPCRouter({
 
       return {
         name: program.name,
-        matriculation: program.matriculation,
+        term: program.term,
         courses,
         enrollments,
         submissions: submissions.length,
@@ -1238,7 +1241,7 @@ export const programsRouter = createTRPCRouter({
 async function assertArchivedAndOwned(ctx: AuthedCtx, programId: string, action: string) {
   const program = await ctx.db.program.findUnique({
     where: { id: programId },
-    select: { id: true, name: true, matriculation: true, archivedAt: true },
+    select: { id: true, name: true, term: true, archivedAt: true },
   });
 
   if (!program) {

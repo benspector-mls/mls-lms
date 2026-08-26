@@ -34,7 +34,7 @@ import { useTRPC } from "@/trpc/client";
  *
  * **A cohort belongs to the program, and the four screens that carry this belong to a course.** So
  * the recorded choice is against the program: an instructor who grades the same fifteen has said so
- * once for every course of the matriculation rather than once per course. That is why this takes a
+ * once for every course of the program rather than once per course. That is why this takes a
  * `programId` while sitting on course screens — each of them resolved it to build itself.
  */
 export function CohortPicker({

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * One fellow, across the whole matriculation.
+ * One fellow, across the whole program.
  *
  * **About the person rather than about their work**, which is what makes it a different screen from
  * the per-course record reached from the gradebook. That one is their submissions in one course,
@@ -23,7 +23,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * Splitting the two is what lets grading stay per course while the roster lives above every course.
  * It is what the roster's rows point at, and every course row here is a way into the other screen.
  *
- * **Their GCF results name no matriculation.** A result is sat at CodeSignal on a fellow's own
+ * **Their GCF results name no program.** A result is sat at CodeSignal on a fellow's own
  * schedule and carries no program, so somebody repeating a year has one history rather than two
  * halves of it — the same reason `/gcf` is addressed outside every scope.
  *
@@ -82,9 +82,7 @@ export function ProgramStudent({ data }: { data: Data }) {
               Which cohort, in words either way. A blank would read as missing data where "no cohort"
               is a fact — and one nobody has acted on is exactly what somebody comes here to find.
             */}
-            <span>
-              {data.cohort ? data.cohort.name : "In no cohort"}
-            </span>
+            <span>{data.cohort ? data.cohort.name : "In no cohort"}</span>
           </p>
         </div>
       </section>
@@ -128,14 +126,14 @@ export function ProgramStudent({ data }: { data: Data }) {
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">Courses · {data.courses.length}</h2>
           <p className="text-xs text-muted-foreground">
-            Every course of {data.program.matriculation}, because everybody on the roster is a student
-            of all of them. Open one for what they have actually handed in.
+            Every course of {data.program.term}, because everybody on the roster is a student of all
+            of them. Open one for what they have actually handed in.
           </p>
         </div>
 
         {data.courses.length === 0 ? (
           <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-            This matriculation has no courses yet.
+            This program has no courses yet.
           </p>
         ) : (
           <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -194,9 +192,9 @@ export function ProgramStudent({ data }: { data: Data }) {
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">General Coding Framework · {data.gcf.length}</h2>
           <p className="text-xs text-muted-foreground">
-            Every sitting, whichever matriculation they were in at the time. A result carries no
-            program — it is sat at CodeSignal on their own schedule — so somebody repeating a year has
-            one history here rather than two halves of it.
+            Every sitting, whichever program they were in at the time. A result carries no program —
+            it is sat at CodeSignal on their own schedule — so somebody repeating a year has one
+            history here rather than two halves of it.
           </p>
         </div>
 

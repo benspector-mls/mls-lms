@@ -455,7 +455,7 @@ type Ctx = Parameters<Parameters<typeof instructorProcedure.mutation>[0]>[0]["ct
  * Refuses unless this student is in this course.
  *
  * The check `courseProcedure` cannot make. It gates on the course, which stops somebody writing into
- * a matriculation they do not teach in — but the student id is a separate argument naming any profile
+ * a program they do not teach in — but the student id is a separate argument naming any profile
  * in the deployment, and nothing about teaching a course says anything about that person.
  */
 async function assertEnrolled(ctx: Ctx, courseId: string, studentId: string): Promise<void> {
@@ -480,7 +480,7 @@ async function assertEnrolled(ctx: Ctx, courseId: string, studentId: string): Pr
  * An attempt carries no course and no program, so there is nothing on the row to gate on — the
  * question has to be asked of the person instead. This is the loosest defensible reading and it is
  * stated rather than assumed: an instructor may edit an attempt belonging to somebody they teach
- * *anywhere*, which is right because the attempt itself belongs to no matriculation. An admin passes
+ * *anywhere*, which is right because the attempt itself belongs to no program. An admin passes
  * on the role.
  */
 async function assertTeachesTheStudent(ctx: Ctx, attemptId: string): Promise<void> {

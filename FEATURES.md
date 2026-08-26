@@ -47,7 +47,7 @@ A **used invitation cannot be revoked**, and it stays on the list on purpose. It
 
 ### Putting an instructor on a program
 
-**Programs** on a person's row opens the list of every matriculation, ticked where they instruct one. Tick, untick, and press Save; the whole list is written at once, so three corrections are one decision rather than three.
+**Programs** on a person's row opens the list of every program, ticked where they instruct one. Tick, untick, and press Save; the whole list is written at once, so three corrections are one decision rather than three.
 
 This is the third way somebody comes to instruct a program, and it is the one for the cases the other two cannot reach: an instructor who redeemed an invitation months ago and was never added to anything — which the screen marks in amber as **No program yet** — and one who has left the school and has to come off every program at once. The instructor link is still how somebody joins a program they were *sent* a link for.
 
@@ -59,7 +59,7 @@ Three things it refuses, and each is worth knowing before you press Save rather 
 - **A program cannot be left with no instructors.** Nobody could author in it or grade it, and the only way back is editing the database — the same rule as revoking the last admin.
 - **Removing whoever owns a program hands it to the longest-serving instructor left**, which is not something anybody would guess, so the screen says whose it is now.
 
-Taking somebody off a program also takes their name off its courses. Archived matriculations are in the list and can be changed, unlike through the link — correcting the record of who ran a year that is over is exactly what this is for.
+Taking somebody off a program also takes their name off its courses. Archived programs are in the list and can be changed, unlike through the link — correcting the record of who ran a year that is over is exactly what this is for.
 
 ### Granting and revoking admin
 
@@ -102,11 +102,11 @@ The person who created the program additionally **owns** it, which means archivi
 
 ### Starting a program, and adding its courses
 
-**New program** on the Programs screen asks for two things: a name and a **matriculation** — the term it starts in, in whatever words you use. Both, because a school runs several programs a year and each program runs every year, so either alone would not say which one you meant. A program is created **empty**.
+**New program** on the Programs screen asks for two things: a name and a **term** — when it starts, in whatever words you use. Both, because a school runs several programs a year and each program runs every year, so either alone would not say which one you meant. A program is created **empty**.
 
 The first thing a new program needs is its roster: who you are expecting, and the join link to send them. The courses come next.
 
-**New course** on the program's Settings screen asks for a name and a **short name** — a few characters that go at the front of every repository the course generates, so `fse-f26-swe-1-4-loops-jsmith` sits beside next spring's `fse-s27-…`. One is suggested from the course name and the matriculation; edit it if you would rather read something else across forty repository names.
+**New course** on the program's Settings screen asks for a name and a **short name** — a few characters that go at the front of every repository the course generates, so `fse-f26-swe-1-4-loops-jsmith` sits beside next spring's `fse-s27-…`. One is suggested from the course name and the program; edit it if you would rather read something else across forty repository names.
 
 **The short name is settled when the course is created and cannot be changed afterwards**, because the repositories are already named after it and renaming here would not rename theirs. That is why creating a course has a review step. Its Settings screen shows it, an example repository name built from it, and how many repositories already carry it.
 
@@ -283,7 +283,7 @@ Both edges are totalled: a **Completed** row under each assignment title says ho
 
 **Delete** is permanent, is the owner's alone, and is reachable only on something already archived. The two differ in what they leave standing. Deleting a **course** takes its assignments, submissions and grades and **leaves the roster** — everybody stays exactly where they were, in the other courses. Deleting a **program** takes all of that once per course, and the roster, the cohorts and the whole attendance record with it.
 
-Each confirmation asks you to type the half of the name that is unique to the thing you are destroying: a course's **short name**, because a program runs the same courses every year; a program's **matriculation**, because a program runs every year under the same name. Fellows' repositories on GitHub are not touched by either.
+Each confirmation asks you to type the half of the name that is unique to the thing you are destroying: a course's **short name**, because a program runs the same courses every year; a program's **program**, because a program runs every year under the same name. Fellows' repositories on GitHub are not touched by either.
 
 ---
 

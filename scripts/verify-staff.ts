@@ -429,7 +429,7 @@ async function main() {
           skip("no student account left to check direct promotion against");
         }
 
-        // ---- Putting an instructor on a matriculation ------------------------
+        // ---- Putting an instructor on a program ------------------------
         //
         // The third way somebody comes to instruct a program, and the one an admin reaches for: the
         // instructor link is how somebody joins one they were sent a link for, and this is how the
@@ -471,7 +471,7 @@ async function main() {
             });
             check("an admin puts an instructor on a program", added.added, [program.name]);
             /*
-              Never primary. The owner is whoever created the matriculation, which is a fact about
+              Never primary. The owner is whoever created the term, which is a fact about
               how it came to exist rather than a rank an admin confers by ticking a box.
             */
             check(
@@ -557,7 +557,9 @@ async function main() {
               1,
             );
           } else {
-            skip("the fixture program has more than one instructor, so the last-one refusal did not run");
+            skip(
+              "the fixture program has more than one instructor, so the last-one refusal did not run",
+            );
           }
 
           /*

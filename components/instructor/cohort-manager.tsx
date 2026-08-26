@@ -27,7 +27,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * A **cohort** splits the marking between instructors: it is a filter, fellows never see it, and it
  * changes nothing about the work. That is what makes it different from a **team**, which hands in
  * one piece of work, receives one grade, and whose members can see each other. Teams belong to a
- * course and are managed beside its curriculum; cohorts belong to the matriculation, because
+ * course and are managed beside its curriculum; cohorts belong to the program, because
  * dividing a roster between co-teachers was never a per-course fact.
  *
  * **A cohort is a partition**, held as `Enrollment.cohortId`: a fellow is in at most one, so
@@ -95,10 +95,10 @@ export function CohortManager({
                 Cohorts
               </CardTitle>
               <CardDescription className="mt-1">
-                How this matriculation&apos;s roster is divided among its instructors. Choosing one
+                How this program&apos;s roster is divided among its instructors. Choosing one
                 narrows grading triage, an assignment&apos;s queue, the gradebook, and the
-                curriculum list — in every course of the matriculation at once. A cohort grants
-                nothing and withholds nothing: anybody who instructs this program can still grade
+                curriculum list — in every course of the program at once. A cohort grants nothing
+                and withholds nothing: anybody who instructs this program can still grade
                 anybody&apos;s work, which is what lets a colleague cover.
               </CardDescription>
             </div>
@@ -283,9 +283,9 @@ function CohortRow({
           */}
           <span className="text-xs text-muted-foreground">
             Removing &ldquo;{cohort.name}&rdquo; puts its {cohort.memberCount}{" "}
-            {cohort.memberCount === 1 ? "fellow" : "fellows"} in no cohort. Nobody leaves the roster,
-            nothing anybody submitted changes, and no grade moves. Any instructor filtered to it goes
-            back to seeing every fellow.
+            {cohort.memberCount === 1 ? "fellow" : "fellows"} in no cohort. Nobody leaves the
+            roster, nothing anybody submitted changes, and no grade moves. Any instructor filtered
+            to it goes back to seeing every fellow.
           </span>
           <div className="flex gap-2">
             <Button
@@ -423,7 +423,7 @@ function CohortPlacements({
       <CardContent className="flex flex-col gap-2">
         {memberships.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            Nobody has joined this matriculation yet.
+            Nobody has joined this program yet.
           </p>
         ) : (
           <>

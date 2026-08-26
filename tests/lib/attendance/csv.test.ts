@@ -189,13 +189,13 @@ describe("attendanceCsv", () => {
 
 describe("attendanceCsvFilename", () => {
   it("carries the cohort and the range, so two downloads are tellable apart", () => {
-    expect(
-      attendanceCsvFilename({ matriculation: "Fall 2026", from: "2026-09-14", to: "2026-12-18" }),
-    ).toBe("attendance-fall-2026-2026-09-14-to-2026-12-18.csv");
+    expect(attendanceCsvFilename({ term: "Fall 2026", from: "2026-09-14", to: "2026-12-18" })).toBe(
+      "attendance-fall-2026-2026-09-14-to-2026-12-18.csv",
+    );
   });
 
   it("leaves the range out when there is none rather than writing an empty one", () => {
-    expect(attendanceCsvFilename({ matriculation: "Fall 2026", from: null, to: null })).toBe(
+    expect(attendanceCsvFilename({ term: "Fall 2026", from: null, to: null })).toBe(
       "attendance-fall-2026.csv",
     );
   });

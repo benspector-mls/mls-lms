@@ -20,7 +20,7 @@ import {
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Which matriculations one instructor is on, set by an admin.
+ * Which programs one instructor is on, set by an admin.
  *
  * **The third way somebody comes to instruct a program, and the one for the cases the other two
  * cannot reach.** An instructor invitation makes somebody staff and puts them on nothing; the
@@ -48,8 +48,8 @@ export function StaffProgramsDialog({
   onOpenChange,
 }: {
   person: { id: string; name: string; programIds: string[] };
-  /** Every matriculation in the deployment. An admin belongs to none of them and sees all. */
-  programs: { id: string; name: string; matriculation: string; archivedAt: Date | null }[];
+  /** Every program in the deployment. An admin belongs to none of them and sees all. */
+  programs: { id: string; name: string; term: string; archivedAt: Date | null }[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -80,7 +80,7 @@ export function StaffProgramsDialog({
           /*
             Ownership moving is a second message rather than a clause on the first, because it is a
             different fact and not one anybody would guess: an owner who is removed hands the
-            matriculation to the longest-serving instructor left.
+            program to the longest-serving instructor left.
           */
           for (const moved of result.inherited) {
             toast.warning(`${moved.newOwner} owns ${moved.program} now.`, { duration: 12_000 });
@@ -93,7 +93,7 @@ export function StaffProgramsDialog({
   );
 
   /*
-    Archived matriculations last, and labelled. They belong in the list — correcting the record of
+    Archived programs last, and labelled. They belong in the list — correcting the record of
     who ran a year that is over is exactly what this control is for, and the procedure allows it
     where the instructor link does not — but they are not what somebody is usually here to change.
   */
@@ -103,8 +103,7 @@ export function StaffProgramsDialog({
   ];
 
   const held = new Set(person.programIds);
-  const changed =
-    draft.size !== held.size || [...draft].some((programId) => !held.has(programId));
+  const changed = draft.size !== held.size || [...draft].some((programId) => !held.has(programId));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -112,10 +111,10 @@ export function StaffProgramsDialog({
         <DialogHeader>
           <DialogTitle>Which programs does {person.name} instruct?</DialogTitle>
           <DialogDescription>
-            An instructor of a matriculation can author in every course of it, read every
-            fellow&apos;s work, approve grades, and take attendance. Being on this list is the whole
-            of that — which courses their name appears on is decided separately, on the
-            program&apos;s own settings screen.
+            An instructor of a program can author in every course of it, read every fellow&apos;s
+            work, approve grades, and take attendance. Being on this list is the whole of that —
+            which courses their name appears on is decided separately, on the program&apos;s own
+            settings screen.
           </DialogDescription>
         </DialogHeader>
 
@@ -146,7 +145,7 @@ export function StaffProgramsDialog({
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate text-sm font-medium">{program.name}</span>
                       <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                        {program.matriculation}
+                        {program.term}
                         {program.archivedAt != null && (
                           <>
                             <Archive className="size-3" />
@@ -175,9 +174,7 @@ export function StaffProgramsDialog({
         <DialogFooter>
           <Button
             disabled={!changed || setPrograms.isPending}
-            onClick={() =>
-              setPrograms.mutate({ profileId: person.id, programIds: [...draft] })
-            }
+            onClick={() => setPrograms.mutate({ profileId: person.id, programIds: [...draft] })}
           >
             {setPrograms.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
             Save

@@ -24,14 +24,14 @@ import { displayNameOf, personNameSelect } from "../selects";
 /**
  * Getting fellows onto a program's roster, and off it.
  *
- * **One join link per matriculation, and a list of who it works for.** Whoever runs the program
+ * **One join link per program, and a list of who it works for.** Whoever runs the program
  * writes down the fellows they expect — by GitHub login, by address, or both — and then sends the
  * link however they already talk to them. This application holds no email credentials and sends
  * nothing, which is the reason the link is per program rather than per person: there is no point
  * generating twenty-five tokens when distributing them is a person's job either way.
  *
  * **One link where there used to be one per course**, which is the duplication the program removed.
- * A fellow taking four courses of a matriculation used to be sent four links and arrive on four
+ * A fellow taking four courses of a program used to be sent four links and arrive on four
  * rosters; joining now enrolls them once, and being on the roster makes them a student of every
  * published course of it.
  *
@@ -68,7 +68,7 @@ export const enrollmentsRouter = createTRPCRouter({
         select: {
           id: true,
           name: true,
-          matriculation: true,
+          term: true,
           archivedAt: true,
           instructors: {
             where: { isPrimary: true },
@@ -113,7 +113,7 @@ export const enrollmentsRouter = createTRPCRouter({
       return {
         programId: program.id,
         name: program.name,
-        matriculation: program.matriculation,
+        term: program.term,
         archived: program.archivedAt !== null,
         owner: program.instructors[0]?.user.displayName ?? null,
         /** The published courses joining admits them to, so the screen can say what they get. */
@@ -288,7 +288,7 @@ export const enrollmentsRouter = createTRPCRouter({
   /**
    * Who is expected on this roster, claimed or not.
    *
-   * `programProcedure`, so an instructor reads their own matriculation's list and not another's. The
+   * `programProcedure`, so an instructor reads their own program's list and not another's. The
    * unclaimed entries are the useful half of this screen: they are the fellows who have been sent the
    * link and have not arrived, which is the list somebody chases.
    */
@@ -435,7 +435,7 @@ export const enrollmentsRouter = createTRPCRouter({
    *
    * Their work, grades, and released feedback are untouched and stay readable to them; what stops is
    * appearing in the roster's active list, the gradebook, the queue, and the counts of every course
-   * of the matriculation, and being able to hand anything else in.
+   * of the program, and being able to hand anything else in.
    *
    * **Their cohort and their team memberships are left alone**, so restoring somebody returns them to
    * where they were rather than to an unassigned row somebody has to place again.
@@ -503,7 +503,7 @@ export const enrollmentsRouter = createTRPCRouter({
  * A thin wrapper over `teachableEnrollment` rather than its own check: both call sites want the
  * fellow's name for the message they return, and that is the only thing this adds. Loading the row
  * first is what makes the program-level check possible at all — an enrollment id says nothing about
- * which matriculation it belongs to until the row is read.
+ * which program it belongs to until the row is read.
  */
 async function loadTeachableEnrollment(
   ctx: AuthedCtx,

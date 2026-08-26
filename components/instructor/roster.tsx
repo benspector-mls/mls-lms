@@ -40,10 +40,10 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Who is in this matriculation: the Active roster tab.
+ * Who is in this program: the Active roster tab.
  *
  * **One roster where there used to be one per course**, which is the duplication the program above
- * the course removed. A fellow joins a matriculation once and is a student of every course in it, so
+ * the course removed. A fellow joins a program once and is a student of every course in it, so
  * this list is entered once rather than once per course of a term.
  *
  * **Removed fellows are shown, not filtered out.** This is the instructor's own list and the one
@@ -63,7 +63,7 @@ export function ProgramRoster({
 }: {
   data: Data;
   /**
-   * The matriculation's cohorts, for the column that names each fellow's.
+   * The program's cohorts, for the column that names each fellow's.
    *
    * Passed in rather than fetched, and read-only here. Placing fellows is the Cohorts tab's whole
    * job; this column exists so that reading the roster answers "who is in nothing" without leaving
@@ -193,8 +193,8 @@ export function ProgramRoster({
             <span className="text-sm font-medium">View this program as a test student</span>
             <span className="text-xs text-muted-foreground">
               As a test student you can accept work, push to the repository, and submit assignments
-              in any course of this matriculation. Then, you can grade them here. Test student data
-              is left out of the roster&apos;s count.
+              in any course of this program. Then, you can grade them here. Test student data is
+              left out of the roster&apos;s count.
             </span>
           </div>
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
@@ -260,8 +260,8 @@ export function JoinLinkCard({
         <span className="text-sm font-medium">Join link</span>
         <span className="text-xs text-muted-foreground">
           Send this to your fellows however you already talk to them. Anyone who opens it and signs
-          in with GitHub joins this matriculation — and every course in it — so treat it as you would
-          a class password.
+          in with GitHub joins this program — and every course in it — so treat it as you would a
+          class password.
         </span>
       </div>
 
@@ -384,7 +384,7 @@ function RosterTable({
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex min-w-0 flex-col">
-                      {/* Into their record for this matriculation: their attendance and arrival
+                      {/* Into their record for this program: their attendance and arrival
                           times, their cohort, their GCF history, and a row per course into what
                           they did in it. The work itself is per course and lives a click further
                           in — this page is about the person. */}
