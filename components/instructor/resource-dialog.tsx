@@ -181,7 +181,7 @@ export function ResourceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-3xl">
         <form onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{resource ? "Edit resource" : "Add a resource"}</DialogTitle>
@@ -312,7 +312,7 @@ export function ResourceDialog({
                   rows={10}
                   placeholder={"## Before you start\n\nRun `npm i` first, then…"}
                   maxLength={50_000}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm max-h-[35vh]"
                 />
                 <p className="text-xs text-muted-foreground">
                   Markdown, rendered the same way feedback is.
