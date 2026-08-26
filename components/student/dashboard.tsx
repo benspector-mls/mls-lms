@@ -12,7 +12,7 @@ import {
 
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
-import { AssignmentKindBadge } from "@/components/status-badge";
+import { AssignmentKindIcon } from "@/components/status-badge";
 import {
   completionMeta,
   formatDueDate,
@@ -262,8 +262,12 @@ function RowTitle({ row }: { row: DashboardAssignment }) {
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
       <span className="flex min-w-0 items-center gap-2">
+        {/*
+          In front of the title and at every width. The pill this replaced was hidden on a phone,
+          which is where a cross-course list is most often read — an icon fits there.
+        */}
+        <AssignmentKindIcon kind={row.kind} />
         <span className="min-w-0 truncate text-sm font-medium">{row.title}</span>
-        <AssignmentKindBadge kind={row.kind} className="hidden sm:inline-flex" />
       </span>
       <span className="truncate text-xs text-muted-foreground">
         {row.course.name} · {row.courseUnit.name}

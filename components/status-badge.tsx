@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   AssignmentKind,
@@ -151,6 +150,57 @@ export function DraftStatusBadge({
   return <BadgeShell meta={DRAFT_STATUS_META[status]} className={className} />;
 }
 
+/**
+ * A kind, as the icon that stands for it.
+ *
+ * **Deliberately not a badge, and outside the tone system every badge above uses.** Those
+ * describe where a submission stands and are coloured accordingly; a kind never changes and
+ * nothing is waiting on it, so colour would read as a state needing attention. It was a pill
+ * carrying an icon and a word, and the word was the problem: on a row it sat between the title
+ * and the controls at the end, so a list of fifty rows had fifty labels competing with the fifty
+ * titles that are the reason anybody is reading. The icon alone, in front of the title, marks the
+ * row without becoming another thing to read down.
+ *
+ * **The word is still there twice over.** A tooltip gives it to a pointer, and an `sr-only` span
+ * gives it to a screen reader — which is what keeps this an abbreviation rather than a loss: an
+ * icon nobody can expand is a glyph the reader has to guess at, and the pill it replaced did say
+ * the word out loud.
+ *
+ * The tooltip is hover-only and adds no tab stop, for the reasons `WithExplanation` sets out.
+ *
+ * One shell for assignments and resources both. The two vocabularies differ and their maps live
+ * apart, but a kind marker is one thing on both sides of the application — the same size, the
+ * same colour, the same explanation on hover — and two of these would be two of them to keep in
+ * step.
+ */
+function KindIcon({
+  icon: Icon,
+  label,
+  description,
+  className,
+}: {
+  icon: React.ElementType;
+  /** The kind's name, read out where the icon cannot be seen. */
+  label: string;
+  /** What hovering says. The label on its own where there is nothing more to add. */
+  description: string;
+  className?: string;
+}) {
+  return (
+    <WithExplanation description={description}>
+      <span
+        className={cn(
+          "inline-flex shrink-0 cursor-help items-center text-muted-foreground",
+          className,
+        )}
+      >
+        <Icon aria-hidden="true" className="size-4" />
+        <span className="sr-only">{label}</span>
+      </span>
+    </WithExplanation>
+  );
+}
+
 const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
   REPO: Code,
   GOOGLE_DRIVE: FileText,
@@ -161,17 +211,16 @@ const KIND_ICON: Record<AssignmentKind, React.ElementType> = {
 /**
  * What a student hands in for this assignment.
  *
- * Deliberately outside the tone system every badge above uses. Those describe where a
- * submission stands and are coloured accordingly; a kind never changes and nothing is waiting
- * on it, so colour here would read as a state needing attention. It gets an icon instead,
- * which is what makes it scannable down a list of fifty rows.
- *
  * Shown to both audiences, and the same words to each: a student needs to know whether to
  * expect a repository or a document, and there is nothing about the answer they should not be
  * told. That is the exception rather than the rule on this screen — see
  * `SubmissionStatusBadge`, where the two vocabularies genuinely differ.
+ *
+ * The tooltip names the kind and then says how the work is handed in, because the second half is
+ * the part that changes what a student does next — "a pull request from your own copy of a
+ * repository" is an instruction, and "Code" on its own is a category.
  */
-export function AssignmentKindBadge({
+export function AssignmentKindIcon({
   kind,
   className,
 }: {
@@ -179,13 +228,14 @@ export function AssignmentKindBadge({
   className?: string;
 }) {
   const meta = ASSIGNMENT_KIND_META[kind];
-  const Icon = KIND_ICON[kind];
 
   return (
-    <Badge variant="secondary" title={meta.description} className={cn("font-normal", className)}>
-      <Icon data-icon="inline-start" />
-      {meta.label}
-    </Badge>
+    <KindIcon
+      icon={KIND_ICON[kind]}
+      label={meta.label}
+      description={`${meta.label} — ${meta.description}`}
+      className={className}
+    />
   );
 }
 
@@ -198,19 +248,25 @@ const RESOURCE_KIND_ICON: Record<ResourceKind, React.ElementType> = {
 /**
  * What kind of resource this is.
  *
- * Outside the tone system for the same reason `AssignmentKindBadge` is: a kind never changes and
- * nothing is waiting on it, so colour would read as a state needing attention. An icon and a
- * word instead — and the words are the ones the authoring form offers, from one map, so a
- * resource is not a "Note" on one screen and "Rich text" on the next.
+ * The words are the ones the authoring form offers, from one map, so a resource is not a "Note"
+ * on one screen and "Rich text" on the next.
+ *
+ * **The tooltip is that word and nothing else**, unlike an assignment's. There is a sentence
+ * about each kind in `RESOURCE_KIND_BLURB`, and it is written for whoever is *choosing* a kind on
+ * the authoring form rather than for whoever is reading one — a student hovering a note does not
+ * need to be told it is stored as markdown. What the pill said was one word, so this says that
+ * word.
  */
-export function ResourceKindBadge({ kind, className }: { kind: ResourceKind; className?: string }) {
-  const Icon = RESOURCE_KIND_ICON[kind];
+export function ResourceKindIcon({ kind, className }: { kind: ResourceKind; className?: string }) {
+  const label = RESOURCE_KIND_LABEL[kind];
 
   return (
-    <Badge variant="secondary" className={cn("font-normal", className)}>
-      <Icon data-icon="inline-start" />
-      {RESOURCE_KIND_LABEL[kind]}
-    </Badge>
+    <KindIcon
+      icon={RESOURCE_KIND_ICON[kind]}
+      label={label}
+      description={label}
+      className={className}
+    />
   );
 }
 

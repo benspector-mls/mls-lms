@@ -8,7 +8,7 @@ import { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
-import { courseUnitSummarySelect } from "../selects";
+import { courseUnitSummarySelect, resourceSelect } from "../selects";
 
 /**
  * The units of a course — modules, projects, and assessments — and everything inside them.
@@ -186,10 +186,16 @@ export const courseUnitsRouter = createTRPCRouter({
            * draft state on a resource at all, so the same rows go to a student and an instructor.
            * That is a decision rather than an omission: handing out an assignment starts a clock
            * and creates work, and a link to a reading does neither.
+           *
+           * **The whole resource rather than its title and kind**, because the Curriculum screen
+           * opens each one the way a student meets it — a note renders where it sits and a video
+           * plays there. A row that carried only a name could say a note exists and never show
+           * what is in it, which is the one thing an instructor checking their own course wants
+           * to read.
            */
           resources: {
             orderBy: { title: "asc" },
-            select: { id: true, title: true, kind: true },
+            select: resourceSelect,
           },
         },
       });

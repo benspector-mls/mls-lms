@@ -16,8 +16,9 @@ import {
 import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
 import { EmptyState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
+import { UnitList } from "@/components/unit-list";
 import { PageHeader } from "@/components/page-header";
-import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { AssignmentKindIcon, SubmissionStatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -389,23 +390,18 @@ function UnitSection({
                 names both lists for the same reason, from this same one place.
               */}
               {work.length > 0 && (
-                <section className="border-t border-border">
-                  <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    {meta.partPluralNoun}
-                  </h3>
-                  <ul className="divide-y divide-border">
-                    {work.map((assignment) => (
-                      <li key={assignment.id}>
-                        <AssignmentRow
-                          assignment={assignment}
-                          teaches={teaches}
-                          isOpen={assignment.id === openAssignmentId}
-                          onOpen={onOpen}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
+                <UnitList heading={meta.partPluralNoun}>
+                  {work.map((assignment) => (
+                    <li key={assignment.id}>
+                      <AssignmentRow
+                        assignment={assignment}
+                        teaches={teaches}
+                        isOpen={assignment.id === openAssignmentId}
+                        onOpen={onOpen}
+                      />
+                    </li>
+                  ))}
+                </UnitList>
               )}
 
               {/*
@@ -416,18 +412,13 @@ function UnitSection({
                 deadline to a title.
               */}
               {resources.length > 0 && (
-                <section className="border-t border-border">
-                  <h3 className="px-3 pt-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    Resources
-                  </h3>
-                  <ul className="divide-y divide-border">
-                    {resources.map((resource) => (
-                      <li key={resource.id}>
-                        <ResourceItem resource={resource} />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
+                <UnitList heading="Resources">
+                  {resources.map((resource) => (
+                    <li key={resource.id}>
+                      <ResourceItem resource={resource} />
+                    </li>
+                  ))}
+                </UnitList>
               )}
             </>
           )}
@@ -581,18 +572,15 @@ function RowSummary({
       */}
       <span className="flex min-w-0 basis-full items-center gap-3 min-[800px]:basis-0 min-[800px]:flex-1">
         <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
         {/*
           What they are handing in, which decides what they do next: push and open a pull request,
-          take a copy of a document, or upload a file. Beside the title, where it has always been,
-          and gone entirely once the row stacks — the title is meant to have that line to itself,
-          the presence of an Accept control says most of what the badge does, and the panel says
-          the rest.
+          take a copy of a document, or upload a file. In front of the title rather than labelled
+          after it, and at every width — the pill this replaced had to disappear below 800 pixels
+          to leave the title a line of its own, and an icon costs sixteen pixels, so the narrow row
+          keeps the one thing the wide row was telling it.
         */}
-        <AssignmentKindBadge
-          kind={assignment.kind}
-          className="hidden shrink-0 min-[800px]:inline-flex"
-        />
+        <AssignmentKindIcon kind={assignment.kind} />
+        <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
       </span>
 
       {/*

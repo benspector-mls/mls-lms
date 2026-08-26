@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import * as React from "react";
 import { Loader2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,7 +24,7 @@ import {
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { useTRPC } from "@/trpc/client";
 
-import { ResourceDialog } from "./resource-dialog";
+import { ResourceDialog, type Resource } from "./resource-dialog";
 
 /**
  * What can be done to one resource: edit it, or remove it.
@@ -33,31 +33,17 @@ import { ResourceDialog } from "./resource-dialog";
  * title to be typed. A resource is a title and a link: re-adding one costs a minute, and nothing
  * a student has done is lost with it. An assignment carries submissions, approved grades, and
  * feedback somebody has already read, which is what the stricter dialog is protecting.
+ *
+ * Takes the whole resource rather than an id, and fetches nothing. The row this sits beside is
+ * rendered from the same object — the Curriculum screen shows each resource the way a student
+ * meets it, so the body of a note and the id of a video are already here, and the edit form opens
+ * on the click instead of after a round trip.
  */
-export function ResourceActions({
-  courseId,
-  resourceId,
-  title,
-}: {
-  courseId: string;
-  resourceId: string;
-  title: string;
-}) {
+export function ResourceActions({ courseId, resource }: { courseId: string; resource: Resource }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const [editing, setEditing] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
-
-  /*
-    Only fetched when the edit dialog opens. The list this sits in carries a title and a kind,
-    which is all a row draws; the body of a note and the id of a video are what the form needs,
-    and shipping a term's markdown to render a list of titles would be a page of prose nobody
-    asked for.
-  */
-  const resource = useQuery({
-    ...trpc.resources.get.queryOptions({ resourceId }),
-    enabled: editing,
-  });
 
   const remove = useMutation(
     trpc.resources.remove.mutationOptions(
@@ -77,7 +63,7 @@ export function ResourceActions({
           render={
             <button
               type="button"
-              aria-label={`Actions for ${title}`}
+              aria-label={`Actions for ${resource.title}`}
               className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <MoreHorizontal className="size-4" />
@@ -97,19 +83,17 @@ export function ResourceActions({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {editing && resource.data && (
-        <ResourceDialog
-          open={editing}
-          onOpenChange={setEditing}
-          courseId={courseId}
-          resource={resource.data}
-        />
-      )}
+      <ResourceDialog
+        open={editing}
+        onOpenChange={setEditing}
+        courseId={courseId}
+        resource={resource}
+      />
 
       <Dialog open={removing} onOpenChange={setRemoving}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove &ldquo;{title}&rdquo;?</DialogTitle>
+            <DialogTitle>Remove &ldquo;{resource.title}&rdquo;?</DialogTitle>
             <DialogDescription>
               It disappears from your students&apos; course page. Nothing they have handed in is
               affected — a resource is not work.
@@ -123,7 +107,7 @@ export function ResourceActions({
               type="button"
               variant="destructive"
               disabled={remove.isPending}
-              onClick={() => remove.mutate({ resourceId })}
+              onClick={() => remove.mutate({ resourceId: resource.id })}
             >
               {remove.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
               Remove

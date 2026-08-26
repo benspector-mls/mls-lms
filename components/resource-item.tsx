@@ -1,19 +1,13 @@
 "use client";
 
 import * as React from "react";
-import {
-  ChevronRight,
-  ExternalLink,
-  Link as LinkIcon,
-  NotebookText,
-  PlayCircle,
-} from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 
 import { Markdown } from "@/components/markdown";
+import { ResourceKindIcon } from "@/components/status-badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ResourceKind, VideoProvider } from "@/lib/generated/prisma/enums";
 import { videoEmbedUrl, videoWatchUrl } from "@/lib/resources/spec";
-import { cn } from "@/lib/utils";
 
 /**
  * One resource as a student meets it.
@@ -27,6 +21,12 @@ import { cn } from "@/lib/utils";
  * genuinely different rows: a link is one line you click away from, a note is prose you open in
  * place, and a video is a player. Forcing one row shape onto all three would mean a note whose
  * only affordance is a link to nowhere.
+ *
+ * **The instructor's Curriculum screen renders this same component**, with its actions menu passed
+ * in as `actions`. That is the point rather than a convenience: an instructor asking what their
+ * cohort will read should be reading the thing itself, and a second rendering built for their side
+ * of the application would be a second answer to that question — one that could drift from the
+ * real one without anybody noticing.
  */
 
 export type ResourceView = {
@@ -40,10 +40,42 @@ export type ResourceView = {
   videoId: string | null;
 };
 
-export function ResourceItem({ resource }: { resource: ResourceView }) {
-  if (resource.kind === "LINK") return <LinkResource resource={resource} />;
-  if (resource.kind === "TEXT") return <TextResource resource={resource} />;
-  return <VideoResource resource={resource} />;
+export function ResourceItem({
+  resource,
+  /**
+   * Controls belonging to whoever is reading, drawn at the end of the row.
+   *
+   * Absent for a student, who has nothing to do to a resource but read it. Outside the row's own
+   * markup rather than inside it, because a link's row *is* an anchor and a button nested in an
+   * anchor is neither valid nor clickable — so the two sit side by side and the row keeps the
+   * shape it has when nobody passes anything.
+   */
+  actions,
+}: {
+  resource: ResourceView;
+  actions?: React.ReactNode;
+}) {
+  const row =
+    resource.kind === "LINK" ? (
+      <LinkResource resource={resource} />
+    ) : resource.kind === "TEXT" ? (
+      <TextResource resource={resource} />
+    ) : (
+      <VideoResource resource={resource} />
+    );
+
+  if (!actions) return row;
+
+  return (
+    <div className="flex items-start gap-1">
+      <div className="min-w-0 flex-1">{row}</div>
+      {/*
+        Aligned to the top rather than centred, so the menu stays beside the title when the row
+        is opened onto a page of prose or a video player.
+      */}
+      <div className="flex shrink-0 items-center gap-2 pt-1.5 pr-2">{actions}</div>
+    </div>
+  );
 }
 
 /** A title, a line about it, and the address it opens. */
@@ -54,7 +86,7 @@ function LinkResource({ resource }: { resource: ResourceView }) {
     Rendering the title without a link is the honest fallback: it says something is here and
     does not print a dead control.
   */
-  if (!resource.url) return <PlainRow icon={LinkIcon} resource={resource} />;
+  if (!resource.url) return <PlainRow resource={resource} />;
 
   return (
     <a
@@ -65,7 +97,7 @@ function LinkResource({ resource }: { resource: ResourceView }) {
       rel="noopener noreferrer"
       className="group flex items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/50"
     >
-      <LinkIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <ResourceKindIcon kind={resource.kind} className="mt-0.5" />
       <div className="min-w-0 flex-1">
         <span className="text-sm font-medium group-hover:underline">{resource.title}</span>
         {resource.description && (
@@ -90,7 +122,7 @@ function TextResource({ resource }: { resource: ResourceView }) {
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
-        <NotebookText aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <ResourceKindIcon kind={resource.kind} className="mt-0.5" />
         <span className="min-w-0 flex-1 text-sm font-medium">{resource.title}</span>
         <ChevronRight
           aria-hidden="true"
@@ -122,7 +154,7 @@ function VideoResource({ resource }: { resource: ResourceView }) {
   const [open, setOpen] = React.useState(false);
 
   if (!resource.videoProvider || !resource.videoId) {
-    return <PlainRow icon={PlayCircle} resource={resource} />;
+    return <PlainRow resource={resource} />;
   }
 
   const ref = { provider: resource.videoProvider, videoId: resource.videoId };
@@ -130,7 +162,7 @@ function VideoResource({ resource }: { resource: ResourceView }) {
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
-        <PlayCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <ResourceKindIcon kind={resource.kind} className="mt-0.5" />
         <span className="min-w-0 flex-1 text-sm font-medium">{resource.title}</span>
         <ChevronRight
           aria-hidden="true"
@@ -174,12 +206,17 @@ function VideoResource({ resource }: { resource: ResourceView }) {
   );
 }
 
-/** A resource whose kind-specific columns are missing: the title, and nothing pretending to work. */
-function PlainRow({ icon: Icon, resource }: { icon: React.ElementType; resource: ResourceView }) {
+/**
+ * A resource whose kind-specific columns are missing: the title, and nothing pretending to work.
+ *
+ * The icon still says which kind it was meant to be, which is the one useful thing about a row in
+ * this state — it tells whoever fixes it what is missing.
+ */
+function PlainRow({ resource }: { resource: ResourceView }) {
   return (
     <div className="flex items-start gap-3 px-3 py-2.5">
-      <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-      <span className={cn("min-w-0 flex-1 text-sm font-medium")}>{resource.title}</span>
+      <ResourceKindIcon kind={resource.kind} className="mt-0.5" />
+      <span className="min-w-0 flex-1 text-sm font-medium">{resource.title}</span>
     </div>
   );
 }

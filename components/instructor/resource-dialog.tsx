@@ -2,10 +2,11 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { Eye, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
+import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,7 +53,13 @@ import type { RouterOutputs } from "@/trpc/types";
  * note is a legitimate edit and `resourceColumns` clears the columns the old kind used.
  */
 
-type Resource = RouterOutputs["resources"]["listForCourse"][number];
+/**
+ * A resource as every screen reads one — the whole row, body and all.
+ *
+ * Exported because `ResourceActions` holds one and hands it straight to this form: the Curriculum
+ * screen's rows carry whole resources now, so nothing has to be fetched to open the form.
+ */
+export type Resource = RouterOutputs["resources"]["listForCourse"][number];
 
 export function ResourceDialog({
   open,
@@ -90,6 +97,14 @@ export function ResourceDialog({
   const [url, setUrl] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [body, setBody] = React.useState("");
+  /**
+   * Whether the note is being read rather than written.
+   *
+   * On the form rather than in the note field's own component, so that opening the dialog on
+   * another resource puts it back to writing — arriving at an edit form in a state where the text
+   * cannot be typed into would be a form that appears not to work.
+   */
+  const [previewing, setPreviewing] = React.useState(false);
 
   /*
     Reset when the dialog opens rather than on every render of a closed one, so a half-typed
@@ -99,6 +114,8 @@ export function ResourceDialog({
   */
   React.useEffect(() => {
     if (!open) return;
+
+    setPreviewing(false);
 
     if (resource) {
       setKind(resource.kind);
@@ -304,18 +321,61 @@ export function ResourceDialog({
 
             {kind === "TEXT" && (
               <div className="flex flex-col gap-2">
-                <Label htmlFor="resource-body">Note</Label>
-                <Textarea
-                  id="resource-body"
-                  value={body}
-                  onChange={(event) => setBody(event.target.value)}
-                  rows={10}
-                  placeholder={"## Before you start\n\nRun `npm i` first, then…"}
-                  maxLength={50_000}
-                  className="font-mono text-sm max-h-[35vh]"
-                />
+                {/*
+                  **Preview shows the note as the cohort will read it**, through the same renderer
+                  the course page uses. Markdown is written blind otherwise: a heading that needed
+                  a blank line above it, or a list that came out as one paragraph, is invisible in
+                  the box and obvious the moment it is rendered — and the only way to find out used
+                  to be to save it and go and look.
+
+                  One toggle rather than a box beside the text, because the dialog is not wide
+                  enough to read prose in half of it, and rather than two tabs, because there is
+                  one field here and this is the same Edit/Preview switch the feedback editor
+                  already uses.
+                */}
+                <div className="flex items-center justify-between">
+                  {/* Nothing to point at while the rendered note stands in for the box. */}
+                  <Label htmlFor={previewing ? undefined : "resource-body"}>Note</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={body.trim() === ""}
+                    onClick={() => setPreviewing((current) => !current)}
+                  >
+                    {previewing ? (
+                      <Pencil data-icon="inline-start" />
+                    ) : (
+                      <Eye data-icon="inline-start" />
+                    )}
+                    {previewing ? "Edit" : "Preview"}
+                  </Button>
+                </div>
+
+                {previewing ? (
+                  /*
+                    Held at roughly the height of the box it stands in for, and scrolling rather
+                    than growing past it, so switching back and forth leaves the Save button where
+                    the instructor last saw it.
+                  */
+                  <div className="max-h-[35vh] min-h-52 overflow-y-auto rounded-md border border-border bg-muted/20 p-4">
+                    <Markdown content={body} />
+                  </div>
+                ) : (
+                  <Textarea
+                    id="resource-body"
+                    value={body}
+                    onChange={(event) => setBody(event.target.value)}
+                    rows={10}
+                    placeholder={"## Before you start\n\nRun `npm i` first, then…"}
+                    maxLength={50_000}
+                    className="font-mono text-sm max-h-[35vh]"
+                  />
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Markdown, rendered the same way feedback is.
+                  {previewing
+                    ? "This is what your students will see on the course page."
+                    : "Markdown, rendered the same way feedback is."}
                 </p>
               </div>
             )}

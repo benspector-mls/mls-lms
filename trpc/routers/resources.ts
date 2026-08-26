@@ -6,6 +6,7 @@ import { teachableCourseUnit, teachableResource } from "@/lib/courses/scope";
 import { resourceColumns, resourceSpecSchema, UnrecognisedVideoError } from "@/lib/resources/spec";
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
+import { resourceSelect } from "../selects";
 
 /**
  * The things in a module that are not work: readings, notes, and videos.
@@ -44,19 +45,6 @@ function columnsOrRefuse(spec: z.infer<typeof resourceSpecSchema>) {
   }
 }
 
-/** Everything a screen draws a resource from. `body` included: a note *is* its body. */
-const resourceFields = {
-  id: true,
-  kind: true,
-  title: true,
-  url: true,
-  description: true,
-  body: true,
-  videoProvider: true,
-  videoId: true,
-  courseUnitId: true,
-} as const;
-
 export const resourcesRouter = createTRPCRouter({
   /**
    * Every resource in a course, by module and then alphabetically by title.
@@ -74,18 +62,6 @@ export const resourcesRouter = createTRPCRouter({
    * Ordered here rather than in the interface so the student page, the Modules screen, and the
    * Resources screen cannot each pick their own alphabet.
    */
-  /**
-   * One resource, in the shape the edit form wants.
-   *
-   * Its own procedure because the Curriculum screen's rows carry a title and a kind and nothing
-   * else — which is all a row draws. The body of a note and the id of a video are needed only
-   * once somebody opens the form, and shipping a term's markdown to render a list of titles
-   * would be a page of prose nobody asked for.
-   */
-  get: instructorProcedure
-    .input(z.object({ resourceId: z.string().uuid() }))
-    .query(({ ctx, input }) => teachableResource(ctx, input.resourceId, resourceFields)),
-
   listForCourse: profileProcedure
     .input(z.object({ courseId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -99,7 +75,7 @@ export const resourcesRouter = createTRPCRouter({
           beside it would be a second sequence to keep in step with the first.
         */
         orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
-        select: resourceFields,
+        select: resourceSelect,
       });
     }),
 
@@ -110,7 +86,7 @@ export const resourcesRouter = createTRPCRouter({
 
       return ctx.db.resource.create({
         data: { courseUnitId: input.courseUnitId, ...columnsOrRefuse(input.spec) },
-        select: resourceFields,
+        select: resourceSelect,
       });
     }),
 
@@ -162,7 +138,7 @@ export const resourcesRouter = createTRPCRouter({
           ...(input.courseUnitId ? { courseUnitId: input.courseUnitId } : {}),
           ...columnsOrRefuse(input.spec),
         },
-        select: resourceFields,
+        select: resourceSelect,
       });
     }),
 

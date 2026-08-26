@@ -21,7 +21,7 @@ import {
 import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
 import { EmptyState } from "@/components/list-states";
 import { Markdown } from "@/components/markdown";
-import { AssignmentKindBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { AssignmentKindIcon, SubmissionStatusBadge } from "@/components/status-badge";
 import { SubmittedDocumentRow } from "@/components/submitted-document";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -212,7 +212,15 @@ function PanelHeader({
 
   return (
     <SheetHeader className="gap-2 border-b border-border p-4 pr-14">
-      <SheetTitle className="text-base leading-snug">{assignment.title}</SheetTitle>
+      {/*
+        The kind in front of the title, as it is on the row this panel opened from. It was a pill
+        below, in the line of badges with the status and the score, which put a fact that never
+        changes among the two that do.
+      */}
+      <SheetTitle className="flex items-start gap-2 text-base leading-snug">
+        <AssignmentKindIcon kind={assignment.kind} className="mt-0.5" />
+        {assignment.title}
+      </SheetTitle>
 
       <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span>{assignment.courseUnit.name}</span>
@@ -256,8 +264,6 @@ function PanelHeader({
 
       <div className="flex flex-wrap items-center gap-2">
         <SubmissionStatusBadge status={status} audience="student" />
-        <AssignmentKindBadge kind={assignment.kind} />
-
         {/* The score carries the verdict, for the reason it does on the row: "Graded" is blue,
             and green means the completion threshold was met and nothing else. */}
         <span className={cn("text-sm tabular-nums", verdict?.className)}>

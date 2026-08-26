@@ -102,3 +102,28 @@ export const courseUnitSummarySelect = {
   */
   category: true,
 } satisfies Prisma.CourseUnitSelect;
+
+/**
+ * A resource, as every screen that shows one reads it.
+ *
+ * **The whole row, including the body of a note and the id of a video**, because both sides of the
+ * application now render a resource the same way. A student's course page opens a note in place
+ * and plays a video where it sits; the instructor's Curriculum screen shows each resource exactly
+ * as the cohort meets it, and the edit form fills its fields from the same object. A select
+ * narrowed to a title and a kind would leave the instructor with a list of names and no way to
+ * read what is in them without opening the form.
+ *
+ * `courseUnitId` is in it because a resource can be moved between the units of its course, and the
+ * form's Module field has to arrive holding the one it is in.
+ */
+export const resourceSelect = {
+  id: true,
+  kind: true,
+  title: true,
+  url: true,
+  description: true,
+  body: true,
+  videoProvider: true,
+  videoId: true,
+  courseUnitId: true,
+} satisfies Prisma.ResourceSelect;

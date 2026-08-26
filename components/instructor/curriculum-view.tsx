@@ -16,8 +16,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AssignmentKindBadge, ResourceKindBadge } from "@/components/status-badge";
+import { AssignmentKindIcon } from "@/components/status-badge";
 import { EmptyState } from "@/components/list-states";
+import { ResourceItem } from "@/components/resource-item";
+import { UnitList } from "@/components/unit-list";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -62,6 +64,10 @@ import { ResourceActions } from "./resource-actions";
  * Drafts are shown and marked rather than hidden. A truer mirror would omit what a student
  * cannot see, and then a unit that is full to the instructor and empty to the cohort reads as
  * simply empty — which is the confusion this screen exists to remove.
+ *
+ * **Resources are shown as students meet them**, through the same `ResourceItem` their course
+ * page renders: a note opens into rendered markdown, a video plays where it sits. An instructor
+ * reading their own course should be reading what the cohort reads, not a description of it.
  */
 
 type Unit = RouterOutputs["courseUnits"]["listForCourse"][number];
@@ -476,88 +482,86 @@ function UnitSection({
             )}
           </div>
           {unit.assignments.length > 0 && (
-            <section className="border-t border-border">
-              {/*
-                Named, the way the resources beneath are. Without a heading the two lists ran into
-                each other and only the second said what it was, so the first read as "the unit's
-                contents" and the second as an afterthought — when they are two kinds of thing
-                that happen to live in the same place.
+            /*
+              Named, the way the resources beneath are. Without a heading the two lists ran into
+              each other and only the second said what it was, so the first read as "the unit's
+              contents" and the second as an afterthought — when they are two kinds of thing that
+              happen to live in the same place.
 
-                The word follows the category, so a project's list reads "Deliverables" and an
-                assessment's "Parts". That is the vocabulary every other screen uses for the work
-                inside a unit, and it comes from one place rather than being chosen here.
+              The word follows the category, so a project's list reads "Deliverables" and an
+              assessment's "Parts". That is the vocabulary every other screen uses for the work
+              inside a unit, and it comes from one place rather than being chosen here.
 
-                The count is part of the heading — "2 assignments", "3 deliverables" — rather than
-                a figure in the unit's header row. The header row named the unit and gave four
-                numbers about it, and a reader counting the assignments had to hold the label from
-                one line and the number from another. Here the number sits on the list it counts.
-              */}
-              <h3 className="px-3 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {partCount(unit.category, unit.assignments.length)}
-              </h3>
-              <ul className="divide-y divide-border">
-                {unit.assignments.map((assignment) => (
-                  <li
-                    key={assignment.id}
-                    className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
-                  >
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <Link
-                        href={gradingQueueHref(courseId, assignment.id)}
-                        className="truncate font-medium hover:underline"
-                      >
-                        {assignment.title}
-                      </Link>
-                      <AssignmentKindBadge kind={assignment.kind} />
-                      {assignment.distributedAt === null && <Badge variant="outline">Draft</Badge>}
-                    </div>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {assignment.pointValue} pts
-                    </span>
+              The count is part of the heading — "2 assignments", "3 deliverables" — rather than a
+              figure in the unit's header row. The header row named the unit and gave four numbers
+              about it, and a reader counting the assignments had to hold the label from one line
+              and the number from another. Here the number sits on the list it counts.
+            */
+            <UnitList heading={partCount(unit.category, unit.assignments.length)}>
+              {unit.assignments.map((assignment) => (
+                <li
+                  key={assignment.id}
+                  className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     {/*
-                      The time as well as the date, because the instructor set one and it decides
-                      which submissions are recorded as late. Wide enough for "Oct 9, 11:59 PM"
-                      without wrapping, so the column edge is read straight down the list.
+                      What is handed in, in front of the title rather than labelled after it. The
+                      icon is the same one the student's row carries, and hovering it says which
+                      kind and how the work arrives.
                     */}
-                    <span className="w-36 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
-                      {assignment.dueAt ? formatDueDateShort(assignment.dueAt) : "No due date"}
-                    </span>
-                    <AssignmentActions courseId={courseId} assignment={assignment} />
-                  </li>
-                ))}
-              </ul>
-            </section>
+                    <AssignmentKindIcon kind={assignment.kind} />
+                    <Link
+                      href={gradingQueueHref(courseId, assignment.id)}
+                      className="truncate font-medium hover:underline"
+                    >
+                      {assignment.title}
+                    </Link>
+                    {assignment.distributedAt === null && <Badge variant="outline">Draft</Badge>}
+                  </div>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {assignment.pointValue} pts
+                  </span>
+                  {/*
+                    The time as well as the date, because the instructor set one and it decides
+                    which submissions are recorded as late. Wide enough for "Oct 9, 11:59 PM"
+                    without wrapping, so the column edge is read straight down the list.
+                  */}
+                  <span className="w-36 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
+                    {assignment.dueAt ? formatDueDateShort(assignment.dueAt) : "No due date"}
+                  </span>
+                  <AssignmentActions courseId={courseId} assignment={assignment} />
+                </li>
+              ))}
+            </UnitList>
           )}
 
           {unit.resources.length > 0 && (
-            <section className="border-t border-border">
-              {/*
-                Beneath the assignments, under a heading of their own, and never interleaved with
-                them. That is what makes the ordering question go away rather than needing an
-                answer: assignments sort by due date and resources alphabetically, and two
-                sequences cannot be merged into one without inventing a rule for comparing a
-                deadline to a title.
-              */}
-              <h3 className="px-3 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {unit.resources.length} {unit.resources.length === 1 ? "resource" : "resources"}
-              </h3>
-              <ul className="divide-y divide-border">
-                {unit.resources.map((resource) => (
-                  <li
-                    key={resource.id}
-                    className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm"
-                  >
-                    <span className="min-w-0 flex-1 truncate">{resource.title}</span>
-                    <ResourceKindBadge kind={resource.kind} />
-                    <ResourceActions
-                      courseId={courseId}
-                      resourceId={resource.id}
-                      title={resource.title}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
+            /*
+              Beneath the assignments, under a heading of their own, and never interleaved with
+              them. That is what makes the ordering question go away rather than needing an answer:
+              assignments sort by due date and resources alphabetically, and two sequences cannot
+              be merged into one without inventing a rule for comparing a deadline to a title.
+            */
+            <UnitList
+              heading={`${unit.resources.length} ${unit.resources.length === 1 ? "resource" : "resources"}`}
+            >
+              {unit.resources.map((resource) => (
+                /*
+                  **The student's row, with the instructor's controls on the end of it.** A note
+                  opens here into the rendered markdown a fellow will read, and a video plays in
+                  the same frame theirs does — because this is that component rather than a listing
+                  that describes it. The alternative was a title and a kind, which told an
+                  instructor that a note exists and nothing about whether it says what they meant;
+                  checking meant opening the edit form and reading the source.
+                */
+                <li key={resource.id}>
+                  <ResourceItem
+                    resource={resource}
+                    actions={<ResourceActions courseId={courseId} resource={resource} />}
+                  />
+                </li>
+              ))}
+            </UnitList>
           )}
         </CollapsibleContent>
       </section>
