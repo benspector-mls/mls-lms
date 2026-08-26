@@ -101,19 +101,22 @@ model Profile {
   programsInstructing  ProgramInstructor[]
   enrollments          Enrollment[]
   submissions          Submission[]
-  gradedSubmissions    Submission[]          @relation("GradedBy")
-  approvedDrafts       GradingDraft[]        @relation("ApprovedDrafts")
-  editedSections       GradingDraftSection[] @relation("EditedSections")
-  invitesCreated       InstructorInvite[]    @relation("InvitesCreated")
-  invitesRedeemed      InstructorInvite[]    @relation("InvitesRedeemed")
-  rosterEntriesClaimed RosterEntry[]         @relation("RosterClaimed")
-  rosterEntriesAdded   RosterEntry[]         @relation("RosterAdded")
-  attendanceStarted    AttendanceSession[]   @relation("AttendanceStarted")
-  attendanceRecorded   AttendanceRecord[]    @relation("AttendanceRecorded")
-  gcfAttempts          GcfAttempt[]          @relation("GcfAttempts")
-  gcfRecorded          GcfAttempt[]          @relation("GcfRecorded")
-  gcfIdentities        GcfIdentity[]         @relation("GcfIdentities")
-  handedIn             Submission[]          @relation("HandedInBy")
+  gradedSubmissions    Submission[]            @relation("GradedBy")
+  approvedDrafts       GradingDraft[]          @relation("ApprovedDrafts")
+  editedSections       GradingDraftSection[]   @relation("EditedSections")
+  invitesCreated       InstructorInvite[]      @relation("InvitesCreated")
+  invitesRedeemed      InstructorInvite[]      @relation("InvitesRedeemed")
+  rosterEntriesClaimed RosterEntry[]           @relation("RosterClaimed")
+  rosterEntriesAdded   RosterEntry[]           @relation("RosterAdded")
+  attendanceStarted    AttendanceSession[]     @relation("AttendanceStarted")
+  attendanceRecorded   AttendanceRecord[]      @relation("AttendanceRecorded")
+  gcfAttempts          GcfAttempt[]            @relation("GcfAttempts")
+  gcfRecorded          GcfAttempt[]            @relation("GcfRecorded")
+  gcfIdentities        GcfIdentity[]           @relation("GcfIdentities")
+  handedIn             Submission[]            @relation("HandedInBy")
+  commentsWritten      SubmissionComment[]     @relation("CommentsWritten")
+  commentsResolved     Submission[]            @relation("CommentsResolved")
+  commentReads         SubmissionCommentRead[] @relation("CommentReads")
 
   @@map("profiles")
   @@schema("public")
@@ -1217,6 +1220,26 @@ model Submission {
   /// their dashboard can stop showing them a report they have read.
   feedbackReviewedAt DateTime? @map("feedback_reviewed_at") @db.Timestamptz(6)
 
+  /// When an instructor last said the conversation about this work needs nothing from them.
+  ///
+  /// **Compared against the newest question rather than checked for null**, the same shape as
+  /// `feedbackReviewedAt` above and for the same reason: a fellow who asks again after it was
+  /// settled is waiting again, and a null check would keep the thread off the questions list
+  /// forever. `awaitsReply` in lib/submissions/comments.ts is that comparison.
+  ///
+  /// **A property of the thread, not of one instructor.** Any instructor of the program may set it
+  /// and it clears the row for all of them, which follows what `ProgramInstructor` already states:
+  /// a co-teacher covering for somebody must be able to finish what they started.
+  ///
+  /// Replying is the other way a thread leaves that list, and the two do not interact — a reply
+  /// makes the newest message an instructor's, which `awaitsReply` reads without consulting this.
+  /// This column is for the questions needing no answer: handled in person, or worked out.
+  ///
+  /// On the row holding the work, like the comments themselves, so a team has one answer. Not
+  /// among `MIRRORED_COLUMNS`: a mirror carries the grade and never the conversation.
+  commentsResolvedAt   DateTime? @map("comments_resolved_at") @db.Timestamptz(6)
+  commentsResolvedById String?   @map("comments_resolved_by") @db.Uuid
+
   /// Unused in this build. Present so the future Salesforce job can query
   /// `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at
   /// that point. Nothing writes these columns yet.
@@ -1227,11 +1250,12 @@ model Submission {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  assignment        Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  student           Profile        @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  gradedBy          Profile?       @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
-  handedInBy        Profile?       @relation("HandedInBy", fields: [handedInById], references: [id], onDelete: SetNull)
-  team              Team?          @relation(fields: [teamId, teamSetId], references: [id, teamSetId], onDelete: Restrict)
+  assignment         Assignment              @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student            Profile                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gradedBy           Profile?                @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
+  commentsResolvedBy Profile?                @relation("CommentsResolved", fields: [commentsResolvedById], references: [id], onDelete: SetNull)
+  handedInBy         Profile?                @relation("HandedInBy", fields: [handedInById], references: [id], onDelete: SetNull)
+  team               Team?                   @relation(fields: [teamId, teamSetId], references: [id, teamSetId], onDelete: Restrict)
   /// `NoAction` rather than `Restrict`, and the difference matters: deleting an assignment
   /// cascades its submissions, and `RESTRICT` is checked per row rather than at the end of the
   /// statement, so it would refuse a cascade that is about to remove the mirror as well.
@@ -1243,11 +1267,13 @@ model Submission {
   /// Declared here rather than left as hand-written SQL because a foreign key is something
   /// `migrate diff` *can* see: left out of the schema it would be proposed for removal on every
   /// future migration, and one day somebody would accept the proposal. Use `assignment` above.
-  assignmentTeamSet Assignment?    @relation("SubmissionTeamSet", fields: [assignmentId, teamSetId], references: [id, teamSetId], onDelete: Cascade, onUpdate: Cascade)
-  teamSubmission    Submission?    @relation("TeamMirror", fields: [teamSubmissionId, assignmentId], references: [id, assignmentId], onDelete: NoAction, onUpdate: NoAction)
-  mirrors           Submission[]   @relation("TeamMirror")
-  gradingDrafts     GradingDraft[]
-  testRuns          TestRun[]
+  assignmentTeamSet  Assignment?             @relation("SubmissionTeamSet", fields: [assignmentId, teamSetId], references: [id, teamSetId], onDelete: Cascade, onUpdate: Cascade)
+  teamSubmission     Submission?             @relation("TeamMirror", fields: [teamSubmissionId, assignmentId], references: [id, assignmentId], onDelete: NoAction, onUpdate: NoAction)
+  mirrors            Submission[]            @relation("TeamMirror")
+  gradingDrafts      GradingDraft[]
+  testRuns           TestRun[]
+  comments           SubmissionComment[]
+  commentReads       SubmissionCommentRead[]
 
   @@unique([assignmentId, studentId])
   /// Redundant against the primary key, and bought so a mirror points at `(id, assignmentId)`
@@ -1424,7 +1450,12 @@ model GradingDraft {
   submission Submission            @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   approvedBy Profile?              @relation("ApprovedDrafts", fields: [approvedById], references: [id], onDelete: SetNull)
   sections   GradingDraftSection[]
+  comments   SubmissionComment[]
 
+  /// Redundant against the primary key, and bought so a comment can point at `(id, submissionId)`
+  /// together — which is what makes a comment naming a round of some *other* submission
+  /// unrepresentable. The same trick as `Submission.@@unique([id, assignmentId])`.
+  @@unique([id, submissionId])
   @@index([submissionId, headSha])
   @@map("grading_drafts")
   @@schema("public")
@@ -1473,6 +1504,137 @@ model GradingDraftSection {
   editedBy     Profile?     @relation("EditedSections", fields: [editedById], references: [id], onDelete: SetNull)
 
   @@map("grading_draft_sections")
+  @@schema("public")
+}
+
+// ===========================================================================
+// The conversation about a submission
+// ===========================================================================
+
+/// Which side of the conversation a comment came from, recorded when it was written.
+///
+/// A snapshot rather than a join to the author's `role`, which is mutable: a fellow later hired as
+/// staff would otherwise turn every question they ever asked into an instructor's answer, emptying
+/// the "waiting on a reply" list of the rows it exists to hold.
+///
+/// Two values where `Role` has three. ADMIN folds into INSTRUCTOR, because the only question any
+/// reader asks is which of the two sides is waiting on the other.
+enum SubmissionCommentAuthor {
+  STUDENT
+  INSTRUCTOR
+
+  @@schema("public")
+}
+
+/// One message in the conversation about one piece of work.
+///
+/// **One thread per submission, and one per team where a team hands the work in.** The rows hang
+/// off the submission that holds the work — the one with `team_submission_id IS NULL` — so every
+/// active member reads and writes one conversation. `threadSubmissionId` in
+/// lib/submissions/comments.ts is the resolution, and a trigger refuses a write that skipped it.
+///
+/// **A fellow may write before handing anything in**, which is half of what this is for. For the
+/// kinds with no Accept there may be no submission row yet, so posting the first comment creates
+/// one, `NOT_STARTED`, through `claimTeamWork`. Every reader downstream already treats that status
+/// and "no row" as the same fact, so asking a question does not read as starting work.
+///
+/// In the application only. Nothing here is posted to or read from GitHub, which delivers grades.
+///
+/// One tolerated state: a member's row can become a mirror after they commented on it, when solo
+/// work is later claimed by a team. The trigger fires on writes to this table rather than to
+/// `submissions`, so that claim is not refused, and those comments resolve away rather than
+/// reading wrong.
+model SubmissionComment {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// The row holding the work, never a mirror.
+  submissionId String @map("submission_id") @db.Uuid
+
+  /// `SetNull` for the reason `graded_by` is: an account going must not remove what somebody said
+  /// from another person's conversation. The read path falls back to `authorRole`, which is why
+  /// that column is NOT NULL and this one is not.
+  authorId   String?                 @map("author_id") @db.Uuid
+  authorRole SubmissionCommentAuthor @map("author_role")
+
+  /// Which released round this is about, or null — which is every comment written before the work
+  /// was first graded.
+  ///
+  /// Named by the writer rather than taken from the clock, because a fellow can answer round one's
+  /// report after round two has gone out.
+  ///
+  /// The reference is composite, against `(id, submission_id)`, so a comment naming a round of
+  /// another submission is unrepresentable. That the round is APPROVED is checked by the
+  /// procedure, since a foreign key cannot read a status.
+  ///
+  /// `NoAction` rather than `SetNull` because a composite `SET NULL` would null `submission_id`
+  /// too, and rather than `Restrict` because the only thing removing a draft is its submission
+  /// going, which removes this row in the same statement.
+  gradingDraftId String? @map("grading_draft_id") @db.Uuid
+
+  /// Markdown, rendered through components/markdown.tsx, which runs no raw HTML.
+  ///
+  /// Capped both by `MAX_COMMENT_LENGTH` and by a CHECK, because a script does not run the
+  /// application's code.
+  body String
+
+  /// When the author withdrew this.
+  ///
+  /// A tombstone rather than a removal: a reply answers the message above it, and closing up
+  /// around a removed one leaves the reply answering whatever floats into its place.
+  ///
+  /// The author only, which is what keeps this to one column — no `deleted_by`, no paired CHECK,
+  /// no audit event. The body stays in the column and `visibleBody` withholds it.
+  ///
+  /// There is no edit: editing rewrites what somebody already replied to.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  submission   Submission    @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  author       Profile?      @relation("CommentsWritten", fields: [authorId], references: [id], onDelete: SetNull)
+  gradingDraft GradingDraft? @relation(fields: [gradingDraftId, submissionId], references: [id, submissionId], onDelete: NoAction, onUpdate: NoAction)
+
+  /// The thread read and the "who spoke last" read, which differ only in direction.
+  @@index([submissionId, createdAt])
+  /// How many this person has written lately, which is the ceiling the post procedure counts.
+  @@index([authorId, createdAt])
+  @@index([gradingDraftId])
+  @@map("submission_comments")
+  @@schema("public")
+}
+
+/// How far one fellow has read into one thread.
+///
+/// One row per reader per thread. `Submission.feedbackReviewedAt` is a single column because a
+/// report has one reader; a thread a team shares has several, so the receipt moves off the
+/// submission. Its shape does not change: a timestamp compared against each message's
+/// `created_at`, never a boolean, which would have to be cleared by every write to the thread.
+///
+/// A per-comment table was the alternative and is the wrong size — it grows with messages times
+/// readers, and the only question it answers that this cannot is one nobody asks about a
+/// conversation read top to bottom.
+///
+/// A reader with no row has read nothing, so rows are written on first read rather than seeded.
+///
+/// **Only fellows write here.** Instructors get no unread count; their signal is the questions
+/// list on the triage screen, which reads who spoke last.
+model SubmissionCommentRead {
+  id           String   @id @default(uuid()) @db.Uuid
+  submissionId String   @map("submission_id") @db.Uuid
+  profileId    String   @map("profile_id") @db.Uuid
+  lastReadAt   DateTime @map("last_read_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  profile    Profile    @relation("CommentReads", fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// One receipt per person per thread, which makes the write an upsert.
+  @@unique([submissionId, profileId])
+  @@index([profileId])
+  @@map("submission_comment_reads")
   @@schema("public")
 }
 

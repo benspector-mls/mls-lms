@@ -45,6 +45,12 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
       assignments={assignments}
       resources={resources}
       githubLinked={Boolean(profile?.githubUsername)}
+      /*
+        Read once here and passed down, which is the convention every screen in this application
+        follows. A component that reads its own clock renders one string on the server and another
+        in the browser's first pass, which React reports as a hydration mismatch.
+      */
+      now={new Date()}
     />
   );
 }

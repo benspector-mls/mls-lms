@@ -138,6 +138,19 @@ export async function acceptDriveAssignment(
       team,
       statusIfNew: "ACCEPTED",
     });
+
+    /*
+      Promote a row that existed already with nothing on it — one somebody brought into being by
+      asking a question. `statusIfNew` applies on the create branch only, so it arrives here still
+      `NOT_STARTED`. Guarded on that status, or a second press would walk a hand-in backwards.
+
+      Before `syncTeamRows`, because `status` is mirrored onto the members from this row.
+    */
+    await db.submission.updateMany({
+      where: { id: submissionId, status: "NOT_STARTED" },
+      data: { status: "ACCEPTED", lastActivityAt: new Date() },
+    });
+
     await syncTeamRows(db, { submissionId: submissionId });
 
     return {
@@ -149,7 +162,7 @@ export async function acceptDriveAssignment(
   // Upserted rather than created, so pressing Accept twice is the same as pressing it once: the
   // copy prompt is idempotent on Google's side too — a second press makes a second copy, which
   // is the student's business and not a state this owns.
-  const submission = await db.submission.upsert({
+  const existing = await db.submission.upsert({
     where: { assignmentId_studentId: { assignmentId: assignment.id, studentId } },
     create: {
       assignmentId: assignment.id,
@@ -159,6 +172,19 @@ export async function acceptDriveAssignment(
     },
     update: {},
   });
+
+  /*
+    A row that existed with nothing on it is promoted; anything further along is left alone.
+    `update: {}` keeps a second press from disturbing work in progress, but it also left a row
+    created by a question reading `NOT_STARTED` after Accept, so the panel re-offered the button.
+  */
+  const submission =
+    existing.status === "NOT_STARTED"
+      ? await db.submission.update({
+          where: { id: existing.id },
+          data: { status: "ACCEPTED", lastActivityAt: new Date() },
+        })
+      : existing;
 
   return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl) };
 }

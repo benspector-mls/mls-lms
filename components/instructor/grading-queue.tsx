@@ -74,12 +74,17 @@ export function GradingQueue({
   const [batch, setBatch] = React.useState<BatchState | null>(null);
 
   /*
-    A student who has not opened a pull request is not in the queue. They have not done
-    anything wrong and there is nothing to grade — the assignment's own page is where an
-    instructor goes to see who has not started.
+    A student who has not opened a pull request is not in the queue. They have not done anything
+    wrong and there is nothing to grade — the assignment's own page is where an instructor goes to
+    see who has not started.
+
+    **Unless they have said something.** A question asked before starting is a record an instructor
+    will want to find again, and the assignment is the obvious place to look for it: without this
+    the only route to it is the fellow's own record, which means already knowing who asked.
   */
   const submissions = data.submissions.filter(
-    (row) => row.status !== "NOT_STARTED" && row.status !== "ACCEPTED",
+    (row) =>
+      (row.status !== "NOT_STARTED" && row.status !== "ACCEPTED") || row.commentCount > 0,
   );
 
   /*
@@ -94,6 +99,8 @@ export function GradingQueue({
     graded: submissions.filter((row) => row.status === "GRADED").length,
     all: submissions.length,
   };
+  // Deliberately outside `needs_review`: a question is not work to grade, and `bucket` is null on
+  // a row nobody has submitted. It counts under All, which is where the record is looked for.
 
   // Filtering a cohort's worth of rows is not work worth memoizing, and `submissions` is
   // a fresh array on every render anyway, so a memo here would recompute regardless.
@@ -361,6 +368,7 @@ export function GradingQueue({
               <GradingReview
                 key={selected.id}
                 submission={selected}
+                assignmentId={data.assignment.id}
                 assignmentTitle={data.assignment.title}
                 // "What else has this person done" is the question a report prompts, and until
                 // now there was nowhere in the application to answer it.

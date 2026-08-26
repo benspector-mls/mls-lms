@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 
 import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
+import { CommentComposer, type ComposerAnchor } from "@/components/comments/comment-composer";
+import { CommentList } from "@/components/comments/comment-list";
+import { CommentThread, useMarkThreadRead } from "@/components/comments/comment-thread";
+import type { Comment } from "@/components/comments/types";
 import { EmptyState } from "@/components/list-states";
 import { Markdown } from "@/components/markdown";
 import { AssignmentKindIcon, SubmissionStatusBadge } from "@/components/status-badge";
@@ -69,22 +73,27 @@ import type { Assignment, Submission } from "./types";
  * visible behind it, which is what a student wants when they are working down a module — and it
  * has an address, which a collapsed row does not. That address is what the dashboard links to.
  *
- * **It costs no query.** Everything here comes from the assignment row the course page already
- * fetched, `assignments.listForCourse` included the approved grading drafts, and their sections
- * arrive already collapsed to the instructor's edits by `effectiveSection` on the server. A
- * procedure of its own would have been a second implementation of a question already answered,
- * and the model's unedited output would have had to travel to a student's browser to make it work.
+ * **The work and the feedback cost no query.** Both come from the assignment row the course page
+ * already fetched, with sections already collapsed to the instructor's edits on the server — so
+ * the model's unedited output never travels to a student's browser.
  *
- * Two tabs, because they answer questions asked at different times: what do I hand in and what
- * did I hand in, then what did my instructor say. The Notes tab is the third and is not built yet.
+ * **The conversation is the one thing fetched**, and only once its tab is opened: it is the part
+ * that changes while the page sits open, and fifty rows of a course list have no use for bodies of
+ * text. The list carries the unread count, so the badge is right before anything is asked for.
+ *
+ * Three tabs, for questions asked at different times: what do I hand in, what did my instructor
+ * say, and everything either of us said about it.
  */
 export function AssignmentPanel({
   assignment,
+  now,
   open,
   onOpenChange,
 }: {
   /** Null while nothing is selected, which is what keeps one panel serving a whole page. */
   assignment: Assignment | null;
+  /** Read once on the server, so a relative time is the same string in both render passes. */
+  now: Date;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -121,6 +130,7 @@ export function AssignmentPanel({
             submission={submission}
             rounds={rounds}
             hasFeedback={hasFeedback}
+            now={now}
           />
         )}
       </SheetContent>
@@ -133,15 +143,58 @@ function PanelBody({
   submission,
   rounds,
   hasFeedback,
+  now,
 }: {
   assignment: Assignment;
   submission: Submission | null;
   rounds: FeedbackRound[];
   hasFeedback: boolean;
+  now: Date;
 }) {
-  // Feedback first when there is any, because a student opening a returned assignment came to
-  // read it. Before that there is nothing on that tab and the submission is the whole story.
-  const [tab, setTab] = React.useState(hasFeedback ? "feedback" : "submission");
+  const trpc = useTRPC();
+
+  /*
+    Seeded from the list payload and cleared here, so opening the tab makes the badge vanish and
+    moves nothing else. The `key` on this component re-seeds it for a different row.
+  */
+  const [unread, setUnread] = React.useState(submission?.unreadCommentCount ?? 0);
+
+  /*
+    Unread feedback outranks an unread reply, because a reply is usually about the grade and
+    landing on Comments would show the answer before the thing it answers.
+  */
+  const feedbackUnread = submission != null && hasFeedback && feedbackIsUnread(submission);
+  const [tab, setTab] = React.useState(
+    feedbackUnread ? "feedback" : unread > 0 ? "comments" : hasFeedback ? "feedback" : "submission",
+  );
+
+  /*
+    Held here rather than in the composer: Base UI unmounts the panel that is not showing, so a
+    half-typed question would be lost by pressing Feedback and coming back.
+  */
+  const [draft, setDraft] = React.useState("");
+  const [anchor, setAnchor] = React.useState<ComposerAnchor | null>(null);
+  const [announcement, setAnnouncement] = React.useState("");
+
+  // Asked only once the tab is opened, so reading a course page fetches no conversations.
+  const comments = useQuery({
+    ...trpc.submissionComments.thread.queryOptions({ assignmentId: assignment.id }),
+    enabled: tab === "comments",
+  });
+
+  // Mounting the thread is reading it, because the panel does not render it until selected.
+  useMarkThreadRead({
+    thread: comments.data,
+    enabled: tab === "comments",
+    onRead: () => setUnread(0),
+  });
+
+  /** Answering one round from its card on the Feedback tab, which is where it was read. */
+  function respondToRound(round: FeedbackRound) {
+    // The pre-drafts fallback round names no draft, so there is nothing for a comment to point at.
+    setAnchor(round.key === "submission" ? null : { id: round.key, number: round.number });
+    setTab("comments");
+  }
 
   return (
     <>
@@ -149,13 +202,12 @@ function PanelBody({
 
       <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0 my-3">
         {/*
-          Offered only when there is a second tab to reach. A lone tab is a label pretending to
-          be a control, and an ungraded assignment would carry an empty Feedback tab that reads
-          as a page that failed to load.
+          Unguarded, because Comments is always reachable and so there are always at least two tabs.
+          The Feedback trigger stays conditional: an empty one reads as a page that failed to load.
         */}
-        {hasFeedback && (
-          <TabsList className="mx-4 mb-3 w-auto self-start">
-            <TabsTrigger value="submission">Submission</TabsTrigger>
+        <TabsList className="mx-4 mb-3 w-auto self-start">
+          <TabsTrigger value="submission">Submission</TabsTrigger>
+          {hasFeedback && (
             <TabsTrigger value="feedback">
               Feedback
               {/*
@@ -167,19 +219,41 @@ function PanelBody({
                 <span className="ml-1.5 text-xs text-muted-foreground">{rounds.length}</span>
               )}
             </TabsTrigger>
-          </TabsList>
-        )}
+          )}
+          <TabsTrigger value="comments">
+            Comments
+            {/*
+              Filled where the round count beside it is muted: that one is how much there is to
+              read, this one how much is new. Not `Badge`, which is `h-5` in an `h-8` list.
+            */}
+            {unread > 0 && (
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-medium text-primary-foreground tabular-nums">
+                {unread}
+                <span className="sr-only"> unread</span>
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
         {/* The panels scroll, not the panel, so the header stays put while a long report moves. */}
         <TabsContent value="submission" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-          <SubmissionTab assignment={assignment} submission={submission} />
+          <SubmissionTab
+            assignment={assignment}
+            submission={submission}
+            onOpenComments={() => setTab("comments")}
+          />
         </TabsContent>
 
         <TabsContent value="feedback" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
           {submission && hasFeedback ? (
             <div className="flex flex-col gap-4">
               <MarkFeedbackRead submission={submission} />
-              <FeedbackHistory rounds={rounds} />
+              <FeedbackHistory
+                rounds={rounds}
+                comments={comments.data?.comments ?? []}
+                now={now}
+                onRespond={respondToRound}
+              />
             </div>
           ) : (
             <EmptyState
@@ -188,6 +262,37 @@ function PanelBody({
               description="Your instructor's feedback appears here once it is released."
             />
           )}
+        </TabsContent>
+
+        {/*
+          The one panel that is not itself the scroller: the composer stays at the foot of the
+          sheet, so the `min-h-0 flex-1` chain carries on into the thread. `shrink-0` stops a long
+          conversation squeezing the textarea to nothing.
+        */}
+        <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col">
+          <CommentThread
+            thread={comments.data}
+            loading={comments.isPending}
+            error={comments.isError}
+            onRetry={() => void comments.refetch()}
+            now={now}
+            assignmentId={assignment.id}
+            emptyTitle="No comments yet"
+            emptyDescription="Ask your instructor anything about this assignment. You do not need to have handed anything in."
+            announcement={announcement}
+            className="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+          />
+
+          <div className="shrink-0 border-t border-border px-4 py-3">
+            <CommentComposer
+              assignmentId={assignment.id}
+              value={draft}
+              onValueChange={setDraft}
+              anchor={anchor}
+              onClearAnchor={() => setAnchor(null)}
+              onPosted={() => setAnnouncement("Comment posted.")}
+            />
+          </div>
         </TabsContent>
       </Tabs>
     </>
@@ -351,9 +456,12 @@ function MarkFeedbackRead({ submission }: { submission: Submission }) {
 function SubmissionTab({
   assignment,
   submission,
+  onOpenComments,
 }: {
   assignment: Assignment;
   submission: Submission | null;
+  /** Opens the Comments tab, for the pointer at the foot of this one. */
+  onOpenComments: () => void;
 }) {
   const status = submission?.status ?? "NOT_STARTED";
   const revised =
@@ -620,6 +728,22 @@ function SubmissionTab({
           </AlertDescription>
         </Alert>
       ) : null}
+
+      {/*
+        Said where somebody gets stuck. The commonest moment to have a question is before starting,
+        and a tab nobody has opened is not an affordance.
+      */}
+      <p className="text-sm text-muted-foreground">
+        Stuck, or not sure what is being asked?{" "}
+        <button
+          type="button"
+          onClick={onOpenComments}
+          className="font-medium text-foreground underline underline-offset-2"
+        >
+          Ask your instructor
+        </button>
+        .
+      </p>
     </div>
   );
 }
@@ -1036,7 +1160,18 @@ function sumOrNull(values: (number | null)[]): number | null {
   return values.reduce((total: number, v) => total + v!, 0);
 }
 
-function FeedbackHistory({ rounds }: { rounds: FeedbackRound[] }) {
+function FeedbackHistory({
+  rounds,
+  comments,
+  now,
+  onRespond,
+}: {
+  rounds: FeedbackRound[];
+  /** The whole conversation. Each card takes the part of it that names its own round. */
+  comments: readonly Comment[];
+  now: Date;
+  onRespond: (round: FeedbackRound) => void;
+}) {
   const latest = rounds[rounds.length - 1];
 
   return (
@@ -1047,6 +1182,9 @@ function FeedbackHistory({ rounds }: { rounds: FeedbackRound[] }) {
           round={round}
           isLatest={round.key === latest.key}
           multiRound={rounds.length > 1}
+          comments={comments}
+          now={now}
+          onRespond={onRespond}
         />
       ))}
     </div>
@@ -1057,10 +1195,16 @@ function FeedbackRoundCard({
   round,
   isLatest,
   multiRound,
+  comments,
+  now,
+  onRespond,
 }: {
   round: FeedbackRound;
   isLatest: boolean;
   multiRound: boolean;
+  comments: readonly Comment[];
+  now: Date;
+  onRespond: (round: FeedbackRound) => void;
 }) {
   // The most recent round is open; earlier ones collapse so the history stays readable
   // without being hidden.
@@ -1088,7 +1232,13 @@ function FeedbackRoundCard({
     </div>
   );
 
-  const body = <RoundSections round={round} />;
+  const body = (
+    <>
+      <RoundSections round={round} />
+      {/* The conversation about this round, under it and also in the thread. */}
+      <RoundComments round={round} comments={comments} now={now} onRespond={onRespond} />
+    </>
+  );
 
   if (isLatest) {
     return (
@@ -1115,6 +1265,52 @@ function FeedbackRoundCard({
         </CollapsibleContent>
       </div>
     </Collapsible>
+  );
+}
+
+/**
+ * What was said about one round of feedback, and the way to say something about it.
+ *
+ * The filter lives here and nowhere else, so this card and the thread cannot disagree about what
+ * "about this round" means. The round badge is suppressed, since the heading above says it.
+ *
+ * **No composer here**: the button carries the round to the one composer on the Comments tab,
+ * where it shows as a clearable chip. One place a comment is written, and one draft.
+ */
+function RoundComments({
+  round,
+  comments,
+  now,
+  onRespond,
+}: {
+  round: FeedbackRound;
+  comments: readonly Comment[];
+  now: Date;
+  onRespond: (round: FeedbackRound) => void;
+}) {
+  // The fallback round names no draft, so nothing can point at it — see `feedbackRounds`.
+  const mine = round.key === "submission" ? [] : comments.filter((c) => c.round?.id === round.key);
+
+  return (
+    <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4">
+      {mine.length > 0 && (
+        <>
+          <h4 className="text-sm font-semibold">About this feedback</h4>
+          <CommentList comments={mine} now={now} showRound={false} />
+        </>
+      )}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start"
+        onClick={() => onRespond(round)}
+      >
+        <MessageSquare data-icon="inline-start" />
+        {mine.length > 0 ? "Add to this conversation" : "Respond to this feedback"}
+      </Button>
+    </div>
   );
 }
 

@@ -23,6 +23,7 @@ import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/co
 import { teachableAssignment } from "@/lib/courses/scope";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { effectiveSection } from "@/lib/grade/approve";
+import { threadSubmissionId, type ThreadComment, unreadCount } from "@/lib/submissions/comments";
 import { teamForStudent } from "@/lib/submissions/team";
 import { listAnswerKeyEntries, listAnswerKeys, MAX_ANSWER_KEYS } from "@/lib/grade/assets";
 
@@ -148,6 +149,66 @@ const studentWorkSelect = {
     },
   },
 } satisfies Prisma.SubmissionSelect;
+
+/**
+ * How many messages on each of these threads are news to one reader.
+ *
+ * **A separate query, because a select cannot express it.** A `_count` can say how many comments a
+ * thread holds, but not how many arrived after *this reader's receipt for this thread* — the cutoff
+ * differs on every row. So both are read for the page at once and folded with the same
+ * `unreadCount` the thread badges with.
+ *
+ * No bodies and no names: fifty rows each want one integer. The ids must already be resolved
+ * through `threadSubmissionId`.
+ */
+async function unreadCommentCounts(
+  db: Db,
+  params: { threadIds: readonly string[]; readerId: string },
+): Promise<Map<string, number>> {
+  if (params.threadIds.length === 0) return new Map();
+
+  const ids = [...new Set(params.threadIds)];
+
+  const [comments, receipts] = await Promise.all([
+    db.submissionComment.findMany({
+      where: { submissionId: { in: ids } },
+      select: {
+        submissionId: true,
+        authorId: true,
+        authorRole: true,
+        createdAt: true,
+        deletedAt: true,
+      },
+    }),
+    db.submissionCommentRead.findMany({
+      where: { submissionId: { in: ids }, profileId: params.readerId },
+      select: { submissionId: true, lastReadAt: true },
+    }),
+  ]);
+
+  const lastReadOf = new Map(receipts.map((receipt) => [receipt.submissionId, receipt.lastReadAt]));
+  const byThread = new Map<string, ThreadComment[]>();
+
+  for (const comment of comments) {
+    const existing = byThread.get(comment.submissionId);
+    if (existing) existing.push(comment);
+    else byThread.set(comment.submissionId, [comment]);
+  }
+
+  const counts = new Map<string, number>();
+
+  for (const [threadId, thread] of byThread) {
+    counts.set(
+      threadId,
+      unreadCount(thread, {
+        id: params.readerId,
+        lastReadAt: lastReadOf.get(threadId) ?? null,
+      }),
+    );
+  }
+
+  return counts;
+}
 
 /** Refuses a draft that would not grade correctly, naming the fields. */
 function refuseOnErrors(findings: ValidationFinding[]): void {
@@ -427,6 +488,17 @@ export const assignmentsRouter = createTRPCRouter({
         student's browser at all: it is instructor-facing evidence, and there is no
         student-facing question it answers.
       */
+      /*
+        Unread comments, for the badge on the panel's Comments tab. One query for the page rather
+        than one per row, and resolved through the mirror so a team's members all see the count.
+      */
+      const unreadComments = await unreadCommentCounts(ctx.db, {
+        threadIds: assignments.flatMap((assignment) =>
+          assignment.submissions.map((submission) => threadSubmissionId(submission)),
+        ),
+        readerId: ctx.profile.id,
+      });
+
       return assignments.map((assignment) => ({
         ...assignment,
         submissions: assignment.submissions.map((submission) => {
@@ -466,6 +538,8 @@ export const assignmentsRouter = createTRPCRouter({
               an instructor has open is not something a student's screen should be able to render.
             */
             instructorHasStarted: work._count.gradingDrafts > 0,
+            // The panel seeds its badge from this before the Comments tab has been opened.
+            unreadCommentCount: unreadComments.get(threadSubmissionId(own)) ?? 0,
             gradingDrafts: work.gradingDrafts.map((draft) => ({
               ...draft,
               sections: draft.sections.map(effectiveSection),

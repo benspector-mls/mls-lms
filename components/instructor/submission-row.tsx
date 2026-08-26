@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, MessageSquare } from "lucide-react";
 
 import { DraftStatusBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -125,6 +125,28 @@ export function SubmissionRow({
               className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
             >
               Not delivered
+            </Badge>
+          )}
+          {/*
+            That there is a conversation, and whether it is waiting. Teal when somebody is owed an
+            answer, matching the questions section on the triage screen; muted once it is not, so a
+            row still says a record is there without asking to be acted on.
+          */}
+          {row.commentCount > 0 && (
+            <Badge
+              variant="outline"
+              className={cn(
+                "gap-1 font-normal",
+                row.commentsAwaitReply
+                  ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
+                  : "text-muted-foreground",
+              )}
+            >
+              <MessageSquare className="size-3" />
+              <span className="tabular-nums">{row.commentCount}</span>
+              <span className="sr-only">
+                {row.commentsAwaitReply ? " comments, waiting on a reply" : " comments"}
+              </span>
             </Badge>
           )}
         </div>

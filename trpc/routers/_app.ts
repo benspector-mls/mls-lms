@@ -16,6 +16,7 @@ import { courseUnitsRouter } from "./course-units";
 import { resourcesRouter } from "./resources";
 import { staffRouter } from "./staff";
 import { submissionsRouter } from "./submissions";
+import { submissionCommentsRouter } from "./submission-comments";
 import { teamSetsRouter } from "./team-sets";
 import { testRunsRouter } from "./test-runs";
 import { testStudentsRouter } from "./test-students";
@@ -167,6 +168,7 @@ export const appRouter = createTRPCRouter({
   resources: resourcesRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
+  submissionComments: submissionCommentsRouter,
   pullRequests: pullRequestsRouter,
   testRuns: testRunsRouter,
   gradingDrafts: gradingDraftsRouter,

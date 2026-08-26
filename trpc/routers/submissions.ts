@@ -14,6 +14,7 @@ import { teachableAssignment } from "@/lib/courses/scope";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { linkHost } from "@/lib/status";
+import { awaitsReply, commentExcerpt } from "@/lib/submissions/comments";
 import { handInState } from "@/lib/submissions/hand-in";
 import {
   claimTeamWork,
@@ -26,7 +27,7 @@ import { readSubmissionUpload, signedDownloadUrl } from "@/lib/uploads/storage";
 import { assertCanHandIn } from "@/lib/uploads/submit";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
-import { courseUnitSummarySelect, personSelect } from "../selects";
+import { courseUnitSummarySelect, displayNameOf, personNameSelect, personSelect } from "../selects";
 
 /**
  * Everything the review surface needs from a submission, in one place.
@@ -64,6 +65,32 @@ const reviewableSubmissionSelect = {
   gradedAt: true,
   gradedHeadSha: true,
   student: { select: personSelect },
+  /*
+    Enough of the conversation to say whether there is one and whether it is waiting, and no more:
+    the queue draws a cohort of rows and none of them shows a message.
+
+    Both facts are folded in `decorateSubmission` with the same `awaitsReply` the triage screen
+    uses, so the badge here and the list there cannot come to disagree.
+  */
+  commentsResolvedAt: true,
+  comments: {
+    orderBy: { createdAt: "asc" as const },
+    select: { authorId: true, authorRole: true, createdAt: true, deletedAt: true },
+  },
+  /*
+    And the same through the mirror, for a member who does not hold their team's row: the thread
+    hangs off the row holding the work, so reading this one's own relation would leave the badge
+    right for whoever claimed the work and silent for everybody else on the team.
+  */
+  teamSubmission: {
+    select: {
+      commentsResolvedAt: true,
+      comments: {
+        orderBy: { createdAt: "asc" as const },
+        select: { authorId: true, authorRole: true, createdAt: true, deletedAt: true },
+      },
+    },
+  },
   /*
     Whether this row is one member's copy of their team's grade. Selected because `triageBucket`
     reads it: a mirror is waiting on nobody, so it is not work — and without this every member of
@@ -110,18 +137,31 @@ type ReviewableSubmission = Prisma.SubmissionGetPayload<{
 }>;
 
 /**
- * Attaches the three derived fields every submission list carries.
+ * Attaches the derived fields every submission list carries.
  *
  * `bucket` is the same value triage sorts on, computed by the same function, so a submission
  * cannot be outstanding work on one screen and finished on another. `draftIsStale` is two columns
  * compared rather than a query. `activeDraft` is the most recent run, flattened off the relation
- * so the browser never has to know it was an array of one.
+ * so the browser never has to know it was an array of one. The two comment fields are folded the
+ * same way and for the same reason: one function, so two screens cannot answer differently.
  */
 function decorateSubmission<T extends ReviewableSubmission>(
   submission: T,
   options: { manualOnly: boolean; undeliveredIds: Set<string> },
 ) {
-  const { gradingDrafts, mirrors, team, handedInBy, ...rest } = submission;
+  const {
+    gradingDrafts,
+    mirrors,
+    team,
+    handedInBy,
+    comments,
+    commentsResolvedAt,
+    teamSubmission,
+    ...rest
+  } = submission;
+
+  // The thread, resolved to whichever row holds it.
+  const thread = teamSubmission ?? { comments, commentsResolvedAt };
   const draft = gradingDrafts[0] ?? null;
   const draftIsStale = draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
 
@@ -152,6 +192,13 @@ function decorateSubmission<T extends ReviewableSubmission>(
     }),
     draftIsStale,
     activeDraft: draft,
+    /*
+      That a conversation exists, and whether it is waiting on somebody. The bodies are dropped
+      here — a list of rows needs to say there is something to find, and the review pane fetches
+      the thread itself.
+    */
+    commentCount: thread.comments.filter((comment) => comment.deletedAt === null).length,
+    commentsAwaitReply: awaitsReply(thread.comments, thread.commentsResolvedAt),
   };
 }
 
@@ -652,7 +699,8 @@ export const submissionsRouter = createTRPCRouter({
       // on this screen: a course that is archived and a course in somebody else's program both
       // have nothing in them waiting on the caller.
       if (!course) {
-        return { submissions: [], gradedCount: 0 };
+        // Every field the full answer has, so the shape does not depend on the branch.
+        return { submissions: [], gradedCount: 0, awaitingReply: [] };
       }
 
       const submissions = await ctx.db.submission.findMany({
@@ -829,10 +877,84 @@ export const submissionsRouter = createTRPCRouter({
         };
       });
 
+      /*
+        Threads where a fellow asked something and nobody has answered.
+
+        **Its own list rather than a `TriageBucket`**, which returns one value per submission: work
+        can need a report and hold an unanswered question at once, and folding them together would
+        mean choosing which an instructor is told about.
+
+        Its own query regardless — the pile above matches submitted work and drafts in flight, and a
+        question asked before anything was handed in sits on a `NOT_STARTED` row.
+
+        Scoped by the same `teamAwareWork` fragment, so the cohort picker narrows this too.
+      */
+      const withComments = await ctx.db.submission.findMany({
+        where: {
+          ...teamAwareWork(course.programId, input.courseId, selection),
+          // The row holding the work: a mirror never carries the thread.
+          teamSubmissionId: null,
+          comments: { some: { deletedAt: null } },
+        },
+        select: {
+          id: true,
+          teamId: true,
+          commentsResolvedAt: true,
+          student: {
+            select: { id: true, displayName: true, email: true, testStudentNumber: true },
+          },
+          team: { select: { name: true } },
+          assignment: { select: { id: true, title: true, courseId: true } },
+          comments: {
+            where: { deletedAt: null },
+            orderBy: { createdAt: "asc" },
+            select: {
+              authorId: true,
+              authorRole: true,
+              createdAt: true,
+              deletedAt: true,
+              body: true,
+              author: { select: personNameSelect },
+            },
+          },
+        },
+      });
+
+      const awaitingReply = withComments
+        .filter((submission) => awaitsReply(submission.comments, submission.commentsResolvedAt))
+        .map((submission) => {
+          // The questions standing since the last thing an instructor said.
+          const lastReply = submission.comments.findLastIndex(
+            (comment) => comment.authorRole === "INSTRUCTOR",
+          );
+          const waiting = submission.comments.slice(lastReply + 1);
+          const newest = waiting[waiting.length - 1]!;
+
+          return {
+            submissionId: submission.id,
+            assignment: submission.assignment,
+            student: submission.student,
+            team: submission.team,
+            askedBy: newest.author
+              ? displayNameOf(newest.author, "Someone who has left")
+              : "Someone who has left",
+            // Flattened on the server: the row is one line of plain text inside a link.
+            excerpt: commentExcerpt(newest.body),
+            lastCommentAt: newest.createdAt,
+            waitingCount: waiting.length,
+          };
+        })
+        // Longest wait first: the person stopped longest is the one to answer next.
+        .sort((a, b) => a.lastCommentAt.getTime() - b.lastCommentAt.getTime());
+
       // A row matching the query but landing in no bucket has nothing for a person to
       // do — a superseded draft on a graded submission, say. Dropped here so the
       // interface never has to decide what to do with one.
-      return { submissions: rows.filter((row) => row.bucket != null), gradedCount };
+      return {
+        submissions: rows.filter((row) => row.bucket != null),
+        gradedCount,
+        awaitingReply,
+      };
     }),
 
   /**

@@ -16,6 +16,7 @@ import {
   FolderGit2,
   GitPullRequest,
   Loader2,
+  MessageSquare,
   RotateCcw,
   Users,
 } from "lucide-react";
@@ -30,11 +31,14 @@ import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import { Draft, DraftList, QueueSubmission } from "@/components/instructor/review/shared";
 export function ReviewHeader({
+  awaitsReply = false,
   submission,
   draft,
   studentHref,
   actionsRef,
 }: {
+  /** Whether a fellow has asked something nobody has answered. */
+  awaitsReply?: boolean;
   submission: QueueSubmission;
   draft: Draft | null;
   studentHref?: string;
@@ -166,6 +170,22 @@ export function ReviewHeader({
           {submission.isLate && (
             <Badge variant="outline" className="font-normal">
               Late
+            </Badge>
+          )}
+          {/*
+            In the header because the header is what an instructor can still see from the bottom of
+            a long report — the same reason the approve button is portalled into it. An anchor
+            rather than a plain badge, because a badge saying something is below with no way down
+            is a statement and not a control.
+          */}
+          {awaitsReply && (
+            <Badge
+              render={<a href={`#comments-${submission.student.id}`} />}
+              variant="outline"
+              className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
+            >
+              <MessageSquare data-icon="inline-start" />
+              Reply owed
             </Badge>
           )}
         </div>

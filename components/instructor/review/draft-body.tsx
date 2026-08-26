@@ -55,61 +55,40 @@ export function DraftBody({
   completionThreshold,
   draft,
   data,
-  testEvidence,
-  rubricInAside,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
   completionThreshold: number;
   draft: Draft | null;
   data: DraftList;
-  /** The test evidence card, or null on an assignment that cannot have a suite. */
-  testEvidence: React.ReactNode;
-  /** True when the column beside the reports is drawing the rubric breakdowns. */
-  rubricInAside: boolean;
 }) {
   if (!draft) {
+    /*
+      Nothing to say here yet. The card saying so is in the column beside this one, with the work
+      it is about, so this column holds only the conversation until there is something to grade.
+    */
     if (submission.status === "NOT_STARTED" || submission.status === "ACCEPTED") {
-      return (
-        <>
-          <StateCard
-            icon={GitPullRequest}
-            title="Nothing submitted yet"
-            description={
-              data.manualOnly
-                ? "This student has not submitted this assignment, so there is nothing to grade."
-                : "This student has a repository but has not opened a pull request, so there is nothing to grade."
-            }
-          />
-          {testEvidence}
-        </>
-      );
+      return null;
     }
     // One of the two, never both. Which one is decided on the server, from the same reading
     // of the assignment that put this submission in its triage bucket.
-    return (
-      <>
-        {data.manualOnly ? (
-          <BlankHandGrade submission={submission} data={data} />
-        ) : (
-          <GeneratePanel submission={submission} data={data} label="Generate report" />
-        )}
-        {testEvidence}
-      </>
+    // One of the two, never both. Which one is decided on the server, from the same reading
+    // of the assignment that put this submission in its triage bucket.
+    return data.manualOnly ? (
+      <BlankHandGrade submission={submission} data={data} />
+    ) : (
+      <GeneratePanel submission={submission} data={data} label="Generate report" />
     );
   }
 
   if (draft.status === "GENERATING") {
     return (
-      <>
-        <StateCard
-          icon={Loader2}
-          spin
-          title="Generating the report"
-          description="A run is in progress. It reads the submission against the rubric and takes up to a couple of minutes."
-        />
-        {testEvidence}
-      </>
+      <StateCard
+        icon={Loader2}
+        spin
+        title="Generating the report"
+        description="A run is in progress. It reads the submission against the rubric and takes up to a couple of minutes."
+      />
     );
   }
 
@@ -140,15 +119,12 @@ export function DraftBody({
           </AlertDescription>
         </Alert>
         <GeneratePanel submission={submission} data={data} label="Try again" retry />
-        {testEvidence}
       </div>
     );
   }
 
   if (draft.status === "APPROVED") {
-    return (
-      <ReleasedBody submission={submission} draft={draft} data={data} testEvidence={testEvidence} />
-    );
+    return <ReleasedBody submission={submission} draft={draft} data={data} />;
   }
 
   return (
@@ -182,8 +158,6 @@ export function DraftBody({
           draft={draft}
           approvalBlocked={stale}
           manualOnly={data.manualOnly}
-          testEvidence={testEvidence}
-          rubricInAside={rubricInAside}
         />
       ) : (
         <>
@@ -206,7 +180,6 @@ export function DraftBody({
               </a>
             )}
           </StateCard>
-          {testEvidence}
         </>
       )}
 
@@ -714,13 +687,11 @@ function ReleasedBody({
   submission,
   draft,
   data,
-  testEvidence,
 }: {
   submission: QueueSubmission;
   draft: Draft;
   data: DraftList;
   /** Below what was sent, for the same reason it is below the report while one is being edited. */
-  testEvidence: React.ReactNode;
 }) {
   /*
     Work handed in again since the grade went out, which is the one state in which a released
@@ -737,19 +708,13 @@ function ReleasedBody({
     (submission.headSha !== null && submission.headSha !== submission.gradedHeadSha);
 
   /*
-    The grade, then what it rests on, then the way to change it.
-
-    The grade is read first because it is the answer to the only question that matters once a
-    submission is graded: what did this student get. The evidence is why it says that, which is a
-    question asked second. And the offer to open another round comes after both, because deciding
-    to change a grade is something an instructor does having read it — a button above the report
-    invites a correction before there is anything to correct.
+    The grade, then the way to change it. The offer to open another round comes second because
+    deciding to change a grade is something an instructor does having read it — a button above the
+    report invites a correction before there is anything to correct.
   */
   return (
     <div className="flex flex-col gap-4">
       <ReleasedGradeCard draft={draft} data={data} />
-
-      {testEvidence}
 
       {/*
         Revising a released grade means a new round, not an edit of this one. The student keeps

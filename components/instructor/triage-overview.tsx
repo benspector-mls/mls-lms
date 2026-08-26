@@ -7,12 +7,14 @@ import {
   Clock,
   FileText,
   Inbox,
+  MessageCircleQuestion,
   MessageSquareOff,
   PencilLine,
   Sparkles,
   XCircle,
 } from "lucide-react";
 
+import { ResolveQuestionButton } from "@/components/comments/resolve-button";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -25,7 +27,7 @@ import {
   type CohortChoice,
 } from "@/lib/programs/cohorts";
 import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
-import { gradingQueueHref } from "@/lib/links";
+import { gradingQueueHref, studentHref } from "@/lib/links";
 import { formatRelative } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -45,6 +47,7 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Triage = RouterOutputs["submissions"]["triage"];
 type Row = Triage["submissions"][number];
+type Waiting = Triage["awaitingReply"][number];
 
 /**
  * The buckets that represent work. `generating` is not among them — a run already in
@@ -141,6 +144,9 @@ export function TriageOverview({
   // of the screen and the piles below it are the same claim stated two ways.
   const remaining = WORK_BUCKETS.reduce((total, key) => total + buckets[key].length, 0);
 
+  // Not folded into `remaining`, which is spent in "N submissions left to grade".
+  const waiting = triage.awaitingReply.length;
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       {/*
@@ -161,6 +167,10 @@ export function TriageOverview({
           remaining === 0
             ? "Caught up"
             : `${remaining} ${remaining === 1 ? "submission" : "submissions"} left to grade`,
+          // Its own clause rather than added to the figure above, because it is a different job.
+          ...(waiting === 0
+            ? []
+            : [`${waiting} ${waiting === 1 ? "question" : "questions"} to answer`]),
           `${triage.gradedCount} approved`,
         ].join(" · ")}
         /*
@@ -187,13 +197,20 @@ export function TriageOverview({
         </div>
       )}
 
-      {remaining === 0 ? (
+      {/*
+        First, because it is the most blocking thing here: a fellow is stopped until somebody
+        answers, where work awaiting a grade is finished work sitting still.
+      */}
+      {waiting > 0 && <TriageQuestions rows={triage.awaitingReply} now={now} />}
+
+      {/* Guarded on both, or the screen denies there is anything above a card full of questions. */}
+      {remaining === 0 && waiting === 0 ? (
         <EmptyState
           icon={<Inbox />}
           title="Nothing is waiting on you"
           description="Every submission that has been declared finished has been graded and delivered."
         />
-      ) : (
+      ) : remaining === 0 ? null : (
         <div className="flex flex-col gap-4">
           {/*
             Ordered as the work is done: everything without a report, then everything with
@@ -279,26 +296,39 @@ function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
   return buckets;
 }
 
-function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Row[]; now: Date }) {
-  const meta = BUCKET_META[bucketKey];
-  const Icon = meta.icon;
-  const groups = groupByAssignment(rows);
-
+/**
+ * The box every pile on this screen is drawn in. It knows nothing about buckets, which is how the
+ * questions list uses it without being one.
+ */
+function TriageSection({
+  label,
+  description,
+  icon: Icon,
+  tone,
+  accent,
+  count,
+  children,
+}: {
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: string;
+  accent: string;
+  count: number;
+  children: React.ReactNode;
+}) {
   return (
     <Card>
       <CardHeader>
         <div className="flex items-start gap-3">
           <div
-            className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-lg",
-              meta.accent,
-            )}
+            className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", accent)}
           >
-            <Icon className={cn("size-5", meta.tone)} />
+            <Icon className={cn("size-5", tone)} />
           </div>
           <div className="flex-1">
             <CardTitle className="flex items-center gap-2 text-base">
-              {meta.label}
+              {label}
               {/*
                 Submissions, not assignments. This is the figure the whole screen is counted in,
                 and it stays the count of rows even though the rows beneath are now grouped —
@@ -306,14 +336,122 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
                 as four pieces of work outstanding.
               */}
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                {rows.length}
+                {count}
               </span>
             </CardTitle>
-            <CardDescription className="mt-1">{meta.description}</CardDescription>
+            <CardDescription className="mt-1">{description}</CardDescription>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Threads where a fellow asked something and nobody has answered.
+ *
+ * A list of its own rather than a bucket: `triageBucket` returns one value per submission, and work
+ * can need a report and hold a question at once.
+ *
+ * Teal, because the buckets have taken the other colours and emerald means a pass.
+ */
+function TriageQuestions({ rows, now }: { rows: Waiting[]; now: Date }) {
+  return (
+    <TriageSection
+      label="Unread comments"
+      description="A fellow asked something and nobody has answered."
+      icon={MessageCircleQuestion}
+      tone="text-teal-600 dark:text-teal-400"
+      accent="bg-teal-500/10"
+      count={rows.length}
+    >
+      <div className="flex flex-col gap-1">
+        {rows.map((row) => (
+          <QuestionRow key={row.submissionId} row={row} now={now} />
+        ))}
+      </div>
+    </TriageSection>
+  );
+}
+
+/**
+ * One person waiting on one answer.
+ *
+ * A row per question rather than per assignment, unlike `AssignmentRow`: grouping would throw away
+ * both the asker and what they asked.
+ *
+ * **It opens the fellow's record, not the grading queue.** The queue drops `NOT_STARTED` rows and
+ * falls back to the first of its list, so a question asked before anything was handed in would
+ * open a different fellow's report under a URL naming this one.
+ */
+function QuestionRow({ row, now }: { row: Waiting; now: Date }) {
+  return (
+    /*
+      A link with a button beside it rather than a link containing one, which is not allowed and
+      would swallow the press. The hover treatment moves out here so both halves still light up as
+      one row.
+    */
+    <div className="flex items-center gap-2 rounded-lg border border-transparent pr-3 transition-colors hover:border-border hover:bg-muted/50">
+      <Link
+        href={studentHref(row.assignment.courseId, row.student.id, row.submissionId)}
+        className="flex min-w-0 flex-1 items-center gap-4 px-3 py-3"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-sm font-medium">{row.askedBy}</p>
+            {row.team && (
+              <span className="shrink-0 text-xs text-muted-foreground">{row.team.name}</span>
+            )}
+            {row.student.testStudentNumber !== null && <TestStudentBadge />}
+            {/* How many have piled up since the last thing an instructor said. */}
+            {row.waitingCount > 1 && (
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                {row.waitingCount}
+              </span>
+            )}
+          </div>
+          {/*
+          The question itself, because the assignment alone does not say whether this is thirty
+          seconds or a conversation. One line: the answer is written on the other screen.
+        */}
+          <p className="truncate text-sm text-muted-foreground">
+            {row.assignment.title} — {row.excerpt}
+          </p>
+        </div>
+
+        <div className="hidden items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground sm:flex">
+          <Clock className="size-3.5" />
+          {formatRelative(row.lastCommentAt, now)}
+        </div>
+
+        <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+      </Link>
+
+      {/*
+        Answering is not the only way a question stops waiting: some are settled in person, and some
+        the fellow works out before anybody reads this. Clearing one from here means not opening it
+        to write a reply that says nothing.
+      */}
+      <ResolveQuestionButton submissionId={row.submissionId} resolved={false} size="icon" />
+    </div>
+  );
+}
+
+function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Row[]; now: Date }) {
+  const meta = BUCKET_META[bucketKey];
+  const groups = groupByAssignment(rows);
+
+  return (
+    <TriageSection
+      label={meta.label}
+      description={meta.description}
+      icon={meta.icon}
+      tone={meta.tone}
+      accent={meta.accent}
+      count={rows.length}
+    >
+      <>
         {groups.length === 0 ? (
           <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-6 text-sm text-muted-foreground">
             <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
@@ -326,8 +464,8 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </>
+    </TriageSection>
   );
 }
 

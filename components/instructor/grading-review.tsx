@@ -2,15 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, GitPullRequest } from "lucide-react";
 import { SubmittedDocumentRow } from "@/components/submitted-document";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
-import { previewKindOf } from "@/lib/uploads/file-types";
-import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
+import { CommentsCard } from "@/components/instructor/review/comments-card";
 import { DraftBody } from "@/components/instructor/review/draft-body";
 import { DraftHistory } from "@/components/instructor/review/draft-history";
 import { CommentRecoveryNotice, ReviewHeader } from "@/components/instructor/review/review-header";
@@ -20,10 +19,13 @@ import {
   HeaderActionsSlot,
   QueueSubmission,
   readRubricItems,
+  StateCard,
 } from "@/components/instructor/review/shared";
 import { DiffPanel, TestEvidence } from "@/components/instructor/review/work-panels";
+import { displayNameOf } from "@/lib/people";
 export function GradingReview({
   submission,
+  assignmentId,
   assignmentTitle,
   assignmentKind,
   completionThreshold,
@@ -31,6 +33,15 @@ export function GradingReview({
   now,
 }: {
   submission: QueueSubmission;
+  /**
+   * The assignment this work is for.
+   *
+   * Passed in rather than read off the submission, because both callers already hold the
+   * assignment — the queue reads it once for the page, and the fellow's record has one per row —
+   * and the conversation is keyed on the assignment rather than on the submission, so that a
+   * question can be asked before there is a submission at all.
+   */
+  assignmentId: string;
   assignmentTitle: string;
   /**
    * Decides whether a test suite is even a possibility for this assignment. Typed from the
@@ -91,6 +102,18 @@ export function GradingReview({
     *template* repository it comes from, and a diff needs only the student's own pull request.
   */
   const diffAside = canHaveTests && submission.prNumber !== null;
+
+  /*
+    The conversation about this work, read here rather than inside the card so that the header's
+    "Reply owed" badge and the card itself are the same answer. React Query holds one entry for the
+    key either way, so asking in the parent costs nothing and removes the chance of two.
+  */
+  const comments = useQuery(
+    trpc.submissionComments.thread.queryOptions({
+      assignmentId,
+      studentId: submission.student.id,
+    }),
+  );
 
   const drafts = useQuery(
     trpc.gradingDrafts.listForSubmission.queryOptions({ submissionId: submission.id }),
@@ -154,21 +177,21 @@ export function GradingReview({
   const currentRun = testRuns.data?.runs.find((run) => run.headSha === submission.headSha) ?? null;
 
   /*
-    Handed to `DraftBody` rather than placed here, because where the evidence belongs depends
-    on what is being reviewed: below the report and its rubric breakdown when there is a
-    report, and below the panel that offers to write one when there is not. The report is what
-    an instructor is here to read; the evidence is why it says what it says, and that is a
-    question asked second.
+    Shown only where a suite is actually configured. `canHaveTests` asks about the kind and not
+    about the assignment, so a repository with `runnerPreset: "none"` would otherwise carry a
+    permanent card saying it has no tests. `isPending` keeps the slot while the answer is on its
+    way, so the column does not jump once it arrives.
   */
-  const testEvidence = canHaveTests ? (
-    <TestEvidence
-      submissionId={submission.id}
-      runs={testRuns.data}
-      currentRun={currentRun}
-      loading={testRuns.isPending}
-      now={now}
-    />
-  ) : null;
+  const testEvidence =
+    canHaveTests && (testRuns.isPending || testRuns.data?.runnerPreset !== "none") ? (
+      <TestEvidence
+        submissionId={submission.id}
+        runs={testRuns.data}
+        currentRun={currentRun}
+        loading={testRuns.isPending}
+        now={now}
+      />
+    ) : null;
 
   /*
     The student's uploaded file, built once and placed in whichever column it belongs to.
@@ -222,69 +245,59 @@ export function GradingReview({
     : [];
 
   /*
-    **What goes in the column beside the grade, and which of the four kinds of thing it is.**
+    **What the student handed in.** One of four, and there is always one: an uploaded file, the
+    address they submitted, the diff of their pull request, or a card saying there is nothing yet.
 
-    One kind at a time, and never two, and what settles it is a ranking rather than the kinds
-    being mutually exclusive: **the work comes before the working.** A repository has both — the
-    diff is what the student wrote, and the rubric breakdown with the suite output is what the
-    score rests on — so the diff takes the column and the working reads under the report, which is
-    where `DraftEditor` draws it by default. Where a submission has none of the four the pane
-    stays in one column rather than splitting to show an empty half.
-
-      - A file that can be shown, by either of the two routes there are: handed to the browser,
-        which has a viewer for a PDF and an image, or read as text and coloured here, which is
-        what a Python script gets. `previewKindOf` is the same function the view itself asks, so
-        the two cannot disagree about what can be shown — a `.docx` answers null and stays in the
-        one column, where it is a row with a download button and nothing to read.
-      - The address a student handed in. Where that address is a Google document,
-        `SubmittedDocumentRow` frames the document under it and this column holds the work; where
-        it is anything else, it holds the address, which is small but is still what they
-        submitted and belongs on the same side the document would be. That decision is
-        `parseDriveDocUrl`, asked by the card rather than here, and it is the same function the
-        frame's address is built from — so a pane that widened for a document cannot then fail to
-        show one.
-      - The diff of a pull request, which is the work for an assignment collected as a
-        repository. Present as soon as there is a pull request, which `prNumber` answers without
-        a request being made.
-      - The working behind the score: the rubric breakdown and the suite output. Not what the
-        student handed in, and not the work — what the grade rests on. It is what the column holds
-        for a repository whose student has accepted and not yet pushed.
-
-    The last of those is the one that stacks *after* the grade rather than before it: on a narrow
-    screen an instructor reads the feedback the student will read and then scrolls to what backs
-    it up, which is the order that has always been on this screen. A document is the opposite: it
-    is the work, and it is read first.
+    An upload goes here whether or not it can be previewed. A `.pdf` gets a viewer and a `.docx`
+    gets a download button, but both are the work, and the instructor should not have to look in a
+    different place depending on the file type they asked for.
   */
-  const documentAside =
-    submission.uploadFilename !== null && previewKindOf(submission.uploadFilename) !== null;
-  const linkAside = !documentAside && submittedLink !== null;
-  const evidenceAside =
-    !documentAside &&
-    !linkAside &&
-    !diffAside &&
-    canHaveTests &&
-    (rubricSections.length > 0 || (testRuns.data?.runs.length ?? 0) > 0);
+  const work =
+    uploadedFile ??
+    submittedLink ??
+    (diffAside ? (
+      <DiffPanel
+        diff={diff.data}
+        loading={diff.isPending}
+        error={diff.error}
+        prUrl={submission.prUrl}
+        prNumber={submission.prNumber}
+      />
+    ) : (
+      <StateCard
+        icon={GitPullRequest}
+        title="Nothing submitted yet"
+        description={
+          data.manualOnly
+            ? "This student has not submitted this assignment, so there is nothing to grade."
+            : "This student has a repository but has not opened a pull request, so there is nothing to grade."
+        }
+      />
+    ));
 
-  const aside = documentAside ? (
-    uploadedFile
-  ) : linkAside ? (
-    submittedLink
-  ) : diffAside ? (
-    <DiffPanel
-      diff={diff.data}
-      loading={diff.isPending}
-      error={diff.error}
-      prUrl={submission.prUrl}
-      prNumber={submission.prNumber}
-    />
-  ) : evidenceAside ? (
+  /*
+    **The column beside the grade: the work, and the working beneath it.**
+
+    One rule rather than a ranking between kinds — the left column is everything the grade is
+    *about*, and the right is what is being said to the student and the conversation with them. An
+    instructor then finds the report and the conversation in the same place on every assignment,
+    which a ranking could not promise: the same person grading a Google Doc and a repository used
+    to find them in different columns.
+
+    The working is the rubric breakdown and the suite output. It sits under the work rather than
+    beside it or under the report, because it is evidence about the same thing.
+
+    Always present, so the pane always splits when there is room for it.
+  */
+  const aside = (
     <>
+      {work}
       {rubricSections.map((section) => (
         <RubricBreakdown key={section.id} section={section} />
       ))}
       {testEvidence}
     </>
-  ) : null;
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -293,6 +306,7 @@ export function GradingReview({
         draft={draft}
         studentHref={studentHref}
         actionsRef={setActionsSlot}
+        awaitsReply={comments.data?.awaitsReply ?? false}
       />
 
       <HeaderActionsSlot.Provider value={actionsSlot}>
@@ -354,33 +368,22 @@ export function GradingReview({
             is clipped away, leaving cards with their sides and top missing. The padding is what
             keeps the outline inside the box that clips it.
           */}
-          <div
-            className={cn(
-              "mx-auto flex max-w-5xl flex-col gap-5",
-              aside &&
-                "@4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-6",
-            )}
-          >
-            {aside && (
-              <div
-                className={cn(
-                  "min-w-0",
-                  // Its own scroll, so a rubric of ten questions and the suite output beneath it
-                  // can be read to the end without the report leaving the screen. The padding is
-                  // there for the cards' outlines — see below.
-                  "@4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1",
-                  evidenceAside && "order-last @4xl:order-none",
-                )}
-              >
-                <div className="flex min-w-0 flex-col gap-5">{aside}</div>
-              </div>
-            )}
+          <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-6">
+            {/*
+              Stacked, the work reads last: an instructor on a narrow pane reads the feedback the
+              student will read, then the conversation, then scrolls to what the grade is about.
+              Split, it is the left column. `order-last` and its undoing at the breakpoint are what
+              let one piece of markup read in both orders.
+
+              Its own scroll, so a diff and the working beneath it can be read to the end without
+              the report leaving the screen. The padding is there for the cards' outlines.
+            */}
+            <div className="order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1">
+              <div className="flex min-w-0 flex-col gap-5">{aside}</div>
+            </div>
 
             <div className="min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
               <div className="flex min-w-0 flex-col gap-5">
-                {!documentAside && uploadedFile}
-                {!linkAside && submittedLink}
-
                 <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
                 {/*
@@ -396,14 +399,27 @@ export function GradingReview({
                     completionThreshold={completionThreshold}
                     draft={draft}
                     data={data}
-                    testEvidence={evidenceAside ? null : testEvidence}
-                    rubricInAside={evidenceAside}
                   />
                 </FeedbackBoxes.Provider>
 
                 {history.length > 1 && (
                   <DraftHistory drafts={history} activeId={draft?.id} now={now} />
                 )}
+
+                {/*
+                  Last in the column of things said to this fellow — after the report and the
+                  rounds that came before it, which is the order they happened in.
+                */}
+                <CommentsCard
+                  assignmentId={assignmentId}
+                  studentId={submission.student.id}
+                  studentName={displayNameOf(submission.student, "this fellow")}
+                  thread={comments.data}
+                  loading={comments.isPending}
+                  error={comments.isError}
+                  onRetry={() => void comments.refetch()}
+                  now={now}
+                />
               </div>
             </div>
           </div>

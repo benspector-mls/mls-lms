@@ -29,7 +29,7 @@ import { statedScoreInText } from "@/lib/grade/report-text";
 import { completionMeta, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
-import { RubricBreakdown, SectionEditor } from "@/components/instructor/review/section-editor";
+import { SectionEditor } from "@/components/instructor/review/section-editor";
 import {
   Draft,
   FeedbackBoxes,
@@ -56,8 +56,6 @@ export function DraftEditor({
   draft,
   approvalBlocked,
   manualOnly,
-  testEvidence,
-  rubricInAside,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
@@ -68,9 +66,7 @@ export function DraftEditor({
   /** True when this assignment is graded by hand, so there is no report to generate again. */
   manualOnly: boolean;
   /** Rendered below the sections: the reports come first, the evidence behind them second. */
-  testEvidence: React.ReactNode;
   /** True when the column beside the reports is drawing the rubric breakdowns. */
-  rubricInAside: boolean;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -283,7 +279,6 @@ export function DraftEditor({
               that one instead — see `evidenceAside` — and this stays silent rather than drawing
               it twice.
             */}
-            {!rubricInAside && <RubricBreakdown section={section} />}
           </React.Fragment>
         ))}
       </div>
@@ -294,7 +289,6 @@ export function DraftEditor({
         rubric breakdown and the suite output to see whether it holds up. Null where the column
         beside the reports is holding it instead.
       */}
-      {testEvidence}
 
       {actionsSlot &&
         createPortal(

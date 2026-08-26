@@ -64,6 +64,7 @@ export function StudentCourseDetail({
   assignments,
   resources,
   githubLinked,
+  now,
 }: {
   course: Course;
   assignments: Assignment[];
@@ -76,6 +77,8 @@ export function StudentCourseDetail({
    */
   resources: Resource[];
   githubLinked: boolean;
+  /** Read once on the server, so relative times do not differ between the two render passes. */
+  now: Date;
 }) {
   const units = groupByCourseUnit(course, assignments, resources);
 
@@ -229,6 +232,7 @@ export function StudentCourseDetail({
       */}
       <AssignmentPanel
         assignment={openAssignment}
+        now={now}
         open={openAssignment != null}
         onOpenChange={(next) => {
           if (!next) show(null);

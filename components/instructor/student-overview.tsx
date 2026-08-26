@@ -255,6 +255,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               <GradingReview
                 key={selected.submission.id}
                 submission={selected.submission}
+                assignmentId={selected.assignment.id}
                 assignmentTitle={selected.assignment.title}
                 assignmentKind={selected.assignment.kind}
                 // Per row here, where the queue reads it once for the page: every row on this
