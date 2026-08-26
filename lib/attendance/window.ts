@@ -3,7 +3,7 @@
  *
  * **Every time rule here is a comparison, never a job**, because there is no scheduler in this
  * project and this feature is not the right reason to introduce one. A session closes on its
- * ninety-minute backstop the same way a due date passes: nothing runs, the answer to the question
+ * eight-hour backstop the same way a due date passes: nothing runs, the answer to the question
  * simply changes. The rows that record who was absent are written afterwards, by whoever next
  * loads the grid or starts the following session — see `lib/attendance/grid.ts` for the state that
  * covers the gap.
@@ -12,8 +12,15 @@
  * boundary cases be tested against fixed instants instead of a mocked clock.
  */
 
-/** How long a session accepts check-ins before its backstop, absent any extension. */
-export const DEFAULT_SESSION_MINUTES = 90;
+/**
+ * How long a session accepts check-ins before its backstop, absent any extension.
+ *
+ * Eight hours, because attendance is taken across a whole day rather than during one lesson. A
+ * fellow who arrives after lunch is checking into the same day as the fellow who arrived at nine,
+ * and a backstop measured in a single lesson's length would have closed the day before they sat
+ * down.
+ */
+export const DEFAULT_SESSION_MINUTES = 480;
 
 /** How much one press of Extend buys. */
 export const EXTEND_MINUTES = 30;

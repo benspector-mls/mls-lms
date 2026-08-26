@@ -42,7 +42,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * and refreshed by `useServerMutation`, which is right when a screen changes because *you* changed
  * it. This one changes because twenty-five other people are doing something, so it re-reads while
  * the session is open and stops the moment it closes. A socket would be a realtime dependency
- * bought for one query every five seconds during the ten minutes a day somebody watches this.
+ * bought for a screen somebody watches for the first half hour of the day.
  *
  * **The status buttons deliberately do not use `useServerMutation`.** Its `router.refresh()`
  * re-renders a server component per press, and working down a list of unresolved fellows is six or
@@ -53,8 +53,30 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Grid = RouterOutputs["attendance"]["grid"];
 
-/** How often the board re-reads while a session is open. */
-const POLL_MS = 5000;
+/**
+ * How often the board re-reads while a session is open, at two speeds.
+ *
+ * **Fast while people are arriving, slow for the rest of the day.** Five seconds is the right
+ * answer to the only question this screen is asked at speed — "is everybody in yet" — and it is a
+ * ridiculous answer to the eight hours after that, when what arrives is the occasional late fellow.
+ * Check-in used to close after ninety minutes, so a single fast interval was self-limiting; a
+ * day-long window makes it 5,760 requests for a board nobody is reading.
+ *
+ * **What the slow speed costs is nothing an instructor notices**, because polling is not how their
+ * own work reaches the screen. Each status press invalidates the query directly (see below), so a
+ * correction appears at once. Polling only ever reports what *other* people did — a fellow typing
+ * the code, a co-teacher fixing a row — and a minute is well inside the time either takes to
+ * matter.
+ *
+ * Measured from `startedAt` rather than from anything about the rows. "Poll fast while somebody is
+ * still unaccounted for" reads better and is the wrong rule: one fellow absent all day would hold
+ * the screen at full speed all day, which is exactly the case worth avoiding.
+ */
+const POLL_FAST_MS = 5000;
+const POLL_SLOW_MS = 60_000;
+
+/** How long after check-in opens the board stays at `POLL_FAST_MS`. */
+const ARRIVAL_MINUTES = 30;
 
 export function AttendanceDay({ data }: { data: Grid }) {
   const trpc = useTRPC();
@@ -64,13 +86,19 @@ export function AttendanceDay({ data }: { data: Grid }) {
   /*
     Seeded from the server render, so the first paint has the grid rather than a spinner — the
     page already fetched this payload. Polling only while a session is open; `false` stops it, and
-    the ninety-minute backstop guarantees that eventually happens even if nobody presses end, so a
-    tab left open overnight is not a query every five seconds until morning.
+    the eight-hour backstop guarantees that eventually happens even if nobody presses end, so a
+    tab left open overnight is not a query a minute until morning.
   */
   const grid = useQuery({
     ...trpc.attendance.grid.queryOptions({ programId, day: data.day }),
     initialData: data,
-    refetchInterval: (query) => (query.state.data?.session?.state === "open" ? POLL_MS : false),
+    refetchInterval: (query) => {
+      const session = query.state.data?.session;
+      if (session?.state !== "open") return false;
+
+      const arrivalEndsAt = session.startedAt.getTime() + ARRIVAL_MINUTES * 60 * 1000;
+      return Date.now() < arrivalEndsAt ? POLL_FAST_MS : POLL_SLOW_MS;
+    },
     staleTime: 0,
   });
 
@@ -240,7 +268,7 @@ function StartCard({
         <span className="text-sm font-medium">No check-in yet for {formatSchoolDay(day)}</span>
         <span className="text-xs text-muted-foreground">
           {isToday
-            ? "Starting it puts a code on the screen. Fellows check in with it until you end the session, or for ninety minutes."
+            ? "Starting it puts a code on the screen. Fellows check in with it until you end check-in, or for eight hours."
             : "Starting it lets you record this day by hand. No code will be useful this long after the fact."}
         </span>
       </div>

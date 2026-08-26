@@ -69,11 +69,20 @@ export function isMarked(kind: CellKind): boolean {
 /**
  * Which square a day gets.
  *
- * The order is the meaning. No session at all outranks everything, because a morning the cohort
- * never met has nothing to report about anybody. Then enrolment, so a fellow who joined in March
- * is blank through February rather than absent. Then whether check-in is still open, which is the
- * one state where nothing is settled yet. Only after all three does a stored status speak, and a
- * session that ran with nothing written down is `unrecorded` rather than silently present.
+ * The order is the meaning. No session at all outranks everything, because a day the program never
+ * met has nothing to report about anybody. Then enrolment, so a fellow who joined in March is blank
+ * through February rather than absent.
+ *
+ * **Then a stored status, ahead of whether check-in is still open.** A fellow who checked in at
+ * 9:02 has been told a fact about themselves, and check-in staying open all day is a fact about the
+ * program that does not unsettle it. Ranking openness first meant the one square a fellow opened
+ * the dashboard to look at stayed neutral until the evening — over a lesson that was a short wait,
+ * and over a day it is the screen refusing to answer the question it exists to answer.
+ *
+ * `open` is therefore what an *unmarked* fellow sees while check-in is still possible, which is the
+ * only case where nothing is settled: there is still time to fix it, so it must not read as an
+ * absence. Once the day closes with nothing written down it becomes `unrecorded` rather than
+ * silently present.
  */
 export function kindOf(
   entry: { status: AttendanceStatus | null; open: boolean } | undefined,
@@ -82,6 +91,7 @@ export function kindOf(
 ): CellKind {
   if (!entry) return "no-session";
   if (day < enrolledFrom) return "not-enrolled";
+  if (entry.status) return entry.status;
   if (entry.open) return "open";
-  return entry.status ?? "unrecorded";
+  return "unrecorded";
 }

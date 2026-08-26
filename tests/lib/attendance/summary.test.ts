@@ -100,13 +100,38 @@ describe("summarize", () => {
     expect(summary.cells).toEqual([null, null, "PRESENT", "PRESENT"]);
   });
 
-  it("leaves an open session out of the rate entirely", () => {
+  it("leaves an open session out of the rate for a fellow who has no record in it", () => {
     const [summary] = summarize(sessions(3, 1), [fellow()], marks(["PRESENT", "PRESENT"]));
 
-    // Three sessions, one still running. Nobody is absent from a morning still in progress.
+    // Three sessions, one still running. Nobody is absent from a day still in progress.
     expect(summary.eligible).toBe(2);
     expect(summary.rate).toBe(1);
     expect(summary.cells).toHaveLength(3);
+  });
+
+  /*
+    The other half of the same rule, and the reason a fellow is not made to wait until the evening
+    to see the day they have already checked into. Only a record makes an open session count, so
+    this can raise a rate and can never lower one.
+  */
+  it("counts an open session for a fellow already marked in it", () => {
+    const [summary] = summarize(
+      sessions(3, 1),
+      [fellow()],
+      marks(["PRESENT", "PRESENT", "PRESENT"]),
+    );
+
+    expect(summary.eligible).toBe(3);
+    expect(summary.present).toBe(3);
+    expect(summary.rate).toBe(1);
+  });
+
+  it("counts a late check-in in an open session too, and does not invent an absence beside it", () => {
+    const [summary] = summarize(sessions(2, 1), [fellow()], marks(["PRESENT", "LATE"]));
+
+    expect(summary.eligible).toBe(2);
+    expect(summary.late).toBe(1);
+    expect(summary.unrecorded).toBe(0);
   });
 
   it("has no rate at all before anything has closed", () => {

@@ -43,7 +43,7 @@ import { personSelect, personNameSelect } from "../selects";
  * thing — whether check-in is open — and two routers is how that comes to be answered twice.
  *
  * **Every time rule is a comparison and nothing is scheduled.** A session closes on its
- * ninety-minute backstop the way a due date passes: nothing runs, the answer changes. The rows
+ * eight-hour backstop the way a due date passes: nothing runs, the answer changes. The rows
  * recording who was absent are written by whoever next comes through — the instructor pressing
  * end, or `start` sweeping yesterday. That is why `finalize` below is called from three places
  * and is idempotent in all of them.
@@ -69,9 +69,11 @@ const CHECK_IN_ATTEMPT_LIMIT: RateLimit = { max: 10, windowMinutes: 10 };
  *
  * **This is the ceiling four digits makes necessary, and it is the only thing bounding a guess.**
  * Ten thousand codes with one live code means one guess in ten thousand lands, and the ten-minute
- * limit alone would allow ninety attempts across a ninety-minute session — close to one percent,
- * which is small but not nothing when what it buys is a paid day. Twenty caps the whole session at
- * two in a thousand, and it costs one more count over rows the other limit already reads.
+ * limit alone would allow four hundred and eighty attempts across an eight-hour day — nearly five
+ * percent, which is not a number to hand somebody in exchange for a paid day. Twenty caps the whole
+ * session at two in a thousand, and it costs one more count over rows the other limit already
+ * reads. A day-long window is exactly what makes this the ceiling that matters: the ten-minute
+ * limit bounds a burst, and only this one bounds a patient guesser with the whole day to work in.
  *
  * Worth being exact about, because it is the claim a fixed code is most likely to be doubted on:
  * rotation never contributed to this. It bounded how long a code could be *passed on*, not how many
@@ -201,7 +203,7 @@ export const attendanceRouter = createTRPCRouter({
    *
    * It also sweeps: any older session of this course that nobody ended is ended and finalized in
    * this transaction. Tomorrow's attendance closes yesterday's books, so nobody has to remember —
-   * and the ninety-minute backstop means the code was already dead long before this ran.
+   * and the eight-hour backstop means the code was already dead long before this ran.
    */
   start: programProcedure
     .input(
@@ -713,7 +715,7 @@ export const attendanceRouter = createTRPCRouter({
    * feature gets used or worked around.
    *
    * It also has to move the backstop forward, or reopening would hand back a session that is
-   * already past its ninety minutes and refuses the first code typed at it.
+   * already past its eight hours and refuses the first code typed at it.
    */
   reopen: instructorProcedure
     .input(
@@ -1136,7 +1138,7 @@ export const attendanceRouter = createTRPCRouter({
       });
 
       // The second ceiling, over this session rather than over ten minutes. Four digits and a
-      // ninety-minute window would otherwise allow enough attempts to matter.
+      // day-long window would otherwise allow enough attempts to matter.
       const failedThisSession = await ctx.db.auditEvent.count({
         where: {
           actorId: actor.id,

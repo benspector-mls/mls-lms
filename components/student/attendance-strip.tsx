@@ -24,7 +24,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * answers "what is due".
  *
  * Each block is three rows, and the split is what keeps it narrow enough for a phone: the program
- * with its live-session pill and the term's figure, then the week, then the code box for as long
+ * with its check-in pill and the term's figure, then the week, then the code box for as long
  * as check-in is open. Laid out across a single line, the box and a long program name wrapped into
  * something that read as two programs.
  *
@@ -102,15 +102,15 @@ function ProgramWeek({
             {/*
               A dot that pulses. Every other animation here is a spinner on something the reader
               just pressed; this one reports a state of the world nobody in front of the screen
-              caused, which is the case worth spending motion on — the pill is true for ninety
-              minutes a day and the cost of not noticing it is a morning marked absent. The word
-              beside it carries the whole meaning, so nothing is lost with motion reduced.
+              caused, which is the case worth spending motion on — the pill is true for as long as
+              the day's check-in is open, and the cost of not noticing it is a day marked absent.
+              The word beside it carries the whole meaning, so nothing is lost with motion reduced.
             */}
             <span aria-hidden="true" className="relative flex size-1.5">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-current opacity-75" />
               <span className="relative inline-flex size-1.5 rounded-full bg-current" />
             </span>
-            Live session
+            Check-in open
           </Badge>
         )}
 

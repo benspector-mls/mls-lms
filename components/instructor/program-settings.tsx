@@ -218,8 +218,8 @@ function AttendanceCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Attendance</h2>
         <p className="text-xs text-muted-foreground">
-          One check-in a day for the whole program, however many courses somebody is taking. A
-          session runs until you end it, or for ninety minutes — whichever comes first, and you can
+          One check-in a day for the whole program, however many courses somebody is taking.
+          Check-in runs until you end it, or for eight hours — whichever comes first, and you can
           extend it while it is open.
         </p>
       </div>

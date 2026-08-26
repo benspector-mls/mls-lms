@@ -210,7 +210,7 @@ Two things prove two different facts, and separating them is the point: the code
 
 **Arriving in the first five minutes is on time**, and a program can set its own number on its Settings screen. One number for the whole program, because there is one morning. It applies to sessions started from then on and never rewrites a morning already recorded.
 
-**A session ends when you press End, or ninety minutes after it started, whichever comes first.** Extend buys another thirty minutes as often as you need. The backstop exists so a session nobody closed does not leave a working code alive until the next class. Ending it writes down who was absent; **Reopen** puts it back and clears exactly those absences, keeping every check-in and every decision you made.
+**A session ends when you press End, or eight hours after it started, whichever comes first.** Extend buys another thirty minutes as often as you need. The backstop exists so a session nobody closed does not leave a working code alive until the next day. Ending it writes down who was absent; **Reopen** puts it back and clears exactly those absences, keeping every check-in and every decision you made.
 
 **Started one by mistake?** Delete it, as long as nobody has checked in — a session on the wrong date would otherwise mark the whole roster absent for a day they were never expected.
 

@@ -25,7 +25,12 @@ import type { SchoolDay } from "@/lib/school-time";
 export type SummarySession = {
   id: string;
   day: SchoolDay;
-  /** Sessions still open are reported apart rather than folded into anybody's rate. */
+  /**
+   * Still accepting check-ins.
+   *
+   * An open session counts for a fellow who already has a record in it and for nobody else — see
+   * `summarize`.
+   */
   open: boolean;
 };
 
@@ -48,7 +53,10 @@ export type SummaryRecord = {
 
 export type FellowSummary = {
   fellow: SummaryFellow;
-  /** Sessions counted against this fellow: closed, and on or after they enrolled. */
+  /**
+   * Sessions counted against this fellow: on or after they enrolled, and either closed or already
+   * recorded.
+   */
   eligible: number;
   present: number;
   late: number;
@@ -101,10 +109,26 @@ export function summarize(
       const enrolled = session.day >= fellow.enrolledFrom;
       const record = byPair.get(`${fellow.enrollmentId}:${session.id}`) ?? null;
 
-      // The grid shows every session; the arithmetic below only ever touches the closed ones.
+      // The grid shows every session; the arithmetic below skips the ones nothing is settled in.
       summary.cells.push(enrolled ? (record?.status ?? null) : null);
 
-      if (!enrolled || session.open) continue;
+      if (!enrolled) continue;
+
+      /*
+        **An open session counts once there is a record, and not before.** A fellow who checked in
+        this morning should watch the figure move rather than wait until the evening for a day they
+        have already finished with — that is the whole reason this is not simply `session.open`. A
+        fellow who has not checked in is skipped, because the day is still running and counting
+        them would be reporting an absence that has not happened yet.
+
+        The cost is that on a day still in progress two fellows are measured against different
+        denominators, and it is the right cost to pay: what separates them is a record, which only
+        exists because the fellow checked in or an instructor decided something about them. A
+        decision to mark somebody absent at eleven counts against them from eleven, which is what
+        the instructor meant by making it. The difference disappears the moment the day closes and
+        everybody is counted.
+      */
+      if (session.open && !record) continue;
 
       summary.eligible += 1;
       if (!record) summary.unrecorded += 1;

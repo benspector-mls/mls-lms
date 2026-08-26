@@ -76,7 +76,7 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
           {/*
             The one deadline left, said in words rather than drawn as a bar. A bar counting down to
             a rotation was worth animating because the number above it was about to be wrong; this
-            is ninety minutes away and a projector is not the place to watch it drain.
+            is hours away and a projector is not the place to watch it drain.
           */}
           <p className="text-[1.6vw] text-muted-foreground">
             This code works until {formatSchoolTime(view.session.endsAt)}

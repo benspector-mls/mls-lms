@@ -48,14 +48,19 @@ export type CalendarDay = {
   day: SchoolDay;
   /** Null when a session ran and nothing was recorded for this fellow. */
   status: AttendanceStatus | null;
-  /** Check-in is still open, so nothing about it is settled. */
+  /**
+   * Check-in is still open, so a fellow with no status yet can still get one.
+   *
+   * It does not override a status that is already there — see `kindOf`. A fellow marked present
+   * this morning is drawn present, whether or not the day is still accepting codes.
+   */
   open: boolean;
   /**
    * Where the mark came from, already in words: "checked in at 9:02", "marked by Ben Spector".
    *
    * Composed by the caller rather than here, because turning a source and a timestamp into a
-   * sentence needs the school's timezone and this is a client component. Null while a session is
-   * still open, when there is nothing yet to have come from anywhere.
+   * sentence needs the school's timezone and this is a client component. Null when nothing has been
+   * recorded, when there is nothing yet to have come from anywhere.
    */
   detail: string | null;
   /** Why, in an instructor's words or the fellow's own. Rare, and the reason the tooltip exists. */

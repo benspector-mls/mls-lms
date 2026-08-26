@@ -17,6 +17,14 @@ import { defaultEndsAt, type WindowSession } from "@/lib/attendance/window";
 
 const STARTED = new Date("2026-09-14T13:00:00Z");
 
+/**
+ * A minute past the backstop of a session started at `STARTED`.
+ *
+ * Derived rather than written out as a wall-clock time, so it follows `DEFAULT_SESSION_MINUTES`
+ * instead of quietly landing inside the window the day the backstop is lengthened.
+ */
+const AFTER_BACKSTOP = new Date(defaultEndsAt(STARTED).getTime() + 60 * 1000);
+
 function session(overrides: Partial<WindowSession> = {}): WindowSession {
   return {
     startedAt: STARTED,
@@ -84,7 +92,7 @@ describe("gridRows", () => {
     const open = gridRows(ROSTER, [], session(), new Date("2026-09-14T13:05:00Z"));
     expect(open.every((row) => row.pending === "not-yet")).toBe(true);
 
-    const closed = gridRows(ROSTER, [], session(), new Date("2026-09-14T18:00:00Z"));
+    const closed = gridRows(ROSTER, [], session(), AFTER_BACKSTOP);
     expect(closed.every((row) => row.pending === "no-check-in")).toBe(true);
   });
 
