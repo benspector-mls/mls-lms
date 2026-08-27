@@ -22,7 +22,7 @@
  *
  * Who instructs a program, who owns it, and how it is deleted are `verify:programs`.
  */
-import { createChecker, loadEnvironment, refusal } from "./verify/harness";
+import { createChecker, loadEnvironment, provoking, refusal } from "./verify/harness";
 
 loadEnvironment();
 
@@ -48,19 +48,34 @@ async function main() {
   const { ownerOf } = await import("../lib/programs/ownership");
 
   /*
-    A course with work already in it, which several checks below depend on rather than assume.
+    A course with work in it — preferred if it already has some, and given some if it has none.
 
-    `submissions: { some: {} }` is the load-bearing part. The short name is frozen once anybody has
-    accepted, and a removed fellow keeping access is only meaningful against an assignment they
-    actually submitted — so a course with assignments and no submissions would make both checks pass
-    vacuously. It did: with two courses matching, `findFirst` returned the copied one and the freeze
-    check reported that renaming was allowed.
+    Several groups below read what is waiting on an instructor: the triage pile, an archived
+    course leaving it, and a fellow's record holding a row for work they began and a row for work
+    they did not. A course whose assignments have no submissions makes every one of them pass
+    vacuously, because an empty pile that is empty for want of work looks exactly like an empty
+    pile that is empty because the query is wrong. It happened: with two courses matching,
+    `findFirst` returned the copied one and an empty result was read as a pass.
+
+    Requiring a submission was the first answer and it made the script skip on any database where
+    nobody had handed anything in — which is every fresh development database, since the seed
+    creates assignments and no submissions. So the requirement is a preference, and the
+    transaction below hands work in on the fellow's behalf when the course has none. The property
+    the checks rest on is made true rather than waited for.
   */
-  const course = await db.course.findFirst({
-    where: { archivedAt: null, assignments: { some: { submissions: { some: {} } } } },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, programId: true },
-  });
+  const inCourse = { archivedAt: null, assignments: { some: {} } };
+  const courseSelect = { id: true, name: true, programId: true };
+  const course =
+    (await db.course.findFirst({
+      where: { ...inCourse, assignments: { some: { submissions: { some: {} } } } },
+      orderBy: { createdAt: "asc" },
+      select: courseSelect,
+    })) ??
+    (await db.course.findFirst({
+      where: inCourse,
+      orderBy: { createdAt: "asc" },
+      select: courseSelect,
+    }));
 
   /*
     The term's **owner**, not whichever instructor row comes back first.
@@ -98,7 +113,7 @@ async function main() {
     : null;
 
   if (!course || !instructor || !enrollment) {
-    skip("needs a seeded program with an instructor, a fellow, and at least one submission");
+    skip("needs a seeded program with an instructor, a fellow, and a course holding an assignment");
     return finish();
   }
 
@@ -114,6 +129,50 @@ async function main() {
         // Inside the transaction, so it is undone with everything else.
         if (enrollment.status !== "ACTIVE") {
           await asInstructor.enrollments.restore({ enrollmentId: enrollment.id });
+        }
+
+        /*
+          ---- Work for the groups that read a pile ------------------------------
+
+          Handed in here when the course has none, and undone with the rest of the transaction.
+
+          `SUBMITTED` rather than the `NOT_STARTED` a row defaults to, because what the checks
+          below read is the triage pile, and `submissions.triage` selects on status: a row that
+          exists but is not waiting on anybody would leave the pile empty and every check reading
+          it passing for the wrong reason. Written straight to the table rather than through
+          Accept, which would create a real GitHub repository — what these checks need is a row,
+          not a repository.
+
+          Solo work: an assignment with a team set hands in one row per team, and a submission
+          naming this fellow alone on one of those is a shape the composite keys are there to
+          prevent. `orderBy` so a re-run picks the same assignment as the last one, and so the
+          fellow keeps at least one assignment they have not begun — which is the row the record
+          group asserts is present alongside the one they have.
+        */
+        const alreadyHandedIn = await tx.submission.findFirst({
+          where: { assignment: { courseId: course.id } },
+          select: { id: true },
+        });
+
+        if (!alreadyHandedIn) {
+          const first = await tx.assignment.findFirst({
+            where: { courseId: course.id, teamSetId: null },
+            orderBy: { createdAt: "asc" },
+            select: { id: true },
+          });
+
+          if (first) {
+            const handedInAt = new Date();
+            await tx.submission.create({
+              data: {
+                assignmentId: first.id,
+                studentId,
+                status: "SUBMITTED",
+                submittedAt: handedInAt,
+                lastActivityAt: handedInAt,
+              },
+            });
+          }
         }
 
         // ---- Turning text into a slug ------------------------------------------
@@ -301,13 +360,20 @@ async function main() {
         });
         check("a program is created", program.name, "Verify Program");
 
+        /*
+          Inside a savepoint, because the row it collides with was created a moment ago in this
+          same transaction and is not committed — so `inOwnTransaction` would not see it and the
+          duplicate would be accepted. See `provoking` in the harness.
+        */
         check(
           "a program with the same name and term is refused",
           await refusal(() =>
-            asInstructor.programs.create({
-              name: "Verify Program",
-              term: "Cohort Verify A",
-            }),
+            provoking(tx, () =>
+              asInstructor.programs.create({
+                name: "Verify Program",
+                term: "Cohort Verify A",
+              }),
+            ),
           ),
           "CONFLICT",
         );

@@ -934,10 +934,11 @@ check(
 // interface is not a check. Every write happens inside a transaction that is rolled back,
 // so this can run against live data without harming any of it.
 //
-// The strongest check here is the first: authoring `swe-1-3-node-modules` through `create`
-// and diffing the row against what `prisma/seed.ts` produces. That assignment already
-// grades correctly end to end, so an identical row proves the authoring path produces
-// grading-correct output rather than merely well-formed output.
+// The strongest check here is the first: authoring the seeded assignment through `create` and
+// diffing the row against what `prisma/seed.ts` produces. That assignment already grades
+// correctly end to end, so an identical row proves the authoring path produces grading-correct
+// output rather than merely well-formed output. It is also the reason this group reads a seeded
+// row instead of making one for itself — see `SEEDED_ASSIGNMENT_REPO_NAME` below.
 // =====================================================================================
 
 /**
@@ -950,6 +951,37 @@ check(
 const ELSEWHERE_PROGRAM_ID = "e7c1a1d0-0000-4000-8000-00000000fffe";
 const ELSEWHERE_COURSE_ID = "e7c1a1d0-0000-4000-8000-00000000ffff";
 
+/**
+ * The assignment `prisma/seed.ts` creates, named the way the seed names it.
+ *
+ * **This one fixture is read rather than made, and that is the point of it.** The strongest check
+ * in the group below authors this assignment through `create` and diffs the resulting row against
+ * this one, column by column. A row this script had built itself would be diffed against itself,
+ * which proves only that `create` is deterministic — so the reference has to come from somewhere
+ * else, and the seeded assignment is the one row known to grade correctly end to end.
+ *
+ * Read from `SEED_TEMPLATE_REPO` with the same default `prisma/seed.ts` uses, because a name
+ * written out twice is a name that drifts: this script hard-coded `swe-1-3-node-modules` and went
+ * on skipping its whole procedure group after the seed stopped creating that assignment.
+ */
+const SEEDED_ASSIGNMENT_REPO_NAME = process.env.SEED_TEMPLATE_REPO ?? "swe-1-4-loops";
+
+/**
+ * One fellow's work on the seeded assignment, created when nobody has handed any in.
+ *
+ * Seven checks in the group below are about an assignment somebody has already accepted: what
+ * `getDraft` reports as its submission count, that renaming its repository is refused once
+ * students hold repositories under the old name, that a copy is given a name of its own, and
+ * what `removalImpact` predicts. With no submission anywhere they do not fail loudly — the
+ * rename *succeeds*, and the checks after it compare against an assignment this script renamed.
+ *
+ * A fixed id and a real write, because `getDraft` is called through a caller bound to `db`
+ * rather than to the transaction and would not see a row created inside it — the same reason
+ * `ELSEWHERE_PROGRAM_ID` above is written for real. It is removed at the end beside that one,
+ * and reused rather than duplicated if a previous run died before removing it.
+ */
+const SEEDED_SUBMISSION_ID = "e7c1a1d0-0000-4000-8000-00000000fffd";
+
 async function procedures() {
   // The environment is already loaded at module scope, which runs before this does.
   const { db } = await import("../lib/prisma");
@@ -957,7 +989,7 @@ async function procedures() {
   const { createCallerFactory } = await import("../trpc/init");
 
   const seeded = await db.assignment.findFirst({
-    where: { assignmentRepoName: "swe-1-3-node-modules" },
+    where: { assignmentRepoName: SEEDED_ASSIGNMENT_REPO_NAME },
     select: {
       id: true,
       courseId: true,
@@ -983,7 +1015,10 @@ async function procedures() {
   });
 
   if (!seeded) {
-    skip("the procedure checks — swe-1-3-node-modules is not seeded");
+    skip(
+      `the procedure checks — no assignment named ${SEEDED_ASSIGNMENT_REPO_NAME} ` +
+        `(SEED_TEMPLATE_REPO). Run npm run db:seed.`,
+    );
     return;
   }
 
@@ -1008,6 +1043,37 @@ async function procedures() {
   if (!instructor || !student) {
     skip("the procedure checks — the seeded course has no instructor or fellow");
     return;
+  }
+
+  /*
+    Somebody has accepted, made true rather than assumed — see `SEEDED_SUBMISSION_ID`.
+
+    Only when the assignment has no work at all. On a database where fellows have handed things
+    in, theirs is what the checks read and this adds nothing; on a fresh one, where the seed
+    creates assignments and no submissions, this is every run.
+
+    `SUBMITTED` rather than the `NOT_STARTED` a row defaults to, so the row means what the checks
+    below take it to mean: a fellow who has accepted and handed in. Written straight to the table
+    rather than through Accept, which would create a real GitHub repository — what these checks
+    need is a row, not a repository.
+  */
+  const handedInAlready = await db.submission.count({ where: { assignmentId: seeded.id } });
+
+  if (handedInAlready === 0) {
+    const acceptedAt = new Date();
+    await db.submission.upsert({
+      where: { id: SEEDED_SUBMISSION_ID },
+      create: {
+        id: SEEDED_SUBMISSION_ID,
+        assignmentId: seeded.id,
+        studentId: student.studentId,
+        status: "SUBMITTED",
+        submittedAt: acceptedAt,
+        lastActivityAt: acceptedAt,
+      },
+      update: {},
+      select: { id: true },
+    });
   }
 
   const createCaller = createCallerFactory(appRouter);
@@ -1866,6 +1932,19 @@ async function procedures() {
     "the other program and course this script created are gone",
     (await db.course.count({ where: { name: { contains: "(verify:authoring)" } } })) +
       (await db.program.count({ where: { name: { contains: "(verify:authoring)" } } })),
+    0,
+  );
+
+  /*
+    And the submission, for the same reason and with the same risk of accumulating.
+
+    Removed by its fixed id rather than by "this fellow's work on this assignment", so a run on a
+    database where somebody has genuinely handed that assignment in cannot delete their work.
+  */
+  await db.submission.deleteMany({ where: { id: SEEDED_SUBMISSION_ID } });
+  check(
+    "the submission this script created is gone",
+    await db.submission.count({ where: { id: SEEDED_SUBMISSION_ID } }),
     0,
   );
 }

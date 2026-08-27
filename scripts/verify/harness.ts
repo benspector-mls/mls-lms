@@ -157,6 +157,45 @@ export async function refusal(work: () => Promise<unknown>): Promise<string> {
  * duplicate-name check cannot share one with the checks that follow it. Found by doing it wrong:
  * the first duplicate refused as expected and took eleven unrelated checks down with it.
  */
+/**
+ * Provokes a database constraint from inside a transaction that has to carry on afterwards.
+ *
+ * `inOwnTransaction` above is the answer when the provocation needs nothing from its
+ * surroundings. It is not the answer when the row being collided with was created earlier in the
+ * caller's own transaction and has not been committed: a separate transaction cannot see it, so
+ * the duplicate would be accepted and the check would report a working guard as a broken one.
+ *
+ * A savepoint is what Postgres offers for exactly this. The statement still fails and the
+ * transaction is still aborted; rolling back to the savepoint returns it to the state it was in
+ * a moment earlier and everything after it runs normally. Without one, a single provoked
+ * constraint takes the rest of the script down with `25P02: current transaction is aborted` —
+ * which reads as dozens of broken procedures rather than as one deliberate collision.
+ *
+ * The error is re-thrown rather than swallowed, so `refusal` and `code` go on being what reads
+ * it. Wrap the call, not the assertion:
+ *
+ *   check("a duplicate is refused", await refusal(() => provoking(tx, () => caller.create(...))), "CONFLICT");
+ */
+let provocations = 0;
+
+export async function provoking<T>(tx: Tx, work: () => Promise<T>): Promise<T> {
+  // Generated rather than fixed: a savepoint name can be reused, but two live savepoints of one
+  // name in the same transaction make "roll back to it" ambiguous to read.
+  provocations += 1;
+  const name = `verify_provoked_${provocations}`;
+
+  await tx.$executeRawUnsafe(`SAVEPOINT ${name}`);
+
+  try {
+    const result = await work();
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+    return result;
+  } catch (err) {
+    await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+    throw err;
+  }
+}
+
 export async function inOwnTransaction(
   db: Db,
   work: (tx: Tx) => Promise<void>,

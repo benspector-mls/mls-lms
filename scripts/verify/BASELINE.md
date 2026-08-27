@@ -15,8 +15,8 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:staff` | 50 | the database |
 | `verify:approve` | 48 → **53** | the database |
 | `verify:uploads` | 88 → **109** | the database, and the storage bucket |
-| `verify:authoring` | 156 | the database, and GitHub |
-| `verify:enrollment` | 200 → 209, **not yet re-measured** | the database |
+| `verify:authoring` | 156 → **166** | the database, and GitHub |
+| `verify:enrollment` | 209 → **174**, measured after `verify:programs` took its half | the database |
 | `verify:curriculum` | **19** | the database |
 | `verify:gcf` | **26** | the database |
 | `verify:app` | 16 | GitHub |
@@ -110,6 +110,12 @@ Its 28 need one active enrollment in a cohort that is still running, and a unit 
 `verify:resubmission` is not in the table because it takes a repository substring as an argument and refuses without one. It also has no fixed count: **it fails unless the repository it is pointed at holds a commit newer than the one it was graded on**, which is state a person stages by pushing and letting the webhook record it — the script says so in its own header, since item 4 is checked here rather than performed. A run reporting `FAIL the new commit was recorded  head X, graded X` is that missing fixture and not a regression. The way to tell them apart is to run the same command on the previous commit; a real regression fails there too.
 
 `calibrate` is not a check script: it grades a sample and prints a comparison for a person to read.
+
+**Both of these scripts stopped depending on data somebody had to have created first, and both figures above are the first measured since.** They looked for a fixture and skipped when it was absent — which on a fresh development database is every run, since the seed creates assignments and no submissions. `verify:authoring` looked for `swe-1-3-node-modules`, an assignment the seed stopped creating when the curriculum moved into the application, so its whole procedure group had been skipping; it now reads `SEED_TEMPLATE_REPO` the way the seed does. Each also hands in one submission when the course it picked has none — `verify:authoring` as a real row with a fixed id, removed at the end beside the program it creates, because `getDraft` is called through a caller bound to `db` and would not see one written inside the transaction; `verify:enrollment` inside its own transaction, which discards it.
+
+Seven of `verify:authoring`'s checks are about an assignment somebody has accepted, and the reason to make that true rather than wait for it is what they did instead: with nothing handed in, renaming the repository *succeeded*, and the four checks after it compared a copy against a name the script itself had just written. One check is new — that the submission it creates is gone again.
+
+**`verify:enrollment` also had a provoked constraint sharing the script's one transaction**, which is the failure `inOwnTransaction` exists to prevent and which its own group could not use: the duplicate program collides with one created moments earlier in that same uncommitted transaction, which a separate transaction cannot see. `provoking` in the harness wraps such a call in a savepoint, so the abort is undone and the remaining checks run. Everything after the collision had been reporting `25P02: current transaction is aborted`.
 
 **A number moves only when a script gains checks, and then it is written down here with both figures.** `verify:enrollment` went from 200 to 209 when the roster arrived: that somebody nobody expected is refused, that the screen says so before the button, that an instructor can write down who is expected, that the screen then offers the button, that pasting the same list twice adds nobody, that joining claims the entry, that a claimed entry cannot be removed, and — the two that hold the ordering in place — that a student already in the cohort is unaffected by having no entry, and that their screen still says they are in it. `verify:approve` went from 48 to 53 when batch generation added five: that a run can be claimed, that a second attempt on the same commit is refused, that another commit is separate work, that the no-commit case is claimed once too, and that an abandoned claim can be taken. The old figure stays beside the new one because the point of this file is that a count which changed for a reason looks exactly like one that changed by accident, unless somebody says which.
 
