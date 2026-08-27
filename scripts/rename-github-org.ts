@@ -4,11 +4,12 @@
  *   npm run rename:org -- old-org-name new-org-name           # reports what it would change
  *   npm run rename:org -- old-org-name new-org-name --write   # changes it
  *
- * **Reports by default and writes only when told to.** One Supabase project serves both local
- * development and the deployment, so there is no such thing as a rehearsal against a copy — the
- * report is the rehearsal. Printing the counts and then immediately writing would make them a
- * receipt rather than a check, and the number worth seeing before a write is whether this
- * database holds the rows you expect at all.
+ * **Reports by default and writes only when told to.** Development and the deployment have
+ * separate Supabase projects, so this can be run against the development one first — but that
+ * rehearsal proves the script runs, not what this run will do, because those are not these rows.
+ * The report is what checks the rows that matter. Printing the counts and then immediately
+ * writing would make them a receipt rather than a check, and the number worth seeing before a
+ * write is whether the database this is pointed at holds the rows you expect at all.
  *
  * **A GitHub rename leaves the database naming an organization that no longer answers to that
  * name, and the failure is silent.** The webhook finds a submission by an exact `repo_full_name`

@@ -1081,7 +1081,7 @@ The student's course page opens with a segmented bar over every assignment they 
 - **Submissions tab** — the instructions, how to hand in, what was handed in, and the form that changes it. `handInMode` decides which of the four sentences that form is.
 - **Feedback tab** — every round, oldest first, with the read marker above them. Offered only when there is something on it, and carrying a count when there is more than one round, since a resubmission is graded afresh.
 - **Which tab opens is deliberately not in the address**, unlike which assignment is: a link to a tab is a claim about what the reader should look at first, and that answer changes with the row. Feedback opens when there is feedback.
-- **Every row opens**, including an unaccepted assignment, so its instructions can be read before deciding. The Accept button stays on the row as well as in the panel and stops the click from reaching the row. A module holding the assignment the address names is forced open.
+- **Every row opens**, including an unaccepted assignment, so its instructions can be read before deciding. **Accepting happens in the panel and nowhere else**: the row is one button, a button may hold only phrasing content, and an Accept button nested inside one is markup the browser repairs by closing the row's button early — which makes the server's HTML and the client's tree disagree and costs the unit its hydration. A module holding the assignment the address names is forced open.
 
 ### Whether the feedback was read
 
@@ -1207,13 +1207,13 @@ What protects student data, where each control lives, and the settings that live
 
 ### Settings to check in the Supabase dashboard
 
-These are not in version control and none are visible from the code.
+These are not in version control and none are visible from the code, and there are two projects to set them on rather than one — see [two Supabase projects](README.md#two-supabase-projects-one-per-environment). Each also needs its own GitHub OAuth application, because an OAuth application has a single authorization callback URL and that callback belongs to the Supabase project.
 
 - **Email provider: off.** The important one, and a step in [running it](README.md#running-it), because until it is done anyone on the internet can still create an account.
-- **Redirect URLs** (Authentication → URL Configuration): only the deployment's own origins. Both auth routes refuse non-relative `next` values, but a loose allowlist here is a separate door.
+- **Redirect URLs** (Authentication → URL Configuration): only that project's own origins — the deployed domain on one, `http://localhost:3000` on the other, and never both on either. Both auth routes refuse non-relative `next` values, but a loose allowlist here is a separate door.
 - **Rate limits** (Authentication → Rate Limits): tighten sign-in and token refresh. Supabase enforces these; the application cannot.
 - **Session length**: shorter is better for an application that shows grades on shared laptops.
-- **Service role key**: rotate it. It has been in a development environment since the project started, and it bypasses row level security and every policy. Prefer the newer `sb_secret_…` format, which can be issued more than once and revoked individually.
+- **Service role key**: rotate the deployment's. It sat in a development environment from the start of the project until the two databases were separated, and it bypasses row level security and every policy. Prefer the newer `sb_secret_…` format, which can be issued more than once and revoked individually. The rotation is now a contained one: the key belongs to a single environment, and the two places holding it are the Vercel variables and `.env.deployment.local`.
 
 ### Settings to add at the platform edge
 

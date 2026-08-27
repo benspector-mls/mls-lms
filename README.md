@@ -21,7 +21,7 @@ The loop it replaces: a student accepts an assignment and a repository is genera
 
 **Stack:** Next.js 16 App Router on Vercel, Supabase PostgreSQL, Prisma 7 with `@prisma/adapter-pg`, tRPC v11, Tailwind v4 with Base UI, Supabase Auth with GitHub OAuth, GitHub App with Octokit, E2B for sandboxed test execution, and Claude `claude-sonnet-5` behind a provider interface.
 
-You need a Supabase project, a GitHub App, an E2B key, an Anthropic key, and read access to the grading guides repository.
+You need two Supabase projects — one for development and one for the deployment, described in [two Supabase projects](#two-supabase-projects-one-per-environment) — a GitHub App, an E2B key, an Anthropic key, and read access to the grading guides repository. The steps below set up whichever project `.env.local` names.
 
 ```sh
 npm i                  # also runs prisma generate
@@ -64,6 +64,18 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 **`GRADING_ASSETS_REPO` is required everywhere**, development included — there is no local-clone mode. It names the program's prompt code, not the answer keys: an assignment names the repository *its own* reference solutions live in, in a column. See [two asset sources](ARCHITECTURE.md#two-asset-sources).
 
 **The installation is resolved from the repository's owner**, so `GRADING_ASSETS_INSTALLATION_ID` is rarely needed. A GitHub App is installed per organization with its own id and its own token, and an assignment may name an answer-key repository in an organization the environment variables say nothing about — so the App asks itself which of its installations covers a given owner, and caches the answer including the negative one. Set the variable only to override that for the assets repository.
+
+### Two Supabase projects, one per environment
+
+Development and the deployment have separate Supabase projects, and `.env.local` names the development one. Nothing run on a laptop can reach the rows holding real grades, and a new migration meets real data in development before it meets a fellow's.
+
+Five variables differ between them: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `DIRECT_URL`. **Take both connection strings from the project's own Connect dialog rather than editing the other project's** — the pooler hostname carries a region and a numeric prefix assigned per project, so swapping a reference into the wrong host fails with `FATAL: (ENOTFOUND) tenant/user postgres.<ref> not found`.
+
+**Each project needs its own GitHub OAuth application**, for the same reason there are two GitHub Apps: an OAuth application has one authorization callback URL, and the callback belongs to the Supabase project rather than to the machine — `https://<project-ref>.supabase.co/auth/v1/callback`. Localhost is configured on the Supabase side instead, as the development project's Site URL and in its Redirect URLs. Disable the Email provider on both, as described above.
+
+**The deployment's database is reached by naming it, never by editing `.env.local`.** `.env.deployment.local` holds the four values a terminal command needs — `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — and `db:status:deployment`, `db:deploy:deployment`, and `setup:storage:deployment` run the ordinary script with those values in place. `scripts/with-deployment-env.ts` is what puts them there, and it refuses to run rather than let a missing value fall through to the development one. The filename is deliberately not `.env.production.local`, which Next.js loads automatically whenever `NODE_ENV` is production, ahead of `.env.local`.
+
+**Both Apps are installed on the same organization**, so a pull request there is delivered to each of them. A delivery reaching `dev:webhook` for a repository that only the deployment's database knows about matches nothing and is logged as an unknown repository. That is the separation working, not a fault.
 
 ### Two GitHub Apps, one per environment
 
@@ -110,17 +122,29 @@ Everything below it is a script, because everything below it needs something rea
 | `npm run rename:org`          | Points the database at a GitHub organization's new name after it has been renamed on GitHub — the webhook matches `repo_full_name` exactly, so nothing else recovers those rows. Reports by default; `--write` makes the change    |
 | `npm run setup:storage`       | Creates the private uploads bucket, or brings its size limit and type allow-list back into step with the code                                                                                    |
 | `npm run db:diff`             | Generates a migration — see [Data model](ARCHITECTURE.md#data-model), and never `migrate dev`                                                                                                    |
+| `npm run db:status:deployment` | `db:status` against the deployment's Supabase project instead of the development one                                                                                                            |
+| `npm run db:deploy:deployment` | `db:deploy` against the deployment — the second half of applying a migration, and the only thing that applies one there                                                                          |
+| `npm run setup:storage:deployment` | `setup:storage` against the deployment's bucket                                                                                                                                              |
 
 `scripts/list-installations.ts` is the odd one out: not an npm script, and run with `tsx` when a new organization's installation id is needed.
 
-**`setup:storage` is a deploy step, not a setup step.** It builds the bucket's allow-list from `UPLOAD_FILE_TYPES`, so adding a file type means re-running it against every environment — and forgetting leaves the upload route accepting a file the bucket then refuses, which appears only on a real upload and only where nobody re-ran it. See [handing in a file](ARCHITECTURE.md#handing-in-a-file).
+**The three `:deployment` scripts are the same scripts, pointed elsewhere.** Each runs its ordinary counterpart with `.env.deployment.local` in place, through `scripts/with-deployment-env.ts` — so there is one definition of what `db:deploy` does and one of where it runs, rather than two of each. The wrapper prints the project reference before it runs anything and refuses outright if the file is missing a value, since dotenv would otherwise let that value fall through to the development one and report success against the wrong database.
+
+**`setup:storage` is a deploy step, not a setup step, and so is `db:deploy`.** `setup:storage` builds the bucket's allow-list from `UPLOAD_FILE_TYPES`, so adding a file type means re-running it against every environment — and forgetting leaves the upload route accepting a file the bucket then refuses, which appears only on a real upload and only where nobody re-ran it. See [handing in a file](ARCHITECTURE.md#handing-in-a-file). Migrations work the same way now that there are two databases: applying one in development is half the job.
 
 ---
 
 ## Deploying
 
-Vercel, with the environment variables above. Three things to know:
+Vercel, with the environment variables above — the deployment's Supabase values, not the ones in `.env.local`. Four things to know:
 
 - **`GRADING_ASSETS_REPO` must be set**, and the App must be installed on the organization holding the guides *and* on every organization an assignment names as its answer keys. `GRADING_ASSETS_PATH` must not be set anywhere — it now raises `GradingAssetsError` rather than being ignored. Variables are bound when a deployment is created, so changing one requires a redeploy to take effect.
 - **The webhook URL belongs to the App, not to the deployment.** Changing it on the App takes effect immediately with no redeploy, because the deployed handler reads nothing about where the delivery came from.
 - **The GitHub App must be installed on the organization holding the grading guides**, not only on the one holding student repositories. `npm run verify:assets` is the check that a deployed host can read its rubric at all.
+- **The schema is not deployed with the code.** Vercel builds the application; nothing there applies a migration. A migration reaches the deployment only when somebody runs it, which is the price of the two databases being separate and is why the command says which one it means:
+
+```sh
+npm run db:status:deployment    # what the deployment is missing
+npm run db:deploy:deployment    # apply it there
+```
+
