@@ -2,10 +2,11 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
-import { Copy, Loader2 } from "lucide-react";
+import { AlertTriangle, Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -152,6 +153,17 @@ export function CopyAssignmentDialog({
 
         {courses.isPending ? (
           <Skeleton className="h-24 w-full" />
+        ) : courses.error ? (
+          /*
+            Nowhere to copy to and nothing to fill in, so the whole form goes rather than being
+            drawn around an empty course picker. An `Alert` rather than the field-level sentence
+            the unit picker below uses: this one is the dialog's entire content.
+          */
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertTitle>Could not load your courses</AlertTitle>
+            <AlertDescription>{courses.error.message}</AlertDescription>
+          </Alert>
         ) : (
           /*
             `min-w-0` all the way down, and not decoration.
@@ -215,6 +227,17 @@ export function CopyAssignmentDialog({
               <Label htmlFor="copy-target-module">Into which module</Label>
               {target.isPending ? (
                 <Skeleton className="h-9 w-full" />
+              ) : target.error ? (
+                /*
+                  Checked before the empty case below, because the two are indistinguishable from
+                  `units` alone and only one of them is true. "That course has no modules yet"
+                  sends an instructor off to create a module that is already there, and they would
+                  find it waiting for them with no explanation of why this dialog denied it.
+                */
+                <p className="text-sm text-destructive">
+                  That course&apos;s units could not be loaded, so there is nothing to choose from.{" "}
+                  {target.error.message}
+                </p>
               ) : units.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   That course has no modules yet, so there is nowhere for the copy to go. Create one

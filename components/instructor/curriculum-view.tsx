@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 
 import { AssignmentKindIcon } from "@/components/status-badge";
-import { EmptyState } from "@/components/list-states";
+import { EmptyState, ErrorState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { UnitList } from "@/components/unit-list";
 import { Badge } from "@/components/ui/badge";
@@ -179,7 +179,29 @@ export function Curriculum({ courseId }: { courseId: string }) {
     );
   }
 
-  const rows = units.data ?? [];
+  /*
+    A failed read is said out loud rather than falling through to the list below.
+
+    Without this the screen has one way to draw nothing and two reasons to reach it: `units.data`
+    is undefined when the query fails, the empty state renders, and a course whose modules the
+    server could not send is indistinguishable from a course that has none. That is not a
+    hypothetical — it is how a schema change that the running server had not caught up with
+    presented itself, as two courses that had apparently lost their curriculum.
+
+    The message carries the procedure's own words. "Something went wrong" tells an instructor to
+    call somebody; the sentence underneath is what makes the call short.
+  */
+  if (units.error) {
+    return (
+      <ErrorState
+        title="Could not load this curriculum"
+        description={units.error.message}
+        onRetry={() => void units.refetch()}
+      />
+    );
+  }
+
+  const rows = units.data;
   const placements = placementOptions(rows);
 
   /** Sends the whole order with one pair swapped — see `courseUnits.reorder`. */

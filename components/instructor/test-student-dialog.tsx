@@ -110,6 +110,16 @@ export function TestStudentDialog({
 
           {existing.isPending ? (
             <Skeleton className="h-16 w-full" />
+          ) : existing.error ? (
+            /*
+              Said rather than left out. This section disappears when there is nothing to reuse,
+              which is the ordinary case — so a failed read looks exactly like a program that has
+              never had a test student, and the instructor makes a second one beside the first.
+            */
+            <p className="text-sm text-destructive">
+              The test students already on this program could not be loaded, so there may be one
+              here to reuse. {existing.error.message}
+            </p>
           ) : (
             available.length > 0 && (
               <div className="flex min-w-0 flex-col gap-2">

@@ -13,7 +13,6 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
 import { EmptyState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { UnitList } from "@/components/unit-list";
@@ -23,7 +22,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { hasAcceptStep } from "@/lib/assignments/spec";
 import { gradingQueueHref } from "@/lib/links";
 import {
   CATEGORY_META,
@@ -440,9 +438,12 @@ function UnitSection({
  * the Accept button was the only control on it — which meant the instructions could not be read
  * before deciding to accept. The panel always has something to show, so the distinction goes.
  *
- * The Accept button stays on the row as well as in the panel. It is the common first action and
- * worth one press rather than two, and it stops the click from reaching the row so pressing it
- * does not also open a panel over the work it just created.
+ * **Accepting happens in the panel and nowhere else.** The row is one button, and a button may
+ * only contain phrasing content — so an Accept button inside it was markup the browser had to
+ * repair by closing the row's button early, which made the server's HTML and the client's tree
+ * disagree and cost the whole unit its hydration. Stopping the click was never the fix; the
+ * nesting was the problem. One press becomes two, and in exchange the student reads what
+ * accepting will do before they do it, which is the same reason every row opens.
  */
 function AssignmentRow({
   assignment,
@@ -458,9 +459,6 @@ function AssignmentRow({
   // listForCourse scopes the relation to the caller, so this is the student's own
   // submission or nothing at all.
   const submission = assignment.submissions[0] ?? null;
-  const status = submission?.status ?? "NOT_STARTED";
-  const awaitingAccept =
-    (!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind);
 
   return (
     <div className="flex items-center">
@@ -485,26 +483,7 @@ function AssignmentRow({
           isOpen && "bg-accent/60",
         )}
       >
-        <RowSummary
-          assignment={assignment}
-          submission={submission}
-          action={
-            awaitingAccept ? (
-              /*
-                A span rather than the button itself carrying the handler: the Accept control is
-                inside the row's button, and a nested button is invalid markup that browsers
-                resolve by discarding one of them. This stops the press here instead.
-              */
-              <span
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-                role="presentation"
-              >
-                <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
-              </span>
-            ) : null
-          }
-        />
+        <RowSummary assignment={assignment} submission={submission} />
       </button>
 
       {/*
@@ -529,12 +508,11 @@ function AssignmentRow({
 /**
  * The scannable part of a row, identical whether or not the row opens.
  *
- * **Three siblings, and which of them grows is what holds the columns in line.** The title group
- * grows; the Accept control and the group of three columns beside it do not. So the columns are
- * anchored to the right edge of the row by the title having taken every remaining pixel, which
- * makes their position independent of whether the row has a button at all. Laying the five out as
- * siblings *without* that — which is how this started — put the button in the middle of the row
- * and shifted the status, score, and due date out of line with the rows above it.
+ * **Two siblings, and which of them grows is what holds the columns in line.** The title group
+ * grows; the group of three columns beside it does not. So the columns are anchored to the right
+ * edge of the row by the title having taken every remaining pixel, and they sit at the same
+ * offset on every row of the list. Laying all four out as siblings *without* that — which is how
+ * this started — shifted the status, score, and due date out of line with the rows above.
  *
  * The status pill is the one thing in that group whose width varies, which is why it is first:
  * everything to its right is fixed-width and right-anchored, so those are the edges read down the
@@ -542,9 +520,9 @@ function AssignmentRow({
  * looks any different from before.
  *
  * **Below 800 pixels it stacks instead**, and the whole point of that is the title. Three fixed
- * widths plus a variable pill plus a button came to more than a phone has, so the title — which is
- * what somebody is actually looking for — was squeezed to nothing. Given its own line it always
- * has the row. The rest follows underneath, where there is room for all of it, including the two
+ * widths plus a variable pill came to more than a phone has, so the title — which is what
+ * somebody is actually looking for — was squeezed to nothing. Given its own line it always has
+ * the row. The rest follows underneath, where there is room for all of it, including the two
  * columns that used to be dropped at narrow widths.
  *
  * 800 rather than a named breakpoint because it is one measurement in one component: it is where
@@ -554,12 +532,9 @@ function AssignmentRow({
 function RowSummary({
   assignment,
   submission,
-  action,
 }: {
   assignment: Assignment;
   submission: Submission | null;
-  /** The Accept control, on the rows that have one. Its own sibling, so it moves when the row does. */
-  action?: React.ReactNode;
 }) {
   const status = submission?.status ?? "NOT_STARTED";
   const graded = submission?.finalScore != null;
@@ -586,12 +561,6 @@ function RowSummary({
         <AssignmentKindIcon assignment={assignment} />
         <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
       </span>
-
-      {/*
-        `shrink-0`, so a long title truncates rather than the button compressing into the pill
-        beside it. A half-width button is unpressable; a truncated title is still readable.
-      */}
-      {action && <span className="shrink-0">{action}</span>}
 
       <span className="flex shrink-0 items-center gap-x-2 sm:gap-x-3">
         <SubmissionStatusBadge status={status} audience="student" />

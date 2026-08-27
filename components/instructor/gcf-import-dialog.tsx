@@ -285,6 +285,21 @@ export function GcfImportDialog({
             </p>
           )}
 
+          {/*
+            The matching step failing is not the same as every row matching, and until this was
+            said the two looked identical: nothing rendered, `unresolved` was empty because there
+            were no rows to count, and the button below offered to import every selected row as
+            though each had been matched to a fellow. It is disabled on this branch for the same
+            reason — an import nobody checked is the one outcome this dialog exists to prevent.
+          */}
+          {preview.error && (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>Could not match these rows to students</AlertTitle>
+              <AlertDescription>{preview.error.message}</AlertDescription>
+            </Alert>
+          )}
+
           {preview.data && (
             <Resolution
               preview={preview.data}
@@ -302,7 +317,12 @@ export function GcfImportDialog({
           </Button>
           <Button
             type="button"
-            disabled={selected.length === 0 || commit.isPending || preview.isPending}
+            disabled={
+              selected.length === 0 ||
+              commit.isPending ||
+              preview.isPending ||
+              preview.error !== null
+            }
             onClick={() =>
               commit.mutate({
                 courseId,

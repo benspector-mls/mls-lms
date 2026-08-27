@@ -362,7 +362,7 @@ Below that are the **modules**, in the order your instructor set. Every module s
 
 Pressing any row opens a panel over the list, with the instructions, what you have handed in, and your feedback. It has an address you can bookmark or send to somebody.
 
-**Accepting.** Only two kinds have an Accept button. A **code** assignment generates your own repository. A **Google Drive** assignment opens Google's own prompt to take your own copy. **A link or file assignment hands out nothing**, so there is no Accept — the first thing you do is hand in.
+**Accepting.** Only two kinds have an Accept button, and it is **inside the panel**, so you open the assignment and read what it asks before you accept it. A **code** assignment generates your own repository. A **Google Drive** assignment opens Google's own prompt to take your own copy. **A link or file assignment hands out nothing**, so there is no Accept — the first thing you do is hand in.
 
 Accepting needs your GitHub account to be connected. If it is not, the course page says so.
 

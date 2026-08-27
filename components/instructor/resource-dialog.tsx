@@ -250,6 +250,19 @@ export function ResourceDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {/*
+                Why the list is empty, on the one occasion it is empty for a reason other than the
+                course having no units. An unexplained empty picker reads as "this course has no
+                modules", which is a claim this dialog is in no position to make when the read
+                failed — and the instructor's next move would be to go and create a module that
+                already exists.
+              */}
+              {units.error && (
+                <p className="text-xs text-destructive">
+                  The units of this course could not be loaded, so there is nothing to choose from.{" "}
+                  {units.error.message}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-2">

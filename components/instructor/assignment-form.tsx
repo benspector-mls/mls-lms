@@ -1617,6 +1617,16 @@ function AnswerKeyBrowser({
 
       {listing.isPending ? (
         <Skeleton className="h-8 w-full" />
+      ) : listing.error ? (
+        /*
+          A failed read renders as no folders, and no folders renders as nothing at all — so a
+          repository this instructor cannot reach, or a GitHub call that timed out, looked
+          identical to a folder that genuinely holds no subfolders. Saying which it was is what
+          tells them whether to fix the repository name or simply press again.
+        */
+        <p className="text-sm text-destructive">
+          These folders could not be read. {listing.error.message}
+        </p>
       ) : listing.data?.entries === null ? (
         <p className="text-sm text-muted-foreground">
           There is no <code>{dir}</code> in this repository. It may have been renamed.
