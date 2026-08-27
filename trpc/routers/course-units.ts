@@ -2,10 +2,11 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { assertCourseMember } from "@/lib/courses/membership";
+import { writeOrder } from "@/lib/courses/order";
 import { teachableCourseUnit } from "@/lib/courses/scope";
 import { CATEGORY_META } from "@/lib/course-units";
 import { CourseUnitCategory } from "@/lib/generated/prisma/enums";
-import { inTransaction, type Tx } from "@/lib/prisma";
+import { inTransaction } from "@/lib/prisma";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { courseUnitSummarySelect, resourceSelect } from "../selects";
@@ -80,39 +81,6 @@ function refuseDuplicate(err: unknown, name: string): never {
   throw err;
 }
 
-/**
- * Rewrites every position in a course from a list of ids, in one statement.
- *
- * **One statement, which is what makes it atomic on its own.** The obvious implementation is one
- * `update` per unit, and a half-applied order is worse than none — the page would show two units
- * in the same place with no way to tell which move failed. A single UPDATE cannot half-apply, so
- * it composes with whatever transaction is above it and needs none of its own.
- *
- * **Shared by `reorder` and `create`, so one place writes a position.** Creating a unit anywhere
- * but the end is a change to the sequence, and the sequence has one definition — a second way to
- * write it is how two screens come to disagree about what order the course is in.
- *
- * `course_id` is in the predicate as well as being checked by the callers. `reorder` already
- * refuses a list that is not exactly this course's units; this means that even if it did not, the
- * statement still cannot touch another course's rows.
- *
- * Takes a `Tx` rather than the module's client, because both callers may be running inside a
- * transaction that is not theirs — see `inTransaction` in lib/prisma.ts.
- */
-async function writeOrder(tx: Tx, courseId: string, courseUnitIds: string[]): Promise<void> {
-  await tx.$executeRaw`
-    UPDATE course_units AS u
-       SET position = ordered.position, updated_at = now()
-      FROM (
-        SELECT id, position
-          FROM unnest(${courseUnitIds}::text[], ${courseUnitIds.map((_, i) => i)}::int[])
-            AS t(id, position)
-      ) AS ordered
-     WHERE u.id::text = ordered.id
-       AND u.course_id = ${courseId}::uuid
-  `;
-}
-
 export const courseUnitsRouter = createTRPCRouter({
   /**
    * Every unit of a course, in order, with what is in it.
@@ -185,10 +153,15 @@ export const courseUnitsRouter = createTRPCRouter({
           /**
            * What is in the unit that is not work.
            *
-           * Alphabetical, and **no publish filter** — unlike the assignments above. There is no
-           * draft state on a resource at all, so the same rows go to a student and an instructor.
-           * That is a decision rather than an omission: handing out an assignment starts a clock
-           * and creates work, and a link to a reading does neither.
+           * In the order the instructor put them in, and **no publish filter** — unlike the
+           * assignments above. There is no draft state on a resource at all, so the same rows go
+           * to a student and an instructor. That is a decision rather than an omission: handing
+           * out an assignment starts a clock and creates work, and a link to a reading does
+           * neither.
+           *
+           * The title is a tiebreak rather than the ordering. Two resources sharing a position is
+           * possible for as long as it takes the next drag to rewrite the sequence, and this is
+           * what decides which comes first meanwhile.
            *
            * **The whole resource rather than its title and kind**, because the Curriculum screen
            * opens each one the way a student meets it — a note renders where it sits and a video
@@ -197,7 +170,7 @@ export const courseUnitsRouter = createTRPCRouter({
            * to read.
            */
           resources: {
-            orderBy: { title: "asc" },
+            orderBy: [{ position: "asc" }, { title: "asc" }],
             select: resourceSelect,
           },
         },
@@ -300,7 +273,7 @@ export const courseUnitsRouter = createTRPCRouter({
         if (index < existing.length) {
           const ordered = existing.map((unit) => unit.id);
           ordered.splice(index, 0, created.id);
-          await writeOrder(tx, input.courseId, ordered);
+          await writeOrder(tx, "courseUnits", input.courseId, ordered);
         }
 
         return created;
@@ -364,7 +337,7 @@ export const courseUnitsRouter = createTRPCRouter({
         });
       }
 
-      await writeOrder(ctx.db, input.courseId, input.courseUnitIds);
+      await writeOrder(ctx.db, "courseUnits", input.courseId, input.courseUnitIds);
 
       return { count: input.courseUnitIds.length };
     }),

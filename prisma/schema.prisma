@@ -891,15 +891,25 @@ enum VideoProvider {
 /// student seeing one early is not the problem an unfinished assignment is. Adding the column
 /// later is cheap; taking a publish step away once instructors rely on it is not.
 ///
-/// **No `position`.** Resources sort alphabetically by title beneath their module's
-/// assignments, which sort by due date. Neither ordering is maintained by hand, so modules keep
-/// the only manual ordering in a course — which is the right place for it.
+/// **Ordered by hand, within its module.** A module's readings are a sequence an instructor
+/// chose — a lecture recording above the reading that follows it — and the alphabet cannot know
+/// that order. Assignments beneath them still sort by due date, and the two lists are drawn
+/// separately, so there is never a deadline to compare against a title.
 model Resource {
   id           String       @id @default(uuid()) @db.Uuid
   courseUnitId String       @map("course_unit_id") @db.Uuid
   kind         ResourceKind
-  /// What it is called, for every kind. Also what it sorts by.
+  /// What it is called, for every kind.
   title        String
+
+  /// Presentation order within its module, dense from zero, assigned by the server and never
+  /// sent by the browser. A new resource is added at the end and dragged from there.
+  ///
+  /// Deliberately NOT unique, for the same reason `CourseUnit.position` is not: `reorder`
+  /// rewrites a whole sequence in one statement, and a unique constraint would refuse any
+  /// intermediate state where two resources briefly share a position. Ties only affect
+  /// tie-breaking, which every ordering here settles with the title.
+  position     Int
 
   /// Where it points, for LINK and VIDEO. Validated as a URL by the schema rather than by the
   /// column, because "required for one kind" is not something a column can express.
@@ -932,7 +942,7 @@ model Resource {
   /// with it. A resource carries nothing: it is a title and a link, and re-adding one costs a
   /// minute. Refusing to remove an empty unit because somebody left a reading in it would be
   /// a guard against nothing.
-  @@index([courseUnitId])
+  @@index([courseUnitId, position])
   @@map("resources")
   @@schema("public")
 }
@@ -961,7 +971,7 @@ model Assignment {
   /// Non-empty for SELF_DIRECTED, where the instructor chooses: a link, a file, or either. Both
   /// is the case this exists for — a reflection handed in as a document by one student, a deck
   /// by another, and a short recording by a third.
-  handInMethods       HandInMethod[] @map("hand_in_methods")
+  handInMethods       HandInMethod[] @default([]) @map("hand_in_methods")
   pointValue          Int            @map("point_value")
   /// Matches the real "Complete/Incomplete at 75%" policy in
   /// working-with-assignments.md.

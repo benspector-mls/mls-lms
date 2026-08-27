@@ -51,9 +51,18 @@ export function ResourceItem({
    * shape it has when nobody passes anything.
    */
   actions,
+  /**
+   * The grip an instructor drags this row by, drawn at its leading edge.
+   *
+   * Outside the row's own markup for the same reason `actions` is, and it is the same reason a
+   * second time: a link's row *is* an anchor, and a button nested in an anchor is neither valid
+   * nor clickable. Absent for a student, who has nothing to reorder.
+   */
+  handle,
 }: {
   resource: ResourceView;
   actions?: React.ReactNode;
+  handle?: React.ReactNode;
 }) {
   const row =
     resource.kind === "LINK" ? (
@@ -64,16 +73,21 @@ export function ResourceItem({
       <VideoResource resource={resource} />
     );
 
-  if (!actions) return row;
+  if (!actions && !handle) return row;
 
   return (
     <div className="flex items-start gap-1">
+      {/*
+        Aligned to the top for the same reason the menu is: the grip belongs beside the title,
+        not beside the middle of an opened note.
+      */}
+      {handle && <div className="flex shrink-0 items-center pt-2 pl-1">{handle}</div>}
       <div className="min-w-0 flex-1">{row}</div>
       {/*
         Aligned to the top rather than centred, so the menu stays beside the title when the row
         is opened onto a page of prose or a video player.
       */}
-      <div className="flex shrink-0 items-center gap-2 pt-1.5 pr-2">{actions}</div>
+      {actions && <div className="flex shrink-0 items-center gap-2 pt-1.5 pr-2">{actions}</div>}
     </div>
   );
 }

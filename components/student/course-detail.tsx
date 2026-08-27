@@ -288,8 +288,9 @@ function groupByCourseUnit(course: Course, assignments: Assignment[], resources:
       });
   }
 
-  // Already in title order from the procedure, so pushing preserves it. Ordering resources
-  // here would be a second alphabet beside the one the server applied.
+  // Already in the instructor's order from the procedure, so pushing preserves it. Sorting
+  // resources here would be a second sequence beside the one the server applied — and this one
+  // is a sequence no client could reconstruct, because it is a column rather than a rule.
   for (const resource of resources) {
     groups.get(resource.courseUnitId)?.resources.push(resource);
   }
@@ -409,9 +410,9 @@ function UnitSection({
               {/*
                 Beneath the assignments, under a heading of their own, and never interleaved with
                 them. That is what makes the ordering question go away rather than needing an
-                answer: assignments sort by due date and resources alphabetically, and two
-                sequences cannot be merged into one without inventing a rule for comparing a
-                deadline to a title.
+                answer: assignments sort by due date and resources by the order their instructor
+                put them in, and two sequences cannot be merged into one without inventing a rule
+                for comparing a deadline to a place in a list.
               */}
               {resources.length > 0 && (
                 <UnitList heading="Resources">

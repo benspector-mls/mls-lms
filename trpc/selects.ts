@@ -114,7 +114,9 @@ export const courseUnitSummarySelect = {
  * read what is in them without opening the form.
  *
  * `courseUnitId` is in it because a resource can be moved between the units of its course, and the
- * form's Module field has to arrive holding the one it is in.
+ * form's Module field has to arrive holding the one it is in. `position` is in it because the
+ * Curriculum screen reorders the list it holds before the server has confirmed the move, and a row
+ * whose position it could not renumber would be a cache disagreeing with the screen drawn from it.
  */
 export const resourceSelect = {
   id: true,
@@ -126,4 +128,5 @@ export const resourceSelect = {
   videoProvider: true,
   videoId: true,
   courseUnitId: true,
+  position: true,
 } satisfies Prisma.ResourceSelect;

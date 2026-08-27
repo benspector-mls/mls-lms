@@ -303,19 +303,91 @@ async function main() {
 
         // --- ordering ----------------------------------------------------------
         //
-        // Alphabetical by title, decided on the server so the student page, the Modules screen,
-        // and the Resources screen cannot each pick their own alphabet. Created deliberately out
-        // of order above — Zebra, Apple, Mango — so insertion order cannot produce the answer.
+        // The order an instructor put them in, decided on the server so the student page, the
+        // Modules screen, and the Resources screen cannot each pick their own. The three above
+        // were created as Zebra, Apple, Mango deliberately: they come back in that order, so the
+        // alphabet demonstrably is not what decides it any more.
         const listed = await asInstructor.resources.listForCourse({ courseId: course.id });
         const mine = listed
           .filter((row) => row.title.startsWith("Verify "))
           .map((row) => row.title);
-        check("resources come back alphabetically, not in insertion order", mine, [
+        check("resources come back in creation order, not alphabetically", mine, [
+          "Verify Zebra",
           "Verify Apple",
           "Verify Mango",
-          "Verify Zebra",
         ]);
         check("...and all three are there", listed.length, before + 3);
+        // Each was added at the end of the module, so each sits after the one before it.
+        const positions = listed
+          .filter((row) => row.title.startsWith("Verify "))
+          .map((row) => row.position);
+        check(
+          "...each added at the end, so their positions ascend",
+          positions.every((position, index) => index === 0 || position > positions[index - 1]!),
+          true,
+        );
+
+        // --- reordering ----------------------------------------------------------
+        //
+        // The whole list, every time, and the server rewrites every position from it. Modelled on
+        // the module checks in verify-modules.ts, because it is the same sequence one scale down.
+        const inModule = await asInstructor.resources.listForCourse({ courseId: course.id });
+        const moduleRows = inModule.filter((row) => row.courseUnitId === firstModule.id);
+        const reversed = [...moduleRows].reverse().map((row) => row.id);
+        await asInstructor.resources.reorder({
+          courseUnitId: firstModule.id,
+          resourceIds: reversed,
+        });
+
+        const afterReorder = (
+          await asInstructor.resources.listForCourse({ courseId: course.id })
+        ).filter((row) => row.courseUnitId === firstModule.id);
+        check(
+          "reordering rewrites every position from the list",
+          afterReorder.map((row) => row.id),
+          reversed,
+        );
+        check(
+          "...as a dense sequence from zero",
+          afterReorder.map((row) => row.position),
+          reversed.map((_, index) => index),
+        );
+
+        /*
+          A partial list is refused. Sending only the resources that moved would leave the omitted
+          ones holding stale positions — an order nobody asked for, and one that would look on the
+          screen afterwards like the move half worked.
+        */
+        check(
+          "a partial order is refused",
+          await refusal(() =>
+            asInstructor.resources.reorder({
+              courseUnitId: firstModule.id,
+              resourceIds: [reversed[0]!],
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+        check(
+          "an order listing a resource twice is refused",
+          await refusal(() =>
+            asInstructor.resources.reorder({
+              courseUnitId: firstModule.id,
+              resourceIds: [...reversed, reversed[0]!],
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+        check(
+          "a student cannot reorder a module's resources",
+          await refusal(() =>
+            asStudent.resources.reorder({
+              courseUnitId: firstModule.id,
+              resourceIds: reversed,
+            }),
+          ),
+          "FORBIDDEN",
+        );
 
         /*
         A student reads exactly the same rows. There is no draft state on a resource, so unlike
@@ -351,9 +423,20 @@ async function main() {
         );
 
         if (course.courseUnits.length > 1) {
+          const destination = course.courseUnits[1]!.id;
+          /*
+            What the end of the destination is *before* the move, so the check below is against a
+            number this test worked out rather than the one the procedure returned.
+          */
+          const endOfDestination = (
+            await asInstructor.resources.listForCourse({ courseId: course.id })
+          )
+            .filter((row) => row.courseUnitId === destination)
+            .reduce((highest, row) => Math.max(highest, row.position), -1);
+
           const moved = await asInstructor.resources.update({
             resourceId: link.id,
-            courseUnitId: course.courseUnits[1]!.id,
+            courseUnitId: destination,
             spec: {
               kind: "LINK",
               title: "Verify Zebra",
@@ -364,7 +447,30 @@ async function main() {
           check(
             "a resource can be moved to another module of the same course",
             moved.courseUnitId,
-            course.courseUnits[1]!.id,
+            destination,
+          );
+          /*
+            At the end of the module it moved to, rather than keeping the position it held in the
+            module it left — which would drop it into the middle of a sequence it has never been
+            part of, between two resources an instructor deliberately put next to each other.
+          */
+          check("...landing at the end of that module", moved.position, endOfDestination + 1);
+
+          // And a plain edit leaves the position alone, or fixing a typo would move the row.
+          const renamed = await asInstructor.resources.update({
+            resourceId: link.id,
+            courseUnitId: destination,
+            spec: {
+              kind: "LINK",
+              title: "Verify Zebra Renamed",
+              url: "https://a.example",
+              description: null,
+            },
+          });
+          check(
+            "an edit that changes no module leaves the position alone",
+            renamed.position,
+            moved.position,
           );
         } else {
           console.log("skip  moving between modules — the course has only one");
@@ -407,10 +513,18 @@ async function main() {
         const modules = await asInstructor.courseUnits.listForCourse({ courseId: course.id });
         const holding = modules.find((row) => row.id === firstModule.id);
         check("the module list carries its resources", (holding?.resources.length ?? 0) > 0, true);
+        /*
+          The same order, checked against the other procedure rather than against a rule. When the
+          ordering was alphabetical this could sort a copy and compare; now that the order is a
+          column, the only thing worth asserting is that the two procedures agree — which is the
+          property that actually matters, and the one a second `orderBy` drifting would break.
+        */
         check(
-          "...in the same alphabetical order",
-          holding!.resources.map((row) => row.title),
-          [...holding!.resources.map((row) => row.title)].sort((a, b) => a.localeCompare(b)),
+          "...in the same order the resources procedure gives",
+          holding!.resources.map((row) => row.id),
+          (await asInstructor.resources.listForCourse({ courseId: course.id }))
+            .filter((row) => row.courseUnitId === firstModule.id)
+            .map((row) => row.id),
         );
 
         // --- who may do any of this ----------------------------------------------
@@ -530,6 +644,7 @@ async function main() {
           kind: "LINK",
           title: "Verify Cascade",
           url: "https://a.example",
+          position: 0,
         },
       });
 

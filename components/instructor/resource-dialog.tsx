@@ -257,6 +257,17 @@ export function ResourceDialog({
                 failed — and the instructor's next move would be to go and create a module that
                 already exists.
               */}
+              {/*
+                Where it lands, said here rather than on the title, which no longer decides
+                anything about order. Both sentences are about the same rule from the two sides an
+                instructor meets it from: a resource is added at the end of a module, and a
+                resource that changes module is added to the end of the new one.
+              */}
+              <p className="text-xs text-muted-foreground">
+                {resource
+                  ? "Moving this to another module puts it at the end of that module's list."
+                  : "Added at the end of the module. Drag it into place from the Curriculum screen."}
+              </p>
               {units.error && (
                 <p className="text-xs text-destructive">
                   The units of this course could not be loaded, so there is nothing to choose from.{" "}
@@ -274,10 +285,6 @@ export function ResourceDialog({
                 placeholder={kind === "TEXT" ? "How to read an error message" : "MDN: Array.map()"}
                 maxLength={200}
               />
-              {/* The ordering is alphabetical, so the title is also where a resource sits. */}
-              <p className="text-xs text-muted-foreground">
-                Resources are listed alphabetically within their module.
-              </p>
             </div>
 
             {kind !== "TEXT" && (
