@@ -27,7 +27,7 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
-  const { dashboardSections, dashboardIsEmpty, UPCOMING_WINDOW_DAYS } =
+  const { dashboardSections, dashboardIsEmpty, DEFAULT_UPCOMING_WINDOW_DAYS } =
     await import("../lib/student/dashboard");
   const { progressSegments, completeCount } = await import("../lib/student/progress");
   const { feedbackIsUnread } = await import("../lib/status");
@@ -203,7 +203,12 @@ async function main() {
     [...sections.upcoming, ...sections.overdue].every((r) => r.dueAt != null),
   );
 
-  const windowEnds = now.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  /*
+    The default, because that is what `dashboardSections` was called with above. A fellow's own
+    choice lives in a cookie this script has no request to read, and the partition below is the
+    thing worth checking against real data — it holds at every window.
+  */
+  const windowEnds = now.getTime() + DEFAULT_UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
   checkThat(
     "upcoming is inside the window and overdue is in the past",

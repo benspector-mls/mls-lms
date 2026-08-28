@@ -1,8 +1,10 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { PageFallback } from "@/components/list-states";
 import { StudentDashboard } from "@/components/student/dashboard";
+import { UPCOMING_WINDOW_COOKIE, upcomingWindowOf } from "@/lib/student/dashboard";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
@@ -28,10 +30,11 @@ export default function DashboardPage() {
 async function Dashboard() {
   const queryClient = getQueryClient();
 
-  const [profile, assignments, week] = await Promise.all([
+  const [profile, assignments, week, cookieStore] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.assignments.listMine.queryOptions()),
     queryClient.fetchQuery(trpc.attendance.myWeek.queryOptions()),
+    cookies(),
   ]);
 
   /*
@@ -50,6 +53,20 @@ async function Dashboard() {
     The clock is read once, here, and handed down. Reading it inside the component would put a
     different "now" in the server's render and the browser's, which React reports as a hydration
     mismatch — and it is the reason `dashboardSections` takes it as an argument.
+
+    The window a fellow chose is resolved here for the same reason and handed down the same way:
+    it decides which rows the server renders, so the component beneath stays a pure function of
+    its props and costs no client JavaScript. The picker in its header writes the cookie and asks
+    for a fresh render; nothing trusts the value, and `upcomingWindowOf` re-checks it here on every
+    read. `assignments.listMine` applies no date filter of its own, so widening the window fetches
+    nothing extra — it only draws more of what is already in hand.
   */
-  return <StudentDashboard assignments={assignments} week={week} now={new Date()} />;
+  return (
+    <StudentDashboard
+      assignments={assignments}
+      week={week}
+      now={new Date()}
+      windowDays={upcomingWindowOf(cookieStore.get(UPCOMING_WINDOW_COOKIE)?.value)}
+    />
+  );
 }

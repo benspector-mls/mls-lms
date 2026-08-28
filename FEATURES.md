@@ -330,7 +330,7 @@ Then the work, in five lists:
 - **Feedback to read** — work that passed and whose feedback you have not marked read, newest first. This is the only place the application tells you something new has arrived.
 - **Started, not handed in**, quieter than the rest, because work you have taken up is work you already know about.
 
-**Coming up looks a week ahead**, not further. Everything else your instructor has handed out is on the course page, and on a quiet week the dashboard tells you how much of it is waiting rather than telling you that you are finished.
+**Coming up looks a week ahead** unless you say otherwise. The picker at the top of the screen offers the next 3, 7, 14 or 30 days, and the browser you chose in remembers it for next time. Whichever you pick, everything beyond it that your instructor has handed out is on the course page, and on a quiet week the dashboard tells you how much of it is waiting rather than telling you that you are finished.
 
 Graded work never appears as a deadline, including work that came back below the threshold. Resubmitting is a second go at work you already handed in, and calling it overdue would say you missed a deadline you met.
 

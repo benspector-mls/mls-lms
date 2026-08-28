@@ -84,14 +84,54 @@ export interface DashboardSections<Row> {
 export const UNREAD_FEEDBACK_LIMIT = 10;
 
 /**
- * How far ahead Coming up looks.
+ * The windows a student may choose between, in days.
  *
- * A week rather than everything, because published work runs to most of a nine-month course and a
- * student in week two would otherwise scroll past forty assignments they have no reason to start.
- * A week is also the horizon somebody plans against: nothing can be done about work due in twelve
- * days that cannot be done about it in five.
+ * Bounded rather than open, and that is the point of the list. Published work runs to most of a
+ * nine-month course, so an "everything" option would put forty assignments a student in week two
+ * has no reason to start at the top of their screen — and it would make `laterCount` permanently
+ * zero, which is the number the empty state depends on to stay honest. Every choice here still
+ * leaves work outside the window.
  */
-export const UPCOMING_WINDOW_DAYS = 7;
+export const UPCOMING_WINDOW_CHOICES = [3, 7, 14, 30] as const;
+
+/**
+ * How far ahead Coming up looks until a student says otherwise.
+ *
+ * A week rather than everything, because a week is the horizon most people plan against: nothing
+ * can be done about work due in twelve days that cannot be done about it in five. It is a good
+ * default and a poor universal rule, which is why it is only the default — somebody who plans a
+ * fortnight at a time can say so, from the picker in the dashboard's own header.
+ */
+export const DEFAULT_UPCOMING_WINDOW_DAYS = 7;
+
+/**
+ * The cookie holding a student's choice.
+ *
+ * `mls_` prefixed to keep it clear of Supabase's own `sb-*` cookies, the way `LAST_PLACE_COOKIE`
+ * is. A cookie rather than a column on `Profile` for the reason `RememberPlace` gives: this is a
+ * remembered way of looking at a screen and nothing else, so it needs no migration, no mutation
+ * and no round trip. The cost is that it is remembered per browser, and a student who also opens
+ * the application on their phone gets the default there.
+ */
+export const UPCOMING_WINDOW_COOKIE = "mls_upcoming_window";
+
+/**
+ * A remembered window, or the default for anything this does not recognise.
+ *
+ * **Checked against the offered list rather than parsed as a number**, because the value comes
+ * from a cookie and a cookie is a value somebody can set. `Number("100000")` is a perfectly good
+ * number, and honouring it would turn Coming up into exactly the unbounded list the window exists
+ * to prevent. Nothing else guards this: the reader is the only check there is.
+ *
+ * The same care `viewPlaceOf` takes with `mls_last_place`, and for the same reason.
+ */
+export function upcomingWindowOf(value: string | undefined | null): number {
+  const days = Number(value);
+
+  return (UPCOMING_WINDOW_CHOICES as readonly number[]).includes(days)
+    ? days
+    : DEFAULT_UPCOMING_WINDOW_DAYS;
+}
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -112,8 +152,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  *   not in progress by any reading, and over a nine-month program it is most of the course — a
  *   student in week two would find forty rows of work they had not started. Where it belongs is
  *   the deadline lists, which is where its due date puts it.
- * - **Work due past the window is counted, not listed.** Coming up is a week deep; see
- *   `UPCOMING_WINDOW_DAYS`.
+ * - **Work due past the window is counted, not listed.** How deep Coming up goes is the caller's
+ *   to say and a week by default; see `UPCOMING_WINDOW_CHOICES`. Every offered window leaves work
+ *   outside it, so the count is never nothing merely because somebody widened their view.
  *
  * The two graded lists partition rather than overlap. Work that came back below the threshold is
  * in `needsAnotherAttempt` whether or not its report has been read, and nowhere else; everything
@@ -124,6 +165,12 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export function dashboardSections<Row extends DashboardRow>(
   rows: readonly Row[],
   now: Date,
+  /**
+   * How far ahead Coming up looks, in days. The student's own choice, resolved by the page from
+   * `UPCOMING_WINDOW_COOKIE`. Defaulted here so that a caller with no opinion — the tests, and any
+   * future reader that does not offer the picker — needs none.
+   */
+  windowDays: number = DEFAULT_UPCOMING_WINDOW_DAYS,
 ): DashboardSections<Row> {
   const upcoming: Row[] = [];
   const overdue: Row[] = [];
@@ -134,7 +181,7 @@ export function dashboardSections<Row extends DashboardRow>(
 
   // Inclusive at the far edge, following `statusForCheckIn`: where a boundary has to fall one way,
   // the version decided in the student's favour is the one that never needs defending to them.
-  const windowEnds = now.getTime() + UPCOMING_WINDOW_DAYS * MS_PER_DAY;
+  const windowEnds = now.getTime() + windowDays * MS_PER_DAY;
 
   for (const row of rows) {
     const submission = row.submission;

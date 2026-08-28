@@ -2,7 +2,10 @@ import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 import {
   dashboardIsEmpty,
   dashboardSections,
+  DEFAULT_UPCOMING_WINDOW_DAYS,
   UNREAD_FEEDBACK_LIMIT,
+  UPCOMING_WINDOW_CHOICES,
+  upcomingWindowOf,
   type DashboardRow,
 } from "@/lib/student/dashboard";
 
@@ -258,11 +261,12 @@ describe("a row appearing in two lists", () => {
 });
 
 /**
- * Coming up is a week deep, and what falls outside it is counted rather than listed.
+ * Coming up is a week deep by default, and what falls outside it is counted rather than listed.
  *
  * The count is the whole point of the window being safe. Rows that are neither drawn nor counted
  * are rows the screen has quietly forgotten, and the empty state would then congratulate a student
- * with a fortnight of work ahead of them.
+ * with a fortnight of work ahead of them. That has to hold at every window a fellow can choose,
+ * not only at the default, which is what the last two cases here are for.
  */
 describe("the upcoming window", () => {
   const IN_SIX_DAYS = new Date("2026-10-15T12:00:00Z");
@@ -325,6 +329,72 @@ describe("the upcoming window", () => {
 
     expect(dashboardIsEmpty(sections)).toBe(true);
     expect(sections.laterCount).toBe(1);
+  });
+
+  // The same four rows, read at three windows. This is what the fellow's picker buys them, and
+  // the counts moving in opposite directions is the whole of the behaviour.
+  it("draws a different line for a different window", () => {
+    const rows = [
+      row({ dueAt: IN_SIX_DAYS }),
+      row({ dueAt: EXACTLY_SEVEN_DAYS }),
+      row({ dueAt: IN_EIGHT_DAYS }),
+      row({ dueAt: IN_A_MONTH }),
+    ];
+
+    const narrow = dashboardSections(rows, NOW, 3);
+    expect(narrow.upcoming).toHaveLength(0);
+    expect(narrow.laterCount).toBe(4);
+
+    const wide = dashboardSections(rows, NOW, 30);
+    expect(wide.upcoming).toHaveLength(3);
+    expect(wide.laterCount).toBe(1);
+  });
+
+  /*
+    Nothing a fellow can choose empties the count of everything, which is what keeps the empty
+    state honest at every setting. It is why the offered list stops at thirty days rather than
+    offering "everything": `laterCount` would then be permanently zero and the screen would have
+    no way left to say that more work exists.
+  */
+  it("still counts work past the widest window", () => {
+    const inTwoMonths = new Date("2026-12-09T12:00:00Z");
+    const sections = dashboardSections([row({ dueAt: inTwoMonths })], NOW, 30);
+
+    expect(sections.upcoming).toHaveLength(0);
+    expect(sections.laterCount).toBe(1);
+  });
+});
+
+/**
+ * The window comes out of a cookie, and a cookie is a value somebody can set.
+ *
+ * Reading it as a plain number would honour `100000` — an unbounded Coming up, which is the one
+ * thing the window exists to prevent. Checking it against the offered list is the only guard
+ * there is, so these are the cases that guard has to get right.
+ */
+describe("reading a remembered window", () => {
+  it("takes every window on offer", () => {
+    for (const days of UPCOMING_WINDOW_CHOICES) {
+      expect(upcomingWindowOf(String(days))).toBe(days);
+    }
+  });
+
+  it("falls back to the default when nothing was remembered", () => {
+    expect(upcomingWindowOf(undefined)).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+    expect(upcomingWindowOf(null)).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+    expect(upcomingWindowOf("")).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+  });
+
+  // A real number, and not one on offer. `Number` would happily return it.
+  it("refuses a window nobody was offered", () => {
+    expect(upcomingWindowOf("100000")).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+    expect(upcomingWindowOf("8")).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+    expect(upcomingWindowOf("-7")).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+  });
+
+  it("refuses a value that is not a number at all", () => {
+    expect(upcomingWindowOf("everything")).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
+    expect(upcomingWindowOf("7; drop")).toBe(DEFAULT_UPCOMING_WINDOW_DAYS);
   });
 });
 

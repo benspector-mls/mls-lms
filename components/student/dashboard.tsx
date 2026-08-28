@@ -26,6 +26,7 @@ import type { RouterOutputs } from "@/trpc/types";
 
 import { AttendanceStrip } from "./attendance-strip";
 import type { DashboardAssignment } from "./types";
+import { UpcomingWindowPicker } from "./upcoming-window";
 
 /**
  * What a student should look at, across every course they are in.
@@ -43,28 +44,38 @@ import type { DashboardAssignment } from "./types";
  * feedback is what clears a report — see the comment at the top of `lib/student/dashboard.ts` for
  * why a dismiss button would be the one mistake this screen must not make.
  *
- * **Coming up is a week deep, and the empty state is what keeps that honest.** Work due further
- * out draws no rows, so `laterCount` exists to stop the screen congratulating somebody who has a
- * fortnight of assignments ahead of them.
+ * **Coming up is as deep as the fellow asked for, and the empty state is what keeps that honest.**
+ * A week by default, and 3, 14 or 30 days from the picker in the header. Work due further out
+ * draws no rows at any of those settings, so `laterCount` exists to stop the screen congratulating
+ * somebody who has a fortnight of assignments ahead of them.
  */
 export function StudentDashboard({
   assignments,
   week,
   now,
+  windowDays,
 }: {
   assignments: DashboardAssignment[];
   /** This week's attendance, in every cohort. The strip decides whether there is anything to draw. */
   week: RouterOutputs["attendance"]["myWeek"];
   /** Passed in rather than read here, so the server and the browser agree. */
   now: Date;
+  /** How far ahead Coming up looks, in days. Resolved from the fellow's cookie by the page. */
+  windowDays: number;
 }) {
-  const sections = dashboardSections(assignments, now);
+  const sections = dashboardSections(assignments, now, windowDays);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Your Work"
         description="Everything waiting on you, across all of your courses."
+        /*
+          Offered only once there is work to look ahead at. A fellow whose instructor has handed
+          out nothing has nothing to widen the window onto, and the empty state below already tells
+          them so — a picker there would be a control whose every setting gives the same answer.
+        */
+        actions={assignments.length > 0 ? <UpcomingWindowPicker value={windowDays} /> : undefined}
       />
 
       {/*
@@ -82,13 +93,20 @@ export function StudentDashboard({
           is a real and good state, not an absence of data.
 
           Three messages, because there are three ways to draw no rows and they are not the same
-          news. The middle one is what the week-deep window costs: work due a fortnight out is
-          real, and a screen that said "you are up to date" over the top of it would be telling a
-          student the thing this file exists to never tell them.
+          news. The middle one is what the window costs: work due past its far edge is real, and a
+          screen that said "you are up to date" over the top of it would be telling a student the
+          thing this file exists to never tell them.
+
+          The title names the window rather than saying "this week", which was true only at the
+          default and read as a plain falsehood at the other three settings.
         */
         <EmptyState
           icon={<Sparkles />}
-          title={sections.laterCount > 0 ? "Nothing due this week" : "Nothing waiting on you"}
+          title={
+            sections.laterCount > 0
+              ? `Nothing due in the next ${windowDays} days`
+              : "Nothing waiting on you"
+          }
           description={
             assignments.length === 0
               ? "When your instructor hands out work, it will appear here."
