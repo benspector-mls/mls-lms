@@ -62,8 +62,8 @@ export function BatchGenerate({
           </Button>
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">
-          A couple of minutes each, several at a time. Leaving this page stops what has not
-          started; anything already running finishes and its report lands.
+          A couple of minutes each, several at a time. Leaving this page stops what has not started;
+          anything already running finishes and its report lands.
         </p>
       </div>
     );

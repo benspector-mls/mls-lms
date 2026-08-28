@@ -18,12 +18,18 @@ const MONDAY_AFTER = "2026-09-28";
 const at = (day: string, hours: number, minutes: number) => ({
   day,
   // September is EDT, four hours behind UTC.
-  checkedInAt: new Date(`${day}T${String(hours + 4).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00Z`),
+  checkedInAt: new Date(
+    `${day}T${String(hours + 4).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00Z`,
+  ),
 });
 
 describe("the overall average", () => {
   it("is the mean of the arrival times, in the school's timezone", () => {
-    const averages = arrivalAverages([at(MONDAY, 9, 0), at(TUESDAY, 9, 10), at(NEXT_MONDAY, 9, 20)]);
+    const averages = arrivalAverages([
+      at(MONDAY, 9, 0),
+      at(TUESDAY, 9, 10),
+      at(NEXT_MONDAY, 9, 20),
+    ]);
 
     // 9:00, 9:10, 9:20 → 9:10, which is 550 minutes after midnight.
     expect(averages.overall.minutes).toBe(550);
@@ -81,10 +87,16 @@ describe("by weekday", () => {
     // Three arrivals overall, but only two on any one Monday-or-Tuesday, so the overall average
     // exists and neither weekday's does. That asymmetry is the point: a term-long mean says
     // something after three mornings and a Monday mean does not.
-    const averages = arrivalAverages([at(MONDAY, 9, 0), at(NEXT_MONDAY, 9, 10), at(TUESDAY, 9, 20)]);
+    const averages = arrivalAverages([
+      at(MONDAY, 9, 0),
+      at(NEXT_MONDAY, 9, 10),
+      at(TUESDAY, 9, 20),
+    ]);
 
     expect(averages.overall.minutes).toBe(9 * 60 + 10);
-    expect(averages.byWeekday.find((entry) => entry.label === "Monday")!.average.minutes).toBeNull();
+    expect(
+      averages.byWeekday.find((entry) => entry.label === "Monday")!.average.minutes,
+    ).toBeNull();
   });
 
   /*

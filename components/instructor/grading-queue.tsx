@@ -83,8 +83,7 @@ export function GradingQueue({
     the only route to it is the fellow's own record, which means already knowing who asked.
   */
   const submissions = data.submissions.filter(
-    (row) =>
-      (row.status !== "NOT_STARTED" && row.status !== "ACCEPTED") || row.commentCount > 0,
+    (row) => (row.status !== "NOT_STARTED" && row.status !== "ACCEPTED") || row.commentCount > 0,
   );
 
   /*

@@ -139,7 +139,19 @@ async function main() {
   console.log("Every priced run. `billed` is what the run cost; `on a hit` is what it");
   console.log("would have cost reading its cacheable prefix rather than writing it.\n");
   console.log(
-    ["date", "model", "effort", "sections", "uncached", "cached", "written", "output", "billed", "on a hit", "out%"]
+    [
+      "date",
+      "model",
+      "effort",
+      "sections",
+      "uncached",
+      "cached",
+      "written",
+      "output",
+      "billed",
+      "on a hit",
+      "out%",
+    ]
       .map((h, i) => (i < 4 ? h.padEnd([12, 18, 7, 24][i]) : h.padStart(9)))
       .join(" "),
   );
@@ -201,7 +213,9 @@ async function main() {
   }
 
   if (withoutUsage > 0) {
-    console.log(`${withoutUsage} draft${withoutUsage === 1 ? "" : "s"} recorded no usage to price.`);
+    console.log(
+      `${withoutUsage} draft${withoutUsage === 1 ? "" : "s"} recorded no usage to price.`,
+    );
   }
   for (const model of unpriced) {
     console.log(`No rate on record for "${model}" — add it to RATES in scripts/cost.ts.`);

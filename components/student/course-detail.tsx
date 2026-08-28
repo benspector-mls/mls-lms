@@ -4,13 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import * as React from "react";
-import {
-  CheckCircle2,
-  ChevronRight,
-  CircleSlash,
-  ListChecks,
-  Wrench,
-} from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleSlash, ListChecks, Wrench } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";

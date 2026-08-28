@@ -379,7 +379,13 @@ describe("a flag the score does not reflect", () => {
               { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
               { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
               { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-              { label: "Q4", criterion: "technical", scoreEarned: 2, scorePossible: 3, note: "term" },
+              {
+                label: "Q4",
+                criterion: "technical",
+                scoreEarned: 2,
+                scorePossible: 3,
+                note: "term",
+              },
               {
                 label: "Writing",
                 criterion: "writing_quality",
@@ -447,7 +453,13 @@ describe("the denominator against the section's point value", () => {
       scoreEarned: 0,
       scorePossible: 3,
       rubricItems: [
-        { label: "Writing Quality", criterion: "writing", scoreEarned: 0, scorePossible: 3, note: null },
+        {
+          label: "Writing Quality",
+          criterion: "writing",
+          scoreEarned: 0,
+          scorePossible: 3,
+          note: null,
+        },
       ],
     });
   }
@@ -459,9 +471,7 @@ describe("the denominator against the section's point value", () => {
   });
 
   it("holds that report back rather than letting it reach a gradebook", () => {
-    expect(
-      crossCheck(wrongScale(), { ...noFacts, pointValue: 15 }).needsManualReview,
-    ).toBe(true);
+    expect(crossCheck(wrongScale(), { ...noFacts, pointValue: 15 }).needsManualReview).toBe(true);
   });
 
   it("says nothing when the report is scored out of the section's own value", () => {
@@ -477,9 +487,22 @@ describe("the denominator against the section's point value", () => {
   it("tolerates a fractional point value, since half credit is normal", () => {
     expect(
       codes(
-        crossCheck(report({ scoreEarned: 5.5, scorePossible: 12, rubricItems: [
-          { label: "Q1", criterion: "algorithm", scoreEarned: 5.5, scorePossible: 12, note: null },
-        ] }), { ...noFacts, pointValue: 12 }),
+        crossCheck(
+          report({
+            scoreEarned: 5.5,
+            scorePossible: 12,
+            rubricItems: [
+              {
+                label: "Q1",
+                criterion: "algorithm",
+                scoreEarned: 5.5,
+                scorePossible: 12,
+                note: null,
+              },
+            ],
+          }),
+          { ...noFacts, pointValue: 12 },
+        ),
       ),
     ).toEqual([]);
   });

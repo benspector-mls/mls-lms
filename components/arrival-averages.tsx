@@ -64,9 +64,7 @@ export function ArrivalAveragesPanel({
                 {entry.label.slice(0, 3)}
               </span>
               <span className="text-sm font-medium tabular-nums whitespace-nowrap">
-                {entry.average.minutes === null
-                  ? "—"
-                  : formatClockMinutes(entry.average.minutes)}
+                {entry.average.minutes === null ? "—" : formatClockMinutes(entry.average.minutes)}
               </span>
               <span className="text-[0.65rem] tabular-nums text-muted-foreground">
                 {entry.average.count === 0
@@ -79,9 +77,9 @@ export function ArrivalAveragesPanel({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Only mornings they checked in are counted, so an absence neither raises nor lowers these. The
-        day of the week comes from the session rather than from the moment they typed the code. A
-        weekday with fewer than {MIN_ARRIVALS} check-ins shows no average.
+        Only mornings they checked in are counted, so an absence neither raises nor lowers these.
+        The day of the week comes from the session rather than from the moment they typed the code.
+        A weekday with fewer than {MIN_ARRIVALS} check-ins shows no average.
       </p>
     </div>
   );

@@ -20,9 +20,7 @@
  * graded".
  */
 export type PoolResult<T> =
-  | { status: "done"; value: T }
-  | { status: "failed"; error: unknown }
-  | { status: "skipped" };
+  { status: "done"; value: T } | { status: "failed"; error: unknown } | { status: "skipped" };
 
 /**
  * Runs `worker` over `items`, at most `width` at a time.

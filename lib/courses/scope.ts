@@ -139,7 +139,11 @@ export async function teachableResource<S extends Prisma.ResourceSelect>(
       id: resourceId,
       ...(teachesEverything(ctx)
         ? {}
-        : { courseUnit: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } } }),
+        : {
+            courseUnit: {
+              course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
+            },
+          }),
     },
     select,
   });
@@ -181,9 +185,7 @@ export async function teachableProgram<S extends Prisma.ProgramSelect>(
   const row = await ctx.db.program.findFirst({
     where: {
       id: programId,
-      ...(teachesEverything(ctx)
-        ? {}
-        : { instructors: { some: { userId: ctx.profile.id } } }),
+      ...(teachesEverything(ctx) ? {} : { instructors: { some: { userId: ctx.profile.id } } }),
     },
     select,
   });
@@ -225,7 +227,9 @@ export async function teachableTeam<S extends Prisma.TeamSelect>(
       id: teamId,
       ...(teachesEverything(ctx)
         ? {}
-        : { teamSet: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } } }),
+        : {
+            teamSet: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } },
+          }),
     },
     select,
   });
@@ -306,7 +310,11 @@ export async function teachableSubmission<S extends Prisma.SubmissionSelect>(
       id: submissionId,
       ...(teachesEverything(ctx)
         ? {}
-        : { assignment: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } } }),
+        : {
+            assignment: {
+              course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
+            },
+          }),
     },
     select,
   });
@@ -327,7 +335,9 @@ export async function teachableDraft<S extends Prisma.GradingDraftSelect>(
         ? {}
         : {
             submission: {
-              assignment: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } },
+              assignment: {
+                course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
+              },
             },
           }),
     },
@@ -350,7 +360,9 @@ export async function teachableTestRun<S extends Prisma.TestRunSelect>(
         ? {}
         : {
             submission: {
-              assignment: { course: { program: { instructors: { some: { userId: ctx.profile.id } } } } },
+              assignment: {
+                course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
+              },
             },
           }),
     },

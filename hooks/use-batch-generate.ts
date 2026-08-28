@@ -116,7 +116,10 @@ export function useBatchGenerate() {
       const failures: BatchFailure[] = [];
 
       const generateOne = async (subject: BatchCandidate) => {
-        setState((prev) => ({ ...prev, inFlight: new Set(prev.inFlight).add(subject.submissionId) }));
+        setState((prev) => ({
+          ...prev,
+          inFlight: new Set(prev.inFlight).add(subject.submissionId),
+        }));
         try {
           /*
             The procedure is called through the client rather than through `useMutation`. Two

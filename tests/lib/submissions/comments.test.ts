@@ -64,7 +64,9 @@ describe("threadSubmissionId", () => {
 
 describe("isUnread", () => {
   it("is unread for a reader who has never opened the thread", () => {
-    expect(isUnread(comment({ authorId: INSTRUCTOR }), { id: FELLOW, lastReadAt: null })).toBe(true);
+    expect(isUnread(comment({ authorId: INSTRUCTOR }), { id: FELLOW, lastReadAt: null })).toBe(
+      true,
+    );
   });
 
   it("is unread when it arrived after the reader's last visit", () => {

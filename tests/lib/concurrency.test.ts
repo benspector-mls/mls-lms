@@ -52,7 +52,11 @@ describe("runPool", () => {
 
   it("never runs more than `width` at a time", async () => {
     const { state, worker } = tracking(async () => settle());
-    await runPool(Array.from({ length: 12 }, (_, i) => i), 3, worker);
+    await runPool(
+      Array.from({ length: 12 }, (_, i) => i),
+      3,
+      worker,
+    );
     expect(state.peak).toBe(3);
   });
 
@@ -121,7 +125,11 @@ describe("runPool", () => {
     // stopped me" and "this cannot be graded" want opposite responses.
     it("reports untouched items as skipped rather than failed", async () => {
       const results = await runPool([1, 2, 3], 1, async (n) => n, { shouldStop: () => true });
-      expect(results).toEqual([{ status: "skipped" }, { status: "skipped" }, { status: "skipped" }]);
+      expect(results).toEqual([
+        { status: "skipped" },
+        { status: "skipped" },
+        { status: "skipped" },
+      ]);
     });
 
     it("does nothing at all when stopped before the first item", async () => {

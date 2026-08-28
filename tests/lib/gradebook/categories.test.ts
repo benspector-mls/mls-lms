@@ -35,11 +35,7 @@ function assignment(
   return { id, title: id, dueAt: null, courseUnitId, distributedAt: PUBLISHED, ...overrides };
 }
 
-function unit(
-  id: string,
-  category: CategorizedUnit["category"],
-  position = 0,
-): CategorizedUnit {
+function unit(id: string, category: CategorizedUnit["category"], position = 0): CategorizedUnit {
   return { id, name: id, position, category };
 }
 
@@ -86,7 +82,10 @@ describe("groupByUnit", () => {
   // One sequence across all three categories, so a project reads where the instructor put it.
   it("keeps units in course order across categories", () => {
     const ordered = allUnits(
-      groupByUnit([], [unit("late", "MODULE", 2), unit("mid", "PROJECT", 1), unit("first", "MODULE", 0)]),
+      groupByUnit(
+        [],
+        [unit("late", "MODULE", 2), unit("mid", "PROJECT", 1), unit("first", "MODULE", 0)],
+      ),
     );
     expect(ordered.map((entry) => entry.unit.id)).toEqual(["first", "mid", "late"]);
   });
@@ -141,7 +140,12 @@ describe("verdictsByStudent", () => {
 
   it("keeps students apart", () => {
     const verdicts = verdictsByStudent(
-      [cell("a1", "s1", true), cell("a2", "s1", true), cell("a1", "s2", true), cell("a2", "s2", false)],
+      [
+        cell("a1", "s1", true),
+        cell("a2", "s1", true),
+        cell("a1", "s2", true),
+        cell("a2", "s2", false),
+      ],
       work,
     );
     expect(verdicts.get("s1")).toBe("complete");
@@ -181,9 +185,13 @@ describe("verdictsByStudent", () => {
   });
 
   it("names which work counts", () => {
-    expect(published([assignment("a1", "u1"), assignment("a2", "u1", { distributedAt: null })])).toHaveLength(1);
+    expect(
+      published([assignment("a1", "u1"), assignment("a2", "u1", { distributedAt: null })]),
+    ).toHaveLength(1);
     expect(unitHasVerdict({ unit: unit("u1", "MODULE"), work: [] })).toBe(false);
-    expect(unitHasVerdict({ unit: unit("u1", "MODULE"), work: [assignment("a1", "u1")] })).toBe(true);
+    expect(unitHasVerdict({ unit: unit("u1", "MODULE"), work: [assignment("a1", "u1")] })).toBe(
+      true,
+    );
   });
 });
 
@@ -194,16 +202,20 @@ describe("courseVerdictByStudent", () => {
 
   it("is complete only when every unit is", () => {
     expect(
-      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", true)], grouped, ["s1"]).get("s1"),
+      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", true)], grouped, ["s1"]).get(
+        "s1",
+      ),
     ).toBe("complete");
-    expect(
-      courseVerdictByStudent([cell("a1", "s1", true)], grouped, ["s1"]).get("s1"),
-    ).toBe("pending");
+    expect(courseVerdictByStudent([cell("a1", "s1", true)], grouped, ["s1"]).get("s1")).toBe(
+      "pending",
+    );
   });
 
   it("is incomplete once every unit has settled and one fell short", () => {
     expect(
-      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", false)], grouped, ["s1"]).get("s1"),
+      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", false)], grouped, [
+        "s1",
+      ]).get("s1"),
     ).toBe("incomplete");
   });
 
@@ -214,7 +226,9 @@ describe("courseVerdictByStudent", () => {
   it("skips an empty unit rather than letting it block the course", () => {
     const withEmpty = allUnits(groupByUnit(assignments, [...units, unit("m3", "MODULE", 2)]));
     expect(
-      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", true)], withEmpty, ["s1"]).get("s1"),
+      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", true)], withEmpty, [
+        "s1",
+      ]).get("s1"),
     ).toBe("complete");
   });
 
@@ -226,7 +240,9 @@ describe("courseVerdictByStudent", () => {
       ),
     );
     expect(
-      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", true)], withDraftUnit, ["s1"]).get("s1"),
+      courseVerdictByStudent([cell("a1", "s1", true), cell("a2", "s1", true)], withDraftUnit, [
+        "s1",
+      ]).get("s1"),
     ).toBe("complete");
   });
 

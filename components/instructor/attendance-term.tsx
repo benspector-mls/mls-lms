@@ -152,8 +152,8 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
             <h2 className="text-sm font-medium">When people arrive · {arriving.length}</h2>
             <p className="text-xs text-muted-foreground">
               The average check-in time of every fellow who has checked in enough times to have one,
-              and the weekday that drifts furthest from it. Only mornings they checked in are counted,
-              so an absence neither raises nor lowers these.
+              and the weekday that drifts furthest from it. Only mornings they checked in are
+              counted, so an absence neither raises nor lowers these.
             </p>
           </div>
           <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">

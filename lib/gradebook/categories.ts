@@ -123,9 +123,7 @@ export function allUnits<A extends CategorizedAssignment>(
 }
 
 /** Every assignment under these units, flattened. */
-export function workOf<A extends CategorizedAssignment>(
-  units: readonly UnitWithWork<A>[],
-): A[] {
+export function workOf<A extends CategorizedAssignment>(units: readonly UnitWithWork<A>[]): A[] {
   return units.flatMap((entry) => entry.work);
 }
 
@@ -216,9 +214,7 @@ export function verdictsByStudent<A extends CategorizedAssignment>(
  * Named as its own function because three callers ask it and a course that treated an empty unit
  * as incomplete would be uncompletable the moment an instructor drafted next term's work.
  */
-export function unitHasVerdict<A extends CategorizedAssignment>(
-  entry: UnitWithWork<A>,
-): boolean {
+export function unitHasVerdict<A extends CategorizedAssignment>(entry: UnitWithWork<A>): boolean {
   return published(entry.work).length > 0;
 }
 
@@ -254,7 +250,8 @@ export function courseVerdictByStudent<A extends CategorizedAssignment>(
     if (verdicts.every((verdict) => verdict === "complete")) result.set(studentId, "complete");
     // Every unit has settled and at least one fell short. A student still mid-way through any
     // unit is pending, for the same reason a half-marked project is.
-    else if (verdicts.every((verdict) => verdict !== "pending")) result.set(studentId, "incomplete");
+    else if (verdicts.every((verdict) => verdict !== "pending"))
+      result.set(studentId, "incomplete");
     else result.set(studentId, "pending");
   }
 
@@ -283,10 +280,7 @@ export function unitCompletionByStudent<A extends CategorizedAssignment>(
   }
 
   return new Map(
-    [...counts].map(([studentId, complete]) => [
-      studentId,
-      { complete, possible: counted.length },
-    ]),
+    [...counts].map(([studentId, complete]) => [studentId, { complete, possible: counted.length }]),
   );
 }
 

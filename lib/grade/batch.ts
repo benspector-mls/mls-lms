@@ -65,7 +65,8 @@ export function planBatch(candidates: readonly BatchCandidate[]): BatchPlan {
       candidates.length -
       subjects.length -
       candidates.filter(
-        (candidate) => candidate.bucket === "generating" || candidate.bucket === "needs_manual_grade",
+        (candidate) =>
+          candidate.bucket === "generating" || candidate.bucket === "needs_manual_grade",
       ).length,
   };
 }
