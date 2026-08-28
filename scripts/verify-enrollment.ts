@@ -254,8 +254,8 @@ async function main() {
 
           Every item of both sidebar groups is here, and that is the point of the tables rather than
           a completeness gesture: a view missing from either function does not fail, it silently
-          falls through to settings, so switching from the roster would land on settings and read as
-          the switcher losing your place.
+          falls through — to triage for a course and to settings for a program — so switching from
+          the roster would land somewhere else and read as the switcher losing your place.
         */
         const [alpha, beta, someAssignment] = [
           "aaaaaaaa-0000-0000-0000-000000000001",
@@ -268,28 +268,26 @@ async function main() {
           ["the gradebook", links.gradebookHref(alpha), links.gradebookHref(beta)],
           ["the team sets", links.teamsHref(alpha), links.teamsHref(beta)],
           ["settings", links.courseSettingsHref(alpha), links.courseSettingsHref(beta)],
-          // The four that cannot carry across, each landing on settings rather than on another
+          // The four that cannot carry across, each landing on triage rather than on another
           // course's copy of an id it does not have.
           [
             "an assignment's queue",
             links.gradingQueueHref(alpha, someAssignment),
-            links.courseSettingsHref(beta),
+            links.triageHref(beta),
           ],
           [
             "an assignment's edit form",
             links.editAssignmentHref(alpha, someAssignment),
-            links.courseSettingsHref(beta),
+            links.triageHref(beta),
           ],
-          [
-            "the new-assignment form",
-            links.newAssignmentHref(alpha),
-            links.courseSettingsHref(beta),
-          ],
-          ["a fellow's work", links.studentHref(alpha, "stu-1"), links.courseSettingsHref(beta)],
-          // The bare course address, which is itself a redirect to settings.
-          ["the course address", links.courseHref(alpha), links.courseSettingsHref(beta)],
-          // No course in the address at all, which is a fellow's own dashboard.
-          ["the dashboard", "/dashboard", links.courseSettingsHref(beta)],
+          ["the new-assignment form", links.newAssignmentHref(alpha), links.triageHref(beta)],
+          ["a fellow's work", links.studentHref(alpha, "stu-1"), links.triageHref(beta)],
+          // The bare course address, which is itself a redirect to triage.
+          ["the course address", links.courseHref(alpha), links.triageHref(beta)],
+          // No course in the address at all, which is where a course name in the sidebar is
+          // clicked from most: a program's screens, /programs, and a fellow's own dashboard.
+          ["the dashboard", "/dashboard", links.triageHref(beta)],
+          ["a program's roster", links.rosterHref(alpha), links.triageHref(beta)],
         ];
         for (const [what, from, expected] of courseSwitches) {
           check(`switching course from ${what}`, links.sameViewInCourse(from, beta), expected);

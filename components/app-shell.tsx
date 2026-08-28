@@ -87,6 +87,7 @@ import {
   teamsHref,
   triageHref,
 } from "@/lib/links";
+import { LAST_PLACE_COOKIE, LAST_PLACE_MAX_AGE, viewPlaceOf } from "@/lib/instructor/last-place";
 import { initials } from "@/lib/people";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -231,7 +232,7 @@ function useBreadcrumbs(
    * which year of it leaves the same question the sidebar used to answer wrongly.
    *
    * Both are plain text rather than links. There is no program home and no course home — the bare
-   * course address redirects to Settings — and a breadcrumb whose first step lands somewhere the
+   * course address redirects to Triage — and a breadcrumb whose first step lands somewhere the
    * reader did not name is worse than one that only says where they are.
    */
   const courseTrail = (courseId: string): Crumb[] => {
@@ -953,7 +954,7 @@ function isActiveProgramView(pathname: string, programId: string, segment: strin
  * Two segments need more than a prefix test. **Curriculum** covers its own list *and* every screen
  * filed under it — one assignment's grading queue, its edit form, the new-assignment form — because
  * those are reached from it and highlighting nothing while you grade would make the sidebar go
- * blank exactly where an instructor spends the most time. **Settings** owns the bare course
+ * blank exactly where an instructor spends the most time. **Triage** owns the bare course
  * address, which redirects to it, so the item is lit before the redirect resolves rather than
  * flickering off and on.
  *
@@ -963,7 +964,7 @@ function isActiveProgramView(pathname: string, programId: string, segment: strin
 function isActiveCourseView(pathname: string, courseId: string, segment: string): boolean {
   const base = `/instructor/courses/${courseId}`;
 
-  if (segment === "settings" && pathname === base) return true;
+  if (segment === "triage" && pathname === base) return true;
 
   return pathname === `${base}/${segment}` || pathname.startsWith(`${base}/${segment}/`);
 }
@@ -1107,6 +1108,15 @@ function UserMenu({
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
+      {/*
+        Renders nothing and is here for its effect, in a boundary of its own for the reason the
+        three below have theirs: it reads the address, which is uncached, and a layout that reads
+        uncached data outside a boundary blocks every page under it — the build refuses it outright.
+      */}
+      <React.Suspense fallback={null}>
+        <RememberPlace />
+      </React.Suspense>
+
       <React.Suspense fallback={<ShellSidebarFallback />}>
         <ShellSidebar />
       </React.Suspense>
@@ -1151,6 +1161,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+/**
+ * Records the instructor view being read, so that `/instructor` can return to it next time.
+ *
+ * **In the shell rather than on each screen**, because it has to happen on every one of them and a
+ * screen that forgot would quietly lose the reader's place rather than fail. It costs nothing on
+ * the screens it does not apply to: `viewPlaceOf` returns null for every fellow-facing address
+ * and for the two instructor screens that light no sidebar item, and null writes nothing.
+ *
+ * **A component rather than a hook called by `AppShell`**, so that reading the address happens
+ * inside a Suspense boundary. `AppShell` itself reads nothing, and that is deliberate: with Cache
+ * Components a layout that reads uncached data delays every page beneath it.
+ *
+ * **A cookie written by the browser**, the way `sidebar_state` is in `components/ui/sidebar.tsx`.
+ * The alternative was a column on `Profile` and a mutation, which would have made a network request
+ * of every navigation to remember something a redirect reads once a day. Not `httpOnly`, because
+ * this is what writes it; nothing trusts it, and `/instructor` re-checks the course or program it
+ * names against the caller's own list before going there.
+ *
+ * The trade is that it is remembered per browser. Signing in somewhere new falls back to the guess
+ * `/instructor` has always made, which is the right thing for it to do anyway.
+ */
+function RememberPlace(): null {
+  const pathname = usePathname();
+
+  React.useEffect(() => {
+    const place = viewPlaceOf(pathname);
+    if (!place) return;
+
+    document.cookie = `${LAST_PLACE_COOKIE}=${place.href}; path=/; max-age=${LAST_PLACE_MAX_AGE}; samesite=lax`;
+  }, [pathname]);
+
+  return null;
 }
 
 /** The sidebar's shape while the profile, the program list and the course list are in flight. */

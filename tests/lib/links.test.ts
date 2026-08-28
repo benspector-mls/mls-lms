@@ -99,7 +99,7 @@ describe("opening one submission", () => {
  * The switcher's arithmetic.
  *
  * Checked exhaustively rather than by sampling, and this is the reason: a view missing from
- * `sameViewInCourse` does not throw. It falls through to settings, so switching cohort from the
+ * `sameViewInCourse` does not throw. It falls through to triage, so switching cohort from the
  * roster would silently land somewhere else and read as the switcher losing your place.
  */
 describe("sameViewInCourse", () => {
@@ -124,7 +124,7 @@ describe("sameViewInCourse", () => {
     "does not recognise %s, which belongs to the program",
     (segment) => {
       expect(sameViewInCourse(`/instructor/courses/${COURSE}/${segment}`, OTHER)).toBe(
-        courseSettingsHref(OTHER),
+        triageHref(OTHER),
       );
     },
   );
@@ -136,8 +136,8 @@ describe("sameViewInCourse", () => {
       ["the new-assignment form", `/instructor/courses/${COURSE}/curriculum/new`],
       ["a student's record", `/instructor/courses/${COURSE}/students/${STUDENT}`],
       ["the bare course address", `/instructor/courses/${COURSE}`],
-    ])("%s lands on settings", (_label, pathname) => {
-      expect(sameViewInCourse(pathname, OTHER)).toBe(courseSettingsHref(OTHER));
+    ])("%s lands on triage", (_label, pathname) => {
+      expect(sameViewInCourse(pathname, OTHER)).toBe(triageHref(OTHER));
     });
   });
 
@@ -148,7 +148,7 @@ describe("sameViewInCourse", () => {
       curriculumHref(OTHER),
     );
     expect(sameViewInCourse(`/instructor/courses/${COURSE}/curriculum/${ASSIGNMENT}`, OTHER)).toBe(
-      courseSettingsHref(OTHER),
+      triageHref(OTHER),
     );
   });
 
@@ -165,7 +165,7 @@ describe("sameViewInCourse", () => {
     "no longer recognises the old %s segment",
     (segment) => {
       expect(sameViewInCourse(`/instructor/courses/${COURSE}/${segment}`, OTHER)).toBe(
-        courseSettingsHref(OTHER),
+        triageHref(OTHER),
       );
     },
   );
@@ -183,10 +183,11 @@ describe("authoring an assignment inside a unit", () => {
     expect(newAssignmentHref(COURSE)).not.toContain("?");
   });
 
-  it("lands on settings from an address that names no course at all", () => {
-    // `/dashboard` and `/admin` are outside the cohort entirely. There is no view to keep.
-    expect(sameViewInCourse("/dashboard", OTHER)).toBe(courseSettingsHref(OTHER));
-    expect(sameViewInCourse("/admin", OTHER)).toBe(courseSettingsHref(OTHER));
+  it("lands on triage from an address that names no course at all", () => {
+    // `/dashboard` and `/admin` are outside the cohort entirely. There is no view to keep, so this
+    // is the case a course name clicked in the sidebar takes from every non-course screen.
+    expect(sameViewInCourse("/dashboard", OTHER)).toBe(triageHref(OTHER));
+    expect(sameViewInCourse("/admin", OTHER)).toBe(triageHref(OTHER));
   });
 
   it("tolerates a trailing slash", () => {

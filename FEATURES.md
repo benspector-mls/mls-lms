@@ -100,6 +100,14 @@ An admin can also put you on one directly, from **Admin → Staff**, without a l
 
 The person who created the program additionally **owns** it, which means archiving it, deciding who else instructs it and who is named on which course, and deleting it. An owner can only be removed by themselves or by an admin.
 
+### Where the application opens
+
+Opening the application takes you back to the screen you were last on. If you spent Tuesday afternoon in one course's gradebook, Wednesday morning starts there; if you spent it setting up next year's program, it starts on that program's screen, which matters because a program is created with no courses in it at all.
+
+It remembers the screen rather than the exact thing you had open, so a morning spent grading one assignment reopens on that course's curriculum rather than on the assignment — which may have been rewritten or deleted since. A course or program that has been archived, or that you no longer teach, is not reopened; nor is anything, the first time you sign in on a new computer. In all of those cases you land on the newest course you teach, or on the program list if you teach none yet.
+
+This is remembered by your browser, so it is per computer rather than per account, and clearing your cookies clears it.
+
 ### Starting a program, and adding its courses
 
 **New program** on the Programs screen asks for two things: a name and a **term** — when it starts, in whatever words you use. Both, because a school runs several programs a year and each program runs every year, so either alone would not say which one you meant. A program is created **empty**.
@@ -237,6 +245,8 @@ Three things about that figure, so it can be quoted safely. **Only mornings they
 - **Approved, never delivered** — you approved a grade but the comment never reached GitHub. Retry sends it.
 
 Triage is one course at a time, on purpose: what you should do next depends on which course you are teaching this hour. The cohort picker narrows it further, to the fellows you grade.
+
+Because it is the first screen of a course, it is also where a course name takes you. Clicking one in the sidebar from a program's roster, from the program list, or from anywhere else outside a course opens that course's triage. Clicking one while you are already inside a different course keeps the screen you are on instead — from one course's gradebook, another course's name opens *its* gradebook.
 
 ### Grading
 

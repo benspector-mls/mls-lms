@@ -181,9 +181,8 @@ export function teamsHref(courseId: string): string {
  * The course's own settings: what it is called, how its repositories are named, whether fellows can
  * see it, and how it is retired.
  *
- * Also where the bare course address lands. Once every tab became a sidebar item there was nothing
- * left on the course page to render, and this is the screen a reader who asked for "the course" and
- * nothing more actually wants — the facts about the course itself rather than any one list inside it.
+ * The last of the five and the least often opened: these are read in the week a course is set up
+ * and rarely again, which is why naming a course and nothing more lands on its triage instead.
  */
 export function courseSettingsHref(courseId: string): string {
   return `/instructor/courses/${courseId}/settings`;
@@ -203,7 +202,7 @@ export function studentHref(courseId: string, studentId: string, submissionId?: 
 }
 
 /**
- * The course itself, which is a redirect to its settings rather than a screen.
+ * The course itself, which is a redirect to its triage rather than a screen.
  *
  * Kept as its own function because it is still a meaningful address — the thing a link
  * means when it names a cohort and nothing more — and because callers that had it should
@@ -228,6 +227,11 @@ export function courseHref(courseId: string): string {
  * `attendance` is the other. Its two tabs are one address, which carries; one *day* is not,
  * because the other cohort may not have met that day — and landing on an empty screen offering to
  * record a morning that never happened is worse than landing on today.
+ *
+ * **Everything that cannot carry lands on triage**, which is also where a course name clicked from
+ * outside any course goes. Triage leads the sidebar and answers the question an instructor opens
+ * this application to ask; settings, which this used to fall through to, answers a question asked
+ * in the week a course is set up and almost never after.
  */
 export function sameViewInCourse(pathname: string, courseId: string): string {
   const segments = pathname.split("/").filter(Boolean);
@@ -243,10 +247,11 @@ export function sameViewInCourse(pathname: string, courseId: string): string {
 
   /*
     Everything else — one assignment's queue, its edit form, a fellow's record in this course —
-    belongs to one course and cannot travel. Settings rather than the bare course address, which
+    belongs to one course and cannot travel. So does every address outside a course altogether: a
+    program's roster, `/programs`, the dashboard. Triage rather than the bare course address, which
     would only redirect here anyway.
   */
-  return courseSettingsHref(courseId);
+  return triageHref(courseId);
 }
 
 /**

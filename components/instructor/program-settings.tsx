@@ -12,7 +12,7 @@ import { countLabel, Detail } from "@/components/instructor/impact-detail";
 import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { courseSettingsHref, programsHref } from "@/lib/links";
+import { programsHref, triageHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
@@ -144,7 +144,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
           {data.program.courses.map((course) => (
             <li key={course.id}>
               <Link
-                href={courseSettingsHref(course.id)}
+                href={triageHref(course.id)}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50"
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{course.name}</span>
