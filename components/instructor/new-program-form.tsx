@@ -2,7 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -27,12 +27,20 @@ import { useTRPC } from "@/trpc/client";
  * **Nothing is copied.** Carrying a term forward is done course by course, from the new
  * program's settings screen, where each course names the one it is copying from. A whole-program
  * copy is that same operation once per course and is deliberately not built yet.
+ *
+ * **It sits beneath the page heading and not beside it**, because the term field is explained by a
+ * paragraph and a paragraph does not fit in the strip of a heading row. The button that opens it is
+ * what belongs up there; the screen that opens is the width of the page.
  */
-export function NewProgramDialog() {
+export function NewProgramForm({
+  onClose,
+}: {
+  /** Close the form and put the button back. Called on cancel and after a program is created. */
+  onClose: () => void;
+}) {
   const trpc = useTRPC();
   const router = useRouter();
 
-  const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [term, setTerm] = React.useState("");
 
@@ -40,9 +48,7 @@ export function NewProgramDialog() {
     trpc.programs.create.mutationOptions({
       onSuccess: (program) => {
         toast.success(`Created ${program.name} · ${program.term}. It has no courses yet.`);
-        setOpen(false);
-        setName("");
-        setTerm("");
+        onClose();
         /*
           The roster, which is the first thing a new program needs: who is expected, and the
           link to send them. Its courses come next and are added from its settings screen, but a
@@ -56,18 +62,9 @@ export function NewProgramDialog() {
 
   const ready = name.trim() !== "" && term.trim() !== "";
 
-  if (!open) {
-    return (
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus data-icon="inline-start" />
-        New program
-      </Button>
-    );
-  }
-
   return (
     <form
-      className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:min-w-96"
+      className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (ready) create.mutate({ name: name.trim(), term: term.trim() });
@@ -114,7 +111,7 @@ export function NewProgramDialog() {
           type="button"
           variant="ghost"
           disabled={create.isPending}
-          onClick={() => setOpen(false)}
+          onClick={onClose}
         >
           Cancel
         </Button>

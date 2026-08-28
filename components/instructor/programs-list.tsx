@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Archive, ArrowRight, CalendarCheck, Settings, UserMinus, Users } from "lucide-react";
+import { Archive, ArrowRight, CalendarCheck, Plus, Settings, UserMinus, Users } from "lucide-react";
+import * as React from "react";
 
-import { NewProgramDialog } from "@/components/instructor/new-program-dialog";
+import { NewProgramForm } from "@/components/instructor/new-program-form";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { attendanceHref, programSettingsHref, rosterHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
@@ -44,13 +46,24 @@ export function ProgramsList({
   const running = programs.filter((program) => program.archivedAt == null);
   const archived = programs.filter((program) => program.archivedAt != null);
 
+  const [creating, setCreating] = React.useState(false);
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4 md:p-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Programs"
         description="Every program you belong to."
-        actions={canCreate ? <NewProgramDialog /> : undefined}
+        actions={
+          canCreate && !creating ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus data-icon="inline-start" />
+              New program
+            </Button>
+          ) : undefined
+        }
       />
+
+      {creating && <NewProgramForm onClose={() => setCreating(false)} />}
 
       {programs.length === 0 ? (
         <EmptyState
