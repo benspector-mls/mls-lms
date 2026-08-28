@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import {
   BarChart3,
-  BookOpen,
   CalendarCheck,
   ChevronsUpDown,
   GraduationCap,
@@ -463,6 +462,36 @@ function ProgramSwitcher({
 }
 
 /**
+ * The course's first letter, where every other row in the sidebar draws its icon. A book beside a
+ * name the reader can already see says nothing; the collapsed sidebar is 48 pixels wide and shows
+ * the icon alone, and that is where a row has to be recognisable. Two courses in one program whose
+ * names begin with the same letter are told apart by the tooltip, which carries the full name.
+ *
+ * `size-4 shrink-0` is written out rather than inherited. `SidebarMenuButton` sizes its icons with
+ * `[&_svg]:size-4 [&_svg]:shrink-0`, and those two rules are the only thing it does to an icon —
+ * there is no colour rule and no margin rule for a text element to miss — so naming the same
+ * 16-pixel square here lands in the same place a lucide icon does. `shrink-0` is what stops the
+ * letter being squeezed once a long course name fills the row.
+ *
+ * The colour comes by inheritance, so the open course's letter darkens with the rest of its row.
+ * `font-semibold` is set here deliberately, to outrank the `data-active:font-medium` the button
+ * inherits down: the letter should not change weight when the course is opened.
+ *
+ * `aria-hidden`, because the letter is the first character of the name announced immediately after
+ * it — without it a screen reader reads "F, Fullstack Software Engineering".
+ */
+function CourseInitial({ name }: { name: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-4 shrink-0 items-center justify-center text-sm font-semibold leading-none"
+    >
+      {name.trim().charAt(0).toUpperCase() || "?"}
+    </span>
+  );
+}
+
+/**
  * The program's courses, each opening to its own five views.
  *
  * **A list rather than a picker**, which is the difference between choosing a course and being shown
@@ -519,7 +548,7 @@ function CourseList({
               className="h-auto py-1.5"
               render={<Link href={sameViewInCourse(pathname, course.id)} />}
             >
-              <BookOpen />
+              <CourseInitial name={course.name} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate">{course.name}</span>
                 {course.archivedAt != null && (
@@ -873,7 +902,7 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
                       className="h-auto py-1.5"
                       render={<Link href={base} />}
                     >
-                      <BookOpen />
+                      <CourseInitial name={course.name} />
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{course.name}</span>
                         {note && (
