@@ -14,9 +14,9 @@ import type { RouterOutputs } from "@/trpc/types";
 /**
  * Every program the caller belongs to, and the way out of all of them.
  *
- * **The instructor's top-level screen**, and the counterpart of `/courses`: this lists the years, that
- * one lists the courses inside them. Both exist because they answer different questions — "which term
- * am I working in" and "which course am I opening" — and the sidebar's two groups are the same split.
+ * **The instructor's top-level screen.** It lists the years; the sidebar's course group lists the
+ * courses inside the one being read. The two answer different questions — "which term am I working
+ * in" and "which course am I opening" — and the sidebar's two groups are the same split.
  *
  * **There is no program home to link to**, which is why each card offers three doors rather than one.
  * A program is not a screen; it is a roster, a set of mornings, and a set of courses, and a card

@@ -184,8 +184,8 @@ describe("authoring an assignment inside a unit", () => {
   });
 
   it("lands on settings from an address that names no course at all", () => {
-    // `/courses` and `/admin` are outside the cohort entirely. There is no view to keep.
-    expect(sameViewInCourse("/courses", OTHER)).toBe(courseSettingsHref(OTHER));
+    // `/dashboard` and `/admin` are outside the cohort entirely. There is no view to keep.
+    expect(sameViewInCourse("/dashboard", OTHER)).toBe(courseSettingsHref(OTHER));
     expect(sameViewInCourse("/admin", OTHER)).toBe(courseSettingsHref(OTHER));
   });
 

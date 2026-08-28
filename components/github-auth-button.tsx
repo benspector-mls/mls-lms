@@ -14,7 +14,7 @@ export function GitHubAuthButton({
   next,
 }: {
   label?: string;
-  /** Relative path to land on after login. Defaults to /courses. */
+  /** Relative path to land on after login. Defaults to /dashboard. */
   next?: string;
 }) {
   const [error, setError] = useState<string | null>(null);

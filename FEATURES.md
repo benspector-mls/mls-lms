@@ -110,7 +110,7 @@ The first thing a new program needs is its roster: who you are expecting, and th
 
 **The short name is settled when the course is created and cannot be changed afterwards**, because the repositories are already named after it and renaming here would not rename theirs. That is why creating a course has a review step. Its Settings screen shows it, an example repository name built from it, and how many repositories already carry it.
 
-**The course's name, on the other hand, can be changed whenever you like** — the two controls sit next to each other on that screen for exactly that reason. The name is what fellows see on their course list, what every heading says, and what a subscribed calendar puts beside each deadline, and nothing in the application matches on it. The short name below it is in the name of forty repositories on GitHub, and changing it here would rename none of them.
+**The course's name, on the other hand, can be changed whenever you like** — the two controls sit next to each other on that screen for exactly that reason. The name is what fellows see in their sidebar, what every heading says, and what a subscribed calendar puts beside each deadline, and nothing in the application matches on it. The short name below it is in the name of forty repositories on GitHub, and changing it here would rename none of them.
 
 **You can copy last year's course.** Choose any course you instruct — in any program, which is the ordinary case — and its modules and assignments are copied across, **unpublished and with the dates cleared**, so you set the new year's due dates rather than inheriting last year's.
 
@@ -278,7 +278,7 @@ Both edges are totalled: a **Completed** row under each assignment title says ho
 
 ### Ending a course, and ending a program
 
-**Archive a course** when it finishes. It stays fully readable to everybody who was in it, and stays in their course list labelled as archived, but nothing new can be handed in or copied into it. **Archive the program** when the whole year finishes: that reaches every course in it, the roster, and the attendance at once. Courses of one program finish at different times — a prework course ends in September while the fellowship runs to June — which is why both exist.
+**Archive a course** when it finishes. It stays fully readable to everybody who was in it, and stays in their sidebar labelled as archived, but nothing new can be handed in or copied into it. **Archive the program** when the whole year finishes: that reaches every course in it, the roster, and the attendance at once. Courses of one program finish at different times — a prework course ends in September while the fellowship runs to June — which is why both exist.
 
 **Transfer ownership** hands the program to another instructor who already instructs it.
 
@@ -413,7 +413,7 @@ For every other kind, hand in again. Where your assignment accepts both a link a
 
 ### If you leave a program, or it finishes
 
-**Neither takes your work back.** A program you have been removed from, and a course that has been archived, both stay in your course list, labelled, and everything you handed in and every piece of feedback you were given stays readable. What you cannot do is hand anything new in.
+**Neither takes your work back.** A program you have been removed from, and a course that has been archived, both stay in your sidebar, labelled, and everything you handed in and every piece of feedback you were given stays readable. What you cannot do is hand anything new in.
 
 ---
 

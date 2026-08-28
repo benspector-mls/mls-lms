@@ -74,7 +74,11 @@ export function CourseSettings({ data }: { data: Data }) {
         worse than one that is not there, and here it would appear on every course somebody teaches.
       */}
       {archived && data.callerActsAsOwner && (
-        <DeleteCourseCard courseId={data.course.id} name={data.course.name} />
+        <DeleteCourseCard
+          courseId={data.course.id}
+          name={data.course.name}
+          programId={data.course.program.id}
+        />
       )}
     </div>
   );
@@ -535,7 +539,16 @@ function ArchiveCard({
  * right one — and the short name is the thing that is unique to this one. The procedure is what
  * enforces it; this only decides when to offer the button.
  */
-function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }) {
+function DeleteCourseCard({
+  courseId,
+  name,
+  programId,
+}: {
+  courseId: string;
+  name: string;
+  /** Where the reader is sent afterwards: the course they were on no longer exists. */
+  programId: string;
+}) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const router = useRouter();
@@ -574,7 +587,12 @@ function DeleteCourseCard({ courseId, name }: { courseId: string; name: string }
             parts.push(`${result.uploadsLeftBehind.length} uploaded files could not be removed`);
           }
           toast.success(parts.join(" · "), { duration: 12_000 });
-          router.push("/courses");
+          /*
+            To the program the course belonged to, which is the screen that lists its courses and
+            where another one is made. Staying would leave the reader on the settings of a course
+            that no longer exists.
+          */
+          router.push(programSettingsHref(programId));
         },
       }),
     ),

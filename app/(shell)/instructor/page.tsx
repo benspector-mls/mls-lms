@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { PageFallback } from "@/components/list-states";
-import { triageHref } from "@/lib/links";
+import { programsHref, triageHref } from "@/lib/links";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
@@ -11,8 +11,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * Triage is per-course now, and this address names no course. Rather than inventing an
  * all-courses view nobody asked for, it resolves to a real one — the most recent cohort
  * the caller teaches — so bookmarks and the "Grading triage" link keep working and land
- * somewhere the sidebar can describe. An instructor who teaches nothing is sent to the
- * course list, which is the only useful thing to offer them.
+ * somewhere the sidebar can describe. An instructor who teaches nothing is sent to `/programs`,
+ * which is the only useful thing to offer them: it is where a program is made, and where being
+ * added to somebody else's shows up.
  */
 export default function InstructorPage() {
   return (
@@ -33,5 +34,5 @@ async function PickACourse() {
 
   // Returned rather than called bare so the inferred type stays `never`: a component whose
   // body falls off the end is typed as rendering `void`, which is not a React node.
-  return redirect(teaching ? triageHref(teaching.id) : "/courses");
+  return redirect(teaching ? triageHref(teaching.id) : programsHref());
 }

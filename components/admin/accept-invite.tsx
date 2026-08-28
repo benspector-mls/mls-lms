@@ -50,7 +50,7 @@ export function AcceptInvite({
             Without the refresh the instructor navigation would not appear until a manual reload,
             which reads as the invitation not having worked.
           */
-          router.push("/courses");
+          router.push("/programs");
         },
       }),
     ),
@@ -76,8 +76,8 @@ export function AcceptInvite({
           <Check className="size-4" />
           You already have instructor access.
         </p>
-        <Button onClick={() => router.push("/courses")}>
-          Go to your courses
+        <Button onClick={() => router.push("/programs")}>
+          Go to your programs
           <ArrowRight data-icon="inline-end" />
         </Button>
       </Shell>

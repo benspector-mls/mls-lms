@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
  * so the root sends them to their work, and the middleware sends them to sign in if
  * they are not signed in yet.
  *
- * `/dashboard` rather than `/courses`, and the role check is there rather than here.
+ * One destination for everybody, and the role check is on `/dashboard` rather than here.
  * Deciding it here would mean reading the profile before redirecting, which is a database
  * round trip on the way to a screen that is about to make the same read — and the two
  * client-side sign-in paths that also land here have no role to read at all. So one

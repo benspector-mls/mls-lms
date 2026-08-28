@@ -288,8 +288,8 @@ async function main() {
           ["a fellow's work", links.studentHref(alpha, "stu-1"), links.courseSettingsHref(beta)],
           // The bare course address, which is itself a redirect to settings.
           ["the course address", links.courseHref(alpha), links.courseSettingsHref(beta)],
-          // No course in the address at all, which is the course list.
-          ["the course list", "/courses", links.courseSettingsHref(beta)],
+          // No course in the address at all, which is a fellow's own dashboard.
+          ["the dashboard", "/dashboard", links.courseSettingsHref(beta)],
         ];
         for (const [what, from, expected] of courseSwitches) {
           check(`switching course from ${what}`, links.sameViewInCourse(from, beta), expected);

@@ -15,12 +15,6 @@ import {
   selectedStudentIds,
 } from "@/lib/courses/membership";
 import { assertOwnsProgramOfCourse, ownerOf } from "@/lib/programs/ownership";
-import {
-  allUnits,
-  courseVerdictByStudent,
-  groupByUnit,
-  type UnitVerdict,
-} from "@/lib/gradebook/categories";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
@@ -50,8 +44,8 @@ export const coursesRouter = createTRPCRouter({
    * cohort off the active list, not lose it.
    *
    * Each reader decides what to do with them, the same way each reader decides what to do
-   * with a course a student was removed from. The course list puts them in a section of
-   * their own, the switcher can name one rather than printing a bare id, and the two readers
+   * with a course a student was removed from. The sidebar sorts them after the running ones and
+   * labels them, the switcher can name one rather than printing a bare id, and the two readers
    * that want the cohort somebody is in the middle of — `/instructor`, and copying a new
    * course from an old one — filter on `archivedAt` themselves.
    */
@@ -65,7 +59,7 @@ export const coursesRouter = createTRPCRouter({
       course stays in their list, because they keep reading the feedback they were given — but
       it has to be *labelled*, or it sits there indistinguishable from the cohorts they are
       still in, and a student who cannot tell the difference has been told something false.
-      `enrolledAs` below is what the card reads.
+      `enrolledAs` below is what the sidebar's note reads.
     */
     const courses = await ctx.db.course.findMany({
       /*
@@ -100,28 +94,21 @@ export const coursesRouter = createTRPCRouter({
           switcher groups a caller's courses by it.
         */
         program: { select: { id: true, name: true, term: true, archivedAt: true } },
-        // Counted here rather than fetched and measured in the interface, so the card
-        // does not pull every assignment and enrollment across to say how many there
-        // are.
-        //
-        // ACTIVE only, unlike the `where` above: this is "how many fellows does this program
-        // have", which a departed one is not the answer to.
-        //
-        // Test students are excluded for the same reason and it is the same question. This figure
-        // is the one somebody quotes — a roster of 25 must not read as 26 because an admin
-        // previewed the course. They are deliberately *not* excluded from the roster, gradebook,
-        // or triage, which list students rather than count them, and where a test row is the
-        // point.
+        /*
+          How many assignments the course holds, counted here rather than fetched and measured in
+          the interface. It has one reader: the dialog that makes a course by copying an older one,
+          which names what is about to be copied before anybody presses the button.
+        */
         _count: { select: { assignments: true } },
       },
     });
 
     /*
-      The roster size and the caller's own standing, per program rather than per course.
+      The caller's own standing, per program rather than per course.
 
-      One query for both rather than a relation on every course, because they are the same facts for
-      every course of one term — reading them through each course would ask the same
-      question four times and invite the four answers to look independent.
+      One query rather than a relation on every course, because it is the same fact for every course
+      of one term — reading it through each course would ask the same question four times and invite
+      the four answers to look independent.
     */
     const programIds = [...new Set(courses.map((course) => course.program.id))];
     const programs =
@@ -131,20 +118,7 @@ export const coursesRouter = createTRPCRouter({
             where: { id: { in: programIds } },
             select: {
               id: true,
-              /*
-                ACTIVE only, and test students excluded. This figure is the one somebody quotes — a
-                roster of 25 must not read as 26 because an admin previewed a course. Test students
-                are deliberately *not* excluded from the roster, gradebook, or triage, which list
-                fellows rather than count them, and where a test row is the point.
-              */
-              _count: {
-                select: {
-                  enrollments: {
-                    where: { status: "ACTIVE", student: { testStudentNumber: null } },
-                  },
-                },
-              },
-              // The caller's own enrollment, so a card can say they have left this one.
+              // The caller's own enrollment, so the sidebar can say they have left this one.
               enrollments: {
                 where: { studentId: ctx.profile.id },
                 select: { status: true },
@@ -162,87 +136,11 @@ export const coursesRouter = createTRPCRouter({
 
     const standing = new Map(programs.map((program) => [program.id, program]));
 
-    /*
-      Whether the caller has finished each course they are a student of.
-
-      **The one place course-level completion is read**, and until it existed nothing in the
-      application could say whether anybody had finished a course at all — the card showed how
-      many assignments a cohort holds and how many students are in it, neither of which is about
-      the person reading it.
-
-      One rule at three levels: an assignment is complete when `isComplete`, a unit when every
-      published assignment in it is, a course when every unit that has a verdict is. The
-      arithmetic is `courseVerdictByStudent`, the same function the gradebook's Overview column
-      reads, so a student and their instructor cannot be shown different answers.
-
-      Two extra queries rather than a relation on every course, and both narrowed to the courses
-      the caller is *enrolled in*: an instructor's own courses get no verdict, because they are
-      not doing the work, and an admin looking at every course in the system fetches nothing here
-      at all. A student is in a handful of courses, so this is a handful of rows.
-    */
-    const studentOf = courses
-      .filter((course) => (standing.get(course.program.id)?.enrollments.length ?? 0) > 0)
-      .map((course) => course.id);
-
-    const verdicts = new Map<string, UnitVerdict>();
-
-    if (studentOf.length > 0) {
-      const [units, cells] = await Promise.all([
-        ctx.db.courseUnit.findMany({
-          where: { courseId: { in: studentOf } },
-          select: {
-            id: true,
-            courseId: true,
-            name: true,
-            position: true,
-            category: true,
-            assignments: {
-              select: {
-                id: true,
-                title: true,
-                dueAt: true,
-                courseUnitId: true,
-                distributedAt: true,
-              },
-            },
-          },
-        }),
-        ctx.db.submission.findMany({
-          where: { studentId: ctx.profile.id, assignment: { courseId: { in: studentOf } } },
-          select: { assignmentId: true, studentId: true, isComplete: true },
-        }),
-      ]);
-
-      for (const courseId of studentOf) {
-        const own = units.filter((unit) => unit.courseId === courseId);
-        const grouped = groupByUnit(
-          own.flatMap((unit) => unit.assignments),
-          own,
-        );
-
-        verdicts.set(
-          courseId,
-          courseVerdictByStudent(cells, allUnits(grouped), [ctx.profile.id]).get(ctx.profile.id) ??
-            "pending",
-        );
-      }
-    }
-
     return courses.map((course) => ({
       ...course,
-      /** How many active fellows are on the roster of the program this course belongs to. */
-      rosterCount: standing.get(course.program.id)?._count.enrollments ?? 0,
       teaches: isAdmin || (standing.get(course.program.id)?.instructors.length ?? 0) > 0,
       /** Null when the caller is not a fellow of this course's program — an instructor, or an admin. */
       enrolledAs: standing.get(course.program.id)?.enrollments[0]?.status ?? null,
-      /**
-       * Where the caller stands on the whole course, or null when they are not a student of it.
-       *
-       * "Not finished" rather than "incomplete" while anything is still with an instructor, for
-       * the reason the unit verdict draws the same distinction: telling somebody they have failed
-       * a course nobody has finished marking would be false.
-       */
-      completion: verdicts.get(course.id) ?? null,
     }));
   }),
 

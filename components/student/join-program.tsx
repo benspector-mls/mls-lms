@@ -44,11 +44,12 @@ export function JoinProgram({
           result.joined ? `You have joined ${result.name}.` : `You are already in ${result.name}.`,
         );
         /*
-          Straight to the course list rather than into one course, because joining admits them to
-          every course of the program and there is no single one to pick. Landing back on this
-          screen after succeeding would read as nothing having happened.
+          Straight to the dashboard rather than into one course, because joining admits them to
+          every course of the program and there is no single one to pick. It is also where they
+          would have landed signing in, and where the sidebar now names every course they are in.
+          Landing back on this screen after succeeding would read as nothing having happened.
         */
-        router.push("/courses");
+        router.push("/dashboard");
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -110,8 +111,8 @@ export function JoinProgram({
               <Check className="size-4" />
               You are already in this program.
             </p>
-            <Button onClick={() => router.push("/courses")}>
-              Open my courses
+            <Button onClick={() => router.push("/dashboard")}>
+              Open my work
               <ArrowRight data-icon="inline-end" />
             </Button>
           </>

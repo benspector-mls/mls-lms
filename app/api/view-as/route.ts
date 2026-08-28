@@ -101,5 +101,5 @@ export async function POST(request: NextRequest) {
   }
 
   // Where a student lands, because that is what the admin is now looking at.
-  redirect(`${origin}/courses`);
+  redirect(`${origin}/dashboard`);
 }

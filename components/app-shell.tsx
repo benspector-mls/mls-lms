@@ -322,10 +322,32 @@ function useBreadcrumbs(
 
   if (segments[0] === "programs") return [{ label: "Programs" }];
 
+  /*
+    One course of a fellow's own. The same two steps the instructor screens take — the program with
+    its term, then the course — because the question a bare course name leaves open is the same on
+    both sides: a program runs every year under one name, and only the term tells two of them apart.
+
+    Both are plain text. There is no screen above a fellow's course to point at: the sidebar lists
+    every course they are in, and a first step that led somewhere they did not ask for would be
+    worse than a trail that only says where they are.
+  */
   if (segments[0] === "courses" && segments[1]) {
-    return [{ label: "Courses", href: "/courses" }, { label: courseLabel(segments[1]) }];
+    return courseTrail(segments[1]);
   }
-  return [{ label: "Courses" }];
+
+  /*
+    The two screens that belong to the reader rather than to a program: their own account, and the
+    staff list an admin keeps. One step each, because neither sits under anything.
+  */
+  if (segments[0] === "profile") return [{ label: "Profile" }];
+  if (segments[0] === "admin") return [{ label: "Staff" }];
+
+  /*
+    An address this function does not recognise, which draws no trail at all. Every route in the
+    application is named above, so an invented label here could only be wrong — and a breadcrumb
+    that names the wrong screen is worse than a header with no breadcrumb in it.
+  */
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -749,12 +771,12 @@ function StudentWork({ pathname }: { pathname: string }) {
  * show their screens, which existed only to reach attendance from inside a course; with attendance
  * a sibling of the courses there is nothing left underneath one to offer.
  *
- * `/courses` is not offered as an item of its own. It is still a real screen — the breadcrumb links
- * to it — but with every course named here it would be a row pointing at a list of the rows above
- * it. The exception is a fellow with no enrollment yet, where it is the only thing there is to
- * offer and the screen explains what to do.
+ * **There is no screen listing a fellow's courses and no item pointing at one.** This is that list,
+ * on every screen rather than on one of them, so a page whose whole purpose was navigating between
+ * courses would be a row leading to a copy of the rows above it — and it was reachable only in the
+ * one state this group cannot draw, which made it a screen a fellow saw once and never again.
  *
- * **Archived programs and courses stay, labelled**, exactly as the course list shows them. A
+ * **Archived programs and courses stay, labelled**, exactly as the course itself labels them. A
  * program somebody has finished or been removed from is still theirs to read — that is what
  * removal being a status rather than a deletion is for — and one sitting here unlabelled among the
  * ones they are in would be the sidebar telling them something false.
@@ -784,25 +806,14 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
   ];
 
   /*
-    Nothing to group, which is where a fellow starts: signed in, on nobody's roster yet. The list
-    screen is the only thing there is to offer, and it is the one that explains what to do.
+    Nothing to group, which is where a fellow starts: signed in, on nobody's roster yet. The GCF is
+    all this group has left to offer, and the dashboard they are already on is what explains the
+    empty sidebar — a row leading to a second screen saying the same thing would be one more place
+    to go and nothing more to read.
   */
   if (ordered.length === 0) {
     return (
       <SidebarGroup>
-        <SidebarGroupLabel>My courses</SidebarGroupLabel>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={pathname === "/courses"}
-              tooltip="My courses"
-              render={<Link href="/courses" />}
-            >
-              <BookOpen />
-              <span>My courses</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
         <StudentGcf pathname={pathname} />
       </SidebarGroup>
     );
@@ -889,9 +900,9 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
  *
  * **A record that follows a person rather than a program.** CodeSignal has no idea what a
  * program is, a fellow sits the assessment on their own schedule, and somebody who repeats a
- * year should find one history rather than two halves of it. So it is addressed like `/courses` is —
- * outside every scope — and it sits in its own group beneath them all rather than under any one
- * program's heading, which would be claiming a result belonged to that year.
+ * year should find one history rather than two halves of it. So `/gcf` names no scope at all, and
+ * it sits in its own group beneath every program rather than under any one program's heading,
+ * which would be claiming a result belonged to that year.
  */
 function StudentGcf({ pathname }: { pathname: string }) {
   return (

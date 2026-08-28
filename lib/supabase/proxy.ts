@@ -64,9 +64,9 @@ export async function updateSession(request: NextRequest) {
     /*
       No user: send them to sign in, and remember where they were going.
 
-      `next` matters most for a course join link, which is the one address a person arrives at
+      `next` matters most for a program join link, which is the one address a person arrives at
       having never signed in — that is what it is for. Without it they would authenticate,
-      land on `/courses`, and have no idea they were one step from joining the cohort somebody
+      land on `/dashboard`, and have no idea they were one step from joining the program somebody
       sent them. `login-form.tsx` and `/auth/callback` both already honour `next` and both
       refuse anything that is not a relative path, so this only has to set it.
 

@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 import * as React from "react";
 import {
-  ArrowLeft,
   CheckCircle2,
   ChevronRight,
   CircleSlash,
@@ -18,7 +17,6 @@ import { ResourceItem } from "@/components/resource-item";
 import { UnitList } from "@/components/unit-list";
 import { PageHeader } from "@/components/page-header";
 import { AssignmentKindIcon, SubmissionStatusBadge } from "@/components/status-badge";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -164,17 +162,11 @@ export function StudentCourseDetail({
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
-      <Link
-        href="/courses"
-        className={cn(
-          buttonVariants({ variant: "ghost", size: "sm" }),
-          "-ml-2 w-fit text-muted-foreground",
-        )}
-      >
-        <ArrowLeft data-icon="inline-start" />
-        All courses
-      </Link>
-
+      {/*
+        No link back. There is no screen above this one: the sidebar lists every course the fellow
+        is in, on this screen as on every other, so a row of chrome pointing at a page that would
+        only repeat it is a step to nowhere.
+      */}
       <PageHeader title={course.name} description={course.program.term} />
 
       {/*

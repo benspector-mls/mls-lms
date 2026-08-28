@@ -7,8 +7,8 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * Every program the caller belongs to.
  *
  * The instructor's way out of all of them, which is what the sidebar's "All programs" item points at.
- * A fellow's equivalent is `/courses`: they are in one program at a time and what they navigate
- * by is its courses.
+ * A fellow needs no equivalent: they are in one program at a time, and the sidebar names every
+ * course of it on every screen.
  *
  * `cacheComponents` is enabled, so a route cannot block on per-request data outside a Suspense
  * boundary. Everything here depends on who is signed in, so the page renders a static frame and the
