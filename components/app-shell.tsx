@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import {
   BarChart3,
@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  MessageSquarePlus,
   School,
   Settings,
   ShieldCheck,
@@ -70,6 +71,7 @@ import { Separator } from "@/components/ui/separator";
 import { formatSchoolDay } from "@/lib/school-time";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsBanner } from "@/components/view-as-banner";
+import { feedbackFormUrl } from "@/lib/feedback-form";
 import {
   attendanceHref,
   curriculumHref,
@@ -1037,6 +1039,17 @@ function UserMenu({
 }) {
   const router = useRouter();
 
+  // The screen the reader is on when they open the menu, which is the one useful thing a bug
+  // report cannot be expected to name for itself. Read here rather than passed in: this component
+  // already sits inside `ShellSidebar`'s Suspense boundary, which is what reading the address
+  // requires under Cache Components.
+  //
+  // The query string matters as much as the path — it is where the gradebook keeps the cohort it
+  // is filtered to and the grading queue keeps the submission it has open. `feedbackFormUrl` says
+  // which addresses this cannot reach and what the form does about them.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   // Signing out clears the Supabase session cookie; the redirect is a fallback for the
   // rare case the proxy has already served this page from cache.
   const signOut = async () => {
@@ -1107,6 +1120,26 @@ function UserMenu({
           <DropdownMenuItem render={<Link href="/profile" />}>
             <UserRound />
             Profile
+          </DropdownMenuItem>
+          {/*
+            Beside Profile rather than in the navigation above, for that item's own reason:
+            everything up there is a place to work, and this is neither a place nor work.
+
+            A new tab, which is the whole point of pre-filling the screen — the reader is
+            reporting something about the page they are looking at, and sending them away from it
+            to describe it would be the one thing this must not do.
+          */}
+          <DropdownMenuItem
+            render={
+              <a
+                href={feedbackFormUrl({ pathname, search: searchParams.toString() })}
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            }
+          >
+            <MessageSquarePlus />
+            Send feedback
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
