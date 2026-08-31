@@ -499,21 +499,42 @@ function SubmissionTab({
   const awaitingAccept =
     (!submission || status === "NOT_STARTED") && hasAcceptStep(assignment.kind);
 
+  /*
+    Whether the copy control is offered. A repository is generated once and the row then holds its
+    address, so the control is replaced by the link to it — which is what `RepoLinks` draws below.
+    A Drive copy is made by Google, owned by the student, and recorded here not at all: there is
+    nothing to link to, and nothing to break by taking another, since `acceptDriveAssignment`
+    promotes a status only from `NOT_STARTED` and is otherwise a no-op on the row.
+
+    Withdrawing it after the first press is what left a student whose copy never arrived — a lost
+    connection at Google's prompt is enough — with no way to start the work at all.
+  */
+  const canCopyTemplate = awaitingAccept || assignment.kind === "GOOGLE_DRIVE";
+
   return (
     <div className="flex flex-col gap-4">
-      {awaitingAccept && (
+      {canCopyTemplate && (
         <div className="flex flex-col items-start gap-2 rounded-lg border border-border bg-background p-4">
+          {/*
+            Statements rather than instructions, which is what lets the Drive card persist: it is
+            still true of a student who took their copy weeks ago. The Drive copy is not somewhere
+            "only you and your instructor can open" — it belongs to the student, and their
+            instructor reads it because they hand in its link, which is worth saying plainly here
+            rather than leaving a student with no reason to check the document's sharing.
+          */}
           <p className="text-sm font-medium">
-            {assignment.kind === "REPO"
-              ? "Accept to create your repository"
-              : "Accept to get your own copy"}
+            {assignment.kind === "REPO" ? "Your own repository" : "Your copy of the template"}
           </p>
           <p className="text-sm text-muted-foreground">
             {assignment.kind === "REPO"
               ? "This makes a private repository for your work and gives you a draft branch to push to."
-              : "This copies the template into your own Drive, where only you and your instructor can open it."}
+              : "Google makes the copy in your own Drive and it belongs to you. Take another copy whenever you need one, and hand in the link to the copy you want graded."}
           </p>
-          <AcceptAssignmentButton assignmentId={assignment.id} kind={assignment.kind} />
+          <AcceptAssignmentButton
+            assignmentId={assignment.id}
+            kind={assignment.kind}
+            templateDriveUrl={assignment.templateDriveUrl}
+          />
         </div>
       )}
 

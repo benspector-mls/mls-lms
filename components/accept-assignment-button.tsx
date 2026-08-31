@@ -1,55 +1,65 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { copyUrlFromTemplate } from "@/lib/assignments/spec";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
 /**
- * Accepting an assignment creates something, so it is a mutation the student triggers
- * rather than something that happens while a page renders. That is what makes this a
- * client component.
+ * Taking what an assignment hands out: a repository generated from a template, or a copy of a
+ * Drive document.
  *
- * Labelled "Accept" rather than "Accept on GitHub", because accepting is the step and how
- * it is carried out depends on the kind: a repository is generated from a template, and a
- * Google Drive assignment sends the student to Google's own prompt to take a copy. The
- * procedure returns `copyUrl` when there is somewhere to be sent, so this component does
- * not have to know which kind it is looking at.
+ * Labelled for the act rather than for the bookkeeping. Both kinds copy a template, so "Copy the
+ * template" is true of both, and how the copy is carried out is the part that differs and the
+ * part a student does not need in a label. It said "Accept" before, which named the status this
+ * writes and not the thing the student came to do.
+ *
+ * **A link for a Drive assignment and a button for a repository, which is not a stylistic
+ * choice.** A repository does not exist until the mutation has returned, so there is nothing to
+ * link to and the control has to be a button. A Drive copy is the opposite: the address is
+ * Google's copy prompt, built by substitution from the template's own URL, so it is known before
+ * anything is pressed. Making that control a real anchor is what gets the new tab past a pop-up
+ * blocker — `window.open` called from this mutation's callback runs outside the click's user
+ * gesture, which Safari refuses and Chrome permits only while its transient activation lasts,
+ * whereas a click on an `href` is a navigation the student made and is never blocked. The two
+ * render identically, so the difference is invisible on the screen and only in the mechanism.
+ *
+ * The mutation still records the accept, fired from the same click. It is deliberately not
+ * waited on: the student is already on their way to Google, and a status this writes afterwards
+ * is bookkeeping rather than something they are waiting to see. If it fails they keep the copy
+ * and the assignment still reads "Not started", which the copy control being permanent for this
+ * kind makes recoverable — pressing it again both copies and records.
  */
 export function AcceptAssignmentButton({
   assignmentId,
   kind,
+  templateDriveUrl,
 }: {
   assignmentId: string;
   /** From the enum rather than spelled out, so a kind added later cannot be silently omitted. */
   kind: AssignmentKind;
+  /**
+   * The Drive file this hands out copies of, for the one kind that has one.
+   *
+   * Null is a misconfigured Drive assignment rather than an impossible state, since the column is
+   * nullable. The control falls back to a button there, and `acceptDriveAssignment` answers the
+   * press by refusing with a message naming the missing template — which is a better screen than
+   * a link built from nothing.
+   */
+  templateDriveUrl?: string | null;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
-  /*
-    Held so the link can be offered when the tab could not be opened. A pop-up blocker
-    refusing `window.open` is ordinary and not an error: the copy prompt is where the
-    student needs to go, so the fallback has to be a link they can click themselves rather
-    than a message telling them it failed.
-  */
-  const [copyUrl, setCopyUrl] = React.useState<string | null>(null);
-
   const accept = useMutation(
     trpc.assignments.accept.mutationOptions(
       settled({
-        onSuccess: (result) => {
-          if (result.copyUrl) {
-            setCopyUrl(result.copyUrl);
-            const opened = window.open(result.copyUrl, "_blank", "noopener,noreferrer");
-            if (opened) opened.focus();
-          }
-
+        onSuccess: () => {
           /*
             Accepting a repository assignment invites the student to their new repository as a
             collaborator, and GitHub expires an invitation nobody has accepted after 7 days. A
@@ -57,7 +67,7 @@ export function AcceptAssignmentButton({
             reads as the accept having failed rather than as an invitation having lapsed.
 
             Said in a toast rather than printed under the button, because the refresh below
-            replaces the Accept control with the accepted row — a message rendered here would
+            replaces the copy control with the accepted row — a message rendered here would
             appear for an instant and then leave with the button that held it. A toast is
             outside this component, so it stays up long enough to be read and acted on.
           */
@@ -70,33 +80,46 @@ export function AcceptAssignmentButton({
             );
           }
 
-          // `useServerMutation` re-renders the server component after this, so the row picks
-          // up its new status and its repository or document link.
+          // `useServerMutation` re-renders the server component after this, so the row picks up
+          // its new status, and a repository assignment picks up the link to the one it made.
         },
       }),
     ),
   );
 
+  const copyUrl =
+    kind === "GOOGLE_DRIVE" && templateDriveUrl ? copyUrlFromTemplate(templateDriveUrl) : null;
+
   return (
     <>
-      <Button size="sm" onClick={() => accept.mutate({ assignmentId })} disabled={accept.isPending}>
-        {accept.isPending
-          ? kind === "GOOGLE_DRIVE"
-            ? "Opening Google Drive…"
-            : "Creating repository…"
-          : "Accept"}
-      </Button>
-
-      {copyUrl && (
+      {copyUrl ? (
+        /*
+          `data-slot` and `buttonVariants` rather than a copied class list, so this is the same
+          button as the branch below down to the focus ring: the size variants are keyed on that
+          attribute, and a hand-written approximation would drift the first time either changes.
+        */
         <a
           href={copyUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex w-full items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+          data-slot="button"
+          className={cn(buttonVariants({ size: "sm" }))}
+          onClick={() => accept.mutate({ assignmentId })}
         >
-          Open your copy of the document
-          <ExternalLink className="size-3.5" />
+          Copy the template
         </a>
+      ) : (
+        <Button
+          size="sm"
+          onClick={() => accept.mutate({ assignmentId })}
+          disabled={accept.isPending}
+        >
+          {accept.isPending
+            ? kind === "REPO"
+              ? "Creating repository…"
+              : "Copying…"
+            : "Copy the template"}
+        </Button>
       )}
 
       {/*

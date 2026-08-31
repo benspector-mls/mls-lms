@@ -15,12 +15,7 @@ import {
 } from "../github/repos";
 import type { Tx } from "../prisma";
 import { claimTeamWork, syncTeamRows, type ResolvedTeam } from "../submissions/team";
-import {
-  copyUrlFromTemplate,
-  NotRepositoryBackedError,
-  repositorySource,
-  UnsupportedAssignmentKindError,
-} from "./spec";
+import { NotRepositoryBackedError, repositorySource, UnsupportedAssignmentKindError } from "./spec";
 
 /**
  * What accepting an assignment does, once it is known who is allowed to.
@@ -78,13 +73,16 @@ export type AcceptableAssignment = Prisma.AssignmentGetPayload<{
  * The same shape every kind returns, so the button has one result to handle rather than a union
  * it has to narrow.
  *
- * `copyUrl` is where the student is sent *on acceptance*, which is only ever Google's copy
- * prompt. A repository is opened from the row's own link afterwards, so it is null there.
+ * **The row, and nothing about where the student was sent.** A repository is opened from the
+ * row's own `repoUrl` afterwards, and a Drive copy prompt is an address the browser builds for
+ * itself out of the template URL it already has — `copyUrlFromTemplate` reads no database and is
+ * safe there, which is what lets the control be a real link rather than a script-opened window.
+ * This used to carry that address back so the button could open it, and a `window.open` in a
+ * mutation callback is outside the click's user gesture and refused by Safari.
  */
 export type Accepted = {
   /** The whole row, unselected, because the button re-renders the card from it. */
   submission: SubmissionModel;
-  copyUrl: string | null;
 };
 
 /**
@@ -153,10 +151,7 @@ export async function acceptDriveAssignment(
 
     await syncTeamRows(db, { submissionId: submissionId });
 
-    return {
-      submission: await ownRow(db, assignment.id, studentId),
-      copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl),
-    };
+    return { submission: await ownRow(db, assignment.id, studentId) };
   }
 
   // Upserted rather than created, so pressing Accept twice is the same as pressing it once: the
@@ -186,7 +181,7 @@ export async function acceptDriveAssignment(
         })
       : existing;
 
-  return { submission, copyUrl: copyUrlFromTemplate(assignment.templateDriveUrl) };
+  return { submission };
 }
 
 /**
@@ -348,7 +343,7 @@ export async function acceptRepoAssignment(
         });
       }
       await syncTeamRows(db, { submissionId: claim.submissionId });
-      return { submission: await ownRow(db, assignment.id, student.id), copyUrl: null };
+      return { submission: await ownRow(db, assignment.id, student.id) };
     }
   } else {
     // Already accepted. Return the existing submission rather than creating a second repository.
@@ -356,7 +351,7 @@ export async function acceptRepoAssignment(
       where: { assignmentId_studentId: { assignmentId: assignment.id, studentId: student.id } },
     });
     if (existing?.repoFullName) {
-      return { submission: existing, copyUrl: null };
+      return { submission: existing };
     }
   }
 
@@ -584,7 +579,7 @@ export async function acceptRepoAssignment(
     await db.submission.update({ where: { id: teamSubmissionId }, data: where });
     await syncTeamRows(db, { submissionId: teamSubmissionId });
 
-    return { submission: await ownRow(db, assignment.id, student.id), copyUrl: null };
+    return { submission: await ownRow(db, assignment.id, student.id) };
   }
 
   const submission = await db.submission.upsert({
@@ -593,5 +588,5 @@ export async function acceptRepoAssignment(
     update: where,
   });
 
-  return { submission, copyUrl: null };
+  return { submission };
 }

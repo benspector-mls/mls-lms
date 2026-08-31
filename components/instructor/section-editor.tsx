@@ -91,7 +91,7 @@ export function SectionEditor({
           <Field label="What this section is called" findings={fieldFindings("label")}>
             <Input
               value={section.label}
-              placeholder='e.g. "Total" or "Reflection"'
+              placeholder='e.g. "Overall" or "Reflection"'
               onChange={(event) => onChange({ ...section, label: event.target.value })}
             />
           </Field>

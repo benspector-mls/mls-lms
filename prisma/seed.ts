@@ -84,6 +84,21 @@ const TEMPLATE_REPO = process.env.SEED_TEMPLATE_REPO
 const ASSIGNMENT_REPO_NAME = TEMPLATE_REPO.split("/")[1];
 
 /**
+ * The Google Doc the seeded Drive assignment hands out copies of.
+ *
+ * A real document rather than a placeholder, because the whole of this kind is a link a student
+ * follows to Google: a made-up file id seeds a row that looks right on every screen and fails at
+ * the one moment that matters. It has to be shared so that anybody with the link may view it,
+ * or Google answers the copy prompt with a permission error rather than a copy.
+ *
+ * Overridable, like the template repository above, so a fresh checkout can point at a document
+ * of its own without editing this file.
+ */
+const DRIVE_TEMPLATE_URL =
+  process.env.SEED_DRIVE_TEMPLATE_URL ??
+  "https://docs.google.com/document/d/1yTvbuub9_wdpW6R8a6Ls2C-Ms-NMhLiwdeKPiIIadn8/edit?tab=t.0";
+
+/**
  * The one assignment this bootstraps, and what it contains.
  *
  * **A bootstrap, not a registry.** This map held three assignments and read as a partial
@@ -757,6 +772,79 @@ async function main() {
   // left in place. Changing SEED_TEMPLATE_REPO therefore adds an assignment
   // rather than replacing one, and the course can end up listing more than one.
   // Remove any you do not want by hand — this script does not delete assignments.
+
+  /*
+    A Google Drive assignment, published, so the copy-the-template path can be exercised on a
+    fresh database.
+
+    **Published, unlike the samples below.** `distributedAt` is set because everything worth
+    checking about this kind happens on the student's screen: the copy control, whether it is
+    still there after a reload, and pasting the link to the copy back in. An unpublished row
+    shows none of that to anybody.
+
+    In Module 1 beside the repository assignment, so the two kinds that hand something out sit
+    next to each other on a student's course page and the difference between them — a generated
+    repository, a copy of a document — can be read off one screen.
+
+    Graded by hand, which `noRepository` in `lib/assignments/spec.ts` requires of every kind but
+    REPO: there are no reference solutions for a document, so there is nothing for a model to
+    compare one against.
+
+    Idempotent on the title within the course, the same rule the samples below use, so running
+    the seed twice leaves one of these rather than adding another.
+  */
+  const DRIVE_ASSIGNMENT_TITLE = "Test Google Doc Assignment";
+
+  const driveSpec = parseAssignmentSpec({
+    kind: AssignmentKind.GOOGLE_DRIVE,
+    title: DRIVE_ASSIGNMENT_TITLE,
+    courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
+    completionThreshold: 0.75,
+    /*
+      Through the same schema the authoring form uses, for the sake of the URL above all others:
+      `GOOGLE_DRIVE_URL` is what guarantees `copyUrlFromTemplate` can turn this into a `/copy`
+      link. A URL this script accepted and that pattern would not is a seeded assignment whose
+      copy control sends every student to the instructor's own document to edit in place, and it
+      would go wrong at the student's press rather than here.
+    */
+    templateDriveUrl: DRIVE_TEMPLATE_URL,
+    dueAt: instantAtSchoolClock(
+      schoolDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+      END_OF_DAY,
+    ),
+    sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+  });
+
+  const seededDrive = await prisma.assignment.findFirst({
+    where: { courseId: course.id, title: DRIVE_ASSIGNMENT_TITLE },
+    select: { id: true },
+  });
+
+  if (seededDrive) {
+    console.log(`Assignment: ${DRIVE_ASSIGNMENT_TITLE} — already seeded`);
+  } else {
+    /*
+      `handInMethods` and `acceptedFileTypes` are deliberately not written. The spec forces both
+      empty for this kind, and the answer a screen needs comes from `handInMethodsFor`, which
+      reads the kind — writing `["LINK"]` here would put one fact in two places with nothing
+      keeping them equal.
+    */
+    const drive = await prisma.assignment.create({
+      data: {
+        courseId: course.id,
+        courseUnitId: driveSpec.courseUnitId,
+        kind: driveSpec.kind,
+        title: driveSpec.title,
+        pointValue: driveSpec.pointValue,
+        completionThreshold: driveSpec.completionThreshold,
+        dueAt: driveSpec.dueAt,
+        templateDriveUrl: driveSpec.templateDriveUrl,
+        distributedAt: new Date(),
+        sections: driveSpec.sections as unknown as Prisma.InputJsonValue,
+      },
+    });
+    console.log(`Assignment: ${drive.title} — students copy ${drive.templateDriveUrl}`);
+  }
 
   /*
     One project and one assessment, so the three gradebook tabs and a student's course list all

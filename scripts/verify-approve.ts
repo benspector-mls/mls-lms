@@ -522,16 +522,18 @@ async function handGradedLifecycle(db: Db) {
 
         await asInstructor.assignments.publish({ assignmentId: assignment.id });
 
-        // Accepting is being sent to Google's copy prompt, and nothing more. No repository is
-        // generated and no GitHub call is made, which is why this runs with no network at all.
+        /*
+          Accepting is recording that the student started, and nothing more. No repository is
+          generated and no GitHub call is made, which is why this runs with no network at all.
+
+          Where they are sent is deliberately not asserted here. The copy prompt is built in the
+          browser out of the template URL the assignment already carries, so that the control can
+          be a real link rather than a script-opened window; `verify:authoring` is what checks
+          that substitution, over seven URL shapes rather than this one.
+        */
         const accepted = await asStudent.assignments.accept({ assignmentId: assignment.id });
         check(
-          "accepting a Drive assignment returns the copy prompt",
-          accepted.copyUrl,
-          "https://docs.google.com/document/d/1AbC_dEF-123/copy",
-        );
-        check(
-          "...and creates no repository",
+          "accepting a Drive assignment records it and creates no repository",
           [accepted.submission.repoFullName, accepted.submission.status],
           [null, "ACCEPTED"],
         );
