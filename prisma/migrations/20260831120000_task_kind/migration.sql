@@ -1,0 +1,21 @@
+-- A fourth assignment kind, for work with nothing to hand in.
+--
+-- Setting up a laptop, joining a Slack workspace, filling in a survey: real coursework with a
+-- due date that belongs in a module, producing no link, no file, and no pull request. Every
+-- existing kind requires an artifact, so there was no way to represent one of these until now.
+--
+-- One statement, and nothing else. A task needs no column of its own: what a student did is
+-- `submissions.is_complete`, `final_score`, and `graded_by`, which are the columns a released
+-- grade already writes. `sections` stays empty and `point_value` is answered as 1 by
+-- `assignmentPointValue` in lib/assignments/spec.ts rather than typed by an instructor.
+--
+-- `ADD VALUE` rather than the rename-and-rebuild in `20260826200000_hand_in_methods`. That
+-- migration removed values from the type, which Postgres can only do by rebuilding it; adding
+-- one is metadata-only, keeps every existing row exactly as it is, and has no window in which a
+-- row means something different from what it meant a moment before.
+--
+-- Safe inside the transaction Prisma wraps a migration in, on Postgres 12 and later, because
+-- nothing below *uses* the new value. A statement in this file reading or writing 'TASK' would
+-- be the thing that made it unsafe.
+
+ALTER TYPE "public"."AssignmentKind" ADD VALUE 'TASK';

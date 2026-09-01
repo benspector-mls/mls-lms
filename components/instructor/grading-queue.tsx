@@ -11,6 +11,7 @@ import {
   useGradingMode,
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
+import { TaskReview } from "@/components/instructor/task-review";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import type { BatchState } from "@/hooks/use-batch-generate";
@@ -73,6 +74,15 @@ export function GradingQueue({
   */
   const [batch, setBatch] = React.useState<BatchState | null>(null);
 
+  /**
+   * Whether this screen is a roster rather than a queue.
+   *
+   * A task is not graded and never waits on anybody, so "what is left to grade" is a question it
+   * cannot answer. What its queue is for instead is "who has done this" — which makes every
+   * fellow a row, including the ones with nothing on record.
+   */
+  const isTask = data.assignment.kind === "TASK";
+
   /*
     A student who has not opened a pull request is not in the queue. They have not done anything
     wrong and there is nothing to grade — the assignment's own page is where an instructor goes to
@@ -81,10 +91,18 @@ export function GradingQueue({
     **Unless they have said something.** A question asked before starting is a record an instructor
     will want to find again, and the assignment is the obvious place to look for it: without this
     the only route to it is the fellow's own record, which means already knowing who asked.
+
+    **And unless this is a task**, where the filter is turned off entirely. A fellow who has not
+    marked a task done is exactly the row an instructor came here for: the one to chase, or to mark
+    done on their behalf. `notStarted` below carries the fellows who have no row at all, for the
+    same reason.
   */
-  const submissions = data.submissions.filter(
-    (row) => (row.status !== "NOT_STARTED" && row.status !== "ACCEPTED") || row.commentCount > 0,
-  );
+  const submissions = isTask
+    ? data.submissions
+    : data.submissions.filter(
+        (row) =>
+          (row.status !== "NOT_STARTED" && row.status !== "ACCEPTED") || row.commentCount > 0,
+      );
 
   /*
     "Needs review" is the same question the triage screen asks, answered by the same
@@ -129,11 +147,32 @@ export function GradingQueue({
     for either would show a different student's report under a URL that named one, which is worse
     than an empty pane because nothing about it looks wrong.
   */
+  /*
+    Which fellow with no submission row is open, when one is.
+
+    **A second selection parameter rather than a second meaning for the first.** `?submission=`
+    names a row, and these fellows have none — there is nothing for it to hold. Naming the fellow
+    instead keeps every existing link working and makes a link to one of these rows work too,
+    which is the property this screen has always had.
+
+    Read before `selected` below, and it is what makes the fallback there conditional: without
+    that, opening a fellow with no row would land on whichever submission happened to be first and
+    the pane would quietly show somebody else.
+
+    Marking such a fellow done creates their row, and the refresh that follows moves them into
+    `submissions` — at which point this names somebody no longer here, `selectedFellow` is null,
+    and the fallback lands on a real row again.
+  */
+  const selectedFellowId = searchParams.get("fellow");
+  const selectedFellow = data.notStarted.find((student) => student.id === selectedFellowId) ?? null;
+
   const selected =
-    submissions.find((row) => row.id === selectedId) ??
-    data.asideSubmissions.find((row) => row.id === selectedId) ??
-    filtered[0] ??
-    null;
+    selectedFellow !== null
+      ? null
+      : (submissions.find((row) => row.id === selectedId) ??
+        data.asideSubmissions.find((row) => row.id === selectedId) ??
+        filtered[0] ??
+        null);
 
   /** Why the open submission is not in the list beside it, or null when it is. */
   const asideReason =
@@ -141,9 +180,33 @@ export function GradingQueue({
       ? null
       : (data.asideSubmissions.find((row) => row.id === selected.id)?.asideReason ?? null);
 
+  /*
+    Fellows on the roster with no submission row at all. Empty for every kind but a task — see
+    `notStarted` in `submissions.listForAssignment` for why only a task has them.
+
+    Searched by the same term as the rows above, so one search box narrows one list. They are not
+    counted in the tabs: the tabs count submissions, and these are the absence of one.
+  */
+  const notStarted = data.notStarted.filter(
+    (student) =>
+      !term ||
+      (student.displayName ?? "").toLowerCase().includes(term) ||
+      (student.githubUsername ?? "").toLowerCase().includes(term) ||
+      (student.email ?? "").toLowerCase().includes(term),
+  );
+
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("submission", id);
+    params.delete("fellow");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
+
+  /** Opens a fellow who has no submission row. The mirror of `select` above. */
+  function selectFellow(studentId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("fellow", studentId);
+    params.delete("submission");
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
@@ -186,34 +249,42 @@ export function GradingQueue({
                 className="pl-8"
               />
             </div>
-            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-              {(
-                [
-                  { key: "all", label: `All`, count: counts.all },
-                  {
-                    key: "needs_review",
-                    label: `To do`,
-                    count: counts.needs_review,
-                  },
-                  { key: "graded", label: `Graded`, count: counts.graded },
-                ] as { key: Filter; label: string; count: number }[]
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setFilter(tab.key)}
-                  className={cn(
-                    "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
-                    filter === tab.key
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {tab.label}
-                  <br />({tab.count})
-                </button>
-              ))}
-            </div>
+            {/*
+              The three tabs are three answers to "what is left to grade", which a task does not
+              ask: `To do` is permanently zero because a task never enters a triage bucket, and
+              `Graded` counts both verdicts together, so it would read as "done" over a fellow
+              whose task came back. One view, unlabelled, is the honest shape for a roster.
+            */}
+            {!isTask && (
+              <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                {(
+                  [
+                    { key: "all", label: `All`, count: counts.all },
+                    {
+                      key: "needs_review",
+                      label: `To do`,
+                      count: counts.needs_review,
+                    },
+                    { key: "graded", label: `Graded`, count: counts.graded },
+                  ] as { key: Filter; label: string; count: number }[]
+                ).map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setFilter(tab.key)}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+                      filter === tab.key
+                        ? "bg-card text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {tab.label}
+                    <br />({tab.count})
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/*
               Scoped to what the list is currently showing rather than to the whole assignment,
@@ -222,23 +293,31 @@ export function GradingQueue({
               button above a list of twelve that quietly acted on forty would be worse than one
               that acted on nothing.
             */}
-            <BatchGenerate
-              candidates={filtered.map((row) => ({
-                submissionId: row.id,
-                label: displayNameOf(row.student, "Unknown student"),
-                bucket: row.bucket,
-              }))}
-              // One assignment, one rubric, one set of answer keys — so every subject shares a
-              // system prompt and the first run warms the cache the rest read from.
-              warmFirst
-              onStateChange={setBatch}
-            />
+            {/*
+              Absent for a task rather than disabled, the same rule the authoring form applies to
+              the test runner: there is no report a task could ever have, so this is not a run with
+              nothing to do, it is a question that does not apply. Left in, every row's null bucket
+              would render it permanently greyed with a label explaining why.
+            */}
+            {!isTask && (
+              <BatchGenerate
+                candidates={filtered.map((row) => ({
+                  submissionId: row.id,
+                  label: displayNameOf(row.student, "Unknown student"),
+                  bucket: row.bucket,
+                }))}
+                // One assignment, one rubric, one set of answer keys — so every subject shares a
+                // system prompt and the first run warms the cache the rest read from.
+                warmFirst
+                onStateChange={setBatch}
+              />
+            )}
 
             <GradingModeButton onEnter={grading.enter} />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {filtered.length === 0 ? (
+            {filtered.length === 0 && notStarted.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
                 <Inbox className="size-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing here</p>
@@ -269,6 +348,36 @@ export function GradingQueue({
                     now={now}
                     pending={batch?.inFlight.has(row.id) ?? false}
                   />
+                ))}
+
+                {/*
+                  Fellows with nothing on record, after the rows that have something.
+
+                  Their own row rather than a `SubmissionRow` fed a blank, because every line that
+                  component draws — when the work last moved, whether it was late, what it scored —
+                  is a fact about a submission, and these have none. What is worth saying about
+                  them is their name and that nothing has happened, which is one line.
+
+                  Below rather than interleaved: the list is ordered by what has happened, and
+                  nothing having happened comes last. An instructor scanning for who to chase finds
+                  them together at the bottom rather than scattered through the roster.
+                */}
+                {notStarted.map((student) => (
+                  <li key={student.id}>
+                    <button
+                      type="button"
+                      onClick={() => selectFellow(student.id)}
+                      className={cn(
+                        "flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left transition-colors",
+                        selectedFellow?.id === student.id ? "bg-muted" : "hover:bg-muted/60",
+                      )}
+                    >
+                      <span className="text-sm font-medium">
+                        {displayNameOf(student, "Unknown student")}
+                      </span>
+                      <span className="text-xs text-muted-foreground">Not marked</span>
+                    </button>
+                  </li>
                 ))}
               </ul>
             )}
@@ -361,7 +470,36 @@ export function GradingQueue({
             button among it — off the screen.
           */}
           <div className="min-h-0 flex-1">
-            {selected ? (
+            {/*
+              A task takes a different pane, and takes it in two situations rather than one: a
+              fellow with a row, and a fellow with none. `GradingReview` is built around a
+              submission — drafts, test runs, a diff, a score — so a task would be a branch
+              suppressing nearly all of it, and the rowless fellow could not be passed to it at all.
+            */}
+            {isTask && selectedFellow ? (
+              <TaskReview
+                key={selectedFellow.id}
+                assignmentId={data.assignment.id}
+                student={selectedFellow}
+                // Nothing on record, which is what having no row means.
+                isComplete={null}
+                markedAt={null}
+                markedBy={null}
+                studentHref={studentHref(data.assignment.courseId, selectedFellow.id)}
+                now={now}
+              />
+            ) : isTask && selected ? (
+              <TaskReview
+                key={selected.id}
+                assignmentId={data.assignment.id}
+                student={selected.student}
+                isComplete={selected.isComplete}
+                markedAt={selected.gradedAt}
+                markedBy={selected.gradedBy}
+                studentHref={studentHref(data.assignment.courseId, selected.student.id)}
+                now={now}
+              />
+            ) : selected ? (
               // Keyed on the submission so switching students resets the editor rather
               // than carrying one student's unsaved edits onto another's report.
               <GradingReview
@@ -383,7 +521,9 @@ export function GradingQueue({
                 <Inbox className="size-10 text-muted-foreground" />
                 <p className="text-base font-medium">Pick a student</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
-                  Their report, test results, and repository open here.
+                  {isTask
+                    ? "Whether they have done this, and the conversation about it, open here."
+                    : "Their report, test results, and repository open here."}
                 </p>
               </div>
             )}

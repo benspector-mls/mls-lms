@@ -5,6 +5,7 @@
 // directive has to be here or the Base UI tooltip's hooks run in the wrong place.
 import {
   AlertTriangle,
+  CircleCheck,
   Code,
   FileText,
   Files,
@@ -206,7 +207,7 @@ function KindIcon({
  * The icon for what a student hands in.
  *
  * A function rather than a `Record` keyed by kind, for the same reason `assignmentKindMeta` is:
- * a self-directed assignment is a link, a file, or either, and three kinds cannot key five
+ * a self-directed assignment is a link, a file, or either, and four kinds cannot key six
  * answers. `Files` is the either case — two sheets, one behind the other, reading as "more than
  * one form of the same thing" where `Upload` and `LinkIcon` each name exactly one.
  */
@@ -221,6 +222,10 @@ function kindIconFor(assignment: HandInShape): React.ElementType {
       if (methods.includes("LINK") && methods.includes("FILE")) return Files;
       return methods.includes("FILE") ? Upload : LinkIcon;
     }
+    // A tick, because the whole of a task is whether it is ticked. Every other icon here names
+    // the shape of a thing handed in, and a task hands nothing in.
+    case "TASK":
+      return CircleCheck;
   }
 }
 

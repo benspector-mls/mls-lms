@@ -816,6 +816,20 @@ check(
   [parseAssignmentSpec(docSpec).handInMethods, parseAssignmentSpec(repoSpec).handInMethods],
   [[], []],
 );
+/*
+  A task answers empty for the same reason REPO does — no form is drawn for it — and by a
+  different route: REPO has a way in that is not one of these, and a task has none at all.
+*/
+check(
+  "a task is handed in no way at all",
+  handInMethodsFor({ kind: AssignmentKind.TASK, handInMethods: [] }),
+  [],
+);
+check(
+  "and a stray value on one is ignored rather than believed",
+  handInMethodsFor({ kind: AssignmentKind.TASK, handInMethods: ["LINK"] }),
+  [],
+);
 
 // Optional on every kind, because each kind's own screen states the mechanical steps already.
 check(
@@ -834,9 +848,14 @@ check(
 check("REPO requires a repository", requiresRepository(AssignmentKind.REPO), true);
 check("GOOGLE_DRIVE does not", requiresRepository(AssignmentKind.GOOGLE_DRIVE), false);
 check(
-  "all three kinds are implemented",
+  "all four kinds are implemented",
   [...IMPLEMENTED_KINDS].sort(),
-  [AssignmentKind.GOOGLE_DRIVE, AssignmentKind.REPO, AssignmentKind.SELF_DIRECTED].sort(),
+  [
+    AssignmentKind.GOOGLE_DRIVE,
+    AssignmentKind.REPO,
+    AssignmentKind.SELF_DIRECTED,
+    AssignmentKind.TASK,
+  ].sort(),
 );
 check(
   "a self-directed kind is not repository-backed",
@@ -844,6 +863,18 @@ check(
   false,
 );
 check("and it has no Accept", hasAcceptStep(AssignmentKind.SELF_DIRECTED), false);
+check("a task is not repository-backed", requiresRepository(AssignmentKind.TASK), false);
+check("and it has no Accept either", hasAcceptStep(AssignmentKind.TASK), false);
+check(
+  "a task is worth one point, whatever is typed",
+  parseAssignmentSpec({
+    kind: AssignmentKind.TASK,
+    title: "Set up your laptop",
+    courseUnitId: docSpec.courseUnitId,
+    sections: [],
+  }).pointValue,
+  1,
+);
 
 check(
   "repositorySource narrows a REPO row",

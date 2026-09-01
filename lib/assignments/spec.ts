@@ -43,18 +43,23 @@ export { SECTION_TYPES, type SectionType as SectionTypeName } from "../section-t
  * Separate from the enum on purpose. The enum names the axis so that every code path
  * assuming a repository has to say so; this set says which of them are built.
  *
- * All three are built. What differs between them is not whether they work but how far the
+ * All four are built. What differs between them is not whether they work but how far the
  * pipeline reaches: a `REPO` assignment is distributed from a template, collected as a pull
- * request, and graded by the model, while the other two are distributed as a link or as
- * instructions, collected as a link the student pastes or a file they upload, and graded by an
- * instructor typing the score and the feedback. Reading a Drive file's contents or an uploaded
- * file and generating a report from it is a separate feature and needs instructor-authored
- * rubrics.
+ * request, and graded by the model, while `GOOGLE_DRIVE` and `SELF_DIRECTED` are distributed as
+ * a link or as instructions, collected as a link the student pastes or a file they upload, and
+ * graded by an instructor typing the score and the feedback. Reading a Drive file's contents or
+ * an uploaded file and generating a report from it is a separate feature and needs
+ * instructor-authored rubrics.
+ *
+ * `TASK` reaches least far of all, and deliberately: nothing is distributed, nothing is
+ * collected, and the verdict is a boolean somebody presses rather than anything the pipeline
+ * or an instructor writes prose about.
  */
 export const IMPLEMENTED_KINDS: ReadonlySet<AssignmentKind> = new Set([
   AssignmentKind.REPO,
   AssignmentKind.GOOGLE_DRIVE,
   AssignmentKind.SELF_DIRECTED,
+  AssignmentKind.TASK,
 ]);
 
 /** The parts of an assignment that say how it is handed in. Structural, so a test can pass a literal. */
@@ -75,9 +80,14 @@ export type HandInShape = {
  * and a method admitted by one and refused by another is a student told to paste a link into a
  * form that will not take it.
  *
- * Exhaustive over the enum rather than a lookup with a fallback, so a fourth kind is a compile
+ * Exhaustive over the enum rather than a lookup with a fallback, so a fifth kind is a compile
  * error here — the same guarantee `assignments.accept`'s switch gives, and for the same reason.
- * `REPO` is empty rather than absent: it has a way in, and the way in is not one of these.
+ *
+ * **Two kinds answer empty, and they mean different things by it.** `REPO` has a way in and the
+ * way in is not one of these — it is a pull request. `TASK` has no way in at all, because there
+ * is nothing to hand in. Neither draws a form, which is the only question this function is asked,
+ * so one answer serves both; anything that needs to tell them apart asks the kind, as the
+ * student's panel does when it chooses between a hand-in form and a button.
  */
 export function handInMethodsFor(assignment: HandInShape): readonly HandInMethod[] {
   switch (assignment.kind) {
@@ -87,6 +97,8 @@ export function handInMethodsFor(assignment: HandInShape): readonly HandInMethod
       return [HandInMethod.LINK];
     case AssignmentKind.SELF_DIRECTED:
       return assignment.handInMethods;
+    case AssignmentKind.TASK:
+      return [];
   }
 }
 
@@ -100,8 +112,8 @@ export function requiresRepository(kind: AssignmentKind): boolean {
  *
  * A REPO assignment generates a repository from a template and a GOOGLE_DRIVE one builds a
  * `/copy` link, so for both of them there is something a student receives before there is
- * anything to hand in. SELF_DIRECTED hands out nothing at all: the first thing that happens to
- * one is the student submitting.
+ * anything to hand in. SELF_DIRECTED and TASK hand out nothing at all: the first thing that
+ * happens to one is the student submitting, or — for a task — marking it done.
  *
  * Named here rather than compared inline, because two places on a student's screen have to
  * agree about it — whether the row draws an Accept button, and whether the row opens so the
@@ -466,6 +478,32 @@ export function sectionsPointTotal(sections: readonly { pointValue: number }[]):
   return sections.reduce((total, section) => total + section.pointValue, 0);
 }
 
+/** What a task is worth. One point, for every task, always. */
+export const TASK_POINT_VALUE = 1;
+
+/**
+ * What an assignment is worth, from its spec.
+ *
+ * The sum of its sections for the three kinds that have them, and `TASK_POINT_VALUE` for the one
+ * that does not. Both answers are derived rather than typed, which is the property the rule above
+ * exists to protect: there is no input an author can give that makes the gradebook column
+ * disagree with what is beneath it.
+ *
+ * **A task is worth one point rather than a number an instructor chooses**, because the only
+ * thing a task records is whether it was done. A point value would be a second axis on a kind
+ * that has one, and it would make two tasks in a course weigh differently for a reason nobody
+ * could read off the assignment. One point each means a cell says 1/1 or 0/1 and the completion
+ * figures — which is what a task is actually for — count every task equally.
+ *
+ * Two callers, `validateAssignmentDraft` and `parseAssignmentSpec`, which must agree.
+ */
+export function assignmentPointValue(spec: {
+  kind: AssignmentKind;
+  sections: readonly { pointValue: number }[];
+}): number {
+  return spec.kind === AssignmentKind.TASK ? TASK_POINT_VALUE : sectionsPointTotal(spec.sections);
+}
+
 /** A GitHub owner or repository name: what GitHub itself accepts. */
 const githubName = z
   .string()
@@ -811,6 +849,47 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
         });
       }
     }),
+
+  /**
+   * Work with nothing to hand in: setting up a laptop, joining a Slack workspace, filling in a
+   * survey. The student marks it done; an instructor may set either verdict over the top.
+   *
+   * **The only kind with no artifact at all, which is what separates it from SELF_DIRECTED.**
+   * That kind also distributes nothing, but still requires something to come back, so it always
+   * draws a form. This draws a button. The distinction is worth a kind of its own rather than a
+   * SELF_DIRECTED with an empty `handInMethods`, because that field's emptiness already means
+   * something on two other kinds — and because the authoring form, the student's panel, the
+   * grading queue, and the point value all need to know "this is a task", which as a derived
+   * condition would be recomputed in four places and as a kind is one discriminant.
+   *
+   * **No sections, and this is what keeps every grading surface away from it.** There is nothing
+   * to write a report against and nothing for a rubric to score. `isManualOnly` reads false on
+   * an empty list — its length check is load-bearing for exactly this — so a task never becomes
+   * `needs_manual_grade`, `canGenerate` is false for want of sections, and no draft is ever
+   * opened. The point value is not here either: `assignmentPointValue` answers 1 for this kind,
+   * so there is no field an instructor could set to make two tasks weigh differently.
+   *
+   * **`teamSetId` comes through `shared` and is meant.** A task handed in by a team is one any
+   * active member marks on everyone's behalf, which is exactly what a team setup task wants.
+   */
+  z
+    .object({
+      kind: z.literal(AssignmentKind.TASK),
+      ...shared,
+      ...noRepository,
+      templateDriveUrl: z.null().default(null),
+      ...noUpload,
+      ...noHandInChoice,
+      /**
+       * No gradable sections, spelled out as empty rather than inherited.
+       *
+       * `shared.sections` requires at least one, which is right for every kind whose work
+       * somebody reads and wrong for the one kind where there is nothing to read. Overriding it
+       * here rather than loosening `shared` keeps the requirement in force everywhere it belongs.
+       */
+      sections: z.array(z.never()).max(0).default([]),
+    })
+    .strict(),
 ]);
 
 export type AssignmentSpec = z.infer<typeof assignmentSpecSchema>;
@@ -819,9 +898,10 @@ export type AssignmentSpec = z.infer<typeof assignmentSpecSchema>;
  * Parses a spec and computes what the database columns should hold.
  *
  * `pointValue` is returned rather than accepted, which is the point: there is no input
- * an author could give that makes the total disagree with the sections.
+ * an author could give that makes the total disagree with the sections — or, for a task,
+ * with the one point every task is worth.
  */
 export function parseAssignmentSpec(input: unknown): AssignmentSpec & { pointValue: number } {
   const spec = assignmentSpecSchema.parse(input);
-  return { ...spec, pointValue: sectionsPointTotal(spec.sections) };
+  return { ...spec, pointValue: assignmentPointValue(spec) };
 }

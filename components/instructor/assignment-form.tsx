@@ -180,6 +180,10 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
     label: "Link or file upload",
     hint: "Students make the work wherever they like — a deck, a document, a Canva design, a Loom recording — and hand in a link, a file, or either. No template and nothing to accept. Graded by hand.",
   },
+  TASK: {
+    label: "Task",
+    hint: "Something to do with nothing to turn in — set up a laptop, join Slack, fill in a survey. Students mark it done themselves, and you can set it either way. Worth one point.",
+  },
 };
 
 /**
@@ -196,6 +200,18 @@ const HAND_IN_METHOD_META: { key: HandInMethod; label: string; hint: string }[] 
 /** True when this kind has a repository, a template, and a suite that can run. */
 function isRepoKind(kind: Kind): boolean {
   return kind === "REPO";
+}
+
+/**
+ * True when this kind has nothing handed in and therefore nothing to grade.
+ *
+ * Named beside `isRepoKind` because it is used the same way and reads the same axis: it decides
+ * which fields the form draws at all. A task has no sections, no point total to show, no
+ * completion threshold to apply, and no way in to choose — so most of this form is absent for
+ * one, and every one of those absences asks this.
+ */
+function isTaskKind(kind: Kind): boolean {
+  return kind === "TASK";
 }
 
 /**
@@ -242,6 +258,21 @@ function toDraft(state: FormState): unknown {
 
   if (state.kind === "GOOGLE_DRIVE") {
     return { ...shared, kind: "GOOGLE_DRIVE", templateDriveUrl: state.templateDriveUrl.trim() };
+  }
+
+  /*
+    A task carries almost nothing: what it is called, where it lives, when it is due, whether a
+    team hands it in, and what to do. `sections` is sent empty rather than omitted, because
+    `shared` above always carries whatever the section editor last held and a task's branch of
+    the schema refuses a non-empty list — an instructor who typed sections, then switched the
+    kind to Task, would otherwise be refused a save with nothing on screen to explain it.
+
+    `completionThreshold` goes with them, and is the one field here whose absence is worth a
+    word: a task is complete or it is not, so there is no ratio for a threshold to be compared
+    against. The schema's default stands on the column and nothing reads it.
+  */
+  if (state.kind === "TASK") {
+    return { ...shared, kind: "TASK", sections: [] };
   }
 
   /*
@@ -1183,12 +1214,14 @@ function Editor({
               )}
 
               <Field
-                label="Submission instructions"
+                label={isTaskKind(state.kind) ? "What to do" : "Submission instructions"}
                 findings={fieldFindings("submissionInstructions")}
                 hint={
                   isRepoKind(state.kind)
                     ? "Optional, in markdown. The draft-branch-and-pull-request steps are already shown, so this is for anything specific to this assignment."
-                    : "Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here."
+                    : isTaskKind(state.kind)
+                      ? "In markdown, and the whole of what a fellow is told. There is nothing to hand in, so this is what says what to do and how they will know it is done."
+                      : "Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here."
                 }
               >
                 <textarea
@@ -1204,83 +1237,112 @@ function Editor({
           </Card>
 
           {/* ---- How it is graded ----------------------------------------- */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-base">How it is graded</CardTitle>
-                <Badge variant="outline" className="font-normal tabular-nums">
-                  {pointTotal} pts total
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {/*
+          {/*
+            A task is not graded, so the card that says how is replaced rather than emptied.
+
+            Everything in it — the runner, the sections, the point total, the two grading modes —
+            is a question about work somebody reads, and a task produces none. Left in place with
+            its fields hidden one by one it would be an empty card headed "How it is graded" on an
+            assignment that is not, which is worse than the sentence that replaces it.
+          */}
+          {isTaskKind(state.kind) ? (
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="text-base">How it is marked</CardTitle>
+                  <Badge variant="outline" className="font-normal tabular-nums">
+                    1 pt
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Fellows mark this done themselves, and can take the mark back. You can set it
+                  either way for anybody from the assignment’s queue — marking it not done is what
+                  sends it back to them to do again. Every task is worth one point, so its gradebook
+                  column reads 1/1 or 0/1 and counts toward the unit’s completion like any other
+                  assignment.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="text-base">How it is graded</CardTitle>
+                  <Badge variant="outline" className="font-normal tabular-nums">
+                    {pointTotal} pts total
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                {/*
                 Absent rather than disabled for a kind with no repository: there is no template
                 to take a suite from, so a runner is not a setting left at its default, it is a
                 question that does not apply.
               */}
-              {isRepoKind(state.kind) && (
-                <Field
-                  label="Test runner"
-                  findings={fieldFindings("runnerPreset")}
-                  hint={
-                    detection.data?.reason
-                      ? `${detection.data.reason} The tests come from the template repository, never the student’s copy.`
-                      : state.runnerPreset === NO_RUNNER
-                        ? "No automated tests. Normal for short response and frontend work — most of the program."
-                        : "The tests come from the template repository, never the student’s copy."
-                  }
-                >
-                  <Select
-                    value={state.runnerPreset}
-                    onValueChange={(value) =>
-                      setState({ ...state, runnerPreset: value ?? NO_RUNNER })
+                {isRepoKind(state.kind) && (
+                  <Field
+                    label="Test runner"
+                    findings={fieldFindings("runnerPreset")}
+                    hint={
+                      detection.data?.reason
+                        ? `${detection.data.reason} The tests come from the template repository, never the student’s copy.`
+                        : state.runnerPreset === NO_RUNNER
+                          ? "No automated tests. Normal for short response and frontend work — most of the program."
+                          : "The tests come from the template repository, never the student’s copy."
                     }
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {runnerNames.map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              )}
+                    <Select
+                      value={state.runnerPreset}
+                      onValueChange={(value) =>
+                        setState({ ...state, runnerPreset: value ?? NO_RUNNER })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {runnerNames.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
 
-              {state.sections.map((section, index) => (
-                <SectionEditor
-                  key={index}
-                  section={section}
-                  index={index}
-                  rubrics={context.rubrics}
-                  findings={findings}
-                  hasRunner={state.runnerPreset !== NO_RUNNER}
-                  onChange={(next) =>
-                    setState({
-                      ...state,
-                      sections: state.sections.map((old, i) => (i === index ? next : old)),
-                    })
-                  }
-                  onRemove={() =>
-                    setState({
-                      ...state,
-                      sections: state.sections.filter((_, i) => i !== index),
-                    })
-                  }
-                />
-              ))}
+                {state.sections.map((section, index) => (
+                  <SectionEditor
+                    key={index}
+                    section={section}
+                    index={index}
+                    rubrics={context.rubrics}
+                    findings={findings}
+                    hasRunner={state.runnerPreset !== NO_RUNNER}
+                    onChange={(next) =>
+                      setState({
+                        ...state,
+                        sections: state.sections.map((old, i) => (i === index ? next : old)),
+                      })
+                    }
+                    onRemove={() =>
+                      setState({
+                        ...state,
+                        sections: state.sections.filter((_, i) => i !== index),
+                      })
+                    }
+                  />
+                ))}
 
-              {fieldFindings("sections").map((finding, index) => (
-                <p key={index} className="text-xs text-destructive">
-                  {finding.message}
-                </p>
-              ))}
+                {fieldFindings("sections").map((finding, index) => (
+                  <p key={index} className="text-xs text-destructive">
+                    {finding.message}
+                  </p>
+                ))}
 
-              {/*
+                {/*
                 One grading mode per assignment. A mixed assignment is refused by the schema —
                 the pipeline would report on some of its sections and not others, and the
                 assignment's point total would exceed what approving could record — so a second
@@ -1297,72 +1359,73 @@ function Editor({
                 A kind with no repository has nothing for the pipeline to read, so hand grading
                 is its only mode and no switch is offered.
               */}
-              <div className="flex flex-wrap gap-2">
-                {isRepoKind(state.kind) && !hasManualSection && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setState({
-                        ...state,
-                        sections: [...state.sections, aiSection({ rubrics: context.rubrics })],
-                      })
-                    }
-                  >
-                    <Plus data-icon="inline-start" />
-                    Section the model grades
-                  </Button>
-                )}
-                {!hasAiSection && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setState({ ...state, sections: [...state.sections, manualSection()] })
-                    }
-                  >
-                    <Plus data-icon="inline-start" />
-                    Section graded by hand
-                  </Button>
-                )}
-                {isRepoKind(state.kind) && hasAiSection && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setState({ ...state, sections: [manualSection()] })}
-                  >
-                    <PencilLine data-icon="inline-start" />
-                    Grade this by hand instead
-                  </Button>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {isRepoKind(state.kind) && !hasManualSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setState({
+                          ...state,
+                          sections: [...state.sections, aiSection({ rubrics: context.rubrics })],
+                        })
+                      }
+                    >
+                      <Plus data-icon="inline-start" />
+                      Section the model grades
+                    </Button>
+                  )}
+                  {!hasAiSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setState({ ...state, sections: [...state.sections, manualSection()] })
+                      }
+                    >
+                      <Plus data-icon="inline-start" />
+                      Section graded by hand
+                    </Button>
+                  )}
+                  {isRepoKind(state.kind) && hasAiSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setState({ ...state, sections: [manualSection()] })}
+                    >
+                      <PencilLine data-icon="inline-start" />
+                      Grade this by hand instead
+                    </Button>
+                  )}
+                  {isRepoKind(state.kind) && hasManualSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setState({ ...state, sections: [aiSection({ rubrics: context.rubrics })] })
+                      }
+                    >
+                      <Sparkles data-icon="inline-start" />
+                      Have the model grade this instead
+                    </Button>
+                  )}
+                </div>
+
                 {isRepoKind(state.kind) && hasManualSection && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setState({ ...state, sections: [aiSection({ rubrics: context.rubrics })] })
-                    }
-                  >
-                    <Sparkles data-icon="inline-start" />
-                    Have the model grade this instead
-                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    This assignment is graded by hand, so no report is generated for it.
+                  </p>
                 )}
-              </div>
 
-              {isRepoKind(state.kind) && hasManualSection && (
-                <p className="text-xs text-muted-foreground">
-                  This assignment is graded by hand, so no report is generated for it.
-                </p>
-              )}
-
-              {isRepoKind(state.kind) && hasAiSection && (
-                <p className="text-xs text-muted-foreground">
-                  An assignment is graded one way or the other, never both. Switching to hand
-                  grading replaces the sections above with a single one you score yourself.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+                {isRepoKind(state.kind) && hasAiSection && (
+                  <p className="text-xs text-muted-foreground">
+                    An assignment is graded one way or the other, never both. Switching to hand
+                    grading replaces the sections above with a single one you score yourself.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Findings errors={errors} warnings={warnings} checking={!checked} />
 
@@ -1806,14 +1869,22 @@ function blankDraft({
 
       Sections already typed carry across a change of kind whenever the new kind allows them,
       which for a repository is either mode and for every other kind is hand grading alone.
+
+      **A task has none, and empty is the only shape its branch of the schema accepts.** It is the
+      one kind where nothing is read, so there is nothing to write a section against. Sections
+      typed before the kind was switched are dropped here and again in `toDraft`, so neither the
+      form nor the payload can carry one onto an assignment that refuses them.
     */
-    sections: repo
-      ? existingState && existingState.sections.length > 0
-        ? existingState.sections
-        : [manualSection()]
-      : existingState?.sections.every((section) => section.grading === "manual")
-        ? existingState.sections
-        : [manualSection()],
+    sections:
+      kind === "TASK"
+        ? []
+        : repo
+          ? existingState && existingState.sections.length > 0
+            ? existingState.sections
+            : [manualSection()]
+          : existingState?.sections.every((section) => section.grading === "manual")
+            ? existingState.sections
+            : [manualSection()],
   };
 }
 

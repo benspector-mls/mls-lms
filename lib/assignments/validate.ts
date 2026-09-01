@@ -12,9 +12,9 @@ import type { db as Db } from "../prisma";
 import {
   assignmentSpecSchema,
   isAiGraded,
+  assignmentPointValue,
   repositorySource,
   requiresRepository,
-  sectionsPointTotal,
   withDerivedFields,
   type AiSectionSpec,
   type AssignmentSpec,
@@ -95,7 +95,7 @@ export async function validateAssignmentDraft(
   }
 
   const spec = parsed.data;
-  const pointValue = sectionsPointTotal(spec.sections);
+  const pointValue = assignmentPointValue(spec);
 
   // ---- The course, and whether the module belongs to it ----
   //

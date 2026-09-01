@@ -1,4 +1,4 @@
-import { handInState, handInStatus } from "@/lib/submissions/hand-in";
+import { handInState, handInStatus, taskReset, taskVerdict } from "@/lib/submissions/hand-in";
 
 /**
  * What handing work in does to a submission.
@@ -122,5 +122,159 @@ describe("handInState", () => {
       now: AFTER,
     });
     expect(state.isLate).toBe(false);
+  });
+});
+
+/**
+ * What marking a task does to a submission.
+ *
+ * The same rule written once for two callers — a fellow's own toggle and their instructor's — so
+ * that a task marked done by a fellow and one marked done for them hold identical columns. The
+ * cases below are about the three things that are easy to get wrong when a verdict is also a
+ * hand-in: which columns a *not done* verdict may move, whether a second mark rewrites when the
+ * work was done, and the one column written for a reason no other kind has.
+ */
+describe("taskVerdict", () => {
+  const MARKER = "11111111-1111-4111-8111-111111111111";
+
+  it("awards the point and records completion when it is marked done", () => {
+    const verdict = taskVerdict({
+      done: true,
+      current: null,
+      dueAt: DUE,
+      at: ON_TIME,
+      markedById: MARKER,
+    });
+
+    expect(verdict.status).toBe("GRADED");
+    expect(verdict.isComplete).toBe(true);
+    expect(verdict.finalScore).toBe(1);
+    expect(verdict.finalScorePossible).toBe(1);
+    expect(verdict.gradedById).toBe(MARKER);
+  });
+
+  it("awards nothing but keeps the point possible when it is marked not done", () => {
+    // 0/1 rather than a null score, so the gradebook cell reads as a verdict rather than as work
+    // nobody has looked at — the two are drawn differently and mean different things.
+    const verdict = taskVerdict({
+      done: false,
+      current: null,
+      dueAt: DUE,
+      at: ON_TIME,
+      markedById: MARKER,
+    });
+
+    expect(verdict.isComplete).toBe(false);
+    expect(verdict.finalScore).toBe(0);
+    expect(verdict.finalScorePossible).toBe(1);
+  });
+
+  it("is late when it is first marked done after the due date", () => {
+    const verdict = taskVerdict({
+      done: true,
+      current: null,
+      dueAt: DUE,
+      at: AFTER,
+      markedById: MARKER,
+    });
+
+    expect(verdict.submittedAt).toEqual(AFTER);
+    expect(verdict.isLate).toBe(true);
+  });
+
+  it("does not move when the work was done, or make it late, on a second mark", () => {
+    // An instructor confirming a task that was marked done on time must not turn it late by
+    // agreeing with it after the deadline — the same rule `handInState` holds for a hand-in.
+    const verdict = taskVerdict({
+      done: true,
+      current: { submittedAt: ON_TIME, isLate: false },
+      dueAt: DUE,
+      at: AFTER,
+      markedById: MARKER,
+    });
+
+    expect(verdict.submittedAt).toEqual(ON_TIME);
+    expect(verdict.isLate).toBe(false);
+  });
+
+  it("leaves when the work was done alone when it is sent back", () => {
+    // Sending a task back says it was not good enough, not that it never happened. Moving
+    // `submittedAt` here would rewrite when a fellow did the work as a side effect of judging it.
+    const verdict = taskVerdict({
+      done: false,
+      current: { submittedAt: ON_TIME, isLate: false },
+      dueAt: DUE,
+      at: AFTER,
+      markedById: MARKER,
+    });
+
+    expect(verdict.submittedAt).toEqual(ON_TIME);
+    expect(verdict.isLate).toBe(false);
+  });
+
+  it("marks the feedback read, because there is no report to read", () => {
+    /*
+      The one column here that exists for a reason no other kind has. `feedbackIsUnread` compares
+      this against `gradedAt`, so a GRADED row with it null is unread by definition — and every
+      marked task would sit on a fellow's dashboard under "Feedback to read", pointing at a tab
+      that holds nothing.
+    */
+    const verdict = taskVerdict({
+      done: true,
+      current: null,
+      dueAt: null,
+      at: ON_TIME,
+      markedById: MARKER,
+    });
+
+    expect(verdict.feedbackReviewedAt).toEqual(ON_TIME);
+    expect(verdict.gradedAt).toEqual(ON_TIME);
+    expect(verdict.feedbackMarkdown).toBeNull();
+  });
+
+  it("records the fellow who marked it, and only when a fellow did", () => {
+    // `handedInById` names the member who did the work. An instructor overruling them is not one,
+    // so their write leaves the column alone rather than claiming it.
+    const byFellow = taskVerdict({
+      done: true,
+      current: null,
+      dueAt: null,
+      at: ON_TIME,
+      markedById: MARKER,
+      handedInById: MARKER,
+    });
+    const byInstructor = taskVerdict({
+      done: false,
+      current: null,
+      dueAt: null,
+      at: ON_TIME,
+      markedById: MARKER,
+    });
+
+    expect(byFellow.handedInById).toBe(MARKER);
+    expect(byInstructor).not.toHaveProperty("handedInById");
+  });
+});
+
+describe("taskReset", () => {
+  it("returns the task to nobody having said anything", () => {
+    /*
+      Every column `taskVerdict` writes is cleared, `submittedAt` and `isLate` included: taking a
+      mark back means nothing stands, and a row that kept a submission time would go on reading as
+      handed in — which keeps it off the fellow's own overdue list, the one place they would look
+      to notice they still have to do it.
+    */
+    const reset = taskReset({ at: AFTER });
+
+    expect(reset.status).toBe("NOT_STARTED");
+    expect(reset.isComplete).toBeNull();
+    expect(reset.finalScore).toBeNull();
+    expect(reset.finalScorePossible).toBeNull();
+    expect(reset.gradedById).toBeNull();
+    expect(reset.gradedAt).toBeNull();
+    expect(reset.feedbackReviewedAt).toBeNull();
+    expect(reset.handedInById).toBeNull();
+    expect(reset.submittedAt).toBeNull();
+    expect(reset.isLate).toBeNull();
   });
 });

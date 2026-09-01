@@ -46,6 +46,7 @@
     "verify:cohorts": "tsx --conditions=react-server scripts/verify-cohorts.ts",
     "verify:team-sets": "tsx --conditions=react-server scripts/verify-team-sets.ts",
     "verify:team-work": "tsx --conditions=react-server scripts/verify-team-work.ts",
+    "verify:tasks": "tsx --conditions=react-server scripts/verify-tasks.ts",
     "verify:comments": "tsx --conditions=react-server scripts/verify-comments.ts",
     "verify:resources": "tsx --conditions=react-server scripts/verify-resources.ts",
     "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",

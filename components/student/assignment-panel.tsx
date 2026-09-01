@@ -476,7 +476,9 @@ function SubmissionTab({
     judgment is made once, in `approveDraft`, and the threshold is not sent to a student at all.
   */
   const needsAnotherAttempt =
-    assignment.kind === "REPO" && status === "GRADED" && submission?.isComplete === false;
+    (assignment.kind === "REPO" || assignment.kind === "TASK") &&
+    status === "GRADED" &&
+    submission?.isComplete === false;
 
   const inQueue =
     status === "SUBMITTED" ||
@@ -648,9 +650,18 @@ function SubmissionTab({
 
         Which forms are offered comes from the assignment rather than from its kind, because one
         kind now answers this three ways. Both forms are offered on exactly the same terms.
+
+        A task takes neither. `handInMethodsFor` answers empty for one — there is nothing to hand
+        in — and `HandInForms` reads that as "no link and no file", falls through to its link
+        branch, and draws a box for a URL nobody is being asked for. So the kind is asked here,
+        once, and a task gets the button that is its whole interface instead.
       */}
-      {mode !== "locked" && (
-        <HandInForms assignment={assignment} submission={submission ?? null} mode={mode} />
+      {assignment.kind === "TASK" ? (
+        <TaskCompletion assignment={assignment} submission={submission ?? null} />
+      ) : (
+        mode !== "locked" && (
+          <HandInForms assignment={assignment} submission={submission ?? null} mode={mode} />
+        )
       )}
 
       {/*
@@ -724,17 +735,28 @@ function SubmissionTab({
           an error instead of a second attempt. It appears in the branch above, the moment there is
           a commit to review.
 
-          Only REPO. The other kinds carry their own hand-in form directly above this, and
-          `handInMode` already labels it "Submit your revised work" — an alert repeating that would
-          be a second instruction for one act.
+          REPO and TASK. The two link and file kinds carry their own hand-in form directly above
+          this, and `handInMode` already labels it "Submit your revised work" — an alert repeating
+          that would be a second instruction for one act. A task's button says only "Mark as
+          done", which does not say that it came back or that anything is expected to change, so
+          this is where a task is told.
         */
         <Alert>
           <RotateCcw className="size-4" />
           <AlertTitle>This came back incomplete</AlertTitle>
           <AlertDescription>
-            Your feedback is on the tab beside this one. Push your improved work to the same pull
-            request, and an <strong>Ask for another review</strong> button will appear here — your
-            instructor sees a student still working until you press it.
+            {assignment.kind === "TASK" ? (
+              <>
+                Your instructor marked this as not done. Ask them in the comments below what needs
+                changing if you are not sure, then do it again and mark it done.
+              </>
+            ) : (
+              <>
+                Your feedback is on the tab beside this one. Push your improved work to the same
+                pull request, and an <strong>Ask for another review</strong> button will appear here
+                — your instructor sees a student still working until you press it.
+              </>
+            )}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -773,6 +795,103 @@ function SubmissionTab({
  * the link form rather than being asked again. Before anything is handed in it opens on the link,
  * matching the order the choices are offered in and the default the authoring form starts from.
  */
+/**
+ * The whole of a task's interface: one button, and a line saying where it stands.
+ *
+ * **Not a form, because there is nothing to fill in.** Every sibling below collects something —
+ * a URL, a file — and the act of handing in is a side effect of that. Here the act is the whole
+ * thing, so what a task needs is a button and a sentence, and reusing a form to hold them would
+ * mean a submit handler for an empty payload.
+ *
+ * Three states, and every one of them is drawn: not marked, done, and sent back by an instructor.
+ * The third shows the same button as the first and nothing else, because the alert beneath this
+ * already says what happened — two explanations of one fact, a few lines apart, is how a screen
+ * comes to look like it is arguing with itself.
+ */
+function TaskCompletion({
+  assignment,
+  submission,
+}: {
+  assignment: Assignment;
+  submission: Submission | null;
+}) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const mark = useMutation(trpc.submissions.markTask.mutationOptions(settled()));
+
+  /*
+    `isComplete` rather than the status, because the status is `GRADED` for both of the two
+    verdicts and says nothing about which. The column is the verdict, and null is the third
+    state: nobody has said anything yet.
+  */
+  const done = submission?.isComplete === true;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4">
+      <p className="text-sm font-medium">
+        {done ? "You marked this done" : "When you have done it"}
+      </p>
+
+      {done ? (
+        <>
+          <p className="text-sm text-muted-foreground">
+            {/*
+              Who and when. On a team the "who" matters — any member marks it for everybody, so a
+              member reading this may not be the one who pressed it, and the panel does not know
+              which member is reading. `handedInBy` is the member who marked it and is null for a
+              task somebody does alone, which is the case the second sentence covers.
+            */}
+            {submission?.team && submission.handedInBy ? (
+              <>
+                Marked done by{" "}
+                <span className="font-medium text-foreground">
+                  {submission.handedInBy.displayName ?? "a teammate"}
+                </span>{" "}
+                on {formatDate(submission.gradedAt)}. It counts for the whole team.
+              </>
+            ) : (
+              <>Marked done on {formatDate(submission?.gradedAt)}.</>
+            )}
+          </p>
+          {/*
+            The undo, and deliberately quiet: it is the rarer of the two acts and the one nobody
+            should press by accident. Taking back a mark returns the task to nobody having said
+            anything, which puts it back on the due-date lists — it does not record that it was
+            not done, which is a thing only an instructor says.
+          */}
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={mark.isPending}
+              onClick={() => mark.mutate({ assignmentId: assignment.id, done: false })}
+            >
+              Mark as not done
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            There is nothing to hand in. Mark it done and your instructor will see it
+            {assignment.teamSet ? " — one of you marking it counts for the whole team" : ""}.
+          </p>
+          <div>
+            <Button
+              disabled={mark.isPending}
+              onClick={() => mark.mutate({ assignmentId: assignment.id, done: true })}
+            >
+              <CheckCheck data-icon="inline-start" />
+              Mark as done
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function HandInForms({
   assignment,
   submission,

@@ -628,12 +628,12 @@ export const assignmentsRouter = createTRPCRouter({
       }
 
       /*
-        A `switch` over every kind rather than the ifs this was, so a fourth kind is a compile
+        A `switch` over every kind rather than the ifs this was, so a fifth kind is a compile
         error here rather than a request that quietly falls through to the repository path.
 
-        SELF_DIRECTED has no Accept at all, because there is nothing to hand out. The refusal is
-        what a request arriving anyway is answered with — the button is not drawn for it, so
-        reaching this means something else did.
+        SELF_DIRECTED and TASK have no Accept at all, because there is nothing to hand out. The
+        refusal is what a request arriving anyway is answered with — the button is not drawn for
+        either, so reaching this means something else did.
       */
       switch (assignment.kind) {
         case "GOOGLE_DRIVE":
@@ -659,6 +659,14 @@ export const assignmentsRouter = createTRPCRouter({
             message:
               "This assignment is not accepted — there is nothing to hand out. Make your work, " +
               "then hand it in when you are ready.",
+          });
+
+        case "TASK":
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This assignment is not accepted — there is nothing to hand out and nothing to " +
+              "hand in. Do the task, then mark it done.",
           });
       }
     }),

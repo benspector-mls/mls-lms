@@ -705,10 +705,10 @@ model Rubric {
 /// What a student turns in. This decides how an assignment is distributed, what a
 /// submission consists of, and how feedback is delivered — see the README.
 ///
-/// **Three kinds, distinguished by distribution rather than by collection.** How the work is
+/// **Four kinds, distinguished by distribution rather than by collection.** How the work is
 /// handed in is `Assignment.handInMethods` for the one kind that leaves it open, and a
-/// property of the kind for the two that do not — `handInMethodsFor` in
-/// lib/assignments/spec.ts is where those three answers are given, in one exhaustive switch.
+/// property of the kind for the three that do not — `handInMethodsFor` in
+/// lib/assignments/spec.ts is where those four answers are given, in one exhaustive switch.
 enum AssignmentKind {
   /// Generated from a template repository; submitted as a pull request.
   REPO
@@ -736,6 +736,27 @@ enum AssignmentKind {
   /// than one — which is what lets a reflection be a document, a deck, or a short recording,
   /// at the student's choice.
   SELF_DIRECTED
+  /// Work with nothing to hand in at all: setting up a laptop, joining a Slack workspace,
+  /// filling in a survey. The student marks it done themselves, and an instructor may set
+  /// either verdict over the top of that.
+  ///
+  /// **Nothing is handed out and nothing is collected**, which is what separates this from
+  /// SELF_DIRECTED — that kind distributes nothing either, but still requires an artifact to
+  /// come back, so it always draws a form. This draws a button. `handInMethodsFor` returns an
+  /// empty list, the same answer REPO gets, and for the same shape of reason: the way in is
+  /// not one of `HandInMethod`. The difference is that REPO has a way in and this has none.
+  ///
+  /// **Worth exactly one point, and `sections` is empty.** There is nothing to write a report
+  /// against, so a task carries no gradable section and `assignmentPointValue` in
+  /// lib/assignments/spec.ts answers 1 for this kind without consulting the column. That is
+  /// what keeps a task out of every grading surface: `isManualOnly` is false on an empty
+  /// section list, so a task never becomes `needs_manual_grade`, and no draft is ever opened
+  /// for one.
+  ///
+  /// **A submission's status goes NOT_STARTED to GRADED and never through SUBMITTED**, because
+  /// a marked task waits on nobody. `triageBucket` returns null for both, so a task never
+  /// enters triage, the grading queue's review count, or a batch report run.
+  TASK
 
   @@schema("public")
 }

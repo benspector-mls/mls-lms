@@ -847,6 +847,56 @@ async function main() {
   }
 
   /*
+    One task, published, so the kind with nothing to hand in exists to click through: the fellow's
+    button, the instructor's roster queue, and a gradebook column that reads 1/1 or 0/1.
+
+    Through `parseAssignmentSpec` like every other seeded assignment, and here it earns its keep by
+    refusing what this kind may not carry — a section, a hand-in method, a Drive URL. `pointValue`
+    comes back as 1 from `assignmentPointValue` rather than being written here, so the seeded row
+    and an authored one cannot disagree about what a task is worth.
+  */
+  const TASK_ASSIGNMENT_TITLE = "Set up your laptop";
+
+  const taskSpec = parseAssignmentSpec({
+    kind: AssignmentKind.TASK,
+    title: TASK_ASSIGNMENT_TITLE,
+    courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
+    dueAt: instantAtSchoolClock(
+      schoolDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+      END_OF_DAY,
+    ),
+    submissionInstructions:
+      "Install Node, VS Code, and the GitHub CLI, then run `node --version` and check it " +
+      "prints 22 or later.\n\nThere is nothing to hand in — mark this done once it works.",
+    sections: [],
+  });
+
+  const seededTask = await prisma.assignment.findFirst({
+    where: { courseId: course.id, title: TASK_ASSIGNMENT_TITLE },
+    select: { id: true },
+  });
+
+  if (seededTask) {
+    console.log(`Assignment: ${TASK_ASSIGNMENT_TITLE} — already seeded`);
+  } else {
+    const task = await prisma.assignment.create({
+      data: {
+        courseId: course.id,
+        courseUnitId: taskSpec.courseUnitId,
+        kind: taskSpec.kind,
+        title: taskSpec.title,
+        pointValue: taskSpec.pointValue,
+        completionThreshold: taskSpec.completionThreshold,
+        dueAt: taskSpec.dueAt,
+        submissionInstructions: taskSpec.submissionInstructions,
+        distributedAt: new Date(),
+        sections: taskSpec.sections as unknown as Prisma.InputJsonValue,
+      },
+    });
+    console.log(`Assignment: ${task.title} — marked done by fellows, worth ${task.pointValue} pt`);
+  }
+
+  /*
     One project and one assessment, so the three gradebook tabs and a student's course list all
     have something real to render.
 

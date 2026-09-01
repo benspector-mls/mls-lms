@@ -2,7 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { isManualOnly } from "@/lib/assignments/spec";
+import { auditActor, auditEventData } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
+import type { Tx } from "@/lib/prisma";
+import type { ResolvedTeam } from "@/lib/submissions/team";
 import { HandInMethod } from "@/lib/generated/prisma/enums";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import {
@@ -16,12 +19,14 @@ import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { linkHost } from "@/lib/status";
 import { awaitsReply, commentExcerpt } from "@/lib/submissions/comments";
-import { handInState } from "@/lib/submissions/hand-in";
+import { handInState, taskReset, taskVerdict } from "@/lib/submissions/hand-in";
 import {
   claimTeamWork,
   syncTeamRows,
   recordHandIn,
   recordResubmissionDeclared,
+  recordTaskVerdict,
+  teamForStudent,
 } from "@/lib/submissions/team";
 import { MAX_INLINE_TEXT_BYTES, formatBytes } from "@/lib/uploads/file-types";
 import { readSubmissionUpload, signedDownloadUrl } from "@/lib/uploads/storage";
@@ -29,6 +34,70 @@ import { assertCanHandIn, discardReplacedUpload } from "@/lib/uploads/submit";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { courseUnitSummarySelect, displayNameOf, personNameSelect, personSelect } from "../selects";
+
+/**
+ * The columns a task's verdict is decided from, on the row that holds the work.
+ *
+ * `isComplete` is here for one rule and one only: a fellow may take back a mark that stands as
+ * done, and may not clear an instructor's verdict that the work was not done. See `markTask`.
+ */
+const taskWorkSelect = {
+  id: true,
+  isComplete: true,
+  submittedAt: true,
+  isLate: true,
+} satisfies Prisma.SubmissionSelect;
+
+/**
+ * The row a task's verdict lands on, created if it is not there yet.
+ *
+ * **A task's row usually does not exist when somebody first acts on it.** There is no Accept to
+ * have created one and nothing handed in before this, and an instructor may mark a fellow done who
+ * has never touched it — so both procedures below reach a missing row as the ordinary case rather
+ * than as an error.
+ *
+ * For team work it is the team's one row, claimed if nobody holds it yet, which is what makes one
+ * member's mark the team's. `NOT_STARTED` on the create branch because a row that exists only to
+ * receive a verdict has had nothing happen to it — the verdict is written straight afterwards, and
+ * `claimTeamWork` deliberately does not touch `status`.
+ *
+ * **Takes the team already resolved rather than a team set to resolve.** Which team somebody hands
+ * in with is read from their own membership, and both callers have done that before reaching here
+ * — `markTask` through `assertCanHandIn`, which refuses a fellow on none, and `setTaskCompletion`
+ * for itself. Resolving it again here would be a second read that could disagree with the refusal
+ * that already passed.
+ *
+ * Shared so that a fellow marking their own task and an instructor marking it for them land on the
+ * same row. Written twice, an instructor's mark on a team task could create a second row beside the
+ * team's and the two would disagree.
+ */
+async function resolveTaskWork(
+  db: Tx,
+  params: { assignmentId: string; studentId: string; team: ResolvedTeam | null },
+): Promise<Prisma.SubmissionGetPayload<{ select: typeof taskWorkSelect }>> {
+  const { assignmentId, studentId, team } = params;
+
+  if (team) {
+    const { submissionId } = await claimTeamWork(db, {
+      assignmentId,
+      studentId,
+      team,
+      statusIfNew: "NOT_STARTED",
+    });
+
+    return db.submission.findUniqueOrThrow({
+      where: { id: submissionId },
+      select: taskWorkSelect,
+    });
+  }
+
+  return db.submission.upsert({
+    where: { assignmentId_studentId: { assignmentId, studentId } },
+    create: { assignmentId, studentId, status: "NOT_STARTED" },
+    update: {},
+    select: taskWorkSelect,
+  });
+}
 
 /**
  * Everything the review surface needs from a submission, in one place.
@@ -65,6 +134,15 @@ const reviewableSubmissionSelect = {
   isComplete: true,
   gradedAt: true,
   gradedHeadSha: true,
+  /*
+    Who released the grade, or — on a task — who marked it done. Read by the task pane, which has
+    to say "marked done by Ada on Tuesday": a task's verdict is often a fellow's own, and on a team
+    it may be any member's, so the name is the part an instructor cannot infer.
+
+    On the shared select rather than a task-only one, because both screens that render this shape
+    show a task the same way and a second select for one kind is how the two came to differ before.
+  */
+  gradedBy: { select: personNameSelect },
   student: { select: personSelect },
   /*
     Enough of the conversation to say whether there is one and whether it is waiting, and no more:
@@ -659,6 +737,262 @@ export const submissionsRouter = createTRPCRouter({
     }),
 
   /**
+   * A fellow marking a task done, or taking that mark back.
+   *
+   * **The one kind whose verdict a student writes.** Every other kind hands something in and waits
+   * for somebody to read it; a task has nothing to read, so the fellow's own press is the outcome
+   * and `taskVerdict` writes the same score columns a released grade would.
+   *
+   * `assertCanHandIn` **with no `expect`** is the authorization, and it is the same function the
+   * link form and the upload route use. Every check it makes is one this needs — an unpublished
+   * assignment is `NOT_FOUND`, an inactive enrollment is `FORBIDDEN`, and a fellow on none of the
+   * assignment's teams is refused rather than given a submission of their own — and the one check
+   * it would make that this does not want, whether the assignment admits a given way in, is the
+   * one `expect` turns on. Its open-draft lock never fires here, because a task has no drafts.
+   *
+   * The kind is checked first and separately. `assertCanHandIn` refuses `REPO` and admits
+   * everything else, so without this a request naming a Google Drive assignment would reach the
+   * verdict write and grade it 1/1 with nothing handed in.
+   */
+  markTask: profileProcedure
+    .input(
+      z.object({
+        // The assignment rather than the submission, because the row may not exist yet: for a
+        // task, marking it done is the first thing that ever happens to one.
+        assignmentId: z.string().uuid(),
+        /** True to mark it done. False is the undo — see the refusal below for what it is not. */
+        done: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await assertCanHandIn(ctx.db, {
+        profileId: ctx.profile.id,
+        assignmentId: input.assignmentId,
+      });
+
+      if (assignment.kind !== "TASK") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This assignment is handed in rather than marked done.",
+        });
+      }
+
+      // `assertCanHandIn` resolved the caller's team and refused a fellow placed on none of the
+      // assignment's, so this is simply which row the mark lands on.
+      const work = await resolveTaskWork(ctx.db, {
+        assignmentId: assignment.id,
+        studentId: ctx.profile.id,
+        team: assignment.team,
+      });
+
+      /*
+        **The whole of what separates a fellow's two acts from the one they may not perform.**
+
+        Taking back your own mark returns the task to nobody having said anything, which is fair:
+        you said it was done and now you are saying you were wrong. Clearing an instructor's "this
+        was not done" is a different act entirely — it is overruling them — and the way out of that
+        verdict is to do the work and mark it done again, which the branch below still allows.
+
+        Keyed on `isComplete` rather than on who wrote `gradedById`, because on a team the mark may
+        have been made by any member and comparing against the caller would refuse a teammate
+        correcting a mark their own team made. What matters is which verdict stands, not whose it is.
+      */
+      if (!input.done && work.isComplete !== true) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Your instructor has marked this as not done, so it cannot be cleared here. Do the " +
+            "task again and mark it done — ask them in the comments if you are not sure what " +
+            "needs changing.",
+        });
+      }
+
+      const now = new Date();
+
+      await recordTaskVerdict(ctx.db, {
+        submissionId: work.id,
+        verdict: input.done
+          ? taskVerdict({
+              done: true,
+              current: work,
+              dueAt: assignment.dueAt,
+              at: now,
+              markedById: ctx.profile.id,
+              // The fellow, so a team's panel can say which member marked it.
+              handedInById: ctx.profile.id,
+            })
+          : taskReset({ at: now }),
+      });
+
+      /*
+        No audit event, deliberately. The log answers "who did this, and when" about the acts
+        somebody asks that question of afterwards, and for a fellow marking their own work the
+        answer is always "they did" — already on the row, in `gradedById` and `gradedAt`. An
+        instructor overruling them is the act worth recording, and `setTaskCompletion` records it.
+      */
+
+      // The caller's own row, which is what their screen re-renders from — their mirror on a
+      // team task, and the row itself otherwise.
+      return ctx.db.submission.findUniqueOrThrow({
+        where: {
+          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
+        },
+        select: { id: true, status: true, isComplete: true, gradedAt: true },
+      });
+    }),
+
+  /**
+   * An instructor setting a fellow's task either way.
+   *
+   * Marking it **not done** is what the whole control exists for: a task done wrongly is sent back
+   * by saying so, which puts it on the fellow's dashboard under "Needs another attempt" and leaves
+   * `isComplete` false so they cannot clear it themselves. Marking it **done** covers the fellow
+   * who did the thing and forgot to press the button.
+   *
+   * **Keyed on the student rather than on a submission id**, unlike every other instructor write.
+   * The queue for a task lists the whole roster, including fellows who have no submission row at
+   * all, and the control has to work on exactly those — a submission id is a thing they do not yet
+   * have. `resolveTaskWork` creates the row, which is why the caller can name somebody with none.
+   *
+   * Gated on teaching the course, through `teachableAssignment`, and on the named fellow being on
+   * its roster. The second is not redundant: without it an instructor could write a verdict onto
+   * somebody from another program by naming their id, and `resolveTaskWork` would helpfully create
+   * the row to hold it.
+   */
+  setTaskCompletion: instructorProcedure
+    .input(
+      z.object({
+        assignmentId: z.string().uuid(),
+        studentId: z.string().uuid(),
+        done: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        kind: true,
+        title: true,
+        dueAt: true,
+        teamSetId: true,
+        courseId: true,
+        course: { select: { id: true, name: true, programId: true } },
+      });
+
+      if (assignment.kind !== "TASK") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This assignment is graded rather than marked done. Open its report to record a grade.",
+        });
+      }
+
+      /*
+        On the roster, and active. The same clause `assertCanHandIn` applies to a fellow acting on
+        their own work, applied here to the fellow being acted on — an instructor may set a verdict
+        for anybody they could set one for in the gradebook, and nobody else.
+      */
+      const enrollment = await ctx.db.enrollment.findFirst({
+        where: {
+          programId: assignment.course.programId,
+          studentId: input.studentId,
+          status: "ACTIVE",
+        },
+        select: { student: { select: personNameSelect } },
+      });
+
+      if (!enrollment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That fellow is not on this course's roster.",
+        });
+      }
+
+      /*
+        Which team the fellow hands in with, read from their own membership the way every other
+        caller reads it. A fellow on no team of the set is refused rather than given a row of their
+        own: the task is one piece of work per team, and a team of one nobody meant to create is
+        worse than being told to fix the roster.
+      */
+      const team = assignment.teamSetId
+        ? await teamForStudent(ctx.db, {
+            teamSetId: assignment.teamSetId,
+            studentId: input.studentId,
+          })
+        : null;
+
+      if (assignment.teamSetId && !team) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This task is done by teams, and that fellow is not on one. Put them on a team first.",
+        });
+      }
+
+      const work = await resolveTaskWork(ctx.db, {
+        assignmentId: assignment.id,
+        studentId: input.studentId,
+        team,
+      });
+
+      const now = new Date();
+
+      await recordTaskVerdict(ctx.db, {
+        submissionId: work.id,
+        verdict: taskVerdict({
+          done: input.done,
+          current: work,
+          dueAt: assignment.dueAt,
+          at: now,
+          markedById: ctx.profile.id,
+          // Deliberately not passed. `handedInById` names the member who did the work, and an
+          // instructor overruling them is not one — the column keeps whoever marked it.
+        }),
+      });
+
+      /*
+        One event per recipient — the row and every mirror of it — which is the shape `approveDraft`
+        writes and for its reason: each member's own record changed, and a later reader asking what
+        happened to one fellow must not have to resolve team membership as it stands *now* to find
+        out.
+
+        `GRADE_APPROVED` rather than an action of its own. Its own doc comment describes this act —
+        "a grade was released to a student, which is the act Salesforce will later mirror" — and
+        this write sets `salesforceSyncStatus` back to `PENDING` exactly as a release does. A second
+        action naming the same fact would split the log for no reader's benefit.
+      */
+      const recipients = await ctx.db.submission.findMany({
+        where: { OR: [{ id: work.id }, { teamSubmissionId: work.id }] },
+        select: { id: true, studentId: true, student: { select: personNameSelect } },
+      });
+
+      const actor = auditActor(ctx);
+
+      await ctx.db.auditEvent.createMany({
+        data: recipients.map((recipient) =>
+          auditEventData({
+            action: "GRADE_APPROVED",
+            actor,
+            subject: {
+              id: recipient.studentId,
+              label: displayNameOf(recipient.student, "a student"),
+            },
+            course: { id: assignment.course.id, label: assignment.course.name },
+            detail: {
+              submissionId: recipient.id,
+              assignment: assignment.title,
+              isComplete: input.done,
+              // Named so the log says what kind of thing this was without joining back to an
+              // assignment row that may since have been removed.
+              assignmentKind: "TASK",
+            },
+          }),
+        ),
+      });
+
+      return { id: work.id, isComplete: input.done };
+    }),
+
+  /**
    * Everything in one course that is waiting on the caller. Instructors only.
    *
    * The landing screen for an instructor, so it answers "what do I do next" rather than
@@ -1077,6 +1411,44 @@ export const submissionsRouter = createTRPCRouter({
         return null;
       };
 
+      /*
+        The fellows with no submission row at all, for a task and for nothing else.
+
+        **A task's queue is the whole roster, which is the opposite of every other kind's.**
+        Elsewhere this screen answers "what is left to grade", and somebody who never started has
+        nothing on it — the assignment's own page is where an instructor goes to see who has not
+        begun. A task has no grading, so the only question its queue can answer is "who has done
+        this", and a fellow who has not is the most important row on it: they are the one an
+        instructor may want to mark done, or chase.
+
+        Synthesized here rather than by creating rows at publish time. A row per fellow per task
+        written in advance would be a table of rows recording that nothing has happened, wrong the
+        moment the roster changes, and it would put every task in the gradebook as `NOT_STARTED`
+        rather than absent. `listForStudent` already answers the mirror-image question the same
+        way, returning a row for an assignment the fellow has not started.
+
+        Narrowed by the same cohort selection as the arrays above, so the three agree about who is
+        on screen, and by the same active-enrollment rule, so a removed fellow is absent here for
+        the reason they are absent from `submissions`.
+      */
+      const started = new Set(submissions.map((row) => row.student.id));
+
+      const notStarted =
+        assignment.kind !== "TASK"
+          ? []
+          : (
+              await ctx.db.enrollment.findMany({
+                where: { programId: assignment.course.programId, status: "ACTIVE" },
+                select: { student: { select: personSelect } },
+                orderBy: { student: { displayName: "asc" } },
+              })
+            )
+              .map((enrollment) => enrollment.student)
+              .filter(
+                (student) =>
+                  !started.has(student.id) && (!inSelection || inSelection.has(student.id)),
+              );
+
       return {
         // Spelled out rather than spread, so `sections` does not travel to the browser as a
         // second copy of a question `manualOnly` has already answered.
@@ -1088,6 +1460,14 @@ export const submissionsRouter = createTRPCRouter({
           kind: assignment.kind,
           manualOnly,
         },
+        /**
+         * Fellows on the roster who hold no submission row on this assignment.
+         *
+         * **Empty for every kind but `TASK`**, and the emptiness is the answer rather than a
+         * feature not yet built: on a graded assignment a fellow who has not started is
+         * deliberately not in the queue. See the comment above the query.
+         */
+        notStarted,
         /**
          * The queue itself: fellows currently on the roster, and in the selected cohort.
          *

@@ -554,6 +554,7 @@ export const ASSIGNMENT_KIND_LABEL: Record<AssignmentKind, string> = {
   REPO: "Code",
   GOOGLE_DRIVE: "Google Drive",
   SELF_DIRECTED: "Link or file",
+  TASK: "Task",
 };
 
 /**
@@ -564,8 +565,8 @@ export const ASSIGNMENT_KIND_LABEL: Record<AssignmentKind, string> = {
  * needed attention. Both audiences read the same words — unlike a submission status, there is
  * nothing here a student should not be told.
  *
- * **A function over the assignment rather than a map keyed by kind**, because three kinds do not
- * key five answers: a self-directed assignment reads as a link, a file, or either, and which one
+ * **A function over the assignment rather than a map keyed by kind**, because four kinds do not
+ * key six answers: a self-directed assignment reads as a link, a file, or either, and which one
  * is the instructor's choice rather than the kind's. Keying this by kind would put "Self-directed"
  * on the badge, which tells a student nothing about what to do next — and what to do next is the
  * only reason the badge is there.
@@ -612,6 +613,12 @@ export function assignmentKindMeta(assignment: HandInShape): {
           "Made somewhere else — Canva, Loom, a deployed site — and handed in as a link.",
       };
     }
+
+    case "TASK":
+      return {
+        label: "Task",
+        description: "Nothing to hand in — mark it done once you have done it.",
+      };
   }
 }
 

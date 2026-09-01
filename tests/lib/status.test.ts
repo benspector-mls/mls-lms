@@ -248,12 +248,24 @@ describe("assignmentKindMeta", () => {
 });
 
 describe("ASSIGNMENT_KIND_LABEL", () => {
-  it("names all three kinds, for the one place that filters by kind", () => {
+  it("names all four kinds, for the one place that filters by kind", () => {
     expect(Object.keys(ASSIGNMENT_KIND_LABEL).sort()).toEqual([
       "GOOGLE_DRIVE",
       "REPO",
       "SELF_DIRECTED",
+      "TASK",
     ]);
+  });
+});
+
+describe("assignmentKindMeta for a task", () => {
+  it("says there is nothing to hand in, which is what a fellow needs to know", () => {
+    // The description is what the badge carries as a tooltip, and for a task it is the only
+    // place the screen says the thing that makes this kind different.
+    const meta = assignmentKindMeta({ kind: "TASK", handInMethods: [] });
+
+    expect(meta.label).toBe("Task");
+    expect(meta.description).toMatch(/nothing to hand in/i);
   });
 });
 

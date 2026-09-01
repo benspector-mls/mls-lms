@@ -258,6 +258,42 @@ export function sharedAfterGrade(grade: ReleasedGrade): Prisma.SubmissionUncheck
 }
 
 /**
+ * Records a verdict on a task, on the row that holds the work and on every member's copy of it.
+ *
+ * Its own act rather than a hand-in or a grade, because it is both at once and neither on its
+ * own: a task is handed in and decided by the same press, and what gets written is one object
+ * from `taskVerdict` or `taskReset` covering the columns both of those acts would have touched.
+ *
+ * **The order of the three statements is the whole reason this is a function.** `feedbackReviewedAt`
+ * is deliberately absent from `MIRRORED_COLUMNS` — for a report it is each member's own answer to
+ * whether they have read it — so `syncTeamRows` neither copies it onto existing mirrors nor puts it
+ * on the rows it creates. A task has no report for anybody to read, so the answer *is* the team's,
+ * and it has to be written after the rows exist. Written before, a member added to the team by that
+ * very sync would be left with a null, and their dashboard would offer them a report that does not
+ * exist.
+ *
+ * Individual work takes the same path: `syncTeamRows` is a no-op for it and both `updateMany`s
+ * match nothing, so there is one code path rather than a branch that could be taken wrongly.
+ */
+export async function recordTaskVerdict(
+  db: Tx,
+  params: {
+    submissionId: string;
+    /** From `taskVerdict` or `taskReset` — every column of the outcome, including the one below. */
+    verdict: Prisma.SubmissionUncheckedUpdateManyInput;
+  },
+): Promise<void> {
+  const { submissionId, verdict } = params;
+
+  await db.submission.update({ where: { id: submissionId }, data: verdict });
+  await syncTeamRows(db, { submissionId });
+  await db.submission.updateMany({
+    where: { teamSubmissionId: submissionId },
+    data: { feedbackReviewedAt: verdict.feedbackReviewedAt ?? null },
+  });
+}
+
+/**
  * Records a student declaring graded work ready to be looked at again.
  *
  * Its own act rather than a hand-in, because nothing was handed in: no link, no file, no commit.
