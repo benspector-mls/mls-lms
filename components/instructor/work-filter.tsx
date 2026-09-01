@@ -11,7 +11,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -190,16 +189,6 @@ export function WorkFilter({
             ))}
             <DropdownMenuRadioItem value="range">Custom range</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
-
-          {active > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => set(NO_COLUMN_FILTER)}>
-                <X data-icon="inline-start" />
-                Clear the filter
-              </DropdownMenuItem>
-            </>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -237,6 +226,22 @@ export function WorkFilter({
             />
           </label>
         </div>
+      )}
+
+      {/*
+        Clearing is a button on the toolbar rather than an item inside the menu, because it is the
+        one thing a reader wants from the filter without first wanting to read it: the badge on the
+        trigger says a restriction is in force, and this undoes it in one press.
+
+        Shown only while something is in force. A permanently visible "Clear" over an unfiltered
+        screen offers an action that would change nothing, and `activeFilterCount` counts only
+        restrictions that narrow — so the button appears exactly when the badge does.
+      */}
+      {active > 0 && (
+        <Button variant="ghost" size="sm" onClick={() => set(NO_COLUMN_FILTER)}>
+          <X data-icon="inline-start" />
+          Clear the filter
+        </Button>
       )}
     </>
   );
