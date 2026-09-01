@@ -59,8 +59,9 @@ async function main() {
   const studentId = enrollment.studentId;
   const createCaller = createCallerFactory(appRouter);
 
-  try {
-    await db.$transaction(async (tx) => {
+  await inOwnTransaction(
+    db,
+    async (tx) => {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
 
@@ -528,12 +529,16 @@ async function main() {
         ),
         "BAD_REQUEST",
       );
-
-      throw new Error("ROLLBACK");
-    });
-  } catch (err) {
-    if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
-  }
+    },
+    /*
+      Generous, because this block drives dozens of procedures against a database that is not
+      local. Prisma's default is five seconds and this was over it: the transaction expired
+      part-way through and every check after that point simply never ran, reported as a crash
+      rather than as a failure. `inOwnTransaction` is what the hand-rolled try/catch here used to
+      be — same rollback, one place.
+    */
+    { timeout: 60_000 },
+  );
 
   /*
     Two modules with the same name are indistinguishable in every select an instructor picks
@@ -629,8 +634,9 @@ async function main() {
     "Mod 2 - Object-Oriented Programming",
   ];
 
-  try {
-    await db.$transaction(async (tx) => {
+  await inOwnTransaction(
+    db,
+    async (tx) => {
       const scratchProgram = await tx.program.create({
         data: {
           name: "Verify Reseed",
@@ -716,12 +722,16 @@ async function main() {
         second.get(1),
         target!.id,
       );
-
-      throw new Error("ROLLBACK");
-    });
-  } catch (err) {
-    if (!(err instanceof Error) || err.message !== "ROLLBACK") throw err;
-  }
+    },
+    /*
+      Generous, because this block drives dozens of procedures against a database that is not
+      local. Prisma's default is five seconds and this was over it: the transaction expired
+      part-way through and every check after that point simply never ran, reported as a crash
+      rather than as a failure. `inOwnTransaction` is what the hand-rolled try/catch here used to
+      be — same rollback, one place.
+    */
+    { timeout: 60_000 },
+  );
 
   // --- the rollback really rolled back ---------------------------------------
   const leftover = await db.courseUnit.count({

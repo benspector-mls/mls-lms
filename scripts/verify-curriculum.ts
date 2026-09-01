@@ -64,8 +64,9 @@ async function main() {
   const createCaller = createCallerFactory(appRouter);
   const stamp = Date.now();
 
-  try {
-    await db.$transaction(async (tx) => {
+  await inOwnTransaction(
+    db,
+    async (tx) => {
       const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
       const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
 
@@ -278,13 +279,16 @@ async function main() {
         ),
         "FORBIDDEN",
       );
-
-      // Nothing above is meant to survive. Everything this wrote is rolled back with it.
-      throw new Error("rollback");
-    });
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== "rollback") throw error;
-  }
+    },
+    /*
+      Generous, because this block drives dozens of procedures against a database that is not
+      local. Prisma's default is five seconds and this was over it: the transaction expired
+      part-way through and every check after that point simply never ran, reported as a crash
+      rather than as a failure. `inOwnTransaction` is what the hand-rolled try/catch here used to
+      be — same rollback, one place.
+    */
+    { timeout: 60_000 },
+  );
 
   /*
     The foreign key behind the procedure, in a transaction of its own.
