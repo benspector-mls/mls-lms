@@ -262,12 +262,6 @@ async function main() {
             allTriage.submissions.filter((row) => row.student.id !== inside.studentId).length,
           allTriage.submissions.length,
         );
-        check(
-          "...and the approved count narrows with it",
-          cohortTriage.gradedCount <= allTriage.gradedCount,
-          true,
-        );
-
         const allBook = await asInstructor.courses.gradebook({ courseId: course.id });
         const cohortBook = await asInstructor.courses.gradebook({
           courseId: course.id,

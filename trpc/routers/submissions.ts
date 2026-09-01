@@ -732,7 +732,7 @@ export const submissionsRouter = createTRPCRouter({
       // have nothing in them waiting on the caller.
       if (!course) {
         // Every field the full answer has, so the shape does not depend on the branch.
-        return { submissions: [], gradedCount: 0, awaitingReply: [] };
+        return { submissions: [], awaitingReply: [] };
       }
 
       const submissions = await ctx.db.submission.findMany({
@@ -800,8 +800,21 @@ export const submissionsRouter = createTRPCRouter({
           // `sections` for the grading mode: an assignment the pipeline cannot grade lands
           // in a different bucket, because the action waiting on the instructor is
           // different and generating a report is not one of the things they can do.
+          //
+          // `courseUnitId`, `kind` and `dueAt` are what the screen's filter narrows on. With the
+          // title they are exactly `FilterableAssignment`, so the gradebook's rule applies to a
+          // triage row as it stands — which is what stops the two screens coming to mean
+          // different things by "past due".
           assignment: {
-            select: { id: true, title: true, courseId: true, sections: true },
+            select: {
+              id: true,
+              title: true,
+              courseId: true,
+              sections: true,
+              courseUnitId: true,
+              kind: true,
+              dueAt: true,
+            },
           },
           /*
             The most recent round that was not discarded. A discarded one is a round nobody was
@@ -830,24 +843,6 @@ export const submissionsRouter = createTRPCRouter({
               },
             },
           },
-        },
-      });
-
-      // Counted rather than fetched. The screen shows how many are done, not which.
-      // Same restriction as the pile above, so the two halves of "3 left, 12 approved"
-      // describe the same set of students.
-      const gradedCount = await ctx.db.submission.count({
-        where: {
-          ...teamAwareWork(course.programId, input.courseId, selection),
-          /*
-            One per piece of work, not one per person. A team's grade is on every member's row, so
-            counting all of them would say twelve were approved where three were read — and this
-            number sits beside the pile above, which counts a team once. A `count` carries no
-            bucket, so the exclusion has to be in the query; that is the only reason this reads
-            differently from every other place a mirror is skipped.
-          */
-          teamSubmissionId: null,
-          status: "GRADED",
         },
       });
 
@@ -936,7 +931,18 @@ export const submissionsRouter = createTRPCRouter({
             select: { id: true, displayName: true, email: true, testStudentNumber: true },
           },
           team: { select: { name: true } },
-          assignment: { select: { id: true, title: true, courseId: true } },
+          // The three filter fields here too: a question is narrowed by the same menu as the pile
+          // above it, or the header would be about one selection and the card beneath it another.
+          assignment: {
+            select: {
+              id: true,
+              title: true,
+              courseId: true,
+              courseUnitId: true,
+              kind: true,
+              dueAt: true,
+            },
+          },
           comments: {
             where: { deletedAt: null },
             orderBy: { createdAt: "asc" },
@@ -984,7 +990,6 @@ export const submissionsRouter = createTRPCRouter({
       // interface never has to decide what to do with one.
       return {
         submissions: rows.filter((row) => row.bucket != null),
-        gradedCount,
         awaitingReply,
       };
     }),

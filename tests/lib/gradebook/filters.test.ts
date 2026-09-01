@@ -1,11 +1,13 @@
 import {
   activeFilterCount,
+  encodeColumnFilter,
   filterAssignments,
   filterIsActive,
   matchesColumnFilter,
   matchesStudent,
   namesSameColumn,
   NO_COLUMN_FILTER,
+  parseColumnFilter,
   searchStudents,
   sortStudents,
   toggleSort,
@@ -143,6 +145,55 @@ describe("the column filter", () => {
         true,
       );
     });
+
+    describe("a custom range", () => {
+      const range = (from: string | null, to: string | null): ColumnFilter => ({
+        ...NO_COLUMN_FILTER,
+        due: { from, to },
+      });
+
+      it("keeps the work due between the two dates", () => {
+        const filter = range("2026-03-05", "2026-03-15");
+        expect(
+          filterAssignments([overdue, soon, later, undated], filter, NOW).map((a) => a.id),
+        ).toEqual(["soon"]);
+      });
+
+      /*
+        Both ends inclusive, and read as a wall clock in Brooklyn. Work due at 11:59pm on the day
+        named in `to` is 4am the next day in UTC, so a boundary read as an instant would put the
+        one deadline a reader was certainly asking about outside the range they drew around it.
+      */
+      it("includes work due late on the closing day", () => {
+        const lastMinute = assignment({ id: "last", dueAt: "2026-03-15T03:59:00Z" });
+        expect(matchesColumnFilter(lastMinute, range("2026-03-05", "2026-03-14"), NOW)).toBe(true);
+      });
+
+      it("leaves an open end unbounded", () => {
+        expect(
+          filterAssignments([overdue, soon, later], range("2026-03-05", null), NOW).map((a) => a.id),
+        ).toEqual(["soon", "later"]);
+        expect(
+          filterAssignments([overdue, soon, later], range(null, "2026-03-14"), NOW).map((a) => a.id),
+        ).toEqual(["past", "soon"]);
+      });
+
+      // A range is a question about the calendar, and work with no deadline is not an answer.
+      it("never counts undated work as inside a range", () => {
+        expect(matchesColumnFilter(undated, range("2026-01-01", "2026-12-31"), NOW)).toBe(false);
+      });
+
+      /*
+        Choosing "Custom range" sets one before either date is typed, so both ends open has to
+        narrow nothing — otherwise the badge claims a restriction and "Clear the filter" clears
+        something the reader never chose.
+      */
+      it("narrows nothing while both ends are still empty", () => {
+        expect(filterIsActive(range(null, null))).toBe(false);
+        expect(activeFilterCount(range(null, null))).toBe(0);
+        expect(matchesColumnFilter(undated, range(null, null), NOW)).toBe(true);
+      });
+    });
   });
 
   it("applies every restriction at once", () => {
@@ -154,6 +205,74 @@ describe("the column filter", () => {
     expect(
       matchesColumnFilter(assignment({ courseUnitId: "u1", kind: "SELF_DIRECTED" }), filter, NOW),
     ).toBe(false);
+  });
+});
+
+describe("a filter as an address", () => {
+  const known = { unitIds: new Set(["u1", "u2"]) };
+  const parse = (query: string) => parseColumnFilter(new URLSearchParams(query), known);
+  const encode = (filter: ColumnFilter) => encodeColumnFilter(filter).toString();
+
+  /*
+    An unfiltered screen has a clean URL, which is what makes the cleared state and the opening
+    state the same address rather than two that differ by a string of empty parameters.
+  */
+  it("writes nothing when nothing is narrowed", () => {
+    expect(encode(NO_COLUMN_FILTER)).toBe("");
+    expect(parse("")).toEqual(NO_COLUMN_FILTER);
+  });
+
+  it("round-trips every shape of the filter", () => {
+    const filters: ColumnFilter[] = [
+      { unitIds: ["u1", "u2"], kinds: [], due: "all" },
+      { unitIds: [], kinds: ["REPO", "GOOGLE_DRIVE"], due: "all" },
+      { unitIds: [], kinds: [], due: "overdue" },
+      { unitIds: [], kinds: [], due: { from: null, to: null } },
+      { unitIds: [], kinds: [], due: { from: "2026-01-06", to: "2026-02-14" } },
+      { unitIds: [], kinds: [], due: { from: "2026-01-06", to: null } },
+      { unitIds: [], kinds: [], due: { from: null, to: "2026-02-14" } },
+      { unitIds: ["u2"], kinds: ["SELF_DIRECTED"], due: "undated" },
+    ];
+
+    for (const filter of filters) {
+      expect(parse(encode(filter))).toEqual(filter);
+    }
+  });
+
+  /*
+    A stale link or a hand-edited address lands on a wider screen than whoever wrote it intended,
+    never on an empty one with a uuid showing in the menu — which reads as "there is no work here"
+    rather than as "that link is out of date".
+  */
+  it("discards a unit this screen does not have", () => {
+    expect(parse("units=u1,u9").unitIds).toEqual(["u1"]);
+  });
+
+  it("discards a kind that is not one of the three", () => {
+    expect(parse("kinds=REPO,PIGEON").kinds).toEqual(["REPO"]);
+  });
+
+  it("discards a date that is not a date", () => {
+    expect(parse("due=2026-02-31..2026-13-40").due).toEqual({ from: null, to: null });
+    expect(parse("due=13th-of-never").due).toBe("all");
+    expect(parse("due=..2026-02-14").due).toEqual({ from: null, to: "2026-02-14" });
+  });
+
+  /*
+    The state the menu is in between choosing "Custom range" and typing a date. It has to survive
+    the write, or the two date fields disappear the instant they are asked for — the choice would
+    have nowhere to live but the address, and an address that dropped it would report "all" back.
+
+    It still narrows nothing, which is the badge's question rather than this one.
+  */
+  it("keeps a range that has no dates in it yet", () => {
+    expect(encode({ ...NO_COLUMN_FILTER, due: { from: null, to: null } })).toBe("due=..");
+    expect(parse("due=..").due).toEqual({ from: null, to: null });
+    expect(filterIsActive(parse("due=.."))).toBe(false);
+  });
+
+  it("ignores a repeated unit, so a hand-written address cannot double one up", () => {
+    expect(parse("units=u1,u1,u2").unitIds).toEqual(["u1", "u2"]);
   });
 });
 

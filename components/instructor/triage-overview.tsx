@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import type * as React from "react";
+import { useSearchParams } from "next/navigation";
+import * as React from "react";
 import {
   Archive,
   ArrowRight,
@@ -21,14 +24,26 @@ import { TestStudentBadge } from "@/components/test-student-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
+import { WorkFilter } from "@/components/instructor/work-filter";
 import {
   cohortSelectionLabel,
   parseCohortSelection,
   type CohortChoice,
 } from "@/lib/programs/cohorts";
+import {
+  dueIsActive,
+  DUE_WINDOW_META,
+  filterIsActive,
+  matchesColumnFilter,
+  parseColumnFilter,
+  type ColumnFilter,
+  type DueRange,
+} from "@/lib/gradebook/filters";
 import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
 import { gradingQueueHref, studentHref } from "@/lib/links";
-import { formatRelative } from "@/lib/status";
+import { dateColumnFor } from "@/lib/school-time";
+import { ASSIGNMENT_KIND_LABEL, formatRelative } from "@/lib/status";
+import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -42,7 +57,13 @@ import type { RouterOutputs } from "@/trpc/types";
  *
  * One course at a time, which is what makes "caught up" mean anything. Two courses' work
  * interleaved has no state in which the screen is empty and no order in which to work it.
- * The cohort picker narrows it further, to the fellows one instructor grades.
+ * Two controls narrow it further: the cohort picker, to the fellows one instructor grades, and
+ * the work filter, to one unit, one way of handing in, or one stretch of the calendar.
+ *
+ * **A client component, because of those two.** The pile arrives whole and is narrowed here, from
+ * the rows this render already holds — so the heading, the buckets and the questions cannot come
+ * to describe different sets of work, and a change of filter costs no request. The cohort is the
+ * exception and has to be: it decides which fellows the server reads at all.
  */
 
 type Triage = RouterOutputs["submissions"]["triage"];
@@ -115,12 +136,64 @@ const BUCKET_META: Record<
   },
 };
 
+/**
+ * The filter in the heading's own words, one clause per restriction.
+ *
+ * **Short, because it sits in a line that already names the course, the term and the cohort.** A
+ * reader who wants the detail can open the menu; what this has to answer is "is what I am reading
+ * the whole pile", and for that the first unit and a count of the rest is enough.
+ */
+function filterClauses(filter: ColumnFilter, units: { id: string; name: string }[]): string[] {
+  const clauses: string[] = [];
+
+  if (filter.unitIds.length > 0) {
+    const names = filter.unitIds.map(
+      (id) => units.find((unit) => unit.id === id)?.name ?? "an unknown unit",
+    );
+    clauses.push(names.length === 1 ? names[0]! : `${names[0]} and ${names.length - 1} more`);
+  }
+
+  if (filter.kinds.length > 0) {
+    clauses.push(filter.kinds.map((kind) => ASSIGNMENT_KIND_LABEL[kind]).join(" or "));
+  }
+
+  if (dueIsActive(filter.due)) {
+    clauses.push(
+      typeof filter.due === "string" ? DUE_WINDOW_META[filter.due].label : rangeLabel(filter.due),
+    );
+  }
+
+  return clauses;
+}
+
+/** A chosen range, as "Due Jan 6 – Feb 14" with either end allowed to be missing. */
+function rangeLabel({ from, to }: DueRange): string {
+  if (from !== null && to !== null) return `Due ${day(from)} – ${day(to)}`;
+  return from !== null ? `Due from ${day(from)}` : `Due up to ${day(to!)}`;
+}
+
+/**
+ * One end of a range, as "Jan 6".
+ *
+ * `dateColumnFor` and `timeZone: "UTC"` together, which is the pairing `formatSchoolDay` uses: a
+ * school day is a civil date rather than an instant, and reading it in any other zone prints the
+ * day before on every machine west of UTC.
+ */
+function day(value: string): string {
+  return dateColumnFor(value).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function TriageOverview({
   triage,
   courseName,
   term,
   archived,
   cohorts,
+  units,
   now,
 }: {
   triage: Triage;
@@ -131,21 +204,65 @@ export function TriageOverview({
   /** The picker's options and the selection this pile was built for, from `resolveCohort`. */
   cohorts: CohortChoice;
   /**
+   * Every unit of the course, in course order, for the filter to offer.
+   *
+   * All three categories together rather than one at a time. The gradebook splits them across
+   * tabs because it draws a grid per category; a pile of work to grade has no such division —
+   * an afternoon's grading is as likely to be a project as a module.
+   */
+  units: { id: string; name: string }[];
+  /**
    * Passed in rather than read here, so every relative time on the screen is measured
    * from one instant and a component cannot disagree with its neighbour.
    */
   now: Date;
 }) {
   const selection = parseCohortSelection(cohorts.cohort);
-  const buckets = bucketize(triage.submissions);
-  const generating = triage.submissions.filter((row) => row.bucket === "generating");
+
+  /*
+    Read from the address, so a narrowed pile is a link somebody can send and survives a reload.
+    A unit id this course does not have is discarded on the way in, which is what keeps a stale
+    link on a wider screen rather than an empty one.
+  */
+  const searchParams = useSearchParams();
+  const filter = React.useMemo(
+    () => parseColumnFilter(searchParams, { unitIds: new Set(units.map((unit) => unit.id)) }),
+    [searchParams, units],
+  );
+
+  /*
+    Narrowed once, here, and everything below counted from the result — the buckets, the questions,
+    and both figures in the heading. That is what makes "3 submissions left to grade" and the piles
+    beneath it the same claim stated twice rather than two claims that could disagree.
+  */
+  const rows = React.useMemo(
+    () => triage.submissions.filter((row) => matchesColumnFilter(row.assignment, filter, now)),
+    [triage.submissions, filter, now],
+  );
+  const questions = React.useMemo(
+    () => triage.awaitingReply.filter((row) => matchesColumnFilter(row.assignment, filter, now)),
+    [triage.awaitingReply, filter, now],
+  );
+
+  /*
+    The kinds in the whole pile, not the narrowed one, so ticking "Google Drive" cannot remove its
+    own option. `WorkFilter` drops the group entirely below two, which is most courses.
+  */
+  const kinds = React.useMemo(() => {
+    const present = new Set<AssignmentKind>();
+    for (const row of triage.submissions) present.add(row.assignment.kind);
+    return [...present];
+  }, [triage.submissions]);
+
+  const buckets = bucketize(rows);
+  const generating = rows.filter((row) => row.bucket === "generating");
 
   // The whole of what is left. Every bucket counts toward it, so the number at the top
   // of the screen and the piles below it are the same claim stated two ways.
   const remaining = WORK_BUCKETS.reduce((total, key) => total + buckets[key].length, 0);
 
   // Not folded into `remaining`, which is spent in "N submissions left to grade".
-  const waiting = triage.awaitingReply.length;
+  const waiting = questions.length;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
@@ -164,6 +281,8 @@ export function TriageOverview({
             was caught up on would be making a claim about the roster that it has not checked.
           */
           ...(selection.kind === "all" ? [] : [cohortSelectionLabel(selection, cohorts.cohorts)]),
+          // And the filter, for exactly the same reason: it narrows the same figures.
+          ...filterClauses(filter, units),
           remaining === 0
             ? "Caught up"
             : `${remaining} ${remaining === 1 ? "submission" : "submissions"} left to grade`,
@@ -171,15 +290,28 @@ export function TriageOverview({
           ...(waiting === 0
             ? []
             : [`${waiting} ${waiting === 1 ? "question" : "questions"} to answer`]),
-          `${triage.gradedCount} approved`,
         ].join(" · ")}
         /*
-          The picker is the only action. There was a button back to the course page, which existed
-          because the course's other views were tabs on it and this screen was the one place
-          outside; every one of them is a sidebar item now, so it led to the one address that is
-          not a view at all.
+          The two controls are the only actions. There was a button back to the course page, which
+          existed because the course's other views were tabs on it and this screen was the one
+          place outside; every one of them is a sidebar item now, so it led to the one address
+          that is not a view at all.
+
+          The filter first, because it is the one that answers "what shall I do this afternoon".
+          The cohort is set once a term and left alone.
         */
-        actions={<CohortPicker choice={cohorts} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <WorkFilter
+              filter={filter}
+              units={units}
+              kinds={kinds}
+              trigger="Filter"
+              unitsLabel="Show work from"
+            />
+            <CohortPicker choice={cohorts} />
+          </div>
+        }
       />
 
       {/*
@@ -201,14 +333,26 @@ export function TriageOverview({
         First, because it is the most blocking thing here: a fellow is stopped until somebody
         answers, where work awaiting a grade is finished work sitting still.
       */}
-      {waiting > 0 && <TriageQuestions rows={triage.awaitingReply} now={now} />}
+      {waiting > 0 && <TriageQuestions rows={questions} now={now} />}
 
       {/* Guarded on both, or the screen denies there is anything above a card full of questions. */}
       {remaining === 0 && waiting === 0 ? (
         <EmptyState
           icon={<Inbox />}
-          title="Nothing is waiting on you"
-          description="Every submission that has been declared finished has been graded and delivered."
+          /*
+            Which of the two empty screens this is. "Nothing is waiting on you" is a claim about
+            the whole course, and making it over a filtered pile would tell an instructor they were
+            finished when they had narrowed to one module — so a narrowed screen says what it
+            looked at, and how to see the rest.
+          */
+          title={
+            filterIsActive(filter) ? "Nothing is waiting in that" : "Nothing is waiting on you"
+          }
+          description={
+            filterIsActive(filter)
+              ? "Every submission matching this filter has been graded and delivered. Clear the filter to see the rest of the course."
+              : "Every submission that has been declared finished has been graded and delivered."
+          }
         />
       ) : remaining === 0 ? null : (
         <div className="flex flex-col gap-4">

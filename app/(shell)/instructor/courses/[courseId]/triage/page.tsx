@@ -51,7 +51,8 @@ async function Triage({
 
   // The course as well as the pile, because the heading names the course and its term — and
   // because a heading that named nothing would leave two courses' triage screens looking
-  // identical, which is the thing this route exists to fix.
+  // identical, which is the thing this route exists to fix. Its units come with it, which is what
+  // the work filter offers; `courses.get` already returns them, so the filter costs no read.
   const [course, triage] = await Promise.all([
     queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId })),
     queryClient.fetchQuery(
@@ -72,6 +73,7 @@ async function Triage({
       term={course.program.term}
       archived={course.archivedAt !== null}
       cohorts={cohorts}
+      units={course.courseUnits}
       now={new Date()}
     />
   );

@@ -1,23 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import * as React from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Filter, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Search, X } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -28,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TestStudentBadge } from "@/components/test-student-badge";
+import { WorkFilter } from "@/components/instructor/work-filter";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import {
   cellsFor,
@@ -36,19 +24,15 @@ import {
   type UnitWithWork,
 } from "@/lib/gradebook/categories";
 import {
-  activeFilterCount,
-  DUE_WINDOWS,
-  DUE_WINDOW_META,
   filterAssignments,
+  type ColumnFilter,
   filterIsActive,
-  NO_COLUMN_FILTER,
+  parseColumnFilter,
   searchStudents,
   sortStudents,
   namesSameColumn,
   studentLabel,
   toggleSort,
-  type ColumnFilter,
-  type DueWindow,
   type RowSort,
   type SortColumn,
 } from "@/lib/gradebook/filters";
@@ -61,7 +45,6 @@ import {
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
 import {
-  ASSIGNMENT_KIND_LABEL,
   formatDueDate,
   scoreLabel,
   scorePercent,
@@ -125,10 +108,23 @@ export function GradebookGrid({
   now: string;
 }) {
   const [query, setQuery] = React.useState("");
-  const [filter, setFilter] = React.useState<ColumnFilter>(NO_COLUMN_FILTER);
   const [sort, setSort] = React.useState<RowSort>({ by: "name", direction: "asc" });
 
   const at = React.useMemo(() => new Date(now), [now]);
+
+  /*
+    The filter is read from the address rather than held here, which is what makes a narrowed
+    gradebook a link somebody can send and what survives a reload. `WorkFilter` writes it back
+    shallowly, so a tick of a checkbox re-renders this grid and fetches nothing.
+
+    A unit id the open tab does not have is discarded on the way in — switching tab drops the
+    filter, and an address carried across by hand would otherwise empty the grid.
+  */
+  const searchParams = useSearchParams();
+  const filter = React.useMemo(
+    () => parseColumnFilter(searchParams, { unitIds: new Set(units.map((e) => e.unit.id)) }),
+    [searchParams, units],
+  );
 
   /**
    * The units that hold any work at all, which is every band this grid can draw.
@@ -188,7 +184,6 @@ export function GradebookGrid({
         query={query}
         onQuery={setQuery}
         filter={filter}
-        onFilter={setFilter}
         units={filled}
         columns={work.length}
         totalColumns={filled.reduce((sum, entry) => sum + entry.work.length, 0)}
@@ -262,7 +257,6 @@ function Controls({
   query,
   onQuery,
   filter,
-  onFilter,
   units,
   columns,
   totalColumns,
@@ -270,34 +264,20 @@ function Controls({
   query: string;
   onQuery: (value: string) => void;
   filter: ColumnFilter;
-  onFilter: (value: ColumnFilter) => void;
   units: UnitWithWork<Assignment>[];
   columns: number;
   totalColumns: number;
 }) {
+  /*
+    The kinds this tab's work actually uses, not all three. An option that would select every
+    column is not a question anybody has, and `WorkFilter` drops the whole group below two of them.
+    Read from `units` — the unfiltered work — so ticking a kind cannot remove its own option.
+  */
   const kinds = React.useMemo(() => {
     const present = new Set<AssignmentKind>();
     for (const entry of units) for (const item of entry.work) present.add(item.kind);
     return [...present];
   }, [units]);
-
-  const active = activeFilterCount(filter);
-
-  const toggleUnit = (unitId: string) =>
-    onFilter({
-      ...filter,
-      unitIds: filter.unitIds.includes(unitId)
-        ? filter.unitIds.filter((id) => id !== unitId)
-        : [...filter.unitIds, unitId],
-    });
-
-  const toggleKind = (kind: AssignmentKind) =>
-    onFilter({
-      ...filter,
-      kinds: filter.kinds.includes(kind)
-        ? filter.kinds.filter((value) => value !== kind)
-        : [...filter.kinds, kind],
-    });
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -325,83 +305,13 @@ function Controls({
         )}
       </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button variant="outline" size="sm">
-              <Filter data-icon="inline-start" />
-              Columns
-              {active > 0 && (
-                <Badge variant="secondary" className="ml-1 tabular-nums">
-                  {active}
-                </Badge>
-              )}
-            </Button>
-          }
-        />
-        <DropdownMenuContent align="start" className="w-64">
-          {/*
-            **Every label sits inside the group it names.** Base UI's `Menu.GroupLabel` reads a
-            context that only `Menu.Group` and `Menu.RadioGroup` provide, so a label placed as a
-            sibling of its group throws on open — "MenuGroupContext is missing" — and the menu
-            never appears. Which is also the correct markup: the label is what gives the group its
-            accessible name, and a label outside the group names nothing.
-          */}
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>Show columns for</DropdownMenuLabel>
-            {units.map((entry) => (
-              <DropdownMenuCheckboxItem
-                key={entry.unit.id}
-                checked={filter.unitIds.includes(entry.unit.id)}
-                onCheckedChange={() => toggleUnit(entry.unit.id)}
-              >
-                {entry.unit.name}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuGroup>
-
-          {kinds.length > 1 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Handed in as</DropdownMenuLabel>
-                {kinds.map((kind) => (
-                  <DropdownMenuCheckboxItem
-                    key={kind}
-                    checked={filter.kinds.includes(kind)}
-                    onCheckedChange={() => toggleKind(kind)}
-                  >
-                    {ASSIGNMENT_KIND_LABEL[kind]}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuGroup>
-            </>
-          )}
-
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioGroup
-            value={filter.due}
-            onValueChange={(value) => onFilter({ ...filter, due: value as DueWindow })}
-          >
-            <DropdownMenuLabel>Due</DropdownMenuLabel>
-            {DUE_WINDOWS.map((window) => (
-              <DropdownMenuRadioItem key={window} value={window}>
-                {DUE_WINDOW_META[window].label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-
-          {active > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onFilter(NO_COLUMN_FILTER)}>
-                <X data-icon="inline-start" />
-                Clear the filter
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <WorkFilter
+        filter={filter}
+        units={units.map((entry) => entry.unit)}
+        kinds={kinds}
+        trigger="Columns"
+        unitsLabel="Show columns for"
+      />
 
       {/*
         What was narrowed to, in words. A grid of four columns is a different claim depending on
