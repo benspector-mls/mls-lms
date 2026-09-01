@@ -889,11 +889,60 @@ async function main() {
         completionThreshold: taskSpec.completionThreshold,
         dueAt: taskSpec.dueAt,
         submissionInstructions: taskSpec.submissionInstructions,
+        studentMayMarkDone: taskSpec.studentMayMarkDone,
         distributedAt: new Date(),
         sections: taskSpec.sections as unknown as Prisma.InputJsonValue,
       },
     });
     console.log(`Assignment: ${task.title} — marked done by fellows, worth ${task.pointValue} pt`);
+  }
+
+  /*
+    A second task, this one only an instructor may mark. Two rows rather than one because the
+    difference between them is a whole branch on the fellow's screen — a button against a sentence
+    saying who does mark it — and one seeded task can only show one of the two.
+  */
+  const CHECKED_TASK_TITLE = "Show your instructor your dev environment";
+
+  const checkedTaskSpec = parseAssignmentSpec({
+    kind: AssignmentKind.TASK,
+    title: CHECKED_TASK_TITLE,
+    courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
+    dueAt: instantAtSchoolClock(
+      schoolDayOf(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)),
+      END_OF_DAY,
+    ),
+    submissionInstructions:
+      "Bring your laptop to office hours and walk your instructor through running the " +
+      "assignment tests.\n\nThey mark this one — there is nothing for you to press.",
+    sections: [],
+    studentMayMarkDone: false,
+  });
+
+  const seededCheckedTask = await prisma.assignment.findFirst({
+    where: { courseId: course.id, title: CHECKED_TASK_TITLE },
+    select: { id: true },
+  });
+
+  if (seededCheckedTask) {
+    console.log(`Assignment: ${CHECKED_TASK_TITLE} — already seeded`);
+  } else {
+    const checked = await prisma.assignment.create({
+      data: {
+        courseId: course.id,
+        courseUnitId: checkedTaskSpec.courseUnitId,
+        kind: checkedTaskSpec.kind,
+        title: checkedTaskSpec.title,
+        pointValue: checkedTaskSpec.pointValue,
+        completionThreshold: checkedTaskSpec.completionThreshold,
+        dueAt: checkedTaskSpec.dueAt,
+        submissionInstructions: checkedTaskSpec.submissionInstructions,
+        studentMayMarkDone: checkedTaskSpec.studentMayMarkDone,
+        distributedAt: new Date(),
+        sections: checkedTaskSpec.sections as unknown as Prisma.InputJsonValue,
+      },
+    });
+    console.log(`Assignment: ${checked.title} — only an instructor marks this one`);
   }
 
   /*

@@ -40,7 +40,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { handInMethodsFor, hasAcceptStep } from "@/lib/assignments/spec";
+import { handInMethodsFor, hasAcceptStep, taskIsSelfMarked } from "@/lib/assignments/spec";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import {
   acceptAttributeFor,
@@ -748,7 +748,13 @@ function SubmissionTab({
             {assignment.kind === "TASK" ? (
               <>
                 Your instructor marked this as not done. Ask them in the comments below what needs
-                changing if you are not sure, then do it again and mark it done.
+                changing if you are not sure, then do it again and{" "}
+                {/*
+                  What to do next differs by who may mark it, and getting this wrong is the whole
+                  reason it branches: telling a fellow to mark a task done that only their
+                  instructor can mark sends them to look for a button that is not drawn.
+                */}
+                {taskIsSelfMarked(assignment) ? "mark it done" : "let them know"}.
               </>
             ) : (
               <>
@@ -826,6 +832,42 @@ function TaskCompletion({
     state: nobody has said anything yet.
   */
   const done = submission?.isComplete === true;
+
+  /*
+    Whether this fellow may set the verdict at all. The same function `markTask` refuses with, so
+    there is no state where the button is drawn and the press is rejected.
+  */
+  const mayMark = taskIsSelfMarked(assignment);
+
+  /*
+    A task somebody else settles. Said rather than left as an absent button, which is the rule the
+    locked hand-in notice above follows for the same reason: a fellow who came here to mark
+    something done needs to know who does mark it, not to find nothing and wonder whether the page
+    is broken.
+  */
+  if (!mayMark) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4">
+        <p className="text-sm font-medium">
+          {done ? "Your instructor marked this done" : "Your instructor marks this one"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {done ? (
+            <>
+              Marked done
+              {submission?.gradedAt ? ` on ${formatDate(submission.gradedAt)}` : ""}. Nothing else
+              to do.
+            </>
+          ) : (
+            <>
+              There is nothing to hand in, and this is not one you mark yourself. Do it, then let
+              your instructor know — they will mark it once they have checked it.
+            </>
+          )}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4">

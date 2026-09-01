@@ -7,6 +7,7 @@ import {
   parseAssignmentSpec,
   requiresRepository,
   TASK_POINT_VALUE,
+  taskIsSelfMarked,
 } from "@/lib/assignments/spec";
 
 /**
@@ -80,6 +81,66 @@ describe("a task's shape", () => {
     expect(
       assignmentSpecSchema.safeParse(task({ templateRepo: "marcylab/swe-1-4-loops" })).success,
     ).toBe(false);
+  });
+});
+
+describe("who may mark a task done", () => {
+  it("defaults to the fellow, which is what a task authored without an opinion means", () => {
+    expect(parseAssignmentSpec(task()).studentMayMarkDone).toBe(true);
+  });
+
+  it("accepts an instructor-only task", () => {
+    expect(parseAssignmentSpec(task({ studentMayMarkDone: false })).studentMayMarkDone).toBe(false);
+  });
+
+  it("refuses the question on a kind that is handed in rather than marked", () => {
+    /*
+      Null rather than false on the other three kinds, and refused rather than ignored. "May the
+      fellow mark this done" has no answer for a pull request: true would read as permission
+      granted and false as permission withheld, and neither is true of it.
+    */
+    const parsed = assignmentSpecSchema.safeParse({
+      kind: "SELF_DIRECTED",
+      title: "A reflection",
+      courseUnitId: UNIT,
+      handInMethods: ["LINK"],
+      sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+      studentMayMarkDone: true,
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("leaves the column null on those kinds", () => {
+    const parsed = parseAssignmentSpec({
+      kind: "SELF_DIRECTED",
+      title: "A reflection",
+      courseUnitId: UNIT,
+      handInMethods: ["LINK"],
+      sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+    });
+    expect(parsed.studentMayMarkDone).toBeNull();
+  });
+});
+
+describe("taskIsSelfMarked", () => {
+  it("is true for a task nobody said otherwise about", () => {
+    expect(taskIsSelfMarked({ kind: "TASK", studentMayMarkDone: true })).toBe(true);
+  });
+
+  it("is false for a task only an instructor marks", () => {
+    expect(taskIsSelfMarked({ kind: "TASK", studentMayMarkDone: false })).toBe(false);
+  });
+
+  it("reads a null on a task as permitted, which is what the backfill gave every existing one", () => {
+    expect(taskIsSelfMarked({ kind: "TASK", studentMayMarkDone: null })).toBe(true);
+  });
+
+  it("is false for every other kind, so a caller need not check the kind first", () => {
+    // Nobody marks a pull request done, so there is no permission to grant — and answering false
+    // rather than throwing is what lets the student's panel ask about any assignment.
+    expect(taskIsSelfMarked({ kind: "REPO", studentMayMarkDone: null })).toBe(false);
+    expect(taskIsSelfMarked({ kind: "SELF_DIRECTED", studentMayMarkDone: null })).toBe(false);
+    expect(taskIsSelfMarked({ kind: "GOOGLE_DRIVE", studentMayMarkDone: null })).toBe(false);
   });
 });
 

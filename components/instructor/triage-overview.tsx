@@ -292,27 +292,30 @@ export function TriageOverview({
             : [`${waiting} ${waiting === 1 ? "question" : "questions"} to answer`]),
         ].join(" · ")}
         /*
-          The two controls are the only actions. There was a button back to the course page, which
-          existed because the course's other views were tabs on it and this screen was the one
-          place outside; every one of them is a sidebar item now, so it led to the one address
+          The cohort is the only control in the heading. It is one select of a fixed width, and it
+          is chosen once a term and then left alone. There was a button back to the course page,
+          which existed because the course's other views were tabs on it and this screen was the
+          one place outside; every one of them is a sidebar item now, so it led to the one address
           that is not a view at all.
-
-          The filter first, because it is the one that answers "what shall I do this afternoon".
-          The cohort is set once a term and left alone.
         */
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <WorkFilter
-              filter={filter}
-              units={units}
-              kinds={kinds}
-              trigger="Filter"
-              unitsLabel="Show work from"
-            />
-            <CohortPicker choice={cohorts} />
-          </div>
-        }
+        actions={<CohortPicker choice={cohorts} />}
       />
+
+      {/*
+        The filter, on a row of its own beneath the heading. It is the control that answers "what
+        shall I do this afternoon", so it is opened often, and it grows when it is: choosing a
+        custom range puts two date fields beside the button. Alongside the cohort that width is
+        taken out of the title, which then breaks across four lines.
+      */}
+      <div className="flex flex-wrap items-center gap-2">
+        <WorkFilter
+          filter={filter}
+          units={units}
+          kinds={kinds}
+          trigger="Filter"
+          unitsLabel="Show work from"
+        />
+      </div>
 
       {/*
         Otherwise an archived course reads as caught up, which is a different claim and a

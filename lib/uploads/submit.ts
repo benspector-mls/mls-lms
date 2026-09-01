@@ -42,6 +42,15 @@ export type HandInAssignment = {
   acceptedFileTypes: string[];
   handInMethods: HandInMethod[];
   /**
+   * Whether a fellow may mark this task done themselves. Null for every kind but `TASK`.
+   *
+   * Selected here rather than read again by `markTask`, because this function has already fetched
+   * the assignment and a second query would be a second answer to the same question. Read through
+   * `taskIsSelfMarked` — the refusal it drives is the mutation's own, not this function's: nothing
+   * about handing work in depends on it.
+   */
+  studentMayMarkDone: boolean | null;
+  /**
    * The team this caller hands in with, or null for work they do alone.
    *
    * Resolved here so no caller decides which row the work goes on. It is the difference between
@@ -88,6 +97,7 @@ export async function assertCanHandIn(
       distributedAt: true,
       acceptedFileTypes: true,
       handInMethods: true,
+      studentMayMarkDone: true,
       teamSetId: true,
     },
   });
@@ -247,6 +257,7 @@ export async function assertCanHandIn(
     dueAt: assignment.dueAt,
     acceptedFileTypes: assignment.acceptedFileTypes,
     handInMethods: assignment.handInMethods,
+    studentMayMarkDone: assignment.studentMayMarkDone,
     team,
     teamSubmissionId,
   };

@@ -148,6 +148,14 @@ type FormState = {
   runnerConfig: null;
   templateDriveUrl: string;
   /**
+   * Whether a fellow may mark a task done themselves. Only a TASK assignment sends it.
+   *
+   * Held for every kind like every other field here, so that switching the kind twice while
+   * deciding does not lose the answer — `toDraft` is what narrows it away for the three kinds
+   * that are not asked.
+   */
+  studentMayMarkDone: boolean;
+  /**
    * How a fellow may hand this in. Only a SELF_DIRECTED assignment sends these, and it must
    * send at least one.
    */
@@ -272,7 +280,12 @@ function toDraft(state: FormState): unknown {
     against. The schema's default stands on the column and nothing reads it.
   */
   if (state.kind === "TASK") {
-    return { ...shared, kind: "TASK", sections: [] };
+    return {
+      ...shared,
+      kind: "TASK",
+      sections: [],
+      studentMayMarkDone: state.studentMayMarkDone,
+    };
   }
 
   /*
@@ -1255,13 +1268,38 @@ function Editor({
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-4">
+                {/*
+                  One tick rather than two radio buttons, because the two answers are not on equal
+                  footing: self-marking is what a task is by default and what almost all of them
+                  want, so the question an instructor is really answering is whether this one is
+                  the exception. A pair of buttons would present it as an open choice they have to
+                  make from scratch every time.
+                */}
+                <Field
+                  label="Who marks it done"
+                  findings={fieldFindings("studentMayMarkDone")}
+                  hint="Untick for a task you have to check yourself — a laptop you look over, a form only you can see the responses to."
+                >
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={state.studentMayMarkDone}
+                      onChange={(event) =>
+                        setState({ ...state, studentMayMarkDone: event.target.checked })
+                      }
+                      className="size-4 rounded border-input"
+                    />
+                    <span>Fellows can mark this done themselves</span>
+                  </label>
+                </Field>
+
                 <p className="text-sm text-muted-foreground">
-                  Fellows mark this done themselves, and can take the mark back. You can set it
-                  either way for anybody from the assignment’s queue — marking it not done is what
-                  sends it back to them to do again. Every task is worth one point, so its gradebook
-                  column reads 1/1 or 0/1 and counts toward the unit’s completion like any other
-                  assignment.
+                  {state.studentMayMarkDone
+                    ? "Fellows mark this done themselves, and can take the mark back. You can set it either way for anybody from the assignment’s queue — marking it not done is what sends it back to them to do again."
+                    : "Only you can mark this done, from the assignment’s queue, which lists every fellow whether or not they have done it. Fellows see what you set and cannot change it."}{" "}
+                  Every task is worth one point, so its gradebook column reads 1/1 or 0/1 and counts
+                  toward the unit’s completion like any other assignment.
                 </p>
               </CardContent>
             </Card>
@@ -1841,6 +1879,12 @@ function blankDraft({
     runnerConfig: null,
     templateDriveUrl: existingState?.templateDriveUrl ?? "",
     /*
+      Ticked unless something already said otherwise. Self-marking is both the commoner case and
+      what every task did before the field existed, so it is the answer an instructor who has no
+      opinion should get — and the schema defaults to the same, so the two cannot disagree.
+    */
+    studentMayMarkDone: existingState?.studentMayMarkDone ?? true,
+    /*
       A link unless something already said otherwise, because it is the way in that needs no
       further decisions — ticking File asks a second question about which file types, and an
       instructor who wants that will tick it. Never empty: the schema refuses an assignment
@@ -1904,6 +1948,12 @@ function fromDraft(draft: Draft): FormState {
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
     templateDriveUrl: draft.templateDriveUrl ?? "",
+    /*
+      Ticked when the stored assignment says nothing, which is what a row of any other kind holds
+      and what a task saved before the column existed held. `taskIsSelfMarked` reads a null the
+      same way, so the form and the server agree about a row neither of them wrote.
+    */
+    studentMayMarkDone: draft.studentMayMarkDone ?? true,
     /*
       A link when the stored assignment names nothing, which is what a draft saved before this
       field existed holds. That is the same answer `blankDraft` starts from, and it keeps the form

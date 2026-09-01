@@ -74,8 +74,8 @@ async function main() {
 
   type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
 
-  /** A published task, individual unless a team set is asked for. */
-  async function task(tx: Tx, options: { teamSetId?: string } = {}) {
+  /** A published task, individual and self-marked unless asked otherwise. */
+  async function task(tx: Tx, options: { teamSetId?: string; studentMayMarkDone?: boolean } = {}) {
     await tx.enrollment.updateMany({
       where: { id: { in: [alice.id, bob?.id].filter((id): id is string => id !== undefined) } },
       data: { status: "ACTIVE" },
@@ -93,6 +93,7 @@ async function main() {
         distributedAt: new Date("2026-09-01T09:00:00Z"),
         dueAt: DUE,
         teamSetId: options.teamSetId ?? null,
+        studentMayMarkDone: options.studentMayMarkDone ?? true,
       },
       select: { id: true },
     });
@@ -382,6 +383,59 @@ async function main() {
           true,
         );
       }
+    },
+    { timeout: 60_000 },
+  );
+
+  // --- a task only an instructor may mark -----------------------------------
+  await inOwnTransaction(
+    db,
+    async (tx) => {
+      const assignmentId = await task(tx, { studentMayMarkDone: false });
+      const asAlice = createCaller({ db: tx, user: { id: alice.studentId } } as never);
+      const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
+
+      /*
+        Both directions refused by one check, because a fellow who may not mark a task done may
+        certainly not mark one not done. The student's panel draws no button from the same
+        function, so reaching this refusal means something other than the screen asked.
+      */
+      check(
+        "a fellow cannot mark an instructor-only task done",
+        await refusal(() => asAlice.submissions.markTask({ assignmentId, done: true })),
+        "FORBIDDEN",
+      );
+      check(
+        "nor mark it not done",
+        await refusal(() => asAlice.submissions.markTask({ assignmentId, done: false })),
+        "FORBIDDEN",
+      );
+      check(
+        "and no row was created by either attempt",
+        (await rowsFor(tx, assignmentId)).length,
+        0,
+      );
+
+      // The instructor's own control is unchanged: they set either verdict on any task.
+      await asInstructor.submissions.setTaskCompletion({
+        assignmentId,
+        studentId: alice.studentId,
+        done: true,
+      });
+
+      const marked = await rowsFor(tx, assignmentId);
+      check("an instructor still marks it", [marked.length, marked[0]!.isComplete], [1, true]);
+
+      /*
+        And the fellow may not take an instructor's mark back on this kind of task, which the
+        self-marked guard alone would have allowed: that one keys on `isComplete`, and a mark
+        standing as done is exactly what it lets a fellow clear.
+      */
+      check(
+        "and the fellow cannot undo it, though it stands as done",
+        await refusal(() => asAlice.submissions.markTask({ assignmentId, done: false })),
+        "FORBIDDEN",
+      );
     },
     { timeout: 60_000 },
   );

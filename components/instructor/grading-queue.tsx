@@ -12,6 +12,7 @@ import {
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { TaskReview } from "@/components/instructor/task-review";
+import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import type { BatchState } from "@/hooks/use-batch-generate";
@@ -82,6 +83,13 @@ export function GradingQueue({
    * fellow a row, including the ones with nothing on record.
    */
   const isTask = data.assignment.kind === "TASK";
+
+  /*
+    Whether fellows may mark this task themselves. Read once for the page, like `isTask` beside it,
+    because it is a property of the assignment rather than of a row — and passed to the pane so it
+    can say what an unmarked task means, which differs by the answer.
+  */
+  const selfMarked = taskIsSelfMarked(data.assignment);
 
   /*
     A student who has not opened a pull request is not in the queue. They have not done anything
@@ -485,6 +493,7 @@ export function GradingQueue({
                 isComplete={null}
                 markedAt={null}
                 markedBy={null}
+                selfMarked={selfMarked}
                 studentHref={studentHref(data.assignment.courseId, selectedFellow.id)}
                 now={now}
               />
@@ -496,6 +505,7 @@ export function GradingQueue({
                 isComplete={selected.isComplete}
                 markedAt={selected.gradedAt}
                 markedBy={selected.gradedBy}
+                selfMarked={selfMarked}
                 studentHref={studentHref(data.assignment.courseId, selected.student.id)}
                 now={now}
               />

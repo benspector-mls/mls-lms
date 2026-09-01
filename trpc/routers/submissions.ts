@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { isManualOnly } from "@/lib/assignments/spec";
+import { isManualOnly, taskIsSelfMarked } from "@/lib/assignments/spec";
 import { auditActor, auditEventData } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { Tx } from "@/lib/prisma";
@@ -777,6 +777,27 @@ export const submissionsRouter = createTRPCRouter({
         });
       }
 
+      /*
+        Some tasks are attested rather than self-reported — a laptop an instructor looks over, a
+        form only they can see the responses to — and on those a fellow may set no verdict at all.
+
+        **One check covering both directions**, because a fellow who may not mark a task done may
+        certainly not mark one not done. The refusal reads as the rule rather than as a failure:
+        nothing has gone wrong, this is simply not their task to settle.
+
+        `taskIsSelfMarked` and nothing inline, because the student's screen draws its button from
+        the same answer. A button drawn where this refuses is a fellow pressing it and being told
+        no, which is the failure the shared function exists to make impossible.
+      */
+      if (!taskIsSelfMarked(assignment)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Your instructor marks this one done. Do the task, then let them know — they will " +
+            "mark it once they have checked it.",
+        });
+      }
+
       // `assertCanHandIn` resolved the caller's team and refused a fellow placed on none of the
       // assignment's, so this is simply which row the mark lands on.
       const work = await resolveTaskWork(ctx.db, {
@@ -1354,6 +1375,10 @@ export const submissionsRouter = createTRPCRouter({
         courseId: true,
         dueAt: true,
         kind: true,
+        // Whether fellows may mark a task themselves. Read for the page rather than per row: it is
+        // a property of the assignment, and the pane says different things about an unmarked task
+        // depending on the answer.
+        studentMayMarkDone: true,
         sections: true,
         // The program whose roster the cohort filter narrows, which the assignment reaches
         // through its course.
@@ -1458,6 +1483,7 @@ export const submissionsRouter = createTRPCRouter({
           courseId: assignment.courseId,
           dueAt: assignment.dueAt,
           kind: assignment.kind,
+          studentMayMarkDone: assignment.studentMayMarkDone,
           manualOnly,
         },
         /**

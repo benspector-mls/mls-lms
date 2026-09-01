@@ -45,6 +45,15 @@ export function TaskReview({
   /** When the standing verdict was set, and by whom. Null when there is no verdict. */
   markedAt,
   markedBy,
+  /**
+   * Whether fellows may mark this task themselves, from `taskIsSelfMarked`.
+   *
+   * Changes nothing about what this pane can do — an instructor sets either verdict on any task —
+   * and is shown because it changes what the fellow is waiting for. On a task only the instructor
+   * marks, an empty verdict means the fellow may well have done the thing and be waiting to be
+   * checked, rather than not having started.
+   */
+  selfMarked,
   studentHref,
   now,
 }: {
@@ -53,6 +62,7 @@ export function TaskReview({
   isComplete: boolean | null;
   markedAt: Date | null;
   markedBy: Person | null;
+  selfMarked: boolean;
   studentHref?: string;
   now: Date;
 }) {
@@ -91,8 +101,13 @@ export function TaskReview({
                 {markedAt ? ` on ${formatDateTime(markedAt)}` : ""}. They can see that, and can mark
                 it done again once they have redone it.
               </>
-            ) : (
+            ) : selfMarked ? (
               <>Nobody has marked this yet.</>
+            ) : (
+              <>
+                Not marked yet. Fellows cannot mark this one, so they may have done it and be
+                waiting on you.
+              </>
             )}
           </p>
 
@@ -129,6 +144,7 @@ export function TaskReview({
           <p className="text-xs text-muted-foreground">
             Marking it not done is what sends it back: it shows on their dashboard as needing
             another attempt, and they cannot clear it themselves. Say why below.
+            {!selfMarked && " Fellows cannot mark this task at all — every verdict on it is yours."}
           </p>
         </CardContent>
       </Card>

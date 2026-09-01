@@ -1065,6 +1065,28 @@ model Assignment {
   /// `/presentation/d/<id>/` — and it breaks if that changes.
   templateDriveUrl String? @map("template_drive_url")
 
+  /// Whether a fellow may set this task's verdict themselves, or only their instructor may.
+  ///
+  /// **Required when `kind` is TASK and null otherwise**, enforced by the Zod schema for the same
+  /// reason `templateDriveUrl` above is: a column cannot express "required for one kind", and a
+  /// NOT NULL here would make every repository assignment answer a question about marking that
+  /// does not apply to it.
+  ///
+  /// A boolean rather than an enum naming the two parties, because there are two answers and
+  /// there is no third to leave room for. "The fellow marks it and the instructor confirms" is
+  /// not a third answer — it is what `true` already describes, since an instructor may set either
+  /// verdict over the top of a fellow's mark whatever this says.
+  ///
+  /// **`true` is the permissive answer and the default.** A task nobody said otherwise about is
+  /// one a fellow marks done, which is what every task did before this column existed. `false`
+  /// says the fellow does the thing and somebody else attests to it — a laptop an instructor
+  /// checks over, a form only they can see the responses to.
+  ///
+  /// Read through `taskIsSelfMarked` in lib/assignments/spec.ts and nowhere else, because the
+  /// student's screen and the mutation that refuses them have to agree: a button drawn where the
+  /// server will refuse it is a fellow pressing it and being told no.
+  studentMayMarkDone Boolean? @map("student_may_mark_done")
+
   /// Which kinds of file this assignment accepts, as keys of UPLOAD_FILE_TYPES in
   /// lib/uploads/file-types.ts. Non-empty when FILE is one of `handInMethods` and
   /// empty otherwise, enforced by the Zod schema for the same reason the columns

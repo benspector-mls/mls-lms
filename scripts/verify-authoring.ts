@@ -28,6 +28,7 @@ import {
   derivesTestEvidence,
   handInMethodsFor,
   hasAcceptStep,
+  taskIsSelfMarked,
   isAiGraded,
   isManualOnly,
   manualSections,
@@ -865,6 +866,47 @@ check(
 check("and it has no Accept", hasAcceptStep(AssignmentKind.SELF_DIRECTED), false);
 check("a task is not repository-backed", requiresRepository(AssignmentKind.TASK), false);
 check("and it has no Accept either", hasAcceptStep(AssignmentKind.TASK), false);
+/*
+  Who marks a task is the only field the kind has of its own, and the only one of these four kinds
+  that is asked the question at all. Null on the other three rather than false, because "may the
+  fellow mark this done" has no answer for work that is handed in.
+*/
+check(
+  "a task is marked by the fellow unless somebody says otherwise",
+  parseAssignmentSpec({
+    kind: AssignmentKind.TASK,
+    title: "Set up your laptop",
+    courseUnitId: docSpec.courseUnitId,
+    sections: [],
+  }).studentMayMarkDone,
+  true,
+);
+check(
+  "and an instructor-only task is kept as one",
+  parseAssignmentSpec({
+    kind: AssignmentKind.TASK,
+    title: "Set up your laptop",
+    courseUnitId: docSpec.courseUnitId,
+    sections: [],
+    studentMayMarkDone: false,
+  }).studentMayMarkDone,
+  false,
+);
+check(
+  "a Drive assignment is asked no such question",
+  parseAssignmentSpec(docSpec).studentMayMarkDone,
+  null,
+);
+check(
+  "nobody self-marks a kind that is handed in",
+  [
+    taskIsSelfMarked({ kind: AssignmentKind.TASK, studentMayMarkDone: true }),
+    taskIsSelfMarked({ kind: AssignmentKind.TASK, studentMayMarkDone: false }),
+    taskIsSelfMarked({ kind: AssignmentKind.TASK, studentMayMarkDone: null }),
+    taskIsSelfMarked({ kind: AssignmentKind.REPO, studentMayMarkDone: null }),
+  ],
+  [true, false, true, false],
+);
 check(
   "a task is worth one point, whatever is typed",
   parseAssignmentSpec({

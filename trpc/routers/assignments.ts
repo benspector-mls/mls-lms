@@ -63,6 +63,7 @@ const assignmentFields = {
   // control offers and refuses, and the instructions are what the assignment says about turning
   // it in.
   templateDriveUrl: true,
+  studentMayMarkDone: true,
   handInMethods: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
@@ -251,6 +252,7 @@ function writableFields(
     // column that silently keeps its old value on update and its default on create, which
     // for `templateDriveUrl` would be a Google Drive assignment with nothing to distribute.
     templateDriveUrl: spec.templateDriveUrl,
+    studentMayMarkDone: spec.studentMayMarkDone,
     handInMethods: spec.handInMethods,
     acceptedFileTypes: spec.acceptedFileTypes,
     submissionInstructions: spec.submissionInstructions,
@@ -811,6 +813,7 @@ export const assignmentsRouter = createTRPCRouter({
         runnerPreset: true,
         runnerConfig: true,
         templateDriveUrl: true,
+        studentMayMarkDone: true,
         handInMethods: true,
         acceptedFileTypes: true,
         submissionInstructions: true,
@@ -1212,6 +1215,7 @@ type CopyableAssignment = {
   runnerPreset: string;
   runnerConfig: unknown;
   templateDriveUrl: string | null;
+  studentMayMarkDone: boolean | null;
   handInMethods: HandInMethod[];
   acceptedFileTypes: string[];
   submissionInstructions: string | null;
@@ -1235,6 +1239,7 @@ export const copyableAssignmentSelect = {
   runnerPreset: true,
   runnerConfig: true,
   templateDriveUrl: true,
+  studentMayMarkDone: true,
   handInMethods: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
@@ -1348,6 +1353,7 @@ export async function copyAssignmentInto(
     runnerPreset: source.runnerPreset,
     runnerConfig: source.runnerConfig,
     templateDriveUrl: source.templateDriveUrl,
+    studentMayMarkDone: source.studentMayMarkDone,
     handInMethods: source.handInMethods,
     acceptedFileTypes: source.acceptedFileTypes,
     submissionInstructions: source.submissionInstructions,

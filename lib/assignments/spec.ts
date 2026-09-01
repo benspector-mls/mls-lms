@@ -125,6 +125,33 @@ export function hasAcceptStep(kind: AssignmentKind): boolean {
   return kind === AssignmentKind.REPO || kind === AssignmentKind.GOOGLE_DRIVE;
 }
 
+/** The parts of an assignment that say who may mark it. Structural, so a test can pass a literal. */
+export type MarkingShape = {
+  kind: AssignmentKind;
+  studentMayMarkDone: boolean | null;
+};
+
+/**
+ * Whether a fellow may set this task's verdict themselves.
+ *
+ * **One function, because two screens have to agree about it.** The student's panel decides
+ * whether to draw the button and `markTask` decides whether to refuse the press, and a button
+ * drawn where the server refuses is a fellow pressing it and being told no — the same failure
+ * `hasAcceptStep` exists to prevent, where a row with no Accept button also could not be opened.
+ *
+ * False for every kind but `TASK`, and that is the honest answer rather than a degenerate one:
+ * nobody marks a pull request done, so there is no permission to grant. It means a caller can ask
+ * this about any assignment without checking the kind first.
+ *
+ * A null on a task is treated as permitted, which is the direction the backfill already took:
+ * every task that existed before the column was self-marked, so a row that somehow reaches here
+ * without an answer gets the one it would have had.
+ */
+export function taskIsSelfMarked(assignment: MarkingShape): boolean {
+  if (assignment.kind !== AssignmentKind.TASK) return false;
+  return assignment.studentMayMarkDone !== false;
+}
+
 export class UnsupportedAssignmentKindError extends Error {
   constructor(readonly kind: AssignmentKind) {
     super(
@@ -619,6 +646,23 @@ const noHandInChoice = {
 };
 
 /**
+ * The marking question, on the three kinds that are not asked it.
+ *
+ * `null` rather than `true`, and this is the one of these fragments where the choice is not
+ * cosmetic. `handInMethods` and `acceptedFileTypes` are empty on a kind that has no answer,
+ * because a set genuinely has one — none. "May the fellow mark this done" has no such answer for
+ * an assignment that is handed in rather than marked: `true` would read as permission granted and
+ * `false` as permission withheld, and neither is true of a pull request.
+ *
+ * Spelled out on each branch rather than left off, for the reason `noRepository` gives: a kind
+ * added later that forgets to say so fails to compile instead of inheriting whatever the previous
+ * branch had.
+ */
+const noTaskMarking = {
+  studentMayMarkDone: z.null().default(null),
+};
+
+/**
  * A Google Drive editor URL the copy prompt can be built from.
  *
  * Anchored on the editor, the file id, and the final path segment rather than accepting any
@@ -718,6 +762,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       templateDriveUrl: z.null().default(null),
       ...noUpload,
       ...noHandInChoice,
+      ...noTaskMarking,
     })
     .strict()
     /*
@@ -759,6 +804,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
         ),
       ...noUpload,
       ...noHandInChoice,
+      ...noTaskMarking,
     })
     .strict(),
 
@@ -793,6 +839,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       kind: z.literal(AssignmentKind.SELF_DIRECTED),
       ...shared,
       ...noRepository,
+      ...noTaskMarking,
       templateDriveUrl: z.null().default(null),
       /**
        * How the student may hand it in, and at least one is required.
@@ -888,6 +935,17 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
        * here rather than loosening `shared` keeps the requirement in force everywhere it belongs.
        */
       sections: z.array(z.never()).max(0).default([]),
+      /**
+       * Whether a fellow may mark this one done themselves.
+       *
+       * The only field this kind has of its own, and the only question a task raises that its
+       * kind does not already answer: everything else about a task follows from there being
+       * nothing to hand in, and who is allowed to say it was done does not.
+       *
+       * Defaults to `true`, so a task authored without an opinion is one a fellow marks — which
+       * is both the commoner case and what every task did before the field existed.
+       */
+      studentMayMarkDone: z.boolean().default(true),
     })
     .strict(),
 ]);
