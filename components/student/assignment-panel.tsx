@@ -1,7 +1,6 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import * as React from "react";
@@ -1190,16 +1189,89 @@ const UPLOAD_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
 };
 
 /**
+ * Sends one file to the address the server signed, reporting how far it has got.
+ *
+ * **`XMLHttpRequest` rather than `fetch`, for the one thing the old API can still do.** A student
+ * handing in a 20MB scan over a home connection waits a while, and `fetch` cannot say how far a
+ * request body has been sent — it reports when the response arrives and nothing before. So the
+ * request that carries the file uses the API with an upload progress event, and the two small
+ * calls on either side of it stay ordinary tRPC mutations.
+ *
+ * Wrapped in a promise so the caller reads as a sequence rather than as callbacks.
+ *
+ * Every rejection is a sentence for a student. The status codes it names are the bucket's own —
+ * it refuses an oversized object and an unexpected type itself, which is what makes those
+ * refusals worth translating rather than reporting as a number.
+ */
+function sendFile(params: {
+  url: string;
+  contentType: string;
+  file: File;
+  onProgress: (percent: number) => void;
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("PUT", params.url);
+
+    /*
+      The type the server decided from the extension, not the one the browser guessed for the
+      file. `beginUpload` sends it here for that reason, and `recordUpload` checks that the object
+      really was stored under it — so this line is the courier and neither end takes it on trust.
+    */
+    request.setRequestHeader("content-type", params.contentType);
+
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        params.onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+
+    request.addEventListener("load", () => {
+      if (request.status >= 200 && request.status < 300) return resolve();
+
+      if (request.status === 413) {
+        return reject(
+          new Error(
+            `That file is ${formatBytes(params.file.size)}, and the limit is ` +
+              `${formatBytes(MAX_UPLOAD_BYTES)}.`,
+          ),
+        );
+      }
+
+      reject(new Error("That upload did not go through. Try again."));
+    });
+
+    request.addEventListener("error", () =>
+      reject(new Error("That upload did not go through — check your connection and try again.")),
+    );
+
+    request.addEventListener("abort", () =>
+      reject(new Error("That upload stopped before it finished. Try again.")),
+    );
+
+    request.send(params.file);
+  });
+}
+
+/**
  * Handing in a file.
  *
- * Posts to `/api/submissions/upload` rather than calling a tRPC mutation, because tRPC's
- * transport is JSON and a file would have to be base64'd into it. One request stores the bytes
- * and marks the work submitted, so there is no state where a student has uploaded something
- * and the submission does not say so — see the route's own comment.
+ * **Three steps, because the bytes do not come through this application.** `beginUpload` asks
+ * whether this file may be handed in and returns an address in the bucket; the browser sends the
+ * file straight there; `recordUpload` writes down what arrived and puts the work in the
+ * instructor's queue. The reason is a limit rather than a preference: a Vercel function may not
+ * receive a request body over 4.5MB, so a 6MB scan sent through one is refused by the platform
+ * before any code here runs — which is what a student saw before this, as an error nothing on
+ * their screen could explain.
  *
- * The size and type are checked here as well as on the server. Not as the guarantee, which is
- * the server's and the bucket's: as the difference between being told immediately and being
- * told after spending a minute uploading 40MB on a phone tether.
+ * The consequence to know is the middle step. A connection that drops after the file is stored
+ * and before it is recorded leaves the work unsubmitted with the bytes already in the bucket. The
+ * student sees this form still asking for a file, which is true, and uploading again works;
+ * `reconcile:uploads` removes what was left behind.
+ *
+ * The size and type are checked here as well as on the server. Not as the guarantee, which is the
+ * server's and the bucket's: as the difference between being told immediately and being told
+ * after spending a minute uploading 40MB on a phone tether.
  */
 function UploadWorkForm({
   assignmentId,
@@ -1211,11 +1283,24 @@ function UploadWorkForm({
   /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
   mode: Exclude<HandInMode, "locked">;
 }) {
-  const router = useRouter();
+  const trpc = useTRPC();
+  const settled = useServerMutation();
   const inputId = `upload-${assignmentId}`;
   const [file, setFile] = React.useState<File | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  /** How much of the file has been sent, or null when nothing is in flight. */
+  const [percent, setPercent] = React.useState<number | null>(null);
+
+  /*
+    Only the second mutation refreshes the screen. `beginUpload` records nothing a student can
+    see — it hands back an address — and refreshing on it would re-render the page in the middle
+    of an upload, for no change.
+  */
+  const begin = useMutation(trpc.submissions.beginUpload.mutationOptions());
+  const record = useMutation(
+    trpc.submissions.recordUpload.mutationOptions(settled({ onError: shownInPlace })),
+  );
 
   const choose = (chosen: File | null) => {
     setFile(chosen);
@@ -1235,28 +1320,32 @@ function UploadWorkForm({
 
     setBusy(true);
     setError(null);
+    setPercent(0);
 
     try {
-      const body = new FormData();
-      body.set("assignmentId", assignmentId);
-      body.set("file", file);
+      const destination = await begin.mutateAsync({
+        assignmentId,
+        filename: file.name,
+        sizeBytes: file.size,
+      });
 
-      const response = await fetch("/api/submissions/upload", { method: "POST", body });
+      await sendFile({
+        url: destination.uploadUrl,
+        contentType: destination.contentType,
+        file,
+        onProgress: setPercent,
+      });
 
-      if (!response.ok) {
-        // The route answers with a message written for a student on every refusal it makes,
-        // so this shows what came back rather than a status code.
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(payload?.error ?? "That upload did not go through. Try again.");
-        return;
-      }
-
+      await record.mutateAsync({ assignmentId, path: destination.path, filename: file.name });
       setFile(null);
-      router.refresh();
-    } catch {
-      setError("That upload did not go through — check your connection and try again.");
+    } catch (err) {
+      // Every refusal on this path is written for a student — by the two procedures, by the
+      // bucket through `sendFile`, or by `checkUpload` before any of them — so the message is
+      // shown rather than replaced with one about a status code.
+      setError(err instanceof Error ? err.message : "That upload did not go through. Try again.");
     } finally {
       setBusy(false);
+      setPercent(null);
     }
   }
 
@@ -1288,15 +1377,36 @@ function UploadWorkForm({
           id={inputId}
           type="file"
           required
+          disabled={busy}
           accept={acceptAttributeFor(acceptedFileTypes)}
           onChange={(event) => choose(event.target.files?.[0] ?? null)}
-          className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
         />
         <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
           {busy ? "Uploading…" : UPLOAD_FORM_BUTTON[mode]}
         </Button>
       </div>
-      {file && !error && (
+      {/*
+        A bar while the file is in flight, and a percentage beside it.
+
+        `percent === 100` is not "done" — it is every byte handed to the network, with
+        `recordUpload` still to come — so the label says what is actually happening rather than
+        sitting on "100%" for a beat and looking stuck.
+      */}
+      {percent !== null && (
+        <div className="flex flex-col gap-1" aria-live="polite">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-150"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {percent < 100 ? `Uploading — ${percent}%` : "Finishing up…"}
+          </p>
+        </div>
+      )}
+      {file && !error && percent === null && (
         <p className="text-xs text-muted-foreground">
           {file.name} — {formatBytes(file.size)}
         </p>

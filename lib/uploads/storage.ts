@@ -3,19 +3,25 @@ import "server-only";
 import { StorageClient } from "@supabase/storage-js";
 import { randomUUID } from "node:crypto";
 
-import { MAX_UPLOAD_BYTES, safeDownloadName } from "./file-types";
+import { safeDownloadName } from "./file-types";
 
 /**
  * Where an uploaded submission lives, and who can reach it.
  *
- * **The bucket is private and has no policies for `anon` or `authenticated`, so the browser
- * cannot read or write it at all.** Every access goes through this module, which holds the
- * service role key, and reaching a file means asking a procedure that authorizes the caller
- * for a signed URL that expires. That is the same posture the database has — `REVOKE ALL` plus
+ * **The bucket is private and has no policies for `anon` or `authenticated`, so nothing the
+ * browser holds gives it standing access.** Every act on it goes through this module, which
+ * holds the service role key. That is the same posture the database has — `REVOKE ALL` plus
  * row level security with no policies, with Prisma connecting as the owner — and it is
  * deliberately stronger than per-student storage policies: a policy is a second description of
  * who may see what, and two descriptions can disagree. Here there is one, and it is procedure
  * code.
+ *
+ * **The browser does reach the bucket twice, and both times carrying something this module
+ * signed.** Reading means asking a procedure that authorizes the caller for a download URL that
+ * expires in minutes. Writing means asking one for an upload URL good for a single object — see
+ * `signedUploadUrl`, which is also where the reason the bytes no longer come through a function
+ * of ours is written down. Neither is a key and neither is a policy: each is one decision this
+ * module already made, in a form that expires and covers nothing else.
  *
  * The consequence to know: nothing can be fetched with supabase-js from the browser, and an
  * `<img src>` pointing at a stored object will not load. Both are correct — a student's
@@ -98,35 +104,64 @@ export function submissionUploadPath(params: { submissionId: string; extension: 
 }
 
 /**
- * Stores the bytes and returns the path they went to.
+ * A URL the browser may send one file to, and nothing else.
  *
- * `upsert: false`, because the path contains a fresh UUID: a collision would mean something
- * is wrong that overwriting would hide.
+ * **This is what lets a student hand in a file larger than 4.5MB.** Bytes used to travel to a
+ * route handler and from there to the bucket, and the hop in between is a Vercel function, whose
+ * request body may not exceed 4.5MB on any plan — so the 25MB the bucket accepts was unreachable
+ * and a 6MB scan was refused by the platform before our own code ran. The browser sends the file
+ * straight here instead, and the two halves of the hand-in — asking permission and recording what
+ * arrived — carry only JSON.
+ *
+ * **What the browser is trusted with, exactly.** The token Supabase returns is signed and says
+ * `{ url: "<bucket>/<this one path>", upsert: false, scope: "upload" }`, expiring in two hours.
+ * It writes that one object once: a second attempt on the same path is refused as a duplicate, a
+ * different path fails the signature, and it reads nothing — not the object it just wrote, not
+ * the bucket's listing, not a database row. So it is a capability rather than a credential, and
+ * the authorization it stands for is `assertCanHandIn`, which ran on the server before this was
+ * minted. The service role key never leaves this module.
+ *
+ * **The bucket still refuses what it always refused.** Its own size limit and its allow-list of
+ * content types are enforced on this upload exactly as on a server-side one — a body over the
+ * limit comes back `413 EntityTooLarge` and a disallowed type `415 InvalidMimeType`, with nothing
+ * stored either way. That is what makes moving the transfer to the browser safe rather than
+ * merely convenient: the guarantee was never in our code, it was always here.
  */
-export async function storeSubmissionUpload(params: {
-  submissionId: string;
-  extension: string;
-  contentType: string;
-  bytes: ArrayBuffer | Buffer;
-}): Promise<{ path: string }> {
-  // Checked again here rather than trusting the caller. This is the last point before bytes
-  // are written and it costs one comparison; the bucket's own limit is the guarantee behind it.
-  if (params.bytes.byteLength > MAX_UPLOAD_BYTES) {
-    throw new UploadStorageError(`That file is larger than the ${MAX_UPLOAD_BYTES} byte limit.`);
-  }
-
-  const path = submissionUploadPath(params);
-  const { error } = await storageClient()
+export async function signedUploadUrl(params: { path: string }): Promise<{ url: string }> {
+  const { data, error } = await storageClient()
     .from(SUBMISSION_UPLOAD_BUCKET)
-    .upload(path, params.bytes, { contentType: params.contentType, upsert: false });
+    .createSignedUploadUrl(params.path);
 
-  if (error) {
+  if (error || !data?.signedUrl) {
     throw new UploadStorageError(
-      `Could not store the upload for submission ${params.submissionId}: ${error.message}`,
+      `Could not sign an upload for ${params.path}: ${error?.message ?? "no URL returned"}`,
     );
   }
 
-  return { path };
+  return { url: data.signedUrl };
+}
+
+/**
+ * What the bucket holds at one path, or null when it holds nothing there.
+ *
+ * **Read from storage rather than believed from the browser**, which is the point of it. The size
+ * and the content type are written into the submission row and shown to an instructor, and after
+ * the transfer moved to the browser the only honest source for both is the object itself. A
+ * student's own report of what they uploaded is a claim; this is the fact.
+ *
+ * Null rather than an exception for a missing object, because "the upload never finished" is an
+ * ordinary thing to have happened — a closed tab, a dropped connection — and the caller answers
+ * it with a sentence rather than a stack trace.
+ */
+export async function uploadedObjectInfo(
+  path: string,
+): Promise<{ sizeBytes: number; contentType: string } | null> {
+  const { data, error } = await storageClient().from(SUBMISSION_UPLOAD_BUCKET).info(path);
+
+  if (error || !data) return null;
+  if (typeof data.size !== "number" || typeof data.contentType !== "string") return null;
+
+  return { sizeBytes: data.size, contentType: data.contentType };
 }
 
 /**
@@ -206,6 +241,61 @@ export async function submissionUploadExists(path: string): Promise<boolean> {
 
   if (error) return false;
   return (data ?? []).some((entry) => entry.name === name);
+}
+
+/**
+ * Every object in the bucket, with the two facts that decide whether it is still wanted.
+ *
+ * For `reconcile:uploads`, and shaped by what that has to decide rather than by what the storage
+ * API returns. The bucket is two levels deep by construction — `submissionUploadPath` writes
+ * `<submission id>/<generated>.<extension>` and nothing else writes here — so this lists the
+ * folders and then the objects inside each, which is the whole of the traversal.
+ *
+ * **Paged, because a listing silently stops at a limit.** Supabase returns 100 entries by default
+ * and a reconciler that read only the first hundred would report the rest as absent — which, for
+ * a program that deletes what it does not recognise, is the one failure mode worth writing a loop
+ * to avoid. It asks for pages until a short one comes back.
+ *
+ * `createdAt` is nullable because the API types it so. An object with no timestamp is treated by
+ * the caller as too young to touch, which is the safe reading of not knowing how old something is.
+ */
+export async function listStoredUploads(): Promise<
+  { path: string; sizeBytes: number; createdAt: Date | null }[]
+> {
+  const client = storageClient().from(SUBMISSION_UPLOAD_BUCKET);
+  const PAGE = 100;
+
+  const page = async (prefix: string, offset: number) => {
+    const { data, error } = await client.list(prefix, { limit: PAGE, offset });
+    if (error)
+      throw new UploadStorageError(`Could not list ${prefix || "the bucket"}: ${error.message}`);
+    return data ?? [];
+  };
+
+  const all = async (prefix: string) => {
+    const entries = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const batch = await page(prefix, offset);
+      entries.push(...batch);
+      if (batch.length < PAGE) return entries;
+    }
+  };
+
+  const objects: { path: string; sizeBytes: number; createdAt: Date | null }[] = [];
+
+  // A folder comes back with a null `id` and null timestamps; an object has both. That is how
+  // the API distinguishes the two, and there is no other way to ask.
+  for (const folder of (await all("")).filter((entry) => entry.id === null)) {
+    for (const object of (await all(folder.name)).filter((entry) => entry.id !== null)) {
+      objects.push({
+        path: `${folder.name}/${object.name}`,
+        sizeBytes: Number(object.metadata?.size ?? 0),
+        createdAt: object.created_at ? new Date(object.created_at) : null,
+      });
+    }
+  }
+
+  return objects;
 }
 
 /** Removes one stored object. Used by the verification script and by course removal below. */

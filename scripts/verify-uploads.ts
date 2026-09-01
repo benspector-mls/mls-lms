@@ -354,20 +354,38 @@ async function main() {
   );
 
   // --- a real round trip ----------------------------------------------------
-  const {
-    signedDownloadUrl,
-    storeSubmissionUpload,
-    submissionUploadExists,
-    removeSubmissionUpload,
-  } = await import("../lib/uploads/storage");
+  const { signedDownloadUrl, signedUploadUrl, submissionUploadExists, removeSubmissionUpload } =
+    await import("../lib/uploads/storage");
+
+  /**
+   * Puts bytes in the bucket exactly the way a student's browser does.
+   *
+   * The server no longer stores anything itself — it signs an address and the browser sends the
+   * file there — so a script that wrote through some other route would be testing a path nobody
+   * uses. This is the real one: mint the address, PUT the bytes with the content type the server
+   * decided, and let the bucket refuse what it refuses.
+   */
+  const uploadAsBrowser = async (path: string, contentType: string, bytes: Buffer) => {
+    const { url } = await signedUploadUrl({ path });
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: { "content-type": contentType },
+      body: new Uint8Array(bytes),
+    });
+
+    if (!response.ok) {
+      throw new Error(`the bucket refused the upload: ${response.status} ${await response.text()}`);
+    }
+
+    return { path };
+  };
 
   const body = Buffer.from("%PDF-1.4 verify:uploads round trip\n");
-  const stored = await storeSubmissionUpload({
-    submissionId: `verify-${Date.now()}`,
-    extension: ".pdf",
-    contentType: "application/pdf",
-    bytes: body,
-  });
+  const stored = await uploadAsBrowser(
+    submissionUploadPath({ submissionId: `verify-${Date.now()}`, extension: ".pdf" }),
+    "application/pdf",
+    body,
+  );
 
   try {
     check("the object is there once stored", await submissionUploadExists(stored.path), true);
@@ -458,12 +476,11 @@ async function main() {
   const notebookType = contentTypeFor(".ipynb")!;
   let notebookStored: { path: string } | null = null;
   try {
-    notebookStored = await storeSubmissionUpload({
-      submissionId: `verify-${Date.now()}`,
-      extension: ".ipynb",
-      contentType: notebookType,
-      bytes: notebookBytes,
-    });
+    notebookStored = await uploadAsBrowser(
+      submissionUploadPath({ submissionId: `verify-${Date.now()}`, extension: ".ipynb" }),
+      notebookType,
+      notebookBytes,
+    );
     check("the bucket accepts every type this build can store", true, true);
   } catch (err) {
     check(
@@ -499,12 +516,11 @@ async function main() {
   const pythonType = contentTypeFor(".py")!;
   let pythonStored: { path: string } | null = null;
   try {
-    pythonStored = await storeSubmissionUpload({
-      submissionId: `verify-${Date.now()}`,
-      extension: ".py",
-      contentType: pythonType,
-      bytes: Buffer.from("def main():\n    print('hello')\n"),
-    });
+    pythonStored = await uploadAsBrowser(
+      submissionUploadPath({ submissionId: `verify-${Date.now()}`, extension: ".py" }),
+      pythonType,
+      Buffer.from("def main():\n    print('hello')\n"),
+    );
     check("the bucket accepts Python too", true, true);
   } catch (err) {
     check(
@@ -535,7 +551,7 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
-  const { assertCanHandIn, discardReplacedUpload, storeAndRecordUpload } =
+  const { assertCanHandIn, beginUpload, discardReplacedUpload, recordUpload } =
     await import("../lib/uploads/submit");
 
   /*
@@ -611,6 +627,39 @@ async function main() {
         const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
         const asStudent = createCaller({ db: tx, user: { id: studentId } } as never);
 
+        /**
+         * The three steps handing in a file actually takes, run in order.
+         *
+         * A student's browser asks `beginUpload` where to put the file, sends it there, and tells
+         * `recordUpload` it arrived. Driving the two procedures without the upload between them
+         * would test a sequence nobody performs — and the checks below turn on what is really in
+         * the bucket, which only a real upload puts there.
+         *
+         * Every path is remembered whether or not the hand-in completes: the rollback undoes the
+         * rows and not the bytes.
+         */
+        const handInFile = async (
+          assignment: Awaited<ReturnType<typeof assertCanHandIn>>,
+          filename: string,
+          bytes: Buffer,
+        ) => {
+          const destination = await beginUpload(tx as never, {
+            profileId: studentId,
+            assignment,
+            filename,
+            sizeBytes: bytes.byteLength,
+          });
+          strays.push(destination.path);
+          await uploadAsBrowser(destination.path, destination.contentType, bytes);
+
+          return recordUpload(tx as never, {
+            profileId: studentId,
+            assignment,
+            path: destination.path,
+            filename,
+          });
+        };
+
         // Inside the transaction, so it is undone with everything else. Handing work in needs an
         // active student, and the seeded one may have been removed in the running application.
         if (enrollment!.status !== "ACTIVE") {
@@ -672,26 +721,36 @@ async function main() {
         });
         check("a published assignment can be handed in to", handIn.acceptedFileTypes, ["pdf"]);
 
-        // The wrong kind of file is refused before anything is stored.
+        // The wrong kind of file is refused before an address to send it to even exists, which
+        // is earlier than it used to be refused: nothing can reach the bucket at all.
         check(
           "a type the assignment does not accept is refused",
           await refusal(() =>
-            storeAndRecordUpload(tx as never, {
+            beginUpload(tx as never, {
               profileId: studentId,
               assignment: handIn,
               filename: "screenshot.png",
-              bytes: Buffer.from("not a pdf"),
+              sizeBytes: 1024,
             }),
           ),
           "BAD_REQUEST",
         );
 
-        const submission = await storeAndRecordUpload(tx as never, {
-          profileId: studentId,
-          assignment: handIn,
-          filename: "Ben Spector resume.pdf",
-          bytes: body,
-        });
+        // And so is one over the limit, on what the browser says, before a byte is sent.
+        check(
+          "a file over the limit is refused before it is uploaded",
+          await refusal(() =>
+            beginUpload(tx as never, {
+              profileId: studentId,
+              assignment: handIn,
+              filename: "enormous.pdf",
+              sizeBytes: MAX_UPLOAD_BYTES + 1,
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+
+        const submission = await handInFile(handIn, "Ben Spector resume.pdf", body);
 
         check(
           "uploading is what enters the queue",
@@ -721,6 +780,124 @@ async function main() {
           true,
         );
 
+        /*
+          --- what the browser is not trusted about --------------------------
+
+          The bytes travel from the student's machine to the bucket without passing through this
+          application, so everything the second call says about them is a claim. These are the
+          four ways that claim could be false, and each has to be refused — there is nothing
+          behind these checks, because the only other thing that saw the file was the browser.
+
+          The signed address itself refuses two of them outright: it names one path and covers it
+          with a signature, so a token cannot be aimed anywhere else, and it writes once. What is
+          left is what a caller could still *say* to `recordUpload`, which is what these are.
+        */
+        const otherSubmission = await tx.submission.findFirst({
+          where: { id: { not: submission.id } },
+          select: { id: true },
+        });
+
+        if (otherSubmission) {
+          check(
+            "a path in somebody else's folder cannot be recorded",
+            await refusal(() =>
+              recordUpload(tx as never, {
+                profileId: studentId,
+                assignment: handIn,
+                path: `${otherSubmission.id}/stolen.pdf`,
+                filename: "stolen.pdf",
+              }),
+            ),
+            "FORBIDDEN",
+          );
+        } else {
+          console.log("skip  a path in somebody else's folder — only one submission row exists");
+        }
+
+        // An address that was minted and never used. This is the state a dropped connection
+        // leaves, and it must not be recordable as a hand-in.
+        const unused = await beginUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "never sent.pdf",
+          sizeBytes: body.byteLength,
+        });
+        check(
+          "a file that never arrived cannot be recorded",
+          await refusal(() =>
+            recordUpload(tx as never, {
+              profileId: studentId,
+              assignment: handIn,
+              path: unused.path,
+              filename: "never sent.pdf",
+            }),
+          ),
+          "NOT_FOUND",
+        );
+
+        /*
+          The browser sets the content type header on its own upload, so it could send one the
+          bucket allows for some other kind of file. The bucket refuses a type on no list at all;
+          this refuses a type that is on the list but is not what this file's extension means —
+          which is what keeps `contentTypeFor` the only thing that ever decides how a stored file
+          is handed back.
+        */
+        const mislabelled = await beginUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "mislabelled.pdf",
+          sizeBytes: body.byteLength,
+        });
+        strays.push(mislabelled.path);
+        await uploadAsBrowser(mislabelled.path, "image/png", body);
+        check(
+          "a file stored under a type its extension does not mean is refused",
+          await refusal(() =>
+            recordUpload(tx as never, {
+              profileId: studentId,
+              assignment: handIn,
+              path: mislabelled.path,
+              filename: "mislabelled.pdf",
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+
+        // And the filename cannot describe the object as a kind of file it is not, which is what
+        // an instructor's download would otherwise be named after.
+        const renamed = await beginUpload(tx as never, {
+          profileId: studentId,
+          assignment: handIn,
+          filename: "renamed.pdf",
+          sizeBytes: body.byteLength,
+        });
+        strays.push(renamed.path);
+        await uploadAsBrowser(renamed.path, "application/pdf", body);
+        check(
+          "a filename that disagrees with what was stored is refused",
+          await refusal(() =>
+            recordUpload(tx as never, {
+              profileId: studentId,
+              assignment: handIn,
+              path: renamed.path,
+              filename: "renamed.png",
+            }),
+          ),
+          "BAD_REQUEST",
+        );
+
+        // None of the four changed the submission, which is the point of refusing them.
+        check(
+          "and none of those refusals moved the work",
+          (
+            await tx.submission.findUniqueOrThrow({
+              where: { id: submission.id },
+              select: { uploadPath: true },
+            })
+          ).uploadPath,
+          row.uploadPath,
+        );
+
         // --- replacing the work, and what happens to what it replaced ---------
         //
         // Whether the object is really gone is a fact about *this environment's* bucket rather
@@ -729,12 +906,7 @@ async function main() {
         //
         // Before a grade, a replacement is a correction: nothing describes the old file, so it
         // goes. The graded case is the opposite and is checked further down.
-        const secondUpload = await storeAndRecordUpload(tx as never, {
-          profileId: studentId,
-          assignment: handIn,
-          filename: "Ben Spector resume v2.pdf",
-          bytes: body,
-        });
+        const secondUpload = await handInFile(handIn, "Ben Spector resume v2.pdf", body);
 
         const afterSecond = await tx.submission.findUniqueOrThrow({
           where: { id: secondUpload.id },
@@ -775,12 +947,7 @@ async function main() {
         );
 
         // Put the file back, so every check below reads the submission the rest of this expects.
-        const restored = await storeAndRecordUpload(tx as never, {
-          profileId: studentId,
-          assignment: handIn,
-          filename: "Ben Spector resume.pdf",
-          bytes: body,
-        });
+        const restored = await handInFile(handIn, "Ben Spector resume.pdf", body);
         const restoredRow = await tx.submission.findUniqueOrThrow({
           where: { id: restored.id },
           select: { uploadPath: true },
@@ -804,12 +971,7 @@ async function main() {
           data: { gradedAt: new Date(), status: "GRADED" },
         });
 
-        const afterGrade = await storeAndRecordUpload(tx as never, {
-          profileId: studentId,
-          assignment: handIn,
-          filename: "Ben Spector resume, revised.pdf",
-          bytes: body,
-        });
+        const afterGrade = await handInFile(handIn, "Ben Spector resume, revised.pdf", body);
         const revisedRow = await tx.submission.findUniqueOrThrow({
           where: { id: afterGrade.id },
           select: { uploadPath: true, gradedAt: true },
@@ -981,23 +1143,18 @@ async function main() {
         check(
           "a PDF is refused where the assignment asks for Python",
           await refusal(() =>
-            storeAndRecordUpload(tx as never, {
+            beginUpload(tx as never, {
               profileId: studentId,
               assignment: pyHandIn,
               filename: "resume.pdf",
-              bytes: Buffer.from("%PDF-1.4"),
+              sizeBytes: 1024,
             }),
           ),
           "BAD_REQUEST",
         );
 
         const pySource = "def to_celsius(f):\n    return (f - 32) * 5 / 9\n";
-        const pySubmission = await storeAndRecordUpload(tx as never, {
-          profileId: studentId,
-          assignment: pyHandIn,
-          filename: "converter.py",
-          bytes: Buffer.from(pySource),
-        });
+        const pySubmission = await handInFile(pyHandIn, "converter.py", Buffer.from(pySource));
         const pyRow = await tx.submission.findUniqueOrThrow({
           where: { id: pySubmission.id },
           select: { uploadPath: true },
@@ -1058,10 +1215,10 @@ async function main() {
   } finally {
     // The rollback undoes every row and none of the bytes: storage is not in the transaction.
     // Left behind, these would be objects no row points at.
-    for (const stray of strays) await removeSubmissionUpload(stray);
+    for (const stray of new Set(strays)) await removeSubmissionUpload(stray);
   }
 
-  for (const stray of strays) {
+  for (const stray of new Set(strays)) {
     check(
       "nothing is left in the bucket after the rollback",
       await submissionUploadExists(stray),

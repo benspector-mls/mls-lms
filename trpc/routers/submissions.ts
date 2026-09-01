@@ -30,7 +30,12 @@ import {
 } from "@/lib/submissions/team";
 import { MAX_INLINE_TEXT_BYTES, formatBytes } from "@/lib/uploads/file-types";
 import { readSubmissionUpload, signedDownloadUrl } from "@/lib/uploads/storage";
-import { assertCanHandIn, discardReplacedUpload } from "@/lib/uploads/submit";
+import {
+  assertCanHandIn,
+  beginUpload,
+  discardReplacedUpload,
+  recordUpload,
+} from "@/lib/uploads/submit";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { courseUnitSummarySelect, displayNameOf, personNameSelect, personSelect } from "../selects";
@@ -347,11 +352,11 @@ export const submissionsRouter = createTRPCRouter({
    * started rather than as waiting, which is the difference between an instructor seeing it
    * and not.
    *
-   * The URL is where the student's own copy of the document is. An assignment handed in as a file is
-   * refused here and hands in through `POST /api/submissions/upload` instead: storing the file
+   * The URL is where the student's own copy of the document is. An assignment handed in as a file
+   * is refused here and goes through `beginUpload` and `recordUpload` instead: the file arriving
    * *is* the act of submitting, so letting this procedure mark one submitted would put work in
    * the instructor's queue with nothing to open, and would make two things authorities on the
-   * same columns. The authorization rule is shared with that route rather than written twice.
+   * same columns. All three share one authorization rule rather than writing it out three times.
    */
   submitWork: profileProcedure
     .input(
@@ -506,6 +511,102 @@ export const submissionsRouter = createTRPCRouter({
           assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
         },
         select: { id: true, status: true, submittedUrl: true, submittedAt: true, isLate: true },
+      });
+    }),
+
+  /**
+   * Permission to upload one file, and the address to send it to.
+   *
+   * **The first of the two calls that hand in a file.** The bytes do not come through here — a
+   * Vercel function may not receive a request body over 4.5MB, which is smaller than a great many
+   * of the scans and photographs students hand in, and smaller still than the 25MB the bucket
+   * accepts. So this returns a signed address, the browser sends the file straight to storage,
+   * and `recordUpload` writes down what arrived. `lib/uploads/storage.ts` describes what that
+   * address does and does not permit; the short version is one write, to one path, for two hours,
+   * with no ability to read anything back.
+   *
+   * `assertCanHandIn` is the authorization, and it is the same function the link form and the
+   * task mark call. Nothing is recorded here: a student who asks for an address and never uses it
+   * has not handed anything in.
+   */
+  beginUpload: profileProcedure
+    .input(
+      z.object({
+        // The assignment rather than the submission, for the reason `submitWork` gives: the row
+        // may not exist yet, and for a kind with no Accept this is the first thing to touch it.
+        assignmentId: z.string().uuid(),
+        /**
+         * The student's own name for their file, which decides the extension and therefore
+         * whether this assignment accepts it at all.
+         *
+         * Bounded because it is stored and shown. `safeDownloadName` trims it to 200 characters
+         * on the way back out, so anything longer is already more than an instructor will see.
+         */
+        filename: z.string().min(1).max(255),
+        /**
+         * What the browser says the file is, so an oversized one is refused before it is sent
+         * rather than after. A claim rather than a fact — `recordUpload` reads the true size from
+         * storage, and the bucket refuses anything over the limit whatever either of them thinks.
+         */
+        sizeBytes: z.number().int().positive(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await assertCanHandIn(ctx.db, {
+        profileId: ctx.profile.id,
+        assignmentId: input.assignmentId,
+        expect: HandInMethod.FILE,
+      });
+
+      return beginUpload(ctx.db, {
+        profileId: ctx.profile.id,
+        assignment,
+        filename: input.filename,
+        sizeBytes: input.sizeBytes,
+      });
+    }),
+
+  /**
+   * The file has arrived; put the work in the instructor's queue.
+   *
+   * **The second of the two calls, and the one that makes the submission a submission.** Until it
+   * runs there are bytes in a bucket and a row that says nothing has happened, which is the honest
+   * description of a student who closed the tab halfway. `reconcile:uploads` removes what such a
+   * moment leaves behind.
+   *
+   * `assertCanHandIn` runs again rather than being remembered from `beginUpload`, because time
+   * passed in between: a due date can close and an instructor can open a grading draft while a
+   * large file is still climbing a home connection, and both are reasons this hand-in must not
+   * land. What the caller reports about the file is checked against the object itself — see
+   * `recordUpload`.
+   */
+  recordUpload: profileProcedure
+    .input(
+      z.object({
+        assignmentId: z.string().uuid(),
+        /**
+         * Where `beginUpload` said to put it, handed back.
+         *
+         * Not a name this caller may choose: it has to be under the row they hand in on, and the
+         * token they were given only ever authorized that one object. Bounded well above the
+         * `<uuid>/<uuid><extension>` it always is.
+         */
+        path: z.string().min(1).max(300),
+        filename: z.string().min(1).max(255),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await assertCanHandIn(ctx.db, {
+        profileId: ctx.profile.id,
+        assignmentId: input.assignmentId,
+        expect: HandInMethod.FILE,
+      });
+
+      return recordUpload(ctx.db, {
+        profileId: ctx.profile.id,
+        assignment,
+        path: input.path,
+        filename: input.filename,
       });
     }),
 

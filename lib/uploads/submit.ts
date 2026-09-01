@@ -15,21 +15,29 @@ import {
   teamSubmissionFor,
   type ResolvedTeam,
 } from "../submissions/team";
-import { checkUpload } from "./file-types";
-import { removeSubmissionUpload, storeSubmissionUpload } from "./storage";
+import { checkUpload, extensionOf } from "./file-types";
+import {
+  removeSubmissionUpload,
+  signedUploadUrl,
+  submissionUploadPath,
+  uploadedObjectInfo,
+} from "./storage";
 
 /**
  * Handing in work that has no repository.
  *
- * **This module exists so the rule about who may submit has one implementation.** A file
- * upload cannot go through tRPC — the transport is JSON and a 25MB file base64'd into a
- * mutation is a bad way to move bytes — so it arrives at a route handler instead. That is a
- * second entry point, and a second entry point is exactly how an authorization rule ends up
- * with two versions that drift. So the rule lives here, and both the route and
- * `submissions.submitWork` call it.
+ * **This module exists so the rule about who may submit has one implementation.** Work arrives
+ * three ways — a link a student pastes, a file they upload, a task they mark done — and each is
+ * its own procedure with its own columns to write. The question they all have to ask first is the
+ * same one, and an authorization rule written out three times is an authorization rule with three
+ * versions that drift. So it is written here, as `assertCanHandIn`, and each of them calls it.
  *
- * It throws `TRPCError`, which the procedure propagates unchanged and the route maps to a
- * status code. One error vocabulary rather than one per transport.
+ * **A file is handed in with two calls rather than one**, because the bytes no longer travel
+ * through this application at all: `beginUpload` authorizes and returns an address, the browser
+ * sends the file straight to the bucket, and `recordUpload` writes down what arrived. See
+ * `signedUploadUrl` for why, and for what the browser can and cannot do with that address.
+ *
+ * Everything here throws `TRPCError`, which the procedures propagate unchanged.
  */
 
 type Db = typeof globalDb | Parameters<Parameters<typeof globalDb.$transaction>[0]>[0];
@@ -125,9 +133,8 @@ export async function assertCanHandIn(
     Whether this assignment takes work this way at all.
 
     A membership test rather than an equality, because an assignment may name more than one way
-    in — and the caller is one transport, which knows only how *it* collects work. The upload
-    route asks about FILE and the mutation about LINK, and an assignment that accepts both
-    answers yes to each.
+    in — and the caller knows only how *it* collects work. The two halves of an upload ask about
+    FILE and the link form about LINK, and an assignment that accepts both answers yes to each.
   */
   if (params.expect && !handInMethodsFor(assignment).includes(params.expect)) {
     throw new TRPCError({
@@ -317,38 +324,95 @@ export async function discardReplacedUpload(previous: {
 }
 
 /**
- * Stores an uploaded file and marks the submission handed in.
+ * The row a student's file belongs to, created if this is the first thing to happen to the work.
  *
- * The order is what matters, and it is chosen so no failure can leave a submission that reads
- * as handed in with nothing behind it:
+ * For a team it is the team's one row rather than the caller's, which is what makes one member's
+ * upload the team's hand-in. `NOT_STARTED` on the create branch either way: a self-directed
+ * assignment has no Accept, so this row often exists only because the path is built from its id,
+ * and a failure before anything is recorded must leave a row saying nothing happened — which is
+ * true.
  *
- *   1. Ensure the row exists, without touching its status. A self-directed assignment has no
- *      Accept, so uploading is often the first thing that ever happens to it and there may be
- *      no row at all — and the path the bytes go to is built from the row's id, so the row has
- *      to come first.
- *   2. Store the bytes.
- *   3. Write the status, the timestamps, and the four upload columns in one update, clearing
- *      `submittedUrl` in the same write.
- *   4. Remove the object this row pointed at before, which nothing can reach any more.
- *
- * A failure at step 2 leaves a row that reads as not started, which is true. A failure at
- * step 3 leaves a stored object nothing points at, which is unreferenced bytes rather than a
- * wrong grade. The reverse order — mark it submitted, then store — would put work in the
- * instructor's queue with nothing to open, and there is no version of that which is better.
- * Step 4 comes last for the same reason and is best-effort — see `discardReplacedUpload`.
+ * Both halves of an upload resolve the row this way, and they have to agree: `beginUpload` builds
+ * the path from the id and `recordUpload` refuses a path that is not under it, so a second way of
+ * choosing the row would be a second answer to "whose file is this".
  */
-export async function storeAndRecordUpload(
+async function rowHoldingWork(db: Db, params: { profileId: string; assignment: HandInAssignment }) {
+  const select = {
+    id: true,
+    status: true,
+    submittedAt: true,
+    isLate: true,
+    uploadPath: true,
+    gradedAt: true,
+  } as const;
+
+  const team = params.assignment.team;
+
+  if (team) {
+    const { submissionId } = await claimTeamWork(db, {
+      assignmentId: params.assignment.id,
+      studentId: params.profileId,
+      team,
+      statusIfNew: "NOT_STARTED",
+    });
+
+    return db.submission.findUniqueOrThrow({ where: { id: submissionId }, select });
+  }
+
+  return db.submission.upsert({
+    where: {
+      assignmentId_studentId: {
+        assignmentId: params.assignment.id,
+        studentId: params.profileId,
+      },
+    },
+    create: {
+      assignmentId: params.assignment.id,
+      studentId: params.profileId,
+      status: "NOT_STARTED",
+    },
+    /*
+      Nothing written, so what comes back is the row as it stands — which is what the hand-in rule
+      needs, and the reason no second read is made for it. On the create branch it is the row just
+      made: no submission time, never late, and not yet started.
+    */
+    update: {},
+    select,
+  });
+}
+
+/**
+ * Permission for one upload, and the address to send it to.
+ *
+ * **Handing in a file is two requests, and this is the first.** The browser sends the bytes
+ * straight to the bucket rather than through a function of ours, because a Vercel function may
+ * not receive a request body over 4.5MB and a student's scan or photograph is regularly larger —
+ * see `signedUploadUrl` for what the browser is trusted with, which is less than it sounds. This
+ * half decides *whether* and *where*; `recordUpload` decides what actually arrived.
+ *
+ * The row is created before the URL is minted, because the path is built from the row's id. A
+ * student who stops here — closes the tab, changes their mind — leaves a row that reads as not
+ * started, which is true.
+ *
+ * **The size is checked here against what the browser reports, and again in `recordUpload`
+ * against what the bucket actually holds.** Only the second is a guarantee, and only the first is
+ * fast: it is the difference between being refused now and being refused after spending four
+ * minutes uploading on a phone tether. The bucket enforces the same limit a third time, and that
+ * is the one nothing can talk its way past.
+ */
+export async function beginUpload(
   db: Db,
   params: {
     profileId: string;
     assignment: HandInAssignment;
     filename: string;
-    bytes: Buffer;
+    /** What the browser says the file is. A claim, checked properly once the bytes are there. */
+    sizeBytes: number;
   },
-) {
+): Promise<{ uploadUrl: string; path: string; contentType: string }> {
   const check = checkUpload({
     filename: params.filename,
-    sizeBytes: params.bytes.byteLength,
+    sizeBytes: params.sizeBytes,
     acceptedTypes: params.assignment.acceptedFileTypes,
   });
 
@@ -356,77 +420,118 @@ export async function storeAndRecordUpload(
     throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
   }
 
-  const team = params.assignment.team;
+  const submission = await rowHoldingWork(db, params);
+  const path = submissionUploadPath({ submissionId: submission.id, extension: check.extension });
+  const { url } = await signedUploadUrl({ path });
 
   /*
-    The row the bytes belong to, which for a team is the team's rather than the caller's.
+    The content type the extension implies, handed out for the browser to send back on the upload.
 
-    `NOT_STARTED` on the create branch either way: a self-directed assignment has no Accept, so
-    this row often exists only because the path is built from its id, and a failure at the next
-    step must leave a row saying nothing happened — which is true.
+    It is decided here for the reason `contentTypeFor` gives — browsers disagree about the same
+    file, and the bucket's allow-list is built from these entries — and the browser is a courier
+    for it rather than an author of it. What stops the courier rewriting the label is the check in
+    `recordUpload`, which compares the type the object was actually stored under against the one
+    this extension means, and refuses the pair that do not match.
   */
-  const submission = team
-    ? await claimTeamWork(db, {
-        assignmentId: params.assignment.id,
-        studentId: params.profileId,
-        team,
-        statusIfNew: "NOT_STARTED",
-      }).then(({ submissionId }) =>
-        db.submission.findUniqueOrThrow({
-          where: { id: submissionId },
-          select: {
-            id: true,
-            status: true,
-            submittedAt: true,
-            isLate: true,
-            uploadPath: true,
-            gradedAt: true,
-          },
-        }),
-      )
-    : await db.submission.upsert({
-        where: {
-          assignmentId_studentId: {
-            assignmentId: params.assignment.id,
-            studentId: params.profileId,
-          },
-        },
-        create: {
-          assignmentId: params.assignment.id,
-          studentId: params.profileId,
-          status: "NOT_STARTED",
-        },
-        /*
-          Nothing written, so what comes back is the row as it stands — which is what the hand-in
-          rule below needs, and the reason no second read is made for it. On the create branch it
-          is the row just made: no submission time, never late, and not yet started.
-        */
-        update: {},
-        select: {
-          id: true,
-          status: true,
-          submittedAt: true,
-          isLate: true,
-          uploadPath: true,
-          gradedAt: true,
-        },
-      });
+  return { uploadUrl: url, path, contentType: check.contentType };
+}
 
-  const { path } = await storeSubmissionUpload({
-    submissionId: submission.id,
-    extension: check.extension,
-    /*
-      The type the extension implies, not the one the browser reported.
+/**
+ * Marks the submission handed in, once the bytes are in the bucket.
+ *
+ * **The second of the two requests, and the one that can be lost.** Between the browser's upload
+ * finishing and this returning there is a window where the object exists and no row points at it;
+ * a student whose connection drops inside it has bytes stored and a submission that still reads as
+ * not started. That is the same failure the one-request version had between storing and recording,
+ * lengthened from milliseconds to one round trip, and it is the price of the browser doing the
+ * transfer. It is not silent — the student's screen still asks for a file, and uploading again
+ * works — and `reconcile:uploads` is what clears up after it.
+ *
+ * The order is otherwise what it always was, and for the same reason: write the columns, then
+ * discard what they used to point at. The reverse would leave a submission naming an object that
+ * is gone, which reads to an instructor as a corrupt file with nothing on the screen explaining
+ * why.
+ *
+ * **Nothing the browser says about the file is taken on trust.** The path must be under the row
+ * this caller hands in on; the object must be there; its true size and content type are read from
+ * storage and must be the ones this assignment's accepted extension implies. The filename is the
+ * one exception and is meant to be — it is the student's name for their own work, kept because an
+ * instructor downloads it — so it is required to end in the same extension as the object it
+ * describes, and otherwise left alone.
+ */
+export async function recordUpload(
+  db: Db,
+  params: {
+    profileId: string;
+    assignment: HandInAssignment;
+    /** Where the browser says it put the file — checked against where it was allowed to. */
+    path: string;
+    filename: string;
+  },
+) {
+  const submission = await rowHoldingWork(db, params);
 
-      They are usually the same and the exceptions are the whole point: a `.docx` arrives as
-      `application/octet-stream` on a machine without Word, and a `.ipynb` almost never arrives
-      as anything Jupyter would recognise. The bucket has its own allow-list built from these
-      same entries, so storing what the browser said means an upload the route accepted and the
-      bucket refuses — on one student's machine and no other.
-    */
-    contentType: check.contentType,
-    bytes: params.bytes,
+  /*
+    The path is not a name the caller may choose. `beginUpload` built one under this row's id and
+    signed a token for that exact object, so a path outside the folder is either a stale tab whose
+    team has changed underneath it or somebody trying it on. Both are answered the same way: hand
+    the file in again, which mints a path that is theirs.
+  */
+  if (!params.path.startsWith(`${submission.id}/`)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "That file does not belong to this submission. Upload it again.",
+    });
+  }
+
+  const stored = await uploadedObjectInfo(params.path);
+
+  if (!stored) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That file did not finish uploading. Try again.",
+    });
+  }
+
+  /*
+    Asked of the path rather than of the filename, because the path is what the bucket holds: its
+    extension is the one `beginUpload` signed a token for, and it cannot have changed since. The
+    size is the object's own. So this is the same question the browser was asked before the upload,
+    put this time to the file that actually exists — and it is asked again at all because an
+    instructor may have narrowed the accepted types while the upload was in flight.
+  */
+  const check = checkUpload({
+    filename: params.path,
+    sizeBytes: stored.sizeBytes,
+    acceptedTypes: params.assignment.acceptedFileTypes,
   });
+
+  if (!check.ok) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+  }
+
+  /*
+    The two ways the browser could describe the object as something it is not, closed together.
+
+    A filename ending in `.pdf` on a `.png` object would give the instructor a download named for a
+    kind of file it is not. A content type outside what the extension means would be stored on the
+    object and handed to the browser on the way back, which is what decides whether a file is
+    displayed or offered as a download. The bucket refuses a type that is on no list at all; these
+    refuse the ones that are on the list but not on this file's.
+  */
+  if (extensionOf(params.filename) !== check.extension) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That file was not stored as the kind of file you named. Upload it again.",
+    });
+  }
+
+  if (stored.contentType !== check.contentType) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That file was not stored as the kind of file it is. Upload it again.",
+    });
+  }
 
   const now = new Date();
 
@@ -461,16 +566,16 @@ export async function storeAndRecordUpload(
         and would not be gone either — a stale address sitting under a grade that ignored it.
         Whichever way the work came in last is the way it came in.
       */
-      location: { uploadPath: path, submittedUrl: null },
+      location: { uploadPath: params.path, submittedUrl: null },
       describe: {
         uploadFilename: params.filename,
-        uploadSizeBytes: params.bytes.byteLength,
+        uploadSizeBytes: stored.sizeBytes,
         uploadContentType: check.contentType,
       },
     },
   });
 
-  if (team) {
+  if (params.assignment.team) {
     await syncTeamRows(db, { submissionId: submission.id });
   }
 
