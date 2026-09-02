@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 
 const GUARD = new URL("deployment-guard.mjs", import.meta.url).pathname;
-const _unused = null;
 
 const cases = [
   [
