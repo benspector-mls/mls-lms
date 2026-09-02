@@ -148,3 +148,32 @@ npm run db:status:deployment    # what the deployment is missing
 npm run db:deploy:deployment    # apply it there
 ```
 
+
+### Shipping a change without disrupting anybody
+
+**During a deploy the old code and the new code are both live**, and every rule below comes from one question: can each survive what the other left behind? A browser tab loaded a minute ago is running the previous bundle and will go on running it until somebody reloads, so "the old code" means real requests and not a theoretical case.
+
+That gives one principle, applied at whichever layer is changing: **add the new thing while the old thing still works, move everything over, and only then remove the old thing.**
+
+| What is changing | What to do |
+| --- | --- |
+| Code only, purely additive | Push. Nothing old breaks. |
+| Code that removes or renames something a browser calls — a route, a procedure, an input shape | Stale bundles still call the old name. Keep it for one release, or deploy when nobody is using it. |
+| An additive migration — a nullable column, a new table, a new enum value | `npm run db:deploy:deployment` **first**, then push. Old code ignores a column it does not select. |
+| A destructive migration — dropping, renaming, or adding `NOT NULL` | Never in one release. Add the new column, deploy code writing both, backfill, deploy code reading the new one, drop the old one later. A rename is an add, a backfill and a drop wearing one word. |
+| A new accepted file type | `npm run setup:storage:deployment` **before** the code deploy, or `beginUpload` accepts a file the bucket then refuses. |
+| An environment variable | Set it in Vercel, then redeploy. Variables are bound when a deployment is created. |
+| The GitHub App's webhook URL or installation | Takes effect immediately. No redeploy. |
+
+**Rollback is instant for code and impossible for a migration.** Vercel can promote the previous deployment back in seconds; `prisma migrate deploy` has no undo, and rolling the code back leaves the schema where it was. So every migration must be survivable by the release before it — follow the destructive-migration steps above and it always is, which is what keeps rollback a real option. Shipping a migration the previous code cannot tolerate is giving that up, and is worth knowing you are doing.
+
+**Timing is the cheapest lever there is.** This is a school: the cost of a bad deploy is concentrated in the hours around a due date and during class. The same commit carries very different risk at 7am on a Saturday and at 10pm the night before something is due.
+
+### Previews
+
+Pushing a branch other than `main` creates a preview deployment at its own URL, which is where a risky change should be tried before it reaches a cohort. Two things make that safe rather than dangerous, and both are configuration rather than code:
+
+- **Preview variables point at the development Supabase project**, so a preview cannot touch real grades. In Vercel, under Settings → Environment Variables, every variable is scoped to Production, Preview, or Development separately: give Preview the values from `.env.local`. Getting this wrong is worse than having no preview at all, because a preview that writes to the deployment's database looks exactly like one that does not.
+- **The preview's own URL is on the development project's redirect allowlist**, or nobody can sign in to it. `github-auth-button.tsx` builds the callback from `window.location.origin`, so on a preview that is `https://<project>-git-<branch>-<slug>.vercel.app/auth/callback`. Supabase accepts wildcards, so one entry of `https://*-<slug>.vercel.app/**` under Authentication → URL Configuration → Redirect URLs covers every preview this project will ever create.
+
+A preview receives no GitHub webhooks — the App delivers to one URL, which is the deployment's — so a pull request opened against a student repository will not appear there. Everything that does not depend on a delivery behaves as it does in production.
