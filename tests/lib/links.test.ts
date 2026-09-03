@@ -8,6 +8,7 @@ import {
   gradingQueueHref,
   newAssignmentHref,
   programSettingsHref,
+  programsHref,
   programStudentHref,
   rosterHref,
   sameViewInCourse,
@@ -161,6 +162,16 @@ describe("sameViewInCourse", () => {
     somebody's history still lands on the page it names. This function only ever sees paths from
     inside the application, and every one of those already says `curriculum`.
   */
+  /*
+    A program's own address given to the course switcher, which is where a course name in the
+    sidebar is clicked from most often: the roster, the attendance screen, and the program's
+    settings all name a program and no course. There is no course view to keep, so the answer is
+    the same as from `/dashboard` — the new course's triage.
+  */
+  it("lands on triage from a program's roster, which names no course", () => {
+    expect(sameViewInCourse(rosterHref(PROGRAM), OTHER)).toBe(triageHref(OTHER));
+  });
+
   it.each(["assignments", "coursework", "modules", "resources"])(
     "no longer recognises the old %s segment",
     (segment) => {
@@ -229,6 +240,17 @@ describe("sameViewInProgram", () => {
     ["the bare program address", `/instructor/programs/${PROGRAM}`],
   ])("%s lands on settings", (_label, pathname) => {
     expect(sameViewInProgram(pathname, OTHER_PROGRAM)).toBe(programSettingsHref(OTHER_PROGRAM));
+  });
+
+  /*
+    The list of every program the caller belongs to, which is the screen a program is most often
+    switched from. It names no program of its own, so there is nothing to keep and settings is
+    where the switch lands.
+  */
+  it("lands on settings from the program list, which names no program", () => {
+    expect(sameViewInProgram(programsHref(), OTHER_PROGRAM)).toBe(
+      programSettingsHref(OTHER_PROGRAM),
+    );
   });
 
   it("lands on settings from a course address, which names no program", () => {
