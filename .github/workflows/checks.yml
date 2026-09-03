@@ -1,0 +1,76 @@
+name: Checks
+
+# Every push and every pull request. There is nothing expensive here — the whole job is about a
+# minute — so there is no reason to run it on some branches and not others.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A second push to the same branch makes the first run pointless, so it is cancelled rather than
+# left to finish and report on a commit nobody is looking at any more.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    services:
+      # Postgres 17 because that is what Supabase runs, measured rather than assumed. A developer's
+      # own machine may well be older — this checkout was written against 15 locally — and the point
+      # of a build server is to be the version the deployment is, not the version anybody's laptop
+      # happens to have.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Without this the first step to open a connection races the container's own startup, and
+        # the failure reads as a broken test rather than as a database that was not listening yet.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # The disposable database the integration suites build from the migrations. The name has to
+      # end in `_test` and the host has to be this machine, because `db:test:reset` drops what it is
+      # given and refuses anything else.
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mls_lms_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 24 is what Vercel builds with and what this project is developed against.
+          node-version: 24
+          cache: npm
+
+      # `npm ci` runs the postinstall that generates the Prisma client, so nothing below has to.
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Types
+        run: npm run typecheck
+
+      # First, and separately, because it needs nothing at all: no database, no network, no
+      # credentials. A failure here is about the logic rather than about the environment, and
+      # knowing that before the database is involved is worth the extra step.
+      - name: Unit tests
+        run: npm test
+
+      # Creates the `anon` and `authenticated` roles, applies every migration, and leaves the
+      # database empty. There is no seed: each suite makes the rows it needs inside a transaction
+      # that is rolled back, which is what lets this run on a machine nobody has signed in on.
+      - name: Build the test database
+        run: npm run db:test:reset
+
+      - name: Integration tests
+        run: npm run test:integration
