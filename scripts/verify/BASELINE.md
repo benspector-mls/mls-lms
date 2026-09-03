@@ -9,7 +9,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:modules` | 35 → 41 → **42** | the database — **now `tests/integration/modules.test.ts`** |
 | `verify:cohorts` | 46 as `verify:groups`, **not yet re-measured** | the database |
 | `verify:programs` | **91**, new | the database |
-| `verify:team-sets` | 32, **not yet re-measured** | the database |
+| `verify:team-sets` | **32** | the database — **now `tests/integration/team-sets.test.ts`** |
 | `verify:team-work` | 51 | the database |
 | `verify:resources` | 64 | the database |
 | `verify:staff` | 50 | the database |
@@ -27,7 +27,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:test-student` | 42, or 56 with `--live`, or 64 with `--live --github` | the database; `--live` also Supabase; `--github` also GitHub |
 | `verify:dashboard` | 27 → 36 → **39** | the database — **now `tests/integration/dashboard.test.ts`** |
 | `verify:tasks` | **37** | the database — **now `tests/integration/tasks.test.ts`** |
-| `verify:attendance` | 59, **not yet re-measured** | the database |
+| `verify:attendance` | 59 → **76** | the database — **now `tests/integration/attendance.test.ts`** |
 | `verify:calendar` | 28 | the database, and the application answering over HTTP |
 
 ## The program above the course, 25 August 2026
@@ -155,6 +155,14 @@ None of the three is vacuous against a fellow with no work of their own, which i
 **One assertion was replaced rather than carried over.** `verify:dashboard` asserted a literal `true` and printed the row's state beside it, which reported a pass whatever the row held. In its place the suite asserts the thing the group actually depends on: that the graded row carries the `gradedAt` the unread test compares against.
 
 **What this says about the rest of the table.** Two scripts here measure nothing at all on a freshly seeded database — `verify:attendance` needs two active fellows and `verify:team-sets` needs three, and both skip every group they have. That is the harness working as designed and it is also the argument for the direction these ports take: a check that cannot run is not a check, and creating the fixture inside the transaction is what makes it one. `verify:attendance` is worth porting for that reason before any other.
+
+## The two that were measuring nothing, 2 September 2026
+
+`verify:team-sets` and `verify:attendance` are now `tests/integration/team-sets.test.ts` and `tests/integration/attendance.test.ts`. Both reported a skip and exited non-zero on **every** run against a seeded database, and had done so since the program became the thing that owns a roster: one needed three distinct fellows and the other needed two, and the seed creates one. Between them that is 108 checks that had not run in weeks — more than the three suites ported before them carry in total.
+
+Neither requirement was a convenience, which is why neither script could relax it. Placement is a partition, and moving somebody between teams passes with two people whether the move happened or a stale row survived; half of attendance is about one fellow being unaffected by what another does, and with one fellow "the record count did not change" passes for the wrong reason. So the suites make three fellows and two, along with the outsider instructor and the second program that four more of their checks had also been standing down for.
+
+The counts are 32 and 76. The 32 is what the script recorded and never reproduced. The 76 is measured here for the first time: the 59 in the table above predates the arrival averages and the code-replacement group, so it was already a number nobody had checked — which is the exact failure this file exists to prevent, arriving by the one route it cannot cover.
 
 ## Re-running the set
 
