@@ -37,8 +37,14 @@ export type Tx = Prisma.TransactionClient;
  *   short is the misleading kind: the transaction expires and every check after it reports an
  *   internal error from whatever statement happened to be in flight, which reads as several broken
  *   procedures rather than as one slow group.
+ *
+ *   Two minutes rather than the one the scripts used, because a group now builds its own fixture
+ *   instead of finding one. Against the local database that costs nothing — the whole suite runs in
+ *   under two seconds — but against the development Supabase project every write is a network round
+ *   trip, and the run that first exceeded this failed forty-one checks at once with nothing wrong
+ *   in any of them.
  */
-export function withRollback(timeout = 60_000): () => Tx {
+export function withRollback(timeout = 120_000): () => Tx {
   let tx: Tx | undefined;
   let release: (() => void) | undefined;
   /** The transaction's own promise, awaited in `afterAll` so a rollback failure is not unhandled. */
@@ -56,7 +62,20 @@ export function withRollback(timeout = 60_000): () => Tx {
             });
             throw new Error("ROLLBACK");
           },
-          { timeout },
+          {
+            timeout,
+            /*
+              How long to wait for a connection before giving up on starting at all, as opposed to
+              `timeout`, which is how long the transaction may then run for.
+
+              Prisma's default is two seconds and it is not enough here. A file holds one connection
+              open for the length of a whole group, so the next group is waiting on the pool rather
+              than on the database — and against Supabase's transaction pooler that wait exceeded
+              two seconds often enough to fail an entire file, with `Unable to start a transaction
+              in the given time` and nothing wrong in any of the checks.
+            */
+            maxWait: 30_000,
+          },
         )
         .then(
           () => undefined,

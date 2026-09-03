@@ -1,7 +1,8 @@
 /**
  * The modules of a course: create, rename, reorder, remove.
  *
- * Run with `npm run test:integration`.
+ * Run with `npm run test:integration`, or `npm run test:integration:local` against the disposable
+ * local database.
  *
  * Driven through the tRPC callers inside a transaction that is rolled back, because authorization
  * is most of what these procedures are: every one of them has to check that the caller teaches
@@ -9,58 +10,52 @@
  * check that only holds when the function is called some other way is not a check on what an
  * instructor uses.
  *
+ * Every row it reads it also wrote, in that same transaction, so it depends on nothing having been
+ * seeded and says in the test what it assumes.
+ *
  * The case worth reading is the foreign key. Removing a module that still holds assignments would
  * leave them belonging to nothing, and both the procedure and the constraint refuse it — the
  * procedure so the instructor gets a count and something to do about it, the constraint so that a
  * second caller written later cannot get it wrong.
  *
  * Carries the 41 assertions `verify:modules` reported on 2 September 2026, and one more. The extra
- * is the outsider instructor: the script looked for a second instructor, found none on a seeded
- * database, and printed `skip` — an ordinary `console.log`, which neither failed the run nor
- * counted, so the check had quietly not run for as long as the seed has had one instructor. It
- * makes its own outsider inside the transaction here and therefore always runs.
+ * is the outsider instructor: the script looked for an INSTRUCTOR teaching no course of this
+ * program, found none on a seeded database, and printed `skip` — an ordinary `console.log`, which
+ * neither failed the run nor counted, so the check had quietly not run for as long as the seed has
+ * had one instructor. It makes its own outsider here and therefore always runs.
  */
-import { newJoinToken } from "@/lib/courses/join-token";
 import { db } from "@/lib/prisma";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
-import { required, withRollback, type Tx } from "./transaction";
+import {
+  makeAccount,
+  makeAssignment,
+  makeCourse,
+  makeProgram,
+  makeUnit,
+  makeWorld,
+  type World,
+} from "./fixtures";
+import { withRollback, type Tx } from "./transaction";
 
 const factory = createCallerFactory(appRouter);
 const createCaller = (tx: Tx, userId: string) => factory({ db: tx, user: { id: userId } } as never);
 
-let courseId: string;
-let programId: string;
-let instructorId: string;
-let studentId: string;
-
-beforeAll(async () => {
-  const course = required(
-    "a seeded course that is not archived",
-    await db.course.findFirst({ where: { archivedAt: null }, select: { id: true, programId: true } }),
-  );
-  courseId = course.id;
-  programId = course.programId;
-
-  instructorId = required(
-    "an instructor on that course",
-    await db.courseInstructor.findFirst({ where: { courseId }, select: { userId: true } }),
-  ).userId;
-
-  /*
-    Any status. This needs somebody to *be*, not somebody enrolled: every check below that acts as
-    a student is a read or a refusal, and both admit a removed student by design.
-  */
-  studentId = required(
-    "somebody on the program's roster",
-    await db.enrollment.findFirst({
-      where: { programId },
-      orderBy: { createdAt: "asc" },
-      select: { studentId: true },
-    }),
-  ).studentId;
-});
+/**
+ * The names this run created, for the last group to look for in the committed database.
+ *
+ * Collected as the groups run rather than written down a second time, so "nothing survived the
+ * rollback" asks about the rows this run actually made. They carry a unique suffix because the
+ * development database is shared and a fixed name could collide with a real module.
+ */
+const namesUsed: string[] = [];
+const suffix = crypto.randomUUID().slice(0, 8);
+const named = (label: string) => {
+  const name = `${label} ${suffix}`;
+  namesUsed.push(name);
+  return name;
+};
 
 /** What a call refused with, as a string to compare against. */
 async function refusal(work: () => Promise<unknown>): Promise<string> {
@@ -82,43 +77,42 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     against — which is why the checks run in this order and share these values rather than each
     rebuilding a fixture.
   */
+  let world: World;
   let first: { id: string; position: number };
-  let second: { id: string };
+  let second: { id: string; position: number };
   let trimmed: { id: string; name: string };
   let reversed: string[];
   let lastBefore: number;
-  let secondUnit: Awaited<ReturnType<typeof makeUnits>>["second"];
 
-  async function makeUnits() {
-    const before = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    // A unit holding work, for the removal guard below to refuse.
+    await makeAssignment(tx(), { courseId: world.courseId, courseUnitId: world.unitId });
+
+    const before = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+      courseId: world.courseId,
+    });
     /*
       Measured against the last position, not against the count. Those are the same number only
       while positions run 0..n-1 with no gaps, and `remove` deliberately leaves a gap rather than
       renumbering — order is what `position` decides, and a gap does not change it.
     */
     lastBefore = Math.max(-1, ...before.map((row) => row.position));
-    const one = await createCaller(tx(), instructorId).courseUnits.create({
-      category: "MODULE",
-      courseId,
-      name: "Mod 98 - Verify One",
-    });
-    const two = await createCaller(tx(), instructorId).courseUnits.create({
-      category: "MODULE",
-      courseId,
-      name: "Mod 99 - Verify Two",
-    });
-    return { first: one, second: two };
-  }
 
-  beforeAll(async () => {
-    const made = await makeUnits();
-    first = made.first;
-    second = made.second;
-    secondUnit = made.second;
+    first = await createCaller(tx(), world.instructorId).courseUnits.create({
+      category: "MODULE",
+      courseId: world.courseId,
+      name: named("Mod 98 - One"),
+    });
+    second = await createCaller(tx(), world.instructorId).courseUnits.create({
+      category: "MODULE",
+      courseId: world.courseId,
+      name: named("Mod 99 - Two"),
+    });
   });
 
   it("a new module goes at the end", () => {
-    expect(secondUnit.position).toBe(lastBefore + 2);
+    expect(second.position).toBe(lastBefore + 2);
   });
 
   it("...and the one before it, before that", () => {
@@ -128,19 +122,20 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
   // Trimmed, because " Mod 98" and "Mod 98" are the same module to everyone but the database, and
   // a leading space is invisible in the interface it would collide in.
   it("a name is trimmed", async () => {
-    trimmed = await createCaller(tx(), instructorId).courseUnits.create({
+    const padded = named("Mod 97 - Padded");
+    trimmed = await createCaller(tx(), world.instructorId).courseUnits.create({
       category: "MODULE",
-      courseId,
-      name: "   Mod 97 - Padded   ",
+      courseId: world.courseId,
+      name: `   ${padded}   `,
     });
-    expect(trimmed.name).toBe("Mod 97 - Padded");
+    expect(trimmed.name).toBe(padded);
   });
 
   it("a blank name is refused", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), instructorId).courseUnits.create({
+      createCaller(tx(), world.instructorId).courseUnits.create({
         category: "MODULE",
-        courseId,
+        courseId: world.courseId,
         name: "   ",
       }),
     );
@@ -151,16 +146,18 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
   // renaming meant rewriting every assignment that used it.
   describe("renaming", () => {
     let renamed: { name: string; position: number };
+    let newName: string;
 
     beforeAll(async () => {
-      renamed = await createCaller(tx(), instructorId).courseUnits.update({
+      newName = named("Mod 98 - Renamed");
+      renamed = await createCaller(tx(), world.instructorId).courseUnits.update({
         courseUnitId: first.id,
-        name: "Mod 98 - Renamed",
+        name: newName,
       });
     });
 
     it("renaming changes the name", () => {
-      expect(renamed.name).toBe("Mod 98 - Renamed");
+      expect(renamed.name).toBe(newName);
     });
 
     it("...and not the position", () => {
@@ -172,13 +169,17 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     let afterReorder: { id: string; position: number }[];
 
     beforeAll(async () => {
-      const listed = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
+      const listed = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      });
       reversed = [...listed].reverse().map((row) => row.id);
-      await createCaller(tx(), instructorId).courseUnits.reorder({
-        courseId,
+      await createCaller(tx(), world.instructorId).courseUnits.reorder({
+        courseId: world.courseId,
         courseUnitIds: reversed,
       });
-      afterReorder = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
+      afterReorder = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      });
     });
 
     it("reordering rewrites every position from the list", () => {
@@ -196,8 +197,8 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     */
     it("a partial order is refused", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), instructorId).courseUnits.reorder({
-          courseId,
+        createCaller(tx(), world.instructorId).courseUnits.reorder({
+          courseId: world.courseId,
           courseUnitIds: [first.id],
         }),
       );
@@ -206,8 +207,8 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
 
     it("an order listing a module twice is refused", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), instructorId).courseUnits.reorder({
-          courseId,
+        createCaller(tx(), world.instructorId).courseUnits.reorder({
+          courseId: world.courseId,
           courseUnitIds: [...reversed, first.id],
         }),
       );
@@ -230,16 +231,18 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     let withAfter: { id: string; position: number }[];
 
     beforeAll(async () => {
-      sequenceBefore = await createCaller(tx(), instructorId).courseUnits.listForCourse({
-        courseId,
+      sequenceBefore = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
       });
-      atStart = await createCaller(tx(), instructorId).courseUnits.create({
+      atStart = await createCaller(tx(), world.instructorId).courseUnits.create({
         category: "PROJECT",
-        courseId,
-        name: "Mod 96 - Placed First",
+        courseId: world.courseId,
+        name: named("Mod 96 - Placed First"),
         placement: { at: "start" },
       });
-      withStart = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
+      withStart = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      });
     });
 
     it("a unit placed at the start comes first", () => {
@@ -261,13 +264,15 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     */
     it("a unit placed after another sits immediately after it", async () => {
       anchor = withStart[1]!;
-      placedAfter = await createCaller(tx(), instructorId).courseUnits.create({
+      placedAfter = await createCaller(tx(), world.instructorId).courseUnits.create({
         category: "ASSESSMENT",
-        courseId,
-        name: "Mod 95 - Placed After",
+        courseId: world.courseId,
+        name: named("Mod 95 - Placed After"),
         placement: { at: "after", courseUnitId: anchor.id },
       });
-      withAfter = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
+      withAfter = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      });
 
       expect(withAfter.findIndex((row) => row.id === placedAfter.id)).toBe(
         withAfter.findIndex((row) => row.id === anchor.id) + 1,
@@ -278,17 +283,17 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
       expect(withAfter.map((row) => row.position)).toEqual(withAfter.map((_, index) => index));
     });
 
-    // Placing after the unit that is already last is the end, and takes the same path as asking
-    // for the end outright.
+    // Placing after the unit that is already last is the end, and takes the same path as asking for
+    // the end outright.
     it("placing after the last unit is the end", async () => {
-      const placedLast = await createCaller(tx(), instructorId).courseUnits.create({
+      const placedLast = await createCaller(tx(), world.instructorId).courseUnits.create({
         category: "MODULE",
-        courseId,
-        name: "Mod 94 - Placed Last",
+        courseId: world.courseId,
+        name: named("Mod 94 - Placed Last"),
         placement: { at: "after", courseUnitId: withAfter.at(-1)!.id },
       });
-      const withLast = await createCaller(tx(), instructorId).courseUnits.listForCourse({
-        courseId,
+      const withLast = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
       });
       expect(withLast.at(-1)!.id).toBe(placedLast.id);
     });
@@ -300,10 +305,10 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     */
     it("placing after a unit that is not in this course is refused", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), instructorId).courseUnits.create({
+        createCaller(tx(), world.instructorId).courseUnits.create({
           category: "MODULE",
-          courseId,
-          name: "Mod 93 - Nowhere",
+          courseId: world.courseId,
+          name: named("Mod 93 - Nowhere"),
           placement: { at: "after", courseUnitId: "00000000-0000-4000-8000-000000000000" },
         }),
       );
@@ -313,22 +318,19 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
 
   describe("removing", () => {
     it("an empty module can be removed", async () => {
-      const removed = await createCaller(tx(), instructorId).courseUnits.remove({
+      const removed = await createCaller(tx(), world.instructorId).courseUnits.remove({
         courseUnitId: trimmed.id,
       });
-      expect(removed.name).toBe("Mod 97 - Padded");
+      expect(removed.name).toBe(trimmed.name);
     });
 
-    // The case this whole guard exists for. The seeded course has assignments in a module, and
-    // removing it would leave them belonging to nothing.
+    /*
+      The case this whole guard exists for: the unit made in `beforeAll` holds an assignment, and
+      removing it would leave that assignment belonging to nothing.
+    */
     it("a module holding assignments cannot be removed", async () => {
-      const listed = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
-      const withWork = required(
-        "a module holding at least one assignment",
-        listed.find((row) => row._count.assignments > 0),
-      );
       const code = await refusal(() =>
-        createCaller(tx(), instructorId).courseUnits.remove({ courseUnitId: withWork.id }),
+        createCaller(tx(), world.instructorId).courseUnits.remove({ courseUnitId: world.unitId }),
       );
       expect(code).toBe("CONFLICT");
     });
@@ -337,9 +339,9 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
   describe("who may do any of this", () => {
     it("a student cannot create a module", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), studentId).courseUnits.create({
+        createCaller(tx(), world.student.studentId).courseUnits.create({
           category: "MODULE",
-          courseId,
+          courseId: world.courseId,
           name: "Nope",
         }),
       );
@@ -348,7 +350,7 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
 
     it("a student cannot rename one", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), studentId).courseUnits.update({
+        createCaller(tx(), world.student.studentId).courseUnits.update({
           courseUnitId: second.id,
           name: "Nope",
         }),
@@ -358,21 +360,26 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
 
     it("a student cannot reorder them", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), studentId).courseUnits.reorder({ courseId, courseUnitIds: reversed }),
+        createCaller(tx(), world.student.studentId).courseUnits.reorder({
+          courseId: world.courseId,
+          courseUnitIds: reversed,
+        }),
       );
       expect(code).toBe("FORBIDDEN");
     });
 
     it("a student cannot remove one", async () => {
       const code = await refusal(() =>
-        createCaller(tx(), studentId).courseUnits.remove({ courseUnitId: second.id }),
+        createCaller(tx(), world.student.studentId).courseUnits.remove({ courseUnitId: second.id }),
       );
       expect(code).toBe("FORBIDDEN");
     });
 
     // A student may *read* them, because their own course page groups assignments by module.
     it("a student can read the list", async () => {
-      const listed = await createCaller(tx(), studentId).courseUnits.listForCourse({ courseId });
+      const listed = await createCaller(tx(), world.student.studentId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      });
       expect(listed.length).toBeGreaterThan(0);
     });
   });
@@ -395,45 +402,36 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     let asInstructorSees: { assignments: { id: string }[]; _count: { assignments: number } };
     let asStudentSees: { assignments: { id: string }[] };
 
-    const selfDirected = (title: string, dueAt: Date | null) => ({
-      courseId,
-      courseUnitId: draftHome.id,
-      title,
-      kind: "SELF_DIRECTED" as const,
-      handInMethods: ["LINK" as const],
-      pointValue: 10,
-      completionThreshold: 0.75,
-      sections: [],
-      dueAt,
-      distributedAt: new Date(),
-    });
-
     beforeAll(async () => {
-      draftHome = await createCaller(tx(), instructorId).courseUnits.create({
+      draftHome = await createCaller(tx(), world.instructorId).courseUnits.create({
         category: "MODULE",
-        courseId,
-        name: "Mod 93 - Ordering",
+        courseId: world.courseId,
+        name: named("Mod 93 - Ordering"),
       });
 
       /*
-        Deliberately created out of order: the middle one first, then the earliest, then one with
-        no date at all. If the ordering came from insertion or from the title, this arrangement
-        would pass while measuring nothing.
+        Deliberately created out of order: the middle one first, then the earliest, then one with no
+        date at all. If the ordering came from insertion or from the title, this arrangement would
+        pass while measuring nothing.
       */
-      [middle, earliest, undated] = await Promise.all([
-        tx().assignment.create({
-          data: selfDirected("B - due later", new Date("2026-10-02T00:00:00Z")),
-          select: { id: true },
-        }),
-        tx().assignment.create({
-          data: selfDirected("C - due first", new Date("2026-10-01T00:00:00Z")),
-          select: { id: true },
-        }),
-        tx().assignment.create({
-          data: selfDirected("A - no due date", null),
-          select: { id: true },
-        }),
-      ]);
+      middle = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: draftHome.id,
+        title: "B - due later",
+        dueAt: new Date("2026-10-02T00:00:00Z"),
+      });
+      earliest = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: draftHome.id,
+        title: "C - due first",
+        dueAt: new Date("2026-10-01T00:00:00Z"),
+      });
+      undated = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: draftHome.id,
+        title: "A - no due date",
+        dueAt: null,
+      });
     });
 
     /*
@@ -443,7 +441,9 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
       correct if the title is the tie-break rather than the key.
     */
     it("a module's assignments come back in due-date order", async () => {
-      const listed = await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId });
+      const listed = await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      });
       const orderingModule = listed.find((row) => row.id === draftHome.id)!;
       expect(orderingModule.assignments.map((row) => row.id)).toEqual([
         earliest.id,
@@ -454,15 +454,22 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
 
     describe("the draft filter, which is why the procedure reads the membership at all", () => {
       beforeAll(async () => {
-        draftAssignment = await tx().assignment.create({
-          data: { ...selfDirected("D - unpublished", new Date("2026-09-01T00:00:00Z")), distributedAt: null },
-          select: { id: true },
+        draftAssignment = await makeAssignment(tx(), {
+          courseId: world.courseId,
+          courseUnitId: draftHome.id,
+          title: "D - unpublished",
+          dueAt: new Date("2026-09-01T00:00:00Z"),
+          published: false,
         });
         asInstructorSees = (
-          await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId })
+          await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+            courseId: world.courseId,
+          })
         ).find((row) => row.id === draftHome.id)!;
         asStudentSees = (
-          await createCaller(tx(), studentId).courseUnits.listForCourse({ courseId })
+          await createCaller(tx(), world.student.studentId).courseUnits.listForCourse({
+            courseId: world.courseId,
+          })
         ).find((row) => row.id === draftHome.id)!;
       });
 
@@ -491,17 +498,19 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
 
     /*
       And an empty module is in what the student's page is built from. Their course page renders a
-      section per module rather than per module-that-has-work, so a student can see the shape of
-      the course ahead of them — which means `courses.get` has to return every module, not only the
-      ones with assignments in.
+      section per module rather than per module-that-has-work, so a student can see the shape of the
+      course ahead of them — which means `courses.get` has to return every module, not only the ones
+      with assignments in.
     */
     it("an empty module still reaches the student's course page", async () => {
-      const emptyOne = await createCaller(tx(), instructorId).courseUnits.create({
+      const emptyOne = await createCaller(tx(), world.instructorId).courseUnits.create({
         category: "MODULE",
-        courseId,
-        name: "Mod 94 - Nothing In It",
+        courseId: world.courseId,
+        name: named("Mod 94 - Nothing In It"),
       });
-      const asSeenByStudent = await createCaller(tx(), studentId).courses.get({ courseId });
+      const asSeenByStudent = await createCaller(tx(), world.student.studentId).courses.get({
+        courseId: world.courseId,
+      });
       expect(asSeenByStudent.courseUnits.some((row) => row.id === emptyOne.id)).toBe(true);
     });
   });
@@ -510,23 +519,8 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
     let otherCourseId: string;
 
     beforeAll(async () => {
-      const otherProgram = await tx().program.create({
-        data: {
-          name: "Elsewhere (integration: modules)",
-          term: `Cohort Elsewhere ${crypto.randomUUID().slice(0, 8)}`,
-          joinToken: `modules-${crypto.randomUUID()}`,
-          instructorToken: `modules-it-${crypto.randomUUID()}`,
-        },
-        select: { id: true },
-      });
-      const otherCourse = await tx().course.create({
-        data: {
-          programId: otherProgram.id,
-          name: "Elsewhere (integration: modules)",
-          slug: `vm-${crypto.randomUUID().slice(0, 8)}`,
-        },
-        select: { id: true },
-      });
+      const otherProgram = await makeProgram(tx(), { name: "Elsewhere (integration: modules)" });
+      const otherCourse = await makeCourse(tx(), { programId: otherProgram.id });
       otherCourseId = otherCourse.id;
     });
 
@@ -538,26 +532,13 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
       **The outsider is made here rather than looked for.** The script asked the database for an
       INSTRUCTOR teaching no course of this program, found none on a seeded database, and printed a
       line saying so — which counted as neither a pass nor a failure, so this check had simply not
-      been running. The insert is into `auth.users`, which Supabase owns; the profile appears by
-      itself through the on-signup trigger, which is the path a real instructor arrives by.
+      been running.
     */
     it("an instructor who does not instruct the program cannot rename its modules", async () => {
-      const id = "beefbeef-0000-4000-8000-0000000c0ffe";
-      await tx().$executeRawUnsafe(
-        `insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at)
-         values ($1::uuid, '00000000-0000-0000-0000-000000000000', 'authenticated',
-                 'authenticated', $2, now(), now())`,
-        id,
-        "integration-modules-outsider@example.com",
-      );
-      const outsider = required(
-        "a profile for the outsider, which the on-signup trigger creates",
-        await tx().profile.findUnique({ where: { id }, select: { id: true } }),
-      );
-      await tx().profile.update({ where: { id: outsider.id }, data: { role: "INSTRUCTOR" } });
+      const outsiderId = await makeAccount(tx(), { role: "INSTRUCTOR" });
 
       const code = await refusal(() =>
-        createCaller(tx(), outsider.id).courseUnits.update({
+        createCaller(tx(), outsiderId).courseUnits.update({
           courseUnitId: second.id,
           name: "Not yours",
         }),
@@ -565,16 +546,16 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
       expect(code).toBe("FORBIDDEN");
     });
 
-    // A module of another course is not this course's to reorder, which `reorder` catches as a
-    // list that is not exactly this course's modules.
+    // A module of another course is not this course's to reorder, which `reorder` catches as a list
+    // that is not exactly this course's modules.
     it("another course's module cannot be ordered into this one", async () => {
-      const elsewhereModule = await tx().courseUnit.create({
-        data: { courseId: otherCourseId, name: "Mod 1 - Elsewhere", position: 0 },
-        select: { id: true },
+      const elsewhereModule = await makeUnit(tx(), {
+        courseId: otherCourseId,
+        name: "Mod 1 - Elsewhere",
       });
       const code = await refusal(() =>
-        createCaller(tx(), instructorId).courseUnits.reorder({
-          courseId,
+        createCaller(tx(), world.instructorId).courseUnits.reorder({
+          courseId: world.courseId,
           courseUnitIds: [...reversed.filter((id) => id !== trimmed.id), elsewhereModule.id],
         }),
       );
@@ -593,15 +574,16 @@ describe("a duplicate name", () => {
   const tx = withRollback();
 
   it("a duplicate name in one course is refused", async () => {
-    const made = await createCaller(tx(), instructorId).courseUnits.create({
+    const world = await makeWorld(tx());
+    const made = await createCaller(tx(), world.instructorId).courseUnits.create({
       category: "MODULE",
-      courseId,
-      name: "Mod 96 - Duplicate Target",
+      courseId: world.courseId,
+      name: named("Mod 96 - Duplicate Target"),
     });
     const code = await refusal(() =>
-      createCaller(tx(), instructorId).courseUnits.create({
+      createCaller(tx(), world.instructorId).courseUnits.create({
         category: "MODULE",
-        courseId,
+        courseId: world.courseId,
         name: made.name,
       }),
     );
@@ -613,16 +595,19 @@ describe("renaming onto a name already taken", () => {
   const tx = withRollback();
 
   it("renaming onto an existing name is refused", async () => {
+    const world = await makeWorld(tx());
     const existing = (
-      await createCaller(tx(), instructorId).courseUnits.listForCourse({ courseId })
+      await createCaller(tx(), world.instructorId).courseUnits.listForCourse({
+        courseId: world.courseId,
+      })
     )[0]!;
-    const other = await createCaller(tx(), instructorId).courseUnits.create({
+    const other = await createCaller(tx(), world.instructorId).courseUnits.create({
       category: "MODULE",
-      courseId,
-      name: "Mod 95 - To Be Renamed",
+      courseId: world.courseId,
+      name: named("Mod 95 - To Be Renamed"),
     });
     const code = await refusal(() =>
-      createCaller(tx(), instructorId).courseUnits.update({
+      createCaller(tx(), world.instructorId).courseUnits.update({
         courseUnitId: other.id,
         name: existing.name,
       }),
@@ -633,31 +618,25 @@ describe("renaming onto a name already taken", () => {
 
 /*
   The foreign key refuses it too, so a caller written later cannot get this wrong by skipping the
-  procedure. RESTRICT rather than CASCADE is what makes it a refusal instead of a silent deletion
-  of the assignments and every graded draft under them.
+  procedure. RESTRICT rather than CASCADE is what makes it a refusal instead of a silent deletion of
+  the assignments and every graded draft under them.
 
-  Its own transaction, opened by hand rather than through `withRollback`: the delete is expected to
-  fail, and a failed statement aborts the transaction it happens in.
+  Its own transaction, and the last thing that happens in it: the delete is expected to fail, and a
+  failed statement aborts the transaction it happens in.
 */
 describe("the constraint under the procedure", () => {
+  const tx = withRollback();
+
   it("the foreign key refuses removing a module with assignments", async () => {
-    const holdingWork = required(
-      "a module of the seeded course holding at least one assignment",
-      await db.courseUnit.findFirst({
-        where: { courseId, assignments: { some: {} } },
-        select: { id: true, name: true },
-      }),
-    );
+    const world = await makeWorld(tx());
+    await makeAssignment(tx(), { courseId: world.courseId, courseUnitId: world.unitId });
 
     let outcome: string;
     try {
-      await db.$transaction(async (tx) => {
-        await tx.courseUnit.delete({ where: { id: holdingWork.id } });
-        throw new Error("DELETED");
-      });
+      await tx().courseUnit.delete({ where: { id: world.unitId } });
       outcome = "accepted";
     } catch (err) {
-      outcome = (err as Error).message === "DELETED" ? "accepted" : (err as Error).name;
+      outcome = (err as Error).name;
     }
 
     expect(outcome).toBe("PrismaClientKnownRequestError");
@@ -717,18 +696,10 @@ describe("re-seeding a course whose module was renamed", () => {
   }
 
   beforeAll(async () => {
-    const scratchProgram = await tx().program.create({
-      data: {
-        name: "Verify Reseed",
-        term: "Cohort Verify Reseed",
-        joinToken: newJoinToken(),
-        instructorToken: newJoinToken(),
-      },
-      select: { id: true },
-    });
-    const scratch = await tx().course.create({
-      data: { programId: scratchProgram.id, name: "Verify Reseed", slug: "verify-reseed" },
-      select: { id: true },
+    const scratchProgram = await makeProgram(tx(), { name: "Integration Reseed" });
+    const scratch = await makeCourse(tx(), {
+      programId: scratchProgram.id,
+      name: "Integration Reseed",
     });
     scratchCourseId = scratch.id;
 
@@ -782,17 +753,19 @@ describe("re-seeding a course whose module was renamed", () => {
 
 /*
   Every group above rolled its transaction back, and this is the check that says so. It reads the
-  committed database, outside any transaction, after all of them have ended.
+  committed database, outside any transaction, after all of them have ended — which is what makes
+  it safe to point this suite at a database somebody is using.
 */
 describe("the rollback really rolled back", () => {
-  it("no modules survived the rollback", async () => {
-    const leftover = await db.courseUnit.count({
-      where: { name: { in: ["Mod 98 - Renamed", "Mod 99 - Verify Two", "Mod 97 - Padded"] } },
-    });
+  it("no module this run created survived", async () => {
+    const leftover = await db.courseUnit.count({ where: { name: { in: namesUsed } } });
     expect(leftover).toBe(0);
   });
 
-  it("...nor the course the re-seed check made", async () => {
-    expect(await db.course.count({ where: { slug: "verify-reseed" } })).toBe(0);
+  it("...nor the programs its fixtures made", async () => {
+    const leftover = await db.program.count({
+      where: { name: { in: ["Integration Reseed", "Elsewhere (integration: modules)"] } },
+    });
+    expect(leftover).toBe(0);
   });
 });

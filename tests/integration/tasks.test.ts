@@ -1,7 +1,8 @@
 /**
  * Tasks: the kind with nothing to hand in, marked done by a fellow and settled by an instructor.
  *
- * Run with `npm run test:integration`.
+ * Run with `npm run test:integration`, or `npm run test:integration:local` against the disposable
+ * local database.
  *
  * `verify:authoring` covers the shape a task is allowed to have. This covers what happens when
  * somebody presses one of the three buttons, which is the half where a mistake is expensive — a
@@ -9,9 +10,10 @@
  * a fellow clearing a verdict their instructor set, a mark on a team task reaching only the member
  * who pressed it, and a verdict landing on the wrong kind of assignment altogether.
  *
- * Driven through the tRPC callers inside a transaction that is rolled back, with the task created
- * inside it. Nothing here touches GitHub, a sandbox, or a model, because a task involves none of
- * them — which is most of the reason the kind exists.
+ * Driven through the tRPC callers inside a transaction that is rolled back. Every row it reads it
+ * also wrote, in that same transaction, so it depends on nothing having been seeded and says in the
+ * test what it assumes. Nothing here touches GitHub, a sandbox, or a model, because a task involves
+ * none of them — which is most of the reason the kind exists.
  *
  * Each group holds a transaction of its own, because a refusal that comes from a constraint aborts
  * the transaction it happens in.
@@ -20,145 +22,42 @@
  * compared a pair of values in one call and remain one `expect` each, so the case count is lower
  * than the assertion count; nothing was dropped.
  */
-import { db } from "@/lib/prisma";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
-import { required, withRollback, type Tx } from "./transaction";
+import { makeAssignment, makeWorld, type World } from "./fixtures";
+import { withRollback, type Tx } from "./transaction";
 
-/*
-  Imported at the top rather than inside `main`, which is what the scripts have to do.
-
-  A script loads its environment as its first statement and must therefore reach `lib/prisma`
-  through a dynamic import, because a static one is hoisted above that statement and the module
-  throws when `DATABASE_URL` is unset. Jest runs `setupFiles` before it loads this file at all, so
-  the variables are already in place — and a static import is what gives the caller below its real
-  type instead of the union every procedure name has to be asserted through.
-*/
 const factory = createCallerFactory(appRouter);
 
 /** The procedures as one user would reach them, bound to this group's transaction. */
 const createCaller = (tx: Tx, userId: string) => factory({ db: tx, user: { id: userId } } as never);
 
-/** The seeded course this whole file acts on, looked up once. */
-let courseId: string;
-let programId: string;
-let unitId: string;
-let instructorId: string;
-let alice: { id: string; studentId: string };
-/** The second fellow, when the seed has one. Only the team group needs them. */
-let bob: { id: string; studentId: string } | null;
-
-const DUE = new Date("2026-09-10T23:59:00Z");
-
-beforeAll(async () => {
-  /*
-    One fellow is enough for everything except the team group, which needs two: "the mark reached
-    the team" and "the mark reached the person who pressed it" are the same row when a team has one
-    member on it. The team group makes its own second fellow rather than depending on the seed.
-  */
-  const candidates = await db.course.findMany({
-    where: { archivedAt: null, instructors: { some: {} }, courseUnits: { some: {} } },
-    select: {
-      id: true,
-      programId: true,
-      instructors: { take: 1, select: { userId: true } },
-      courseUnits: { take: 1, select: { id: true } },
-      program: {
-        select: {
-          enrollments: {
-            orderBy: { createdAt: "asc" },
-            take: 2,
-            select: { id: true, studentId: true },
-          },
-        },
-      },
-    },
-  });
-
-  const course = required(
-    "a seeded course with an instructor, a unit, and a fellow",
-    candidates.find((row) => row.program.enrollments.length >= 1),
-  );
-
-  courseId = course.id;
-  programId = course.programId;
-  unitId = course.courseUnits[0]!.id;
-  instructorId = course.instructors[0]!.userId;
-  alice = course.program.enrollments[0]!;
-  bob = course.program.enrollments[1] ?? null;
-});
-
-/** A published task, individual and self-marked unless asked otherwise. */
+/** A published task of the given world, individual and self-marked unless asked otherwise. */
 async function task(
   tx: Tx,
+  world: World,
   options: { teamSetId?: string; studentMayMarkDone?: boolean } = {},
 ): Promise<string> {
-  await tx.enrollment.updateMany({
-    where: { id: { in: [alice.id, bob?.id].filter((id): id is string => id !== undefined) } },
-    data: { status: "ACTIVE" },
+  const assignment = await makeAssignment(tx, {
+    courseId: world.courseId,
+    courseUnitId: world.unitId,
+    title: "Integration Task",
+    kind: "TASK",
+    dueAt: new Date("2026-09-10T23:59:00Z"),
+    teamSetId: options.teamSetId ?? null,
+    studentMayMarkDone: options.studentMayMarkDone ?? true,
   });
-
-  const assignment = await tx.assignment.create({
-    data: {
-      courseId,
-      courseUnitId: unitId,
-      title: "Verify Task",
-      kind: "TASK",
-      // One point and no sections, which is the whole of a task's grading configuration.
-      pointValue: 1,
-      sections: [],
-      distributedAt: new Date("2026-09-01T09:00:00Z"),
-      dueAt: DUE,
-      teamSetId: options.teamSetId ?? null,
-      studentMayMarkDone: options.studentMayMarkDone ?? true,
-    },
-    select: { id: true },
-  });
-
   return assignment.id;
 }
 
-/**
- * A second fellow on the roster, made inside the transaction when the seed has only one.
- *
- * **The team group is the half of this feature that a single fellow cannot check at all** — with a
- * team of one, "the mark reached the team" and "the mark reached whoever pressed it" are the same
- * row — and a development database seeded with one student is the ordinary case.
- *
- * The insert is into `auth.users`, which Supabase owns, and the profile appears by itself: the
- * on-signup trigger is what creates one, and it is the same path a real fellow arrives by. Raw SQL
- * because Prisma treats that table as external and never writes it. Everything here is inside the
- * caller's transaction and rolled back with it.
- */
-async function temporaryFellow(tx: Tx) {
-  const id = "beefbeef-0000-4000-8000-00000000beef";
-  const email = "verify-tasks-temp-fellow@example.com";
-
-  await tx.$executeRawUnsafe(
-    `insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at)
-     values ($1::uuid, '00000000-0000-0000-0000-000000000000', 'authenticated',
-             'authenticated', $2, now(), now())`,
-    id,
-    email,
-  );
-
-  const profile = await tx.profile.findUnique({ where: { id }, select: { id: true } });
-  if (!profile) return null;
-
-  return tx.enrollment.create({
-    data: { programId, studentId: profile.id, status: "ACTIVE" },
-    select: { id: true, studentId: true },
-  });
-}
-
 /** A team set of one team, holding whichever members are named. */
-async function teamOf(tx: Tx, members: { id: string }[]): Promise<string> {
+async function teamOf(tx: Tx, world: World, members: { id: string }[]): Promise<string> {
   const set = await tx.teamSet.create({
     data: {
-      courseId,
-      programId,
-      name: "Verify Task Teams",
+      courseId: world.courseId,
+      programId: world.programId,
+      name: "Integration Task Teams",
       teams: { create: [{ name: "Team 1", position: 0 }] },
     },
     select: { id: true, teams: { select: { id: true } } },
@@ -169,7 +68,7 @@ async function teamOf(tx: Tx, members: { id: string }[]): Promise<string> {
     data: members.map((member) => ({
       teamId: team.id,
       teamSetId: set.id,
-      programId,
+      programId: world.programId,
       enrollmentId: member.id,
     })),
   });
@@ -216,15 +115,23 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
 
 describe("a fellow marking their own task, and taking it back", () => {
   const tx = withRollback();
+  let world: World;
   let assignmentId: string;
 
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    assignmentId = await task(tx(), world);
+  });
+
   it("before anybody presses anything there is no row at all", async () => {
-    assignmentId = await task(tx());
     expect(await rowsFor(tx(), assignmentId)).toHaveLength(0);
   });
 
   it("marking it done creates the row", async () => {
-    await createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: true });
+    await createCaller(tx(), world.student.studentId).submissions.markTask({
+      assignmentId,
+      done: true,
+    });
     expect(await rowsFor(tx(), assignmentId)).toHaveLength(1);
   });
 
@@ -245,7 +152,7 @@ describe("a fellow marking their own task, and taking it back", () => {
 
   it("attributed to the fellow who pressed it", async () => {
     const [row] = await rowsFor(tx(), assignmentId);
-    expect(row!.gradedById).toBe(alice.studentId);
+    expect(row!.gradedById).toBe(world.student.studentId);
   });
 
   /*
@@ -259,7 +166,10 @@ describe("a fellow marking their own task, and taking it back", () => {
   });
 
   it("taking the mark back returns it to not started", async () => {
-    await createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: false });
+    await createCaller(tx(), world.student.studentId).submissions.markTask({
+      assignmentId,
+      done: false,
+    });
     const [row] = await rowsFor(tx(), assignmentId);
     expect(row!.status).toBe("NOT_STARTED");
   });
@@ -287,14 +197,19 @@ describe("a fellow marking their own task, and taking it back", () => {
 
 describe("an instructor overruling a fellow", () => {
   const tx = withRollback();
+  let world: World;
   let assignmentId: string;
 
   beforeAll(async () => {
-    assignmentId = await task(tx());
-    await createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: true });
-    await createCaller(tx(), instructorId).submissions.setTaskCompletion({
+    world = await makeWorld(tx());
+    assignmentId = await task(tx(), world);
+    await createCaller(tx(), world.student.studentId).submissions.markTask({
       assignmentId,
-      studentId: alice.studentId,
+      done: true,
+    });
+    await createCaller(tx(), world.instructorId).submissions.setTaskCompletion({
+      assignmentId,
+      studentId: world.student.studentId,
       done: false,
     });
   });
@@ -311,7 +226,7 @@ describe("an instructor overruling a fellow", () => {
 
   it("recorded against the instructor", async () => {
     const [row] = await rowsFor(tx(), assignmentId);
-    expect(row!.gradedById).not.toBe(alice.studentId);
+    expect(row!.gradedById).toBe(world.instructorId);
   });
 
   /*
@@ -321,12 +236,12 @@ describe("an instructor overruling a fellow", () => {
   */
   it("without rewriting who marked it", async () => {
     const [row] = await rowsFor(tx(), assignmentId);
-    expect(row!.handedInById).toBe(alice.studentId);
+    expect(row!.handedInById).toBe(world.student.studentId);
   });
 
   it("and written to the audit log", async () => {
     const audited = await tx().auditEvent.count({
-      where: { action: "GRADE_APPROVED", subjectId: alice.studentId },
+      where: { action: "GRADE_APPROVED", subjectId: world.student.studentId },
     });
     expect(audited).toBeGreaterThan(0);
   });
@@ -338,13 +253,19 @@ describe("an instructor overruling a fellow", () => {
   */
   it("a fellow cannot clear a verdict their instructor set", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: false }),
+      createCaller(tx(), world.student.studentId).submissions.markTask({
+        assignmentId,
+        done: false,
+      }),
     );
     expect(code).toBe("PRECONDITION_FAILED");
   });
 
   it("but can do it again and mark it done", async () => {
-    await createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: true });
+    await createCaller(tx(), world.student.studentId).submissions.markTask({
+      assignmentId,
+      done: true,
+    });
     const [row] = await rowsFor(tx(), assignmentId);
     expect(row!.isComplete).toBe(true);
   });
@@ -352,29 +273,31 @@ describe("an instructor overruling a fellow", () => {
 
 describe("an instructor marking a fellow who has no row", () => {
   const tx = withRollback();
+  let world: World;
   let assignmentId: string;
 
   beforeAll(async () => {
-    assignmentId = await task(tx());
+    world = await makeWorld(tx());
+    assignmentId = await task(tx(), world);
   });
 
   /*
-    The case the roster queue exists for. A task's queue lists every fellow, including the ones
-    with nothing on record, so the control has to work on somebody who has no submission — which is
-    why the procedure is keyed on the student rather than on a submission id.
+    The case the roster queue exists for. A task's queue lists every fellow, including the ones with
+    nothing on record, so the control has to work on somebody who has no submission — which is why
+    the procedure is keyed on the student rather than on a submission id.
   */
   it("a task's queue lists the fellows who have no row", async () => {
-    const queue = await createCaller(tx(), instructorId).submissions.listForAssignment({
+    const queue = await createCaller(tx(), world.instructorId).submissions.listForAssignment({
       assignmentId,
       cohort: "all",
     });
-    expect(queue.notStarted.some((student) => student.id === alice.studentId)).toBe(true);
+    expect(queue.notStarted.some((student) => student.id === world.student.studentId)).toBe(true);
   });
 
   it("marking one of them creates their row", async () => {
-    await createCaller(tx(), instructorId).submissions.setTaskCompletion({
+    await createCaller(tx(), world.instructorId).submissions.setTaskCompletion({
       assignmentId,
-      studentId: alice.studentId,
+      studentId: world.student.studentId,
       done: true,
     });
     expect(await rowsFor(tx(), assignmentId)).toHaveLength(1);
@@ -387,17 +310,17 @@ describe("an instructor marking a fellow who has no row", () => {
 
   it("for the fellow who was named", async () => {
     const [row] = await rowsFor(tx(), assignmentId);
-    expect(row!.studentId).toBe(alice.studentId);
+    expect(row!.studentId).toBe(world.student.studentId);
   });
 
   it("and moves them out of the not-started list into the queue proper", async () => {
-    const after = await createCaller(tx(), instructorId).submissions.listForAssignment({
+    const after = await createCaller(tx(), world.instructorId).submissions.listForAssignment({
       assignmentId,
       cohort: "all",
     });
     expect([
-      after.notStarted.some((student) => student.id === alice.studentId),
-      after.submissions.some((row) => row.student.id === alice.studentId),
+      after.notStarted.some((student) => student.id === world.student.studentId),
+      after.submissions.some((row) => row.student.id === world.student.studentId),
     ]).toEqual([false, true]);
   });
 });
@@ -405,22 +328,22 @@ describe("an instructor marking a fellow who has no row", () => {
 /*
   One member marks it and everybody's row says so, which is the half of the design that cannot be
   seen with a single fellow — a team of one makes "reached the team" and "reached whoever pressed
-  it" the same row. The second fellow is created inside the transaction when the seed has only one,
-  so this group measures something on a freshly seeded database rather than skipping.
+  it" the same row. The script asked the seed for a second fellow and skipped the whole group when
+  it had only one, which on a freshly seeded database is every run.
 */
 describe("a team task", () => {
   const tx = withRollback();
+  let world: World;
   let assignmentId: string;
-  let second: { id: string; studentId: string };
 
   beforeAll(async () => {
-    second = required(
-      "a second fellow, and none could be made — the on-signup trigger creates no profile",
-      bob ?? (await temporaryFellow(tx())),
-    );
-    const teamSetId = await teamOf(tx(), [alice, second]);
-    assignmentId = await task(tx(), { teamSetId });
-    await createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: true });
+    world = await makeWorld(tx(), { students: 2 });
+    const teamSetId = await teamOf(tx(), world, world.students);
+    assignmentId = await task(tx(), world, { teamSetId });
+    await createCaller(tx(), world.students[0]!.studentId).submissions.markTask({
+      assignmentId,
+      done: true,
+    });
   });
 
   it("one member marking it gives every member a row", async () => {
@@ -440,7 +363,7 @@ describe("a team task", () => {
   /*
     Not one of `MIRRORED_COLUMNS`, so `syncTeamRows` neither copies it nor puts it on the rows it
     creates — `recordTaskVerdict` writes it afterwards for exactly this reason. Without that write,
-    Bob's dashboard would offer him a report on a task that has none.
+    the second member's dashboard would offer them a report on a task that has none.
   */
   it("including the one that keeps it off their 'feedback to read' list", async () => {
     const rows = await rowsFor(tx(), assignmentId);
@@ -449,7 +372,10 @@ describe("a team task", () => {
 
   // Any active member acts for the team, which is the same rule handing in follows.
   it("a teammate can take the team's mark back", async () => {
-    await createCaller(tx(), second.studentId).submissions.markTask({ assignmentId, done: false });
+    await createCaller(tx(), world.students[1]!.studentId).submissions.markTask({
+      assignmentId,
+      done: false,
+    });
     const rows = await rowsFor(tx(), assignmentId);
     expect(rows.every((row) => row.status === "NOT_STARTED" && row.isComplete === null)).toBe(true);
   });
@@ -457,10 +383,12 @@ describe("a team task", () => {
 
 describe("a task only an instructor may mark", () => {
   const tx = withRollback();
+  let world: World;
   let assignmentId: string;
 
   beforeAll(async () => {
-    assignmentId = await task(tx(), { studentMayMarkDone: false });
+    world = await makeWorld(tx());
+    assignmentId = await task(tx(), world, { studentMayMarkDone: false });
   });
 
   /*
@@ -470,14 +398,20 @@ describe("a task only an instructor may mark", () => {
   */
   it("a fellow cannot mark an instructor-only task done", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: true }),
+      createCaller(tx(), world.student.studentId).submissions.markTask({
+        assignmentId,
+        done: true,
+      }),
     );
     expect(code).toBe("FORBIDDEN");
   });
 
   it("nor mark it not done", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: false }),
+      createCaller(tx(), world.student.studentId).submissions.markTask({
+        assignmentId,
+        done: false,
+      }),
     );
     expect(code).toBe("FORBIDDEN");
   });
@@ -488,9 +422,9 @@ describe("a task only an instructor may mark", () => {
 
   // The instructor's own control is unchanged: they set either verdict on any task.
   it("an instructor still marks it", async () => {
-    await createCaller(tx(), instructorId).submissions.setTaskCompletion({
+    await createCaller(tx(), world.instructorId).submissions.setTaskCompletion({
       assignmentId,
-      studentId: alice.studentId,
+      studentId: world.student.studentId,
       done: true,
     });
     const rows = await rowsFor(tx(), assignmentId);
@@ -504,7 +438,10 @@ describe("a task only an instructor may mark", () => {
   */
   it("and the fellow cannot undo it, though it stands as done", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), alice.studentId).submissions.markTask({ assignmentId, done: false }),
+      createCaller(tx(), world.student.studentId).submissions.markTask({
+        assignmentId,
+        done: false,
+      }),
     );
     expect(code).toBe("FORBIDDEN");
   });
@@ -512,25 +449,20 @@ describe("a task only an instructor may mark", () => {
 
 describe("what neither procedure will do", () => {
   const tx = withRollback();
+  let world: World;
   let assignmentId: string;
   let linkAssignmentId: string;
 
   beforeAll(async () => {
-    assignmentId = await task(tx());
-    const linkAssignment = await tx().assignment.create({
-      data: {
-        courseId,
-        courseUnitId: unitId,
-        title: "Verify Not A Task",
-        kind: "SELF_DIRECTED",
-        handInMethods: ["LINK"],
-        pointValue: 10,
-        distributedAt: new Date("2026-09-01T09:00:00Z"),
-        sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
-      },
-      select: { id: true },
+    world = await makeWorld(tx());
+    assignmentId = await task(tx(), world);
+    const link = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Integration Not A Task",
+      kind: "SELF_DIRECTED",
     });
-    linkAssignmentId = linkAssignment.id;
+    linkAssignmentId = link.id;
   });
 
   /*
@@ -540,7 +472,7 @@ describe("what neither procedure will do", () => {
   */
   it("a fellow cannot mark a link assignment done", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), alice.studentId).submissions.markTask({
+      createCaller(tx(), world.student.studentId).submissions.markTask({
         assignmentId: linkAssignmentId,
         done: true,
       }),
@@ -550,9 +482,9 @@ describe("what neither procedure will do", () => {
 
   it("and neither can an instructor", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), instructorId).submissions.setTaskCompletion({
+      createCaller(tx(), world.instructorId).submissions.setTaskCompletion({
         assignmentId: linkAssignmentId,
-        studentId: alice.studentId,
+        studentId: world.student.studentId,
         done: true,
       }),
     );
@@ -562,7 +494,7 @@ describe("what neither procedure will do", () => {
   // A task hands nothing out, so there is nothing to accept.
   it("and a task cannot be accepted", async () => {
     const code = await refusal(() =>
-      createCaller(tx(), alice.studentId).assignments.accept({ assignmentId }),
+      createCaller(tx(), world.student.studentId).assignments.accept({ assignmentId }),
     );
     expect(code).toBe("PRECONDITION_FAILED");
   });
@@ -576,13 +508,17 @@ describe("a fellow who is not on the roster", () => {
     somebody from another program by naming their id, and the row would be created to hold it.
   */
   it("an instructor cannot set a verdict for somebody off the roster", async () => {
-    const assignmentId = await task(tx());
-    await tx().enrollment.update({ where: { id: alice.id }, data: { status: "REMOVED" } });
+    const world = await makeWorld(tx());
+    const assignmentId = await task(tx(), world);
+    await tx().enrollment.update({
+      where: { id: world.student.id },
+      data: { status: "REMOVED" },
+    });
 
     const code = await refusal(() =>
-      createCaller(tx(), instructorId).submissions.setTaskCompletion({
+      createCaller(tx(), world.instructorId).submissions.setTaskCompletion({
         assignmentId,
-        studentId: alice.studentId,
+        studentId: world.student.studentId,
         done: true,
       }),
     );

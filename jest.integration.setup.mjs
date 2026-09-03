@@ -12,14 +12,44 @@
  */
 import { config as loadEnv } from "dotenv";
 
+import { testDatabaseUrl } from "./scripts/test-db-url.mjs";
+
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
+
+/**
+ * Which database, of the two these suites can run against.
+ *
+ * `npm run test:integration` uses the disposable local one that `npm run db:test:reset` builds from
+ * the migrations. `npm run test:integration:supabase` uses the development Supabase project named
+ * in `.env.local`, which is what the `verify:` scripts have always done.
+ *
+ * **The suites are identical either way**, because each makes the rows it needs inside its own
+ * transaction rather than looking for rows somebody seeded.
+ *
+ * **The local one is the default, and that is a measurement rather than a preference.** The whole
+ * suite takes about two seconds against it and roughly a hundred against Supabase, where every
+ * write is a network round trip — and at that length the run intermittently lost a whole file to
+ * `Unable to start a transaction in the given time` or `Operation has timed out`, which is the
+ * pooler rather than anything in the code. Running against Supabase is still worth doing before a
+ * release, because it is the only way to see these procedures meet the database the deployment
+ * actually uses; it is not the thing to run on every change.
+ *
+ * Written over whatever `.env.local` said, rather than defaulted behind it: a leftover
+ * `DATABASE_URL` pointing at Supabase is exactly the mistake this has to make impossible.
+ */
+if (process.env.MLS_TEST_DB) {
+  const local = testDatabaseUrl();
+  process.env.DATABASE_URL = local;
+  process.env.DIRECT_URL = local;
+}
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
     "DATABASE_URL is not set, so the integration tests have no database to run against. " +
       "They read `.env.local`, the same file the verify: scripts read. " +
-      "`npm test` is the suite that needs no database.",
+      "`npm run test:integration` uses the disposable local database instead, and " +
+      "`npm test` is the suite that needs no database at all.",
   );
 }
 

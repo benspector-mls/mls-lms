@@ -28,6 +28,7 @@ const config = {
     `setupFilesAfterEnv` closes that pool when the file's tests are done. Both headers say why the
     pair has to be a pair.
   */
+  globalSetup: "<rootDir>/jest.integration.global-setup.mjs",
   setupFiles: ["<rootDir>/jest.integration.setup.mjs"],
   setupFilesAfterEnv: ["<rootDir>/tests/integration/disconnect.ts"],
   testMatch: ["<rootDir>/tests/integration/**/*.test.ts"],
