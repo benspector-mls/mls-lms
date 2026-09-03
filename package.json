@@ -35,7 +35,6 @@
     "calibrate": "tsx --conditions=react-server scripts/calibrate.ts",
     "cost": "tsx --conditions=react-server scripts/cost.ts",
     "approve": "tsx --conditions=react-server scripts/approve.ts",
-    "verify:approve": "tsx --conditions=react-server scripts/verify-approve.ts",
     "verify:app": "tsx --conditions=react-server scripts/verify-github-app.ts",
     "verify:pr-diff": "tsx --conditions=react-server scripts/verify-pr-diff.ts",
     "verify:assets": "tsx --conditions=react-server scripts/verify-assets.ts",
@@ -45,9 +44,6 @@
     "reconcile:uploads": "tsx --conditions=react-server scripts/reconcile-uploads.ts",
     "reconcile:uploads:deployment": "tsx scripts/with-deployment-env.ts npm run reconcile:uploads --",
     "verify:drive-embed": "tsx --conditions=react-server scripts/verify-drive-embed.ts",
-    "verify:comments": "tsx --conditions=react-server scripts/verify-comments.ts",
-    "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",
-    "verify:programs": "tsx --conditions=react-server scripts/verify-programs.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts",
     "verify:test-student": "tsx --conditions=react-server scripts/verify-test-student.ts",
     "verify:calendar": "tsx --conditions=react-server scripts/verify-calendar.ts"

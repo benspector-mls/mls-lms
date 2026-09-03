@@ -8,15 +8,15 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:grade` | 101 | nothing — **now three suites under `tests/lib/grade/`** |
 | `verify:modules` | 35 → 41 → **42** | the database — **now `tests/integration/modules.test.ts`** |
 | `verify:cohorts` | **48** | the database — **now `tests/integration/cohorts.test.ts`** |
-| `verify:programs` | **91**, new | the database |
+| `verify:programs` | **91** | the database — **now `tests/integration/programs.test.ts`** |
 | `verify:team-sets` | **32** | the database — **now `tests/integration/team-sets.test.ts`** |
 | `verify:team-work` | **51** | the database — **now `tests/integration/team-work.test.ts`** |
 | `verify:resources` | 64 → **72** | the database — **now `tests/integration/resources.test.ts` and `tests/lib/resources/`** |
 | `verify:staff` | 50 → **60** | the database — **now `tests/integration/staff.test.ts` and `tests/lib/staff/`** |
-| `verify:approve` | 48 → **53** | the database |
-| `verify:uploads` | 88 → **109** | the database, and the storage bucket |
-| `verify:authoring` | 156 → **166** | the database, and GitHub |
-| `verify:enrollment` | 209 → **174**, measured after `verify:programs` took its half | the database |
+| `verify:approve` | 48 → 53 → **70** | the database — **now `tests/integration/approve.test.ts`** |
+| `verify:uploads` | 88 → 109 → **123** | split: `tests/lib/uploads/`, `tests/integration/uploads.test.ts`, and **19 that still need the bucket** |
+| `verify:authoring` | 156 → 166 → **176** | split: `tests/lib/assignments/`, `tests/integration/authoring.test.ts`, and **6 that still need GitHub** |
+| `verify:enrollment` | 209 → 174 → **176** | split: `tests/lib/courses/` and `tests/lib/links.test.ts`, and `tests/integration/enrollment.test.ts` |
 | `verify:curriculum` | **19** | the database — **now `tests/integration/curriculum.test.ts`** |
 | `verify:gcf` | **26** | the database — **now `tests/integration/gcf.test.ts`** |
 | `verify:app` | 16 | GitHub |
@@ -28,6 +28,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:dashboard` | 27 → 36 → **39** | the database — **now `tests/integration/dashboard.test.ts`** |
 | `verify:tasks` | **37** | the database — **now `tests/integration/tasks.test.ts`** |
 | `verify:attendance` | 59 → **76** | the database — **now `tests/integration/attendance.test.ts`** |
+| `verify:comments` | **72** | the database — **now `tests/integration/comments.test.ts`** |
 | `verify:calendar` | 28 | the database, and the application answering over HTTP |
 
 ## The program above the course, 25 August 2026
@@ -189,6 +190,20 @@ Each also has a constraint check the script could only ask of committed rows: a 
 **A note about the three grant checks in `verify:staff`, which are the most valuable it had.** They ask which columns of `profiles` the browser may write and expect the answer to be none, and they exist because a signed-in student could once set their own role to `ADMIN` from browser JavaScript. A Postgres cluster with no `anon` and `authenticated` roles returns the same empty answer for the opposite reason, so `npm run db:test:reset` creates those roles and the suite asks whether they are there before trusting the silence.
 
 **Ten checks that could not have failed now can.** `verify:cohorts` filtered a pile it had never filled, so "the cohort plus everyone else is the whole pile" compared zero against zero; its gradebook cells check had no cells, its out-of-cohort aside had nothing set aside, and its removed fellow's pile was empty. `verify:team-work` asserted a graded team was out of the pile entirely, which holds equally well when the pile is empty for an unrelated reason. `verify:resources` refused a module from another course without being able to show the refusal was about the course rather than about permission — the second course is now one the same instructor teaches, so it can.
+
+## What the migration found, 3 September 2026
+
+Every database-backed script is now a Jest suite, and the table above is a record of where each number went rather than a number to reproduce. The runner counts per check, which is the job this file was doing by hand.
+
+**Five scripts were measuring nothing at all.** `verify:cohorts`, `verify:team-work`, `verify:comments`, `verify:attendance` and `verify:team-sets` reported a skip and exited non-zero on every run against a seeded database, because each needed more fellows than the seed creates — two, three, two, two and three. Between them that is 279 checks that had not run since the program became the thing that owns a roster. `verify:staff` ran 12 of its 60 for the same kind of reason, and `verify:programs`, `verify:approve`, `verify:resources`, `verify:authoring` and `verify:enrollment` each had groups standing down inside an otherwise green run.
+
+**Nine of the recorded figures were wrong, and none of them by drift.** `verify:cohorts` holds 48 rather than 46 because the 46 was recorded against `verify:groups`. `verify:resources` holds 72 rather than 68, `verify:approve` 70 rather than 62, `verify:attendance` 76 rather than 59, `verify:enrollment` 176 rather than 174, `verify:authoring` 176 rather than 166, `verify:uploads` 123 rather than 109, `verify:staff` 60 rather than 50, and `verify:dashboard` 39 rather than 27. In every case the recorded number was smaller because checks the script contained were not being counted — sitting behind a guard that fell through to a `console.log`, or inside a group that skipped.
+
+**About thirty checks could not have failed.** They compared an empty answer against an empty expectation: a filter over a pile nobody had filled, an exclusion of rows that were never there, a copy whose failures were reported rather than asserted, a refusal compared against the string the script substituted when it could find nobody to refuse. Each is named in the section for its script above. A fixture the suite builds is what makes them capable of failing.
+
+**One defect in the application came out of it.** `claimRun` compared `created_at` against a boundary computed in this process and passed as a parameter; a JavaScript `Date` reaches a Prisma raw query without a zone, so Postgres read it in the session's own time zone. Measured at exactly 14400 seconds of drift against a session set to `America/New_York`, which put the boundary four hours in the future and turned the guard off entirely. The deployment was never affected, because Supabase sets the session to UTC — luck rather than design, and the reason it had never been seen.
+
+**What stays a script, and why.** `verify:app`, `verify:assets`, `verify:drive-embed` and `verify:github-app` ask an environment about its own configuration. `verify:e2b`, `verify:test-student --live` and `verify:resubmission` have real side effects or real cost. `verify:pr-diff` prints a table for a person to read. `verify:calendar` needs the application answering over HTTP. `verify:uploads` keeps the 19 checks that need the real bucket, and `verify:authoring` the 6 that need GitHub to answer a question about a repository. Those two are the only scripts left that were split rather than moved.
 
 ## Re-running the set
 
