@@ -24,7 +24,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:drive-embed` | not yet run against fixtures | Google, and two fixture documents |
 | `verify:assets` | 62 | GitHub |
 | `verify:e2b` | 8 | a real E2B sandbox |
-| `verify:test-student` | 42, or 56 with `--live`, or 64 with `--live --github` | the database; `--live` also Supabase; `--github` also GitHub |
+| `verify:test-student` | **64** | split: `tests/lib/students/`, `tests/lib/auth/`, `tests/integration/test-student.test.ts`, and **23 that need a real account or a real repository** |
 | `verify:dashboard` | 27 → 36 → **39** | the database — **now `tests/integration/dashboard.test.ts`** |
 | `verify:tasks` | **37** | the database — **now `tests/integration/tasks.test.ts`** |
 | `verify:attendance` | 59 → **76** | the database — **now `tests/integration/attendance.test.ts`** |
@@ -203,7 +203,9 @@ Every database-backed script is now a Jest suite, and the table above is a recor
 
 **One defect in the application came out of it.** `claimRun` compared `created_at` against a boundary computed in this process and passed as a parameter; a JavaScript `Date` reaches a Prisma raw query without a zone, so Postgres read it in the session's own time zone. Measured at exactly 14400 seconds of drift against a session set to `America/New_York`, which put the boundary four hours in the future and turned the guard off entirely. The deployment was never affected, because Supabase sets the session to UTC — luck rather than design, and the reason it had never been seen.
 
-**What stays a script, and why.** `verify:app`, `verify:assets`, `verify:drive-embed` and `verify:github-app` ask an environment about its own configuration. `verify:e2b`, `verify:test-student --live` and `verify:resubmission` have real side effects or real cost. `verify:pr-diff` prints a table for a person to read. `verify:calendar` needs the application answering over HTTP. `verify:uploads` keeps the 19 checks that need the real bucket, and `verify:authoring` the 6 that need GitHub to answer a question about a repository. Those two are the only scripts left that were split rather than moved.
+**What stays a script, and why.** `verify:app`, `verify:assets`, `verify:drive-embed` and `verify:github-app` ask an environment about its own configuration. `verify:e2b`, `verify:test-student --live` and `verify:resubmission` have real side effects or real cost. `verify:pr-diff` prints a table for a person to read. `verify:calendar` needs the application answering over HTTP. `verify:uploads` keeps the 19 checks that need the real bucket, `verify:authoring` the 6 that need GitHub to answer a question about a repository, and `verify:test-student` the 23 behind `--live` and `--github` that make a real Supabase account and a real repository. Those three are the scripts that were split rather than moved.
+
+**`verify:test-student` was running 10 of its 64**, skipping for want of an admin account, which `grant:admin` creates and a fresh database does not have. Its reduced form still needs one, and still skips without it — but the 41 checks that only needed a database no longer wait on a person having run a command.
 
 ## Re-running the set
 

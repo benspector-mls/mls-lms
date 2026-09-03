@@ -1,38 +1,32 @@
 /**
- * Test students: making one, looking through one, and the two ways this could have been a hole.
+ * Test students: the half that makes a real account and a real repository.
  *
- * Run with `npm run verify:test-student`. Two gates widen it: `-- --live` creates and deletes a real
- * Supabase account, and `-- --live --github` also generates and deletes a real repository.
+ * Run with `npm run verify:test-student`. Two gates widen it: `-- --live` creates and deletes a
+ * real Supabase account, and `-- --live --github` also generates and deletes a real repository.
+ * Without a flag its group is reported as not run, and what remains is the final check that this
+ * run left nothing behind.
  *
- * Nearly all of it runs inside a transaction that is rolled back, driven through the tRPC callers
- * so the guards are the ones an admin actually meets. **The rows a test student needs are made by
- * marking a real student inside that transaction** rather than by creating an account — a
- * `testStudentNumber` is the whole of what makes a profile one, and creating an auth user is not
- * something a transaction can undo. `verify-enrollment.ts` reaches for the same technique when it
- * clears `isPrimary` to reach a state no procedure produces.
+ * **The rest of this script is now `tests/integration/test-student.test.ts`**, along with the pure
+ * rules in `tests/lib/students/test-student.test.ts` and `tests/lib/auth/view-as.test.ts`. What
+ * moved is everything a rolled-back transaction could establish: who may call these procedures, the
+ * refusals that stop `enroll` and `remove` reaching a profile that is not a test student, the
+ * view-as substitution asserted from both ends, and the accept refusals. What stays here could not
+ * move, because creating an auth user is not something a transaction can undo.
  *
- * **Two groups matter more than the rest.** `enroll` and `remove` refusing a profile that is not a
- * test student is the entire difference between this feature and a mutation that puts anybody in any
- * course and deletes anybody's account with every grade they were ever given. And the view-as group
- * asserts the rule from both ends: that a non-admin holding a valid cookie value is answered as
- * themselves, and that an admin holding a real one is answered as the test student — because a
- * substitution that works is worth nothing if the check permitting it does not.
+ * **Both gated groups are self-cleaning** — each deletes what it made, through the same `remove` an
+ * admin presses — but each is a real account, a real row, and in the second case a real repository
+ * while it runs.
  *
- * The transactional accept group asserts the refusals; the acceptance itself is under `--github`,
- * because the only way to know that a test student's own handle is never sent to GitHub is to accept
- * for real and read the repository's collaborators back. Both gated groups are self-cleaning — each
- * deletes what it made, through the same `remove` an admin presses — but each is a real account, a
- * real row, and in the second case a real repository while it runs. Without a flag its group is
- * reported as not run, and the rest still passes.
+ * The `--github` group is the one that earns the cost. The only way to know that a test student's
+ * own handle is never sent to GitHub is to accept for real and read the repository's collaborators
+ * back: `PUT /collaborators/test-student-N` would answer 404 and fail an accept that had already
+ * created the repository, so the admin is invited in its place.
  */
-import { createChecker, inOwnTransaction, loadEnvironment, refusal } from "./verify/harness";
+import { createChecker, loadEnvironment } from "./verify/harness";
 
 loadEnvironment();
 
 const { check, checkThat, skip, finish } = createChecker();
-
-/** A number no real deployment will reach, so a marked row is obvious if one ever escapes. */
-const FAKE_NUMBER = 999_001;
 
 async function main() {
   const live = process.argv.includes("--live");
@@ -41,10 +35,9 @@ async function main() {
   const { db } = await import("../lib/prisma");
   const { appRouter } = await import("../trpc/routers/_app");
   const { createCallerFactory } = await import("../trpc/init");
-  const { isUuid, resolveViewAs } = await import("../lib/auth/view-as");
   const { acceptRepoAssignment, acceptableAssignmentSelect } =
     await import("../lib/assignments/accept");
-  const { testStudentEmail, testStudentHandle, testStudentName, isTestStudent } =
+  const { testStudentEmail, testStudentHandle, testStudentName } =
     await import("../lib/students/test-student");
   const { createAuthUser, deleteAuthUser } = await import("../lib/supabase/admin");
 
@@ -53,7 +46,7 @@ async function main() {
   /*
     The test students that existed before this run, so the last check can prove none were added.
 
-    The gated groups create real accounts and real repositories and delete them again, and the way
+    Both groups below create real accounts and real repositories and delete them again, and the way
     that fails is silent: a run whose cleanup did not finish prints every `ok` it earned and leaves
     an account holding a number, a submission, and a repository. That happened, and it was found by
     hand days later rather than by the script that caused it.
@@ -69,39 +62,10 @@ async function main() {
     })
   ).map((row) => row.id);
 
-  // ---------------------------------------------------------------------------
-  // The derived strings, which are pure and need no database at all.
-  // ---------------------------------------------------------------------------
-  check("the display name is the number", testStudentName(3), "Test Student 3");
-  check("the handle is the number", testStudentHandle(3), "test-student-3");
-  check("the address is unreachable by design", testStudentEmail(3), "test-student-3@test.invalid");
-  check("a null number is not a test student", isTestStudent({ testStudentNumber: null }), false);
-  check("a number is", isTestStudent({ testStudentNumber: 1 }), true);
-
   /*
-    The shape check that guards a redirect path.
-
-    Leaving a test student's view builds `/instructor/courses/{id}/settings` from a cookie, and a
-    cookie is a value somebody can set. Each string below is one somebody would try.
+    A program with a course, and the admin these procedures are gated on. A test student is enrolled
+    on a roster rather than in a course, so the scope is the program.
   */
-  check("a uuid is a uuid", isUuid("b549d23b-76ac-41a8-ba40-13f3249d3c63"), true);
-  check("a traversal is not", isUuid("../../../evil"), false);
-  check("nor is a protocol-relative host", isUuid("//evil.example"), false);
-  check(
-    "nor is a uuid with a path stuck to it",
-    isUuid("b549d23b-76ac-41a8-ba40-13f3249d3c63/x"),
-    false,
-  );
-  check("nor is the empty string", isUuid(""), false);
-
-  // ---------------------------------------------------------------------------
-  // Fixtures. Every group below needs a program with a real fellow on its
-  // roster, a course inside it, an instructor of that program, and an admin.
-  //
-  // A test student is enrolled on a roster rather than in a course, so the scope
-  // this script works in is the program — and the course is only needed where a
-  // check reads a course-shaped screen.
-  // ---------------------------------------------------------------------------
   const program = await db.program.findFirst({
     where: {
       archivedAt: null,
@@ -109,81 +73,21 @@ async function main() {
       courses: { some: { archivedAt: null } },
     },
     orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      name: true,
-      courses: {
-        where: { archivedAt: null },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-        select: { id: true },
-      },
-    },
+    select: { id: true, name: true },
   });
 
   const admin = await db.profile.findFirst({
     where: { role: "ADMIN" },
     // `role` is selected so this row can be passed to `createAuthUser` and `deleteAuthUser`, which
-    // now refuse a caller who is not an ADMIN. Redundant against the `where` above, and that is
-    // the point: the check reads the column rather than trusting how the row was found.
+    // refuse a caller who is not an ADMIN. Redundant against the `where` above, and that is the
+    // point: the check reads the column rather than trusting how the row was found.
     select: { id: true, githubUsername: true, email: true, role: true },
   });
 
-  /*
-    An instructor who is **not** an admin, and the reason the role is named exactly.
-
-    `role: { in: ["INSTRUCTOR", "ADMIN"] }` is the obvious way to write "an instructor of this
-    course" and it is wrong here: on a deployment whose only instructor is the admin it selects the
-    admin, and every "an instructor is refused" check below then asserts that the one person who is
-    allowed is allowed — and passes. It did, three times, which is what the harness means by a
-    fixture chosen through a proxy for the property it needs.
-
-    Optional rather than required, because a deployment can legitimately have no plain instructor.
-    The group that needs one says so instead of substituting somebody.
-  */
-  const instructor = program
-    ? await db.programInstructor.findFirst({
-        where: { programId: program.id, user: { role: "INSTRUCTOR" } },
-        select: { userId: true },
-      })
-    : null;
-
-  /*
-    A real student of that course, whose row is what the transaction marks.
-
-    Chosen for `testStudentNumber: null` explicitly rather than assumed: running this twice against
-    a database where a previous run leaked would otherwise pick a test student to stand in for a
-    real one, and every check comparing the two would pass without comparing anything.
-  */
-  const realStudent = program
-    ? await db.enrollment.findFirst({
-        where: {
-          programId: program.id,
-          status: "ACTIVE",
-          student: { role: "STUDENT", testStudentNumber: null },
-        },
-        select: { id: true, studentId: true },
-      })
-    : null;
-
-  /**
-   * Somebody who is neither an admin nor the profile the transaction marks.
-   *
-   * Wanted for one check — a non-admin holding a valid cookie value is refused — which cannot use
-   * the marked profile, since a caller and a target that are the same id are refused by a different
-   * rule and would pass without testing this one.
-   */
-  const otherNonAdmin = realStudent
-    ? await db.profile.findFirst({
-        where: { role: { not: "ADMIN" }, id: { not: realStudent.studentId } },
-        select: { id: true, role: true },
-      })
-    : null;
-
-  if (!program || !admin || !realStudent) {
+  if (!program || !admin) {
     skip(
       "needs an unarchived program with an active fellow and a course, plus an admin account. " +
-        `Found program=${Boolean(program)} admin=${Boolean(admin)} fellow=${Boolean(realStudent)}. ` +
+        `Found program=${Boolean(program)} admin=${Boolean(admin)}. ` +
         "Seed with npm run db:seed and grant an admin with npm run grant:admin.",
     );
     finish();
@@ -191,224 +95,6 @@ async function main() {
     return;
   }
 
-  // ---------------------------------------------------------------------------
-  // Who may call these at all.
-  // ---------------------------------------------------------------------------
-  await inOwnTransaction(db, async (tx) => {
-    const asStudent = createCaller({ db: tx, user: { id: realStudent.studentId } } as never);
-    const asAdmin = createCaller({ db: tx, user: { id: admin.id } } as never);
-
-    const programId = program.id;
-
-    check(
-      "a fellow cannot list test students",
-      await refusal(() => asStudent.testStudents.list({ programId })),
-      "FORBIDDEN",
-    );
-    check(
-      "a fellow cannot create one",
-      await refusal(() => asStudent.testStudents.create({ programId })),
-      "FORBIDDEN",
-    );
-    check(
-      "a fellow cannot enrol one",
-      await refusal(() =>
-        asStudent.testStudents.enroll({ programId, profileId: realStudent.studentId }),
-      ),
-      "FORBIDDEN",
-    );
-    check(
-      "a fellow cannot delete one",
-      await refusal(() => asStudent.testStudents.remove({ profileId: realStudent.studentId })),
-      "FORBIDDEN",
-    );
-
-    // An admin is admitted at the read, so the refusals are about the role rather than about the
-    // procedures being broken for everybody.
-    check(
-      "an admin may list them",
-      Array.isArray(await asAdmin.testStudents.list({ programId })),
-      true,
-    );
-  });
-
-  /*
-    An instructor is refused at every one of the five, which is the check that says
-    `adminProcedure` was used rather than `instructorProcedure`. All five rather than one: the guard
-    is per procedure, so four correct ones say nothing about the fifth.
-
-    Skipped rather than approximated when the deployment's only instructor is the admin. A skip
-    fails the run, which is the harness's design and is right here — this is the group that would
-    catch the wrong builder being used, so a run without it has not checked the thing most worth
-    checking.
-  */
-  if (!instructor) {
-    skip(
-      `${program.name} has no instructor who is not also an admin, so the checks that an ` +
-        "instructor is refused cannot be made. Redeem a staff invitation for a second account, or " +
-        "add a plain INSTRUCTOR to this program.",
-    );
-  } else {
-    await inOwnTransaction(db, async (tx) => {
-      const asInstructor = createCaller({ db: tx, user: { id: instructor.userId } } as never);
-      const programId = program.id;
-
-      check(
-        "an instructor cannot list test students",
-        await refusal(() => asInstructor.testStudents.list({ programId })),
-        "FORBIDDEN",
-      );
-      check(
-        "an instructor cannot create one",
-        await refusal(() => asInstructor.testStudents.create({ programId })),
-        "FORBIDDEN",
-      );
-      check(
-        "an instructor cannot enrol one",
-        await refusal(() =>
-          asInstructor.testStudents.enroll({ programId, profileId: realStudent.studentId }),
-        ),
-        "FORBIDDEN",
-      );
-      check(
-        "an instructor cannot delete one",
-        await refusal(() => asInstructor.testStudents.remove({ profileId: realStudent.studentId })),
-        "FORBIDDEN",
-      );
-      check(
-        "an instructor cannot read what deleting one would destroy",
-        await refusal(() =>
-          asInstructor.testStudents.removalPreview({ profileId: realStudent.studentId }),
-        ),
-        "FORBIDDEN",
-      );
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // The guard that keeps this from being an escalation.
-  // ---------------------------------------------------------------------------
-  await inOwnTransaction(db, async (tx) => {
-    const asAdmin = createCaller({ db: tx, user: { id: admin.id } } as never);
-
-    check(
-      "an admin cannot enrol a real person this way",
-      await refusal(() =>
-        asAdmin.testStudents.enroll({
-          programId: program.id,
-          profileId: realStudent.studentId,
-        }),
-      ),
-      "FORBIDDEN",
-    );
-    check(
-      "an admin cannot delete a real person's account this way",
-      await refusal(() => asAdmin.testStudents.remove({ profileId: realStudent.studentId })),
-      "FORBIDDEN",
-    );
-    check(
-      "nor read what deleting one would destroy",
-      await refusal(() =>
-        asAdmin.testStudents.removalPreview({ profileId: realStudent.studentId }),
-      ),
-      "FORBIDDEN",
-    );
-
-    // The admin's own account is a real person's too, and is the one somebody would reach for by
-    // accident.
-    check(
-      "an admin cannot delete their own account this way",
-      await refusal(() => asAdmin.testStudents.remove({ profileId: admin.id })),
-      "FORBIDDEN",
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // Looking through one: the rule from both ends.
-  // ---------------------------------------------------------------------------
-  await inOwnTransaction(db, async (tx) => {
-    // The stand-in. Rolled back, so this student is a test student for the length of this block
-    // and nothing outside it ever sees the row.
-    await tx.profile.update({
-      where: { id: realStudent.studentId },
-      data: { testStudentNumber: FAKE_NUMBER },
-    });
-
-    const permitted = await resolveViewAs(tx, {
-      realUserId: admin.id,
-      cookieValue: realStudent.studentId,
-    });
-    checkThat("an admin may look through a test student", permitted !== null);
-    check("and the substitution names it", permitted?.testStudent.number, FAKE_NUMBER);
-    check("while keeping the real admin", permitted?.admin.id, admin.id);
-
-    /*
-      A non-admin holding exactly the value that works for an admin. The pair is the check: the same
-      cookie, two callers, one refused — which is what says the entitlement is the caller's role and
-      not the cookie's contents.
-    */
-    if (otherNonAdmin) {
-      check(
-        `a ${otherNonAdmin.role} may not, holding the same value`,
-        await resolveViewAs(tx, {
-          realUserId: otherNonAdmin.id,
-          cookieValue: realStudent.studentId,
-        }),
-        null,
-      );
-    } else {
-      skip("no non-admin account other than the marked one, so the refusing half is unchecked.");
-    }
-
-    check(
-      "nor may the test student itself",
-      await resolveViewAs(tx, {
-        realUserId: realStudent.studentId,
-        cookieValue: realStudent.studentId,
-      }),
-      null,
-    );
-    check(
-      "an admin may not look through a real person",
-      await resolveViewAs(tx, { realUserId: admin.id, cookieValue: admin.id }),
-      null,
-    );
-    check(
-      "a value that is not a uuid is refused without a query",
-      await resolveViewAs(tx, { realUserId: admin.id, cookieValue: "not-a-uuid" }),
-      null,
-    );
-
-    /*
-      What the substitution actually produces, through the caller.
-
-      This is the whole feature in one assertion: a context whose user id is the test student's
-      answers `me` as the test student, which is what makes every screen and every guard behave.
-    */
-    const asTestStudent = createCaller({
-      db: tx,
-      user: { id: realStudent.studentId },
-      viewingAs: permitted,
-    } as never);
-    const me = await asTestStudent.me();
-    check("me answers as the test student", me?.id, realStudent.studentId);
-    check("and reports the number, so the banner can name it", me?.testStudentNumber, FAKE_NUMBER);
-
-    const viewingAs = await asTestStudent.viewingAs();
-    check("viewingAs names the admin behind it", viewingAs?.admin.displayName !== undefined, true);
-
-    // And the ordinary case reports nothing, which is what the banner renders nothing for.
-    const asAdmin = createCaller({ db: tx, user: { id: admin.id }, viewingAs: null } as never);
-    check(
-      "viewingAs is null when nobody is looking through anybody",
-      await asAdmin.viewingAs(),
-      null,
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // Accepting: the two refusals, before anything is created.
-  // ---------------------------------------------------------------------------
   /*
     Ordered, and not as a tidy. An unordered `findFirst` picked a different assignment on different
     runs — `swe-1-5-arrays` one time and `swe-1-3-node-modules` the next — which makes the `--github`
@@ -420,92 +106,6 @@ async function main() {
     where: { course: { programId: program.id }, kind: "REPO" },
     orderBy: { assignmentRepoName: "asc" },
     select: acceptableAssignmentSelect,
-  });
-
-  if (!repoAssignment) {
-    skip(`${program.name} has no repository assignment, so the accept refusals cannot be checked.`);
-  } else {
-    await inOwnTransaction(db, async (tx) => {
-      const student = {
-        id: realStudent.studentId,
-        githubUsername: testStudentHandle(FAKE_NUMBER),
-        testStudentNumber: FAKE_NUMBER,
-      };
-
-      check(
-        "a test student cannot accept with no admin behind it",
-        await refusal(() =>
-          acceptRepoAssignment(tx, { assignment: repoAssignment, student, actingAdmin: null }),
-        ),
-        "PRECONDITION_FAILED",
-      );
-
-      check(
-        "nor with an admin who has not linked GitHub",
-        await refusal(() =>
-          acceptRepoAssignment(tx, {
-            assignment: repoAssignment,
-            student,
-            actingAdmin: { githubUsername: null, email: "someone@example.com" },
-          }),
-        ),
-        "PRECONDITION_FAILED",
-      );
-
-      /*
-        The refusal for a *real* student is unchanged and is checked here beside the new ones,
-        because the branch above sits in the same function and a mistake in it would most likely
-        show up as this one no longer firing.
-      */
-      check(
-        "a real student with no GitHub account is still refused",
-        await refusal(() =>
-          acceptRepoAssignment(tx, {
-            assignment: repoAssignment,
-            student: { id: realStudent.studentId, githubUsername: null, testStudentNumber: null },
-            actingAdmin: null,
-          }),
-        ),
-        "PRECONDITION_FAILED",
-      );
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // The one count a test student must stay out of, and the list it must stay in.
-  // ---------------------------------------------------------------------------
-  await inOwnTransaction(db, async (tx) => {
-    // The admin, because this group is about the count rather than about who may read it — and an
-    // admin can read every program's, so it does not depend on a plain instructor existing.
-    const asStaff = createCaller({ db: tx, user: { id: admin.id } } as never);
-
-    const before = (await asStaff.programs.listMine()).find((row) => row.id === program.id);
-    const rosterBefore = await asStaff.programs.roster({ programId: program.id });
-
-    await tx.profile.update({
-      where: { id: realStudent.studentId },
-      data: { testStudentNumber: FAKE_NUMBER },
-    });
-
-    const after = (await asStaff.programs.listMine()).find((row) => row.id === program.id);
-    const rosterAfter = await asStaff.programs.roster({ programId: program.id });
-
-    check(
-      "the program card stops counting a fellow that becomes a test student",
-      after?._count.enrollments,
-      (before?._count.enrollments ?? 0) - 1,
-    );
-    check(
-      "and the roster goes on listing them",
-      rosterAfter.enrollments.length,
-      rosterBefore.enrollments.length,
-    );
-    checkThat(
-      "the roster says which one is a test student",
-      rosterAfter.enrollments.some(
-        (row) => row.student.id === realStudent.studentId && row.student.testStudentNumber !== null,
-      ),
-    );
   });
 
   // ---------------------------------------------------------------------------
