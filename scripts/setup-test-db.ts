@@ -58,6 +58,36 @@ function refuseAnythingButALocalTestDatabase(): void {
   }
 }
 
+/**
+ * The two roles Supabase's API connects as, created here if the cluster has none.
+ *
+ * They are what the browser reaches this database through, and several migrations revoke privileges
+ * from them — guarded by `EXISTS (SELECT 1 FROM pg_roles ...)`, because a REVOKE naming a role that
+ * does not exist is an error rather than a no-op.
+ *
+ * **A cluster without them makes the grant checks pass while measuring nothing.** Those checks ask
+ * which columns of `profiles` the browser may write and expect the answer to be none; with no such
+ * roles the query returns no rows, which is the same answer for the opposite reason. The migration
+ * that revoked those privileges exists because a signed-in student could once make themselves an
+ * admin from browser JavaScript, so a check that quietly stops asking is the last one to lose.
+ *
+ * Roles are cluster-wide rather than per-database, so this creates them once and leaves them alone
+ * afterwards. They are given no password and cannot log in; nothing connects as them here.
+ */
+async function createSupabaseRoles(client: Client): Promise<void> {
+  await client.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN NOINHERIT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated NOLOGIN NOINHERIT;
+      END IF;
+    END $$;
+  `);
+}
+
 /** The `auth` schema, as much of it as the migrations and the suites need. */
 async function createAuthSchema(client: Client): Promise<void> {
   const stub = prismaConfig.migrations?.initShadowDb;
@@ -101,6 +131,8 @@ async function main(): Promise<void> {
   const server = new Client({ connectionString: admin.toString() });
   await server.connect();
   try {
+    await createSupabaseRoles(server);
+
     // Anything still attached would make the DROP fail, and a stale connection from a previous run
     // is the ordinary case rather than the exception.
     await server.query(
