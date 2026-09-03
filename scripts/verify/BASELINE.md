@@ -7,12 +7,12 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:sandbox` | 41 | nothing — **now `tests/lib/sandbox/sandbox-logic.test.ts`** |
 | `verify:grade` | 101 | nothing — **now three suites under `tests/lib/grade/`** |
 | `verify:modules` | 35 → 41 → **42** | the database — **now `tests/integration/modules.test.ts`** |
-| `verify:cohorts` | 46 as `verify:groups`, **not yet re-measured** | the database |
+| `verify:cohorts` | **48** | the database — **now `tests/integration/cohorts.test.ts`** |
 | `verify:programs` | **91**, new | the database |
 | `verify:team-sets` | **32** | the database — **now `tests/integration/team-sets.test.ts`** |
-| `verify:team-work` | 51 | the database |
-| `verify:resources` | 64 | the database |
-| `verify:staff` | 50 | the database |
+| `verify:team-work` | **51** | the database — **now `tests/integration/team-work.test.ts`** |
+| `verify:resources` | 64 → **72** | the database — **now `tests/integration/resources.test.ts` and `tests/lib/resources/`** |
+| `verify:staff` | 50 → **60** | the database — **now `tests/integration/staff.test.ts` and `tests/lib/staff/`** |
 | `verify:approve` | 48 → **53** | the database |
 | `verify:uploads` | 88 → **109** | the database, and the storage bucket |
 | `verify:authoring` | 156 → **166** | the database, and GitHub |
@@ -173,6 +173,22 @@ Both reproduce their recorded counts exactly — 19 and 26 — and both gained a
 `verify:gcf` asserted that no attempt belonging to somebody outside the course reached the course's tab, against a database where the attempts list was usually empty — a `where` clause with nothing to exclude. The suite gives an outsider an attempt of their own, which is also what makes "a fellow reads their own and not the ones beside them" a comparison rather than a count of everything.
 
 Each also has a constraint check the script could only ask of committed rows: a unit holding work refusing to be deleted, and a second record of one attempt being refused. The script opened a separate transaction for those, which could not see anything the first had written, so both had to name a row somebody else had created and skipped when there was none. A fixture built in the same transaction has no such problem.
+
+## Four counts that were never counts, 3 September 2026
+
+`verify:cohorts`, `verify:team-work`, `verify:staff` and `verify:resources` are now suites, and each of their figures above needed correcting rather than reproducing.
+
+**Three of the four were measuring nothing or nearly nothing.** `verify:cohorts` and `verify:team-work` reported a skip on every run — one needs two distinct fellows and the other three, and a seeded database has one — so their 46 and 51 were figures nobody had reproduced since the program became the thing that owns a roster. `verify:staff` ran 12 of its 60: it needed an admin account and a student account to already exist, and five more of its groups stood down for want of a spare staff account, a second program, or a fellow.
+
+**`verify:cohorts` holds 48 rather than 46**, and the difference is not drift. The 46 was recorded against `verify:groups` and is labelled here as not re-measured; the script gained two checks when a grading group became a cohort — the composite key `(cohort_id, program_id)`, and `cohorts.remove` clearing its fellows — which is the change this file's own prose describes two sections above.
+
+**`verify:resources` holds 72 rather than 68.** Four of its checks never ran, looking for a module of another course and an instructor of another program that a seeded database does not have. Forty of the 72 are pure and now live under `tests/lib/resources/`, where 38 were already covered by the existing video-URL suite; the two that were not are a `youtu.be` link carrying the tracking parameter the share button actually adds, and an accented lookalike host, which fails for a different reason than the misspelled one already tested. The twelve resource-spec rules had no coverage anywhere.
+
+**`verify:staff` divides 51 to the database and nine to a unit suite.** The nine are the invitation policy — what state a link is in, and that redeeming never demotes an admin — and they needed nothing but their own arguments.
+
+**A note about the three grant checks in `verify:staff`, which are the most valuable it had.** They ask which columns of `profiles` the browser may write and expect the answer to be none, and they exist because a signed-in student could once set their own role to `ADMIN` from browser JavaScript. A Postgres cluster with no `anon` and `authenticated` roles returns the same empty answer for the opposite reason, so `npm run db:test:reset` creates those roles and the suite asks whether they are there before trusting the silence.
+
+**Ten checks that could not have failed now can.** `verify:cohorts` filtered a pile it had never filled, so "the cohort plus everyone else is the whole pile" compared zero against zero; its gradebook cells check had no cells, its out-of-cohort aside had nothing set aside, and its removed fellow's pile was empty. `verify:team-work` asserted a graded team was out of the pile entirely, which holds equally well when the pile is empty for an unrelated reason. `verify:resources` refused a module from another course without being able to show the refusal was about the course rather than about permission — the second course is now one the same instructor teaches, so it can.
 
 ## Re-running the set
 
