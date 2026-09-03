@@ -68,6 +68,16 @@ describe("isManualOnly", () => {
     expect(isManualOnly(null)).toBe(false);
     expect(isManualOnly({ grading: "manual" })).toBe(false);
   });
+
+  it("is false for a section that names no grading mode, because that counts as ai", () => {
+    /*
+      Rows written before the column existed carry no `grading` key at all. Reading one as the
+      pipeline's keeps the generate button on assignments that have always had it, where the
+      reverse would move them into `needs_manual_grade` — a pile whose only action is writing into
+      sections these assignments do not declare.
+    */
+    expect(isManualOnly([{ type: "coding_algorithm" }])).toBe(false);
+  });
 });
 
 describe("manualSections", () => {
