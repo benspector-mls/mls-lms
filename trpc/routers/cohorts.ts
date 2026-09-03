@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { teachableCohort } from "@/lib/courses/scope";
+import { inTransaction } from "@/lib/prisma";
 
 import { createTRPCRouter, instructorProcedure, programProcedure } from "../init";
 import { personSelect } from "../selects";
@@ -189,7 +190,14 @@ export const cohortsRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const found = await teachableCohort(ctx, input.cohortId, { id: true, name: true });
 
-      const memberCount = await ctx.db.$transaction(async (tx) => {
+      /*
+        `inTransaction` rather than `ctx.db.$transaction`: the integration suites drive these
+        procedures with `ctx.db` already bound to a transaction of their own, and a transaction
+        client still carries `$transaction` at runtime — calling it would open a second transaction
+        on a different connection that cannot see the caller's own uncommitted rows. See
+        lib/prisma.ts, and `courseUnits.create`, which says the same thing for the same reason.
+      */
+      const memberCount = await inTransaction(ctx.db, async (tx) => {
         const cleared = await tx.enrollment.updateMany({
           where: { cohortId: input.cohortId },
           data: { cohortId: null },
