@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:w": "jest --watch",
+    "test:integration": "jest -c jest.integration.config.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "postinstall": "prisma generate",

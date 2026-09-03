@@ -40,7 +40,12 @@ const config = {
     customExportConditions: ["react-server", "node"],
   },
   setupFiles: ["<rootDir>/jest.setup.mjs"],
-  testMatch: ["<rootDir>/tests/**/*.test.ts"],
+  /*
+    `tests/lib/` rather than all of `tests/`, so that `tests/integration/` — which wants the real
+    development database and is run by `npm run test:integration` — is never picked up here. This
+    suite's promise is that it needs nothing, and one file matched by accident would break it.
+  */
+  testMatch: ["<rootDir>/tests/lib/**/*.test.ts"],
   /*
     The same vendored trees eslint.config.mjs ignores, and for a sharper reason here: Jest's
     module map walks every package.json it finds, and `assignment-templates/` holds copies of
