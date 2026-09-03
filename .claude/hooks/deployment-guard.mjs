@@ -50,7 +50,7 @@ const INTERPRETER = /\b(bash|sh|zsh|fish|node|python3?|npx|tsx|eval|xargs|ssh)\b
 function withoutDocumentHeredocs(command) {
   return command.replace(
     /(^|\n)([^\n]*?)<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\n[\s\S]*?\n\3\b/g,
-    (whole, start, before, _marker) => (INTERPRETER.test(before) ? whole : `${start}${before}`),
+    (whole, start, before) => (INTERPRETER.test(before) ? whole : `${start}${before}`),
   );
 }
 
