@@ -17,8 +17,8 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:uploads` | 88 → **109** | the database, and the storage bucket |
 | `verify:authoring` | 156 → **166** | the database, and GitHub |
 | `verify:enrollment` | 209 → **174**, measured after `verify:programs` took its half | the database |
-| `verify:curriculum` | **19** | the database |
-| `verify:gcf` | **26** | the database |
+| `verify:curriculum` | **19** | the database — **now `tests/integration/curriculum.test.ts`** |
+| `verify:gcf` | **26** | the database — **now `tests/integration/gcf.test.ts`** |
 | `verify:app` | 16 | GitHub |
 | `verify:pr-diff` | 11, or 19 on a five-file pull request | the database, and GitHub |
 | `verify:drive-embed` | not yet run against fixtures | Google, and two fixture documents |
@@ -163,6 +163,16 @@ None of the three is vacuous against a fellow with no work of their own, which i
 Neither requirement was a convenience, which is why neither script could relax it. Placement is a partition, and moving somebody between teams passes with two people whether the move happened or a stale row survived; half of attendance is about one fellow being unaffected by what another does, and with one fellow "the record count did not change" passes for the wrong reason. So the suites make three fellows and two, along with the outsider instructor and the second program that four more of their checks had also been standing down for.
 
 The counts are 32 and 76. The 32 is what the script recorded and never reproduced. The 76 is measured here for the first time: the 59 in the table above predates the arrival averages and the code-replacement group, so it was already a number nobody had checked — which is the exact failure this file exists to prevent, arriving by the one route it cannot cover.
+
+## Curriculum and GCF, 2 September 2026
+
+Both reproduce their recorded counts exactly — 19 and 26 — and both gained a check that had been passing for the wrong reason.
+
+`verify:curriculum` moved a project between two modules against a fixture whose project was already in the position it was moved to, so the assertion held whether the reorder happened or not. The suite gives the course two modules and puts the project after both.
+
+`verify:gcf` asserted that no attempt belonging to somebody outside the course reached the course's tab, against a database where the attempts list was usually empty — a `where` clause with nothing to exclude. The suite gives an outsider an attempt of their own, which is also what makes "a fellow reads their own and not the ones beside them" a comparison rather than a count of everything.
+
+Each also has a constraint check the script could only ask of committed rows: a unit holding work refusing to be deleted, and a second record of one attempt being refused. The script opened a separate transaction for those, which could not see anything the first had written, so both had to name a row somebody else had created and skipped when there was none. A fixture built in the same transaction has no such problem.
 
 ## Re-running the set
 

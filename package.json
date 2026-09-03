@@ -28,8 +28,6 @@
     "rename:org": "tsx --conditions=react-server scripts/rename-github-org.ts",
     "db:studio": "prisma studio",
     "verify:authoring": "tsx --conditions=react-server scripts/verify-authoring.ts",
-    "verify:curriculum": "tsx --conditions=react-server scripts/verify-curriculum.ts",
-    "verify:gcf": "tsx --conditions=react-server scripts/verify-gcf.ts",
     "tests:run": "tsx --conditions=react-server scripts/run-tests.ts",
     "verify:e2b": "tsx --conditions=react-server scripts/verify-sandbox-e2b.ts",
     "accept": "tsx --conditions=react-server scripts/accept.ts",
