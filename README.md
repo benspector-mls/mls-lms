@@ -97,12 +97,12 @@ They run against a **disposable local database** built from the migrations, whic
 
 ```sh
 npm run db:test:reset        # drops and rebuilds it, then applies every migration
-npm run test:integration     # about two seconds
+npm run test:integration     # about six seconds
 ```
 
 `db:test:reset` refuses any host but this machine and any database whose name does not end in `_test`, because it drops what it is given. There is no seed: `prisma/seed.ts` looks up profiles that a real GitHub sign-in created, and there is no signing in to a local Postgres — so the suites build their own accounts through `auth.users` and the on-signup trigger, which is the path a real account arrives by. `prisma.config.ts` already carries the stub of Supabase's `auth` schema that makes this possible, and the setup script reads it from there rather than keeping a second copy.
 
-`npm run test:integration:supabase` runs the identical suites against the development Supabase project instead. Worth doing before a release, because it is the only way to see these procedures meet the same database the deployment uses; not the thing to run on every change, because it takes about a hundred seconds rather than two and at that length the pooler intermittently times out a whole file.
+`npm run test:integration:supabase` runs the identical suites against the development Supabase project instead. Worth doing before a release, because it is the only way to see these procedures meet the same database the deployment uses. It is not the thing to run on every change: the same 910 checks take about six minutes there against six seconds locally, since every row a fixture writes is a network round trip, and over a run that long Supabase's transaction pooler intermittently loses a whole file to `Unable to start a transaction in the given time` or `Operation has timed out`. A file that fails that way passes on its own — which is how to tell the pooler apart from a real failure.
 
 `tests/integration/fixtures.ts` holds the builders — `makeWorld` is a program with a course, a unit, an instructor and as many fellows as a group asks for. `tests/integration/transaction.ts` holds `withRollback`, which opens a transaction for a `describe` and discards it afterwards, and `required`, which **fails** a group whose fixture is missing rather than skipping it, because a group that measured nothing must not report a pass.
 

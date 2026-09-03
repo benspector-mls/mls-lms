@@ -1,8 +1,8 @@
 /**
  * Tasks: the kind with nothing to hand in, marked done by a fellow and settled by an instructor.
  *
- * Run with `npm run test:integration`, or `npm run test:integration:local` against the disposable
- * local database.
+ * Run with `npm run test:integration`, or `npm run test:integration:supabase` against the
+ * development Supabase project.
  *
  * `verify:authoring` covers the shape a task is allowed to have. This covers what happens when
  * somebody presses one of the three buttons, which is the half where a mistake is expensive — a

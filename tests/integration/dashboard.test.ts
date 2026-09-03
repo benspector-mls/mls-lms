@@ -1,8 +1,8 @@
 /**
  * The student's dashboard and the read-feedback marker.
  *
- * Run with `npm run test:integration`, or `npm run test:integration:local` against the disposable
- * local database.
+ * Run with `npm run test:integration`, or `npm run test:integration:supabase` against the
+ * development Supabase project.
  *
  * `dashboardSections` and `progressSegments` are pure and already tested against fixtures under
  * `tests/lib/student/`. What those cannot answer is whether `assignments.listMine` and

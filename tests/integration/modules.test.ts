@@ -1,8 +1,8 @@
 /**
  * The modules of a course: create, rename, reorder, remove.
  *
- * Run with `npm run test:integration`, or `npm run test:integration:local` against the disposable
- * local database.
+ * Run with `npm run test:integration`, or `npm run test:integration:supabase` against the
+ * development Supabase project.
  *
  * Driven through the tRPC callers inside a transaction that is rolled back, because authorization
  * is most of what these procedures are: every one of them has to check that the caller teaches

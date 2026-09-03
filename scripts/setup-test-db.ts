@@ -172,7 +172,7 @@ async function main(): Promise<void> {
 
   if (applied.status !== 0) process.exit(applied.status ?? 1);
 
-  console.log(`\nReady. Run the suites against it with:\n  npm run test:integration:local`);
+  console.log(`\nReady. Run the suites against it with:\n  npm run test:integration`);
 }
 
 main().catch((err) => {
