@@ -17,6 +17,8 @@ describe("parseVideoUrl", () => {
       ["the mobile host", "https://m.youtube.com/watch?v=dQw4w9WgXcQ"],
       ["the no-cookie host", "https://www.youtube-nocookie.com/watch?v=dQw4w9WgXcQ"],
       ["a share link", "https://youtu.be/dQw4w9WgXcQ"],
+      // The share button adds `si=` to every link it copies, so this is the ordinary paste.
+      ["a share link carrying the tracking parameter", "https://youtu.be/dQw4w9WgXcQ?si=aBcDeF"],
       ["an embed address", "https://www.youtube.com/embed/dQw4w9WgXcQ"],
       ["a short", "https://www.youtube.com/shorts/dQw4w9WgXcQ"],
       ["a live address", "https://www.youtube.com/live/dQw4w9WgXcQ"],
@@ -52,6 +54,12 @@ describe("parseVideoUrl", () => {
       ["a host merely containing youtube.com", "https://evil.example/youtube.com/watch?v=abc"],
       ["a subdomain trick", "https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ"],
       ["a lookalike host", "https://youtubee.com/watch?v=dQw4w9WgXcQ"],
+      /*
+        A host that is not youtube.com but reads as it on the screen. `new URL` converts it to its
+        punycode form, `xn--yutube-jua.com`, and the comparison against the parsed host is what
+        makes an accented character a different host rather than a near miss.
+      */
+      ["an accented lookalike host", "https://yóutube.com/watch?v=dQw4w9WgXcQ"],
       ["a path that mentions vimeo", "https://evil.example/vimeo.com/123456789"],
       // Not http(s), and both parse perfectly well as URLs.
       ["a javascript: URL", "javascript:alert(1)"],
