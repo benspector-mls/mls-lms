@@ -84,6 +84,14 @@ const MAX_FETCHED_FILE_BYTES = 200_000;
  * so a live run cannot reach five minutes, let alone fifteen. The margin is what makes expiry
  * safe: it can only ever release a run that is genuinely gone.
  *
+ * **The boundary is computed by the database rather than by this process**, which is what makes
+ * the comparison mean fifteen minutes rather than fifteen minutes plus whatever the two clocks
+ * disagree by. It also avoids a trap in how a JavaScript `Date` reaches a raw query: it arrives as
+ * a timestamp carrying no zone, so Postgres reads it in the session's own time zone. Against a
+ * session set to UTC that is right by luck; against one set to anything else — a local Postgres
+ * takes the operating system's zone — every live claim read as abandoned and the whole guard was
+ * silently off. Both sides of the comparison now come from `now()`, so neither question arises.
+ *
  * **What this deliberately does not protect**, so the limit is known rather than assumed. The
  * claim is taken here, late — after the test run and the GitHub reads, immediately before the
  * model calls. Two genuinely simultaneous attempts on one submission therefore both pay for a
@@ -109,7 +117,6 @@ export async function claimRun(
   headSha: string | null,
 ): Promise<GradingDraft> {
   const id = randomUUID();
-  const expiredBefore = new Date(Date.now() - CLAIM_EXPIRY_MS);
 
   const claimed = await db.$executeRaw`
     INSERT INTO grading_drafts (id, submission_id, head_sha, status, created_at, updated_at)
@@ -120,7 +127,7 @@ export async function claimRun(
         WHERE submission_id = ${submissionId}::uuid
           AND status = 'GENERATING'
           AND head_sha IS NOT DISTINCT FROM ${headSha}
-          AND created_at > ${expiredBefore}
+          AND created_at > now() - make_interval(secs => ${CLAIM_EXPIRY_MS / 1000})
      )
   `;
 
