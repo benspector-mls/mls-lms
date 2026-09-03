@@ -23,6 +23,11 @@ const config = {
     // `--conditions=react-server` on the command line to buy the same thing.
     customExportConditions: ["react-server", "node"],
   },
+  /*
+    `setupFiles` clears the client cached on `globalThis` so each file builds its own pool;
+    `setupFilesAfterEnv` closes that pool when the file's tests are done. Both headers say why the
+    pair has to be a pair.
+  */
   setupFiles: ["<rootDir>/jest.integration.setup.mjs"],
   setupFilesAfterEnv: ["<rootDir>/tests/integration/disconnect.ts"],
   testMatch: ["<rootDir>/tests/integration/**/*.test.ts"],
