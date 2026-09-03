@@ -45,11 +45,9 @@
     "reconcile:uploads": "tsx --conditions=react-server scripts/reconcile-uploads.ts",
     "reconcile:uploads:deployment": "tsx scripts/with-deployment-env.ts npm run reconcile:uploads --",
     "verify:drive-embed": "tsx --conditions=react-server scripts/verify-drive-embed.ts",
-    "verify:modules": "tsx --conditions=react-server scripts/verify-modules.ts",
     "verify:cohorts": "tsx --conditions=react-server scripts/verify-cohorts.ts",
     "verify:team-sets": "tsx --conditions=react-server scripts/verify-team-sets.ts",
     "verify:team-work": "tsx --conditions=react-server scripts/verify-team-work.ts",
-    "verify:tasks": "tsx --conditions=react-server scripts/verify-tasks.ts",
     "verify:comments": "tsx --conditions=react-server scripts/verify-comments.ts",
     "verify:resources": "tsx --conditions=react-server scripts/verify-resources.ts",
     "verify:enrollment": "tsx --conditions=react-server scripts/verify-enrollment.ts",
@@ -58,7 +56,6 @@
     "verify:staff": "tsx --conditions=react-server scripts/verify-staff.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts",
     "verify:test-student": "tsx --conditions=react-server scripts/verify-test-student.ts",
-    "verify:dashboard": "tsx --conditions=react-server scripts/verify-student-dashboard.ts",
     "verify:calendar": "tsx --conditions=react-server scripts/verify-calendar.ts"
   },
   "dependencies": {

@@ -6,7 +6,7 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | --- | --- | --- |
 | `verify:sandbox` | 41 | nothing — **now `tests/lib/sandbox/sandbox-logic.test.ts`** |
 | `verify:grade` | 101 | nothing — **now three suites under `tests/lib/grade/`** |
-| `verify:modules` | 35 → **41** | the database |
+| `verify:modules` | 35 → 41 → **42** | the database — **now `tests/integration/modules.test.ts`** |
 | `verify:cohorts` | 46 as `verify:groups`, **not yet re-measured** | the database |
 | `verify:programs` | **91**, new | the database |
 | `verify:team-sets` | 32, **not yet re-measured** | the database |
@@ -25,7 +25,8 @@ Recorded 8 August 2026, against the development database and the `marcy-lms` org
 | `verify:assets` | 62 | GitHub |
 | `verify:e2b` | 8 | a real E2B sandbox |
 | `verify:test-student` | 42, or 56 with `--live`, or 64 with `--live --github` | the database; `--live` also Supabase; `--github` also GitHub |
-| `verify:dashboard` | 27 | the database |
+| `verify:dashboard` | 27 → 36 → **39** | the database — **now `tests/integration/dashboard.test.ts`** |
+| `verify:tasks` | **37** | the database — **now `tests/integration/tasks.test.ts`** |
 | `verify:attendance` | 59, **not yet re-measured** | the database |
 | `verify:calendar` | 28 | the database, and the application answering over HTTP |
 
@@ -138,6 +139,22 @@ Its three most valuable hand-in checks are the ones about a second member. That 
 **Every refusal below the procedures gets its own transaction, and the first draft did not.** A duplicate name is a unique-constraint violation, which aborts the transaction it happens in, so sharing one meant nine later checks failed because the earlier one had worked. The same is true of all seven submission-level checks, which is why each rebuilds its fixture instead of sharing one.
 
 **The README's figures are older than these.** It records 43 for groups and 61 for resources where they now report 46 and 64 — the scripts grew and the prose did not. That is the whole reason this file exists: the number to compare against is the one the script prints today, not the one somebody wrote down once.
+
+## Three scripts became Jest suites, 2 September 2026
+
+`verify:tasks`, `verify:modules` and `verify:dashboard` are now `tests/integration/*.test.ts`, run by `npm run test:integration`. They drive the same procedures against the same development database inside the same rolled-back transaction; what changed is that every check is a named test the reporter counts, so **the count in this table is no longer the thing to compare a run against for those three** — the runner reports it. The rows stay because this file is where the numbers went.
+
+They were measured before being moved and reproduced afterwards: 37, 41 and 36. Three of those numbers went up, and each rise is a check that had not been running.
+
+**`verify:modules` gained the outsider instructor.** It looked for an INSTRUCTOR teaching no course of this program, found none on a seeded database, and printed `skip` with an ordinary `console.log` — which counted as neither a pass nor a failure, so the check silently had not run. The suite makes its own outsider inside the transaction, so it always runs. 41 → 42.
+
+**`verify:dashboard` gained all three of its cross-fellow checks**, which are the ones its own header calls the point of the file: that one student's submissions do not reach another's dashboard, that one fellow's attendance is not counted into another's rate, and that one student cannot mark another's feedback read. All three needed a second fellow on the roster, the seed has one, and so the script reported three skips and **exited non-zero on every run** while measuring none of them. The suite creates the second fellow inside the transaction. 36 → 39.
+
+None of the three is vacuous against a fellow with no work of their own, which is the trap the harness header warns about. Each procedure attaches a submission or an attendance record to the row it returns, so a filter missing its comparison against the caller would attach the *first* fellow's — which is exactly what each check looks for.
+
+**One assertion was replaced rather than carried over.** `verify:dashboard` asserted a literal `true` and printed the row's state beside it, which reported a pass whatever the row held. In its place the suite asserts the thing the group actually depends on: that the graded row carries the `gradedAt` the unread test compares against.
+
+**What this says about the rest of the table.** Two scripts here measure nothing at all on a freshly seeded database — `verify:attendance` needs two active fellows and `verify:team-sets` needs three, and both skip every group they have. That is the harness working as designed and it is also the argument for the direction these ports take: a check that cannot run is not a check, and creating the fixture inside the transaction is what makes it one. `verify:attendance` is worth porting for that reason before any other.
 
 ## Re-running the set
 
