@@ -21,7 +21,7 @@ The loop it replaces: a student accepts an assignment and a repository is genera
 
 **Stack:** Next.js 16 App Router on Vercel, Supabase PostgreSQL, Prisma 7 with `@prisma/adapter-pg`, tRPC v11, Tailwind v4 with Base UI, Supabase Auth with GitHub OAuth, GitHub App with Octokit, E2B for sandboxed test execution, and Claude `claude-sonnet-5` behind a provider interface.
 
-You need two Supabase projects — one for development and one for the deployment, described in [two Supabase projects](#two-supabase-projects-one-per-environment) — a GitHub App, an E2B key, an Anthropic key, and read access to the grading guides repository. The steps below set up whichever project `.env.local` names.
+You need two Supabase projects — one for development and one for the deployment, described in [two Supabase projects](#two-supabase-projects-three-environments) — a GitHub App, an E2B key, an Anthropic key, and read access to the grading guides repository. The steps below set up whichever project `.env.local` names.
 
 ```sh
 npm i                  # also runs prisma generate
@@ -65,13 +65,15 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 
 **The installation is resolved from the repository's owner**, so `GRADING_ASSETS_INSTALLATION_ID` is rarely needed. A GitHub App is installed per organization with its own id and its own token, and an assignment may name an answer-key repository in an organization the environment variables say nothing about — so the App asks itself which of its installations covers a given owner, and caches the answer including the negative one. Set the variable only to override that for the assets repository.
 
-### Two Supabase projects, one per environment
+### Two Supabase projects, three environments
 
 Development and the deployment have separate Supabase projects, and `.env.local` names the development one. Nothing run on a laptop can reach the rows holding real grades, and a new migration meets real data in development before it meets a fellow's.
 
+**A Vercel preview deployment uses the development project, not the deployment's.** Two projects, three environments: a branch put up for testing reads and writes the same rows a laptop does, so data created locally is already there and a migration applied locally is already applied. Testing a branch on a preview is therefore free of consequence for a fellow's records, which is the point — a branch is the code least worth trusting with them. What it costs is that the development project's Redirect URLs have to list the addresses preview deployments are served from, alongside localhost, or signing in with GitHub on a preview comes back to nowhere.
+
 Five variables differ between them: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `DIRECT_URL`. **Take both connection strings from the project's own Connect dialog rather than editing the other project's** — the pooler hostname carries a region and a numeric prefix assigned per project, so swapping a reference into the wrong host fails with `FATAL: (ENOTFOUND) tenant/user postgres.<ref> not found`.
 
-**Each project needs its own GitHub OAuth application**, for the same reason there are two GitHub Apps: an OAuth application has one authorization callback URL, and the callback belongs to the Supabase project rather than to the machine — `https://<project-ref>.supabase.co/auth/v1/callback`. Localhost is configured on the Supabase side instead, as the development project's Site URL and in its Redirect URLs. Disable the Email provider on both, as described above.
+**Each project needs its own GitHub OAuth application**, for the same reason there are two GitHub Apps: an OAuth application has one authorization callback URL, and the callback belongs to the Supabase project rather than to the machine — `https://<project-ref>.supabase.co/auth/v1/callback`. Localhost is configured on the Supabase side instead, as the development project's Site URL and in its Redirect URLs, which is where the preview addresses go too. Disable the Email provider on both, as described above.
 
 **The deployment's database is reached by naming it, never by editing `.env.local`.** `.env.deployment.local` holds the four values a terminal command needs — `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — and `db:status:deployment`, `db:deploy:deployment`, and `setup:storage:deployment` run the ordinary script with those values in place. `scripts/with-deployment-env.ts` is what puts them there, and it refuses to run rather than let a missing value fall through to the development one. The filename is deliberately not `.env.production.local`, which Next.js loads automatically whenever `NODE_ENV` is production, ahead of `.env.local`.
 

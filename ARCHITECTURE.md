@@ -1233,7 +1233,7 @@ What protects student data, where each control lives, and the settings that live
 
 ### Settings to check in the Supabase dashboard
 
-These are not in version control and none are visible from the code, and there are two projects to set them on rather than one — see [two Supabase projects](README.md#two-supabase-projects-one-per-environment). Each also needs its own GitHub OAuth application, because an OAuth application has a single authorization callback URL and that callback belongs to the Supabase project.
+These are not in version control and none are visible from the code, and there are two projects to set them on rather than one — see [two Supabase projects](README.md#two-supabase-projects-three-environments). Each also needs its own GitHub OAuth application, because an OAuth application has a single authorization callback URL and that callback belongs to the Supabase project.
 
 - **Email provider: off.** The important one, and a step in [running it](README.md#running-it), because until it is done anyone on the internet can still create an account.
 - **Redirect URLs** (Authentication → URL Configuration): only that project's own origins — the deployed domain on one, `http://localhost:3000` on the other, and never both on either. Both auth routes refuse non-relative `next` values, but a loose allowlist here is a separate door.
