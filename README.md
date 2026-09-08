@@ -93,12 +93,14 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 **Each suite makes the rows it needs and reads nothing it did not write.** That is what makes them reproducible on any machine, and it is a correction rather than a nicety: the scripts they replace looked for a seeded course of the right shape and stood down when they could not find one, which is how `verify:attendance` and `verify:team-sets` came to measure nothing at all, and how `verify:dashboard` came to skip the three cross-fellow checks its own header calls the point of the file.
 
-They run against a **disposable local database** built from the migrations, which needs a Postgres server on this machine and one command:
+They run against a **disposable local database** built from the migrations, which needs **Postgres 17** on this machine and one command:
 
 ```sh
 npm run db:test:reset        # drops and rebuilds it, then applies every migration
 npm run test:integration     # about six seconds
 ```
+
+**17 because that is what the deployment runs and what the build server runs.** A major version behind will still pass these suites today, and the reason to match anyway is the class of difference no suite is looking for — a plan the older planner chooses, a function whose behaviour changed, an error message a check compares against. This was written on a machine running 15 while Supabase ran 17, which is a gap worth closing rather than remembering.
 
 `db:test:reset` refuses any host but this machine and any database whose name does not end in `_test`, because it drops what it is given. There is no seed: `prisma/seed.ts` looks up profiles that a real GitHub sign-in created, and there is no signing in to a local Postgres — so the suites build their own accounts through `auth.users` and the on-signup trigger, which is the path a real account arrives by. `prisma.config.ts` already carries the stub of Supabase's `auth` schema that makes this possible, and the setup script reads it from there rather than keeping a second copy.
 
