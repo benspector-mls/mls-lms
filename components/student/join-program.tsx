@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Loader2, School, TriangleAlert } from "lucide-react";
@@ -7,6 +8,9 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { DISPLAY_NAME_MAX_LENGTH, displayNameSchema, looksLikeFirstLast } from "@/lib/people";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -36,6 +40,31 @@ export function JoinProgram({
 }) {
   const trpc = useTRPC();
   const router = useRouter();
+
+  /*
+    The name this fellow will be known by, asked for here when this is the first program they have
+    ever joined — `preview.firstProgram`. Every display name in this application is written by the
+    signup trigger rather than by the person, so a fellow whose GitHub profile has no full name on it
+    arrives called `bspector` or `jrivera23`, and that is the name an instructor then reads on the
+    roster, in the gradebook, and beside every piece of work. This is the moment it starts to matter,
+    and it is the only moment they are asked: joining leaves an enrollment behind, and the next join
+    link they open sees it and asks nothing.
+
+    Started from the name they already have rather than empty, because for somebody whose GitHub
+    profile does carry their real name there is nothing to change, and a blank box would ask them to
+    type out something the application already knew.
+  */
+  const [name, setName] = React.useState(preview?.displayName ?? "");
+
+  /*
+    Whether the warning about an odd-looking name has been shown and is being overridden.
+
+    **The second press is the whole point.** `looksLikeFirstLast` is a guess about the shape of a
+    person's name and it is wrong about somebody — a mononym, a name this application has no business
+    refusing — so the first press explains and the second saves it regardless. A hard rule here would
+    turn a nudge into a locked door on the one screen a fellow cannot get past.
+  */
+  const [warned, setWarned] = React.useState(false);
 
   const join = useMutation(
     trpc.enrollments.join.mutationOptions({
@@ -85,6 +114,27 @@ export function JoinProgram({
   }
 
   const alreadyActive = preview.alreadyIn === "ACTIVE";
+
+  const trimmed = name.trim();
+  /*
+    The same rule the procedure applies, read from the same module, so the button cannot offer a
+    name the server then refuses. Only consulted when the field is on screen — a fellow joining
+    their second program is not being asked anything and has nothing to get wrong.
+  */
+  const nameAccepted = !preview.firstProgram || displayNameSchema.safeParse(name).success;
+
+  /**
+   * The one press, and what it does depends on what is in the field.
+   *
+   * A name that reads as a first and last name joins immediately. One that does not stops here the
+   * first time to say so, and goes through on the next press — which is what `warned` records, and
+   * why typing in the field clears it: the confirmation has to be about the name actually saved.
+   */
+  const attemptJoin = () => {
+    if (!preview.firstProgram) return join.mutate({ token });
+    if (!looksLikeFirstLast(trimmed) && !warned) return setWarned(true);
+    join.mutate({ token, displayName: trimmed });
+  };
 
   return (
     <Shell>
@@ -181,10 +231,58 @@ export function JoinProgram({
               Joining adds you to this program so your instructors can hand out assignments and
               grade your work, and puts your attendance on its daily check-in.
             </p>
-            <Button disabled={join.isPending} onClick={() => join.mutate({ token })}>
-              {join.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
-              Join this program
-            </Button>
+
+            {/*
+              A real form, so the return key joins. `items-center` keeps the button the size it has
+              always been while the field below stretches, which is what a labelled input needs and
+              a lone button does not.
+            */}
+            <form
+              className="flex w-full flex-col items-center gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                attemptJoin();
+              }}
+            >
+              {preview.firstProgram && (
+                <div className="flex w-full flex-col gap-1.5 text-left">
+                  <Label htmlFor="join-display-name">Your name</Label>
+                  <Input
+                    id="join-display-name"
+                    value={name}
+                    autoComplete="name"
+                    /*
+                      The ceiling stops the typing rather than refusing the save, matching the
+                      Profile screen: a limit discovered by being turned away, after a name has been
+                      typed out in full, is a limit that should have been a `maxLength`.
+                    */
+                    maxLength={DISPLAY_NAME_MAX_LENGTH}
+                    disabled={join.isPending}
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      setWarned(false);
+                    }}
+                  />
+                  {warned ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      That does not look like a first and last name. Press Join again to use it
+                      anyway.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Your first and last name, as your instructors know you — for example, Ada
+                      Lovelace. This is what appears on the roster and beside every piece of work
+                      you hand in.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <Button type="submit" disabled={join.isPending || !nameAccepted}>
+                {join.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
+                {warned ? "Join anyway" : "Join this program"}
+              </Button>
+            </form>
           </>
         )}
       </div>

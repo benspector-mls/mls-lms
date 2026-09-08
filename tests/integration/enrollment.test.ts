@@ -1912,6 +1912,102 @@ describe("deleting a course", () => {
 });
 
 /*
+  ---- The name a fellow joins under -------------------------------------------------------------
+
+  Every display name is written by the signup trigger rather than by the person, so a fellow whose
+  GitHub profile has no full name on it arrives called `bspector` — and that is the name an
+  instructor reads on the roster and in the gradebook. The join screen asks for a real one, and the
+  three facts below are what let it: `preview` says whether this is the first program the account has
+  ever joined, `join` writes the name alongside the enrollment, and a join that is refused writes
+  nothing.
+*/
+describe("the name a fellow joins under", () => {
+  const tx = withRollback();
+
+  let built: World;
+  let joinerId: string;
+  let token: string;
+
+  const asJoiner = () => createCaller(tx(), joinerId);
+  const asInstructor = () => createCaller(tx(), built.instructorId);
+
+  const nameOf = async (id: string) =>
+    (await tx().profile.findUniqueOrThrow({ where: { id }, select: { displayName: true } }))
+      .displayName;
+
+  const expectOnRoster = async (id: string) => {
+    await asInstructor().enrollments.addToRoster({
+      programId: built.programId,
+      entries: [{ ...(await rosterKeysOf(tx(), id)), note: null }],
+    });
+  };
+
+  beforeAll(async () => {
+    built = await world(tx());
+    joinerId = await account(tx());
+    token = await joinTokenOf(tx(), built.programId);
+  });
+
+  // What puts the field on the screen at all. An account with no enrollment anywhere has never been
+  // asked, because until it joins something its name is displayed to nobody.
+  it("the screen is told this is the first program the account has joined", async () => {
+    expect((await asJoiner().enrollments.preview({ token }))?.firstProgram).toBe(true);
+  });
+
+  // Pre-filled rather than empty: a fellow whose GitHub profile already carries their real name has
+  // nothing to change, and a blank box would ask them to retype what the application knows.
+  it("...and what the field starts out holding", async () => {
+    const preview = await asJoiner().enrollments.preview({ token });
+    expect(preview?.displayName).toBe(await nameOf(joinerId));
+  });
+
+  /*
+    A refused join writes no name, which is the half that is easy to get wrong. The name is written
+    inside the transaction the enrollment is created in and every refusal throws before it, so being
+    turned away by the roster leaves the account exactly as it was — rather than renamed by a join
+    that did not happen.
+  */
+  it("a join the roster refuses renames nobody", async () => {
+    const before = await nameOf(joinerId);
+    const code = await refusal(() =>
+      asJoiner().enrollments.join({ token, displayName: "Ada Lovelace" }),
+    );
+
+    expect([code, await nameOf(joinerId)]).toEqual(["FORBIDDEN", before]);
+  });
+
+  it("a fellow who joins with a name is called it afterwards", async () => {
+    await expectOnRoster(joinerId);
+    const joined = await asJoiner().enrollments.join({ token, displayName: "Ada Lovelace" });
+
+    expect([joined.joined, await nameOf(joinerId)]).toEqual([true, "Ada Lovelace"]);
+  });
+
+  // Having joined one program is the whole of the "already asked" signal, and it is why this needed
+  // no column. The next link they open offers the button and asks nothing.
+  it("...and is never asked again, because the enrollment is the record of having been", async () => {
+    expect((await asJoiner().enrollments.preview({ token }))?.firstProgram).toBe(false);
+  });
+
+  /*
+    The old-browser-tab case, and the reason the input is optional rather than required.
+
+    Both bundles are live during a deploy: a tab loaded a minute before it calls `join` with a token
+    alone. That call must enrol exactly as it always did and leave the name it found in place — a
+    required field would refuse it on the one button the screen exists to press.
+  */
+  it("a join carrying no name enrols anyway and leaves the name alone", async () => {
+    const other = await account(tx());
+    const before = await nameOf(other);
+
+    await expectOnRoster(other);
+    const joined = await createCaller(tx(), other).enrollments.join({ token });
+
+    expect([joined.joined, await nameOf(other)]).toEqual([true, before]);
+  });
+});
+
+/*
   Nothing survived. Every account and every program above was made inside a transaction, so once all
   of them have rolled back none of it exists. Read outside any transaction, after every group has
   ended.

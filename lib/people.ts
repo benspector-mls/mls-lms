@@ -104,3 +104,32 @@ export function initials(name: string | null | undefined): string {
 
   return letters || "?";
 }
+
+/**
+ * Whether a name reads as a first name and a last name.
+ *
+ * **Advisory, and deliberately not part of `displayNameSchema`.** The join screen asks a fellow for
+ * their first and last name and warns when what they typed is not one — but a second press saves it
+ * anyway, because a rule about the shape of a person's name is a rule that is wrong about somebody.
+ * Folding this into the schema would make that override impossible to offer, and would mean the
+ * Profile screen refused a name this one had already accepted.
+ *
+ * Two or more whitespace-separated parts, each containing at least one letter, and nothing about
+ * capitalisation. That admits `Ada Lovelace`, `Ben J Spector`, `Mary Anne O'Brien-Smith` and
+ * `José Ángel Rivera`, and refuses the four shapes the signup trigger actually produces —
+ * `bspector`, `amina.k`, `jrivera23`, and an email address. Requiring capitals would refuse
+ * `van Dijk` and `de la Cruz`, which are names people have.
+ *
+ * The letter test is what stops `Ada .` and `- -` from passing on a count of parts alone, and
+ * `\p{L}` rather than `[A-Za-z]` because the names in this school are not all spelled in ASCII.
+ * Splitting on `\s+` rather than a single space is the same fix `initials` needed: a doubled space
+ * otherwise produces an empty part that counts.
+ */
+export function looksLikeFirstLast(name: string): boolean {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .filter((part) => /\p{L}/u.test(part)).length >= 2
+  );
+}

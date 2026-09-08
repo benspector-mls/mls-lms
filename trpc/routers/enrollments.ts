@@ -9,6 +9,7 @@ import {
   rosterRefusal,
 } from "@/lib/courses/roster";
 import { MAX_ROSTER_PASTE, rosterEntrySchema } from "@/lib/courses/roster-input";
+import { displayNameSchema } from "@/lib/people";
 import { teachableEnrollment } from "@/lib/courses/scope";
 import { inTransaction } from "@/lib/prisma";
 
@@ -95,6 +96,27 @@ export const enrollmentsRouter = createTRPCRouter({
       });
 
       /*
+        Whether this account has ever joined anything at all, which is what the join screen uses to
+        decide whether to ask for a name before it offers the button.
+
+        **Zero enrollments is the whole of the "has never been asked" signal, and it is why this
+        needs no column.** Every display name in this application is written by the signup trigger
+        rather than by the person — a GitHub profile's full name where there is one, and otherwise a
+        handle or the local part of an email address — so a fellow arrives called `bspector` and that
+        is the name an instructor then reads on the roster and in the gradebook. The moment worth
+        asking is the first join, because it is the first moment the name is displayed to anybody;
+        and asking again later would be asking somebody who has already answered, since a successful
+        join leaves a row here.
+
+        `findFirst` rather than `count`: the question is whether there is one, and the row is found
+        by the index on `studentId`.
+      */
+      const everJoined = await ctx.db.enrollment.findFirst({
+        where: { studentId: ctx.profile.id },
+        select: { id: true },
+      });
+
+      /*
         Asked here as well as in `join`, through the same function and in the same order, so the
         screen and the mutation cannot disagree. A preview that offers a button the mutation then
         refuses is worse than no preview: the student has already decided they are in the right
@@ -127,6 +149,19 @@ export const enrollmentsRouter = createTRPCRouter({
         signedInAs: ctx.profile.githubUsername ?? ctx.profile.email,
         /** So the screen can say "you are already in this program" rather than offering to join. */
         alreadyIn: existing?.status ?? null,
+        /**
+         * Whether this is the first program this account has ever joined, which is when the screen
+         * asks for a first and last name. False for everybody who has joined anything before, so
+         * nobody is asked twice.
+         */
+        firstProgram: everJoined === null,
+        /**
+         * What the name field starts out holding. Free rather than a query — `profileProcedure` has
+         * already loaded this row — and it matters that it is pre-filled: for a fellow whose GitHub
+         * profile carries their real name there is nothing to change, and an empty box would ask
+         * them to type out something the application already knew.
+         */
+        displayName: ctx.profile.displayName,
       };
     }),
 
@@ -144,7 +179,26 @@ export const enrollmentsRouter = createTRPCRouter({
    * their own queue.
    */
   join: profileProcedure
-    .input(z.object({ token: z.string().min(1) }))
+    .input(
+      z.object({
+        token: z.string().min(1),
+        /**
+         * A first and last name, supplied by the join screen when this is the caller's first
+         * program. Written with the enrollment rather than before it, so the name a fellow joins
+         * under and the membership itself commit together.
+         *
+         * **Optional rather than required, and that is a deploy decision.** Both bundles are live
+         * during a deploy, and a tab loaded a minute before it calls this with a token alone; a
+         * required field would refuse that tab on the one button it exists to press. An older
+         * screen therefore enrolls exactly as it always did and simply never asks.
+         *
+         * `displayNameSchema` rather than a rule written out here, so what this accepts and what
+         * the Profile screen accepts cannot drift apart. The *shape* of the name — whether it reads
+         * as a first and last name — is deliberately not checked here: see `looksLikeFirstLast`.
+         */
+        displayName: displayNameSchema.optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const program = await ctx.db.program.findUnique({
         where: { joinToken: input.token },
@@ -251,6 +305,21 @@ export const enrollmentsRouter = createTRPCRouter({
         refuses at the database if somebody took it in between, and that refusal rolls this back.
       */
       return inTransaction(ctx.db, async (tx) => {
+        /*
+          The name, before the enrollment and inside the same transaction.
+
+          Together rather than in two calls from the browser, because the half-done state is one
+          somebody would have to live in: a name saved against an account that then failed to join
+          is a rename nobody asked for. Every refusal above throws before this block, so a join that
+          was turned away writes no name — which is right, since nothing happened.
+        */
+        if (input.displayName) {
+          await tx.profile.update({
+            where: { id: ctx.profile.id },
+            data: { displayName: input.displayName },
+          });
+        }
+
         if (match) {
           const claimed = await claimRosterEntry(tx, match.id, ctx.profile.id);
 
@@ -272,7 +341,16 @@ export const enrollmentsRouter = createTRPCRouter({
         await recordEvent(tx, {
           action: "ENROLLMENT_JOINED",
           actor: auditActor(ctx),
-          subject: { id: ctx.profile.id, label: displayNameOf(ctx.profile, "a fellow") },
+          /*
+            The name they joined *under*, which is the new one when they have just typed it.
+            `ctx.profile` was loaded before the update a few lines above and still holds the handle
+            the signup trigger gave them, so reading it here would record the wrong person's-worth
+            of information in the one log that answers "how did this account get in".
+          */
+          subject: {
+            id: ctx.profile.id,
+            label: input.displayName ?? displayNameOf(ctx.profile, "a fellow"),
+          },
           program: { id: program.id, label: program.name },
           // Which of the two ways in this was. A staff member sitting in a program and a fellow
           // arriving on their reserved place are both legitimate and are not the same event.

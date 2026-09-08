@@ -4,6 +4,7 @@ import {
   displayNameOf,
   displayNameSchema,
   initials,
+  looksLikeFirstLast,
 } from "@/lib/people";
 
 /**
@@ -147,5 +148,60 @@ describe("displayNameSchema", () => {
     expect(parse("a".repeat(DISPLAY_NAME_MAX_LENGTH + 1)).error?.issues[0]?.message).toBe(
       `Please use ${DISPLAY_NAME_MAX_LENGTH} characters or fewer.`,
     );
+  });
+});
+
+/**
+ * Whether a name reads as a first name and a last name.
+ *
+ * The question the join screen asks before it lets a fellow past, and the answers that matter are
+ * at both edges: the four shapes the signup trigger actually produces must be refused, or the step
+ * never fires for the people it exists for; and every ordinary human name must be accepted, or the
+ * warning fires at somebody whose name is simply not the shape a regular expression expected.
+ */
+describe("looksLikeFirstLast", () => {
+  // What the signup trigger leaves behind when a GitHub profile has no full name on it: a handle,
+  // a handle with a dot, a handle with digits, or the local part of an email address. Every one of
+  // these is a name an instructor would otherwise read on a roster.
+  it.each(["bspector", "amina.k", "jrivera23", "ben@marcylabschool.org", "Ada"])(
+    "refuses %p, which is a handle rather than a name",
+    (name) => {
+      expect(looksLikeFirstLast(name)).toBe(false);
+    },
+  );
+
+  // Accepting these is the more important half. A warning shown to somebody whose name is spelled
+  // correctly teaches them that this application is wrong about them.
+  it.each([
+    "Ada Lovelace",
+    "Ben J Spector",
+    "Mary Anne O'Brien-Smith",
+    "José Ángel Rivera",
+    "van Dijk Pieter",
+    "de la Cruz Maria",
+  ])("accepts %p", (name) => {
+    expect(looksLikeFirstLast(name)).toBe(true);
+  });
+
+  // The `\s+` split rather than a split on one space, which is the bug `initials` carried in two of
+  // its six copies: a doubled space produces an empty part that would otherwise count as a name.
+  it("is not fooled by a doubled space into counting an empty part", () => {
+    expect(looksLikeFirstLast("Ada  Lovelace")).toBe(true);
+    expect(looksLikeFirstLast("Ada  ")).toBe(false);
+  });
+
+  // The letter test, which is what stops a count of parts alone from admitting punctuation. Nobody
+  // types these on purpose; the point is that the warning fires rather than being skipped.
+  it.each(["Ada .", "- -", "  ", ""])(
+    "refuses %p, which has only one part with a letter in it",
+    (name) => {
+      expect(looksLikeFirstLast(name)).toBe(false);
+    },
+  );
+
+  // Padding is the caller's to worry about nowhere else: the join screen trims before it saves, and
+  // this has to agree with it so a pasted name is not judged on its whitespace.
+  it("ignores surrounding whitespace", () => {
+    expect(looksLikeFirstLast("  Ada Lovelace\n")).toBe(true);
   });
 });
