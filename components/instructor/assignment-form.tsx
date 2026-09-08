@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 
 import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
+import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -486,6 +487,10 @@ function Editor({
   // Held outside `state` because a kind can be chosen before the rest of the form is filled
   // in, and switching it rebuilds the draft into that kind's shape.
   const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? "REPO");
+
+  // Whether the submission instructions are being read rather than written. Not part of `state`
+  // because it is nothing the assignment is saved with.
+  const [previewingInstructions, setPreviewingInstructions] = React.useState(false);
 
   // What the server has been asked about. Trails the form by DEBOUNCE_MS so that typing a
   // point value does not make a GitHub request per keystroke.
@@ -1229,6 +1234,27 @@ function Editor({
               <Field
                 label={isTaskKind(state.kind) ? "What to do" : "Submission instructions"}
                 findings={fieldFindings("submissionInstructions")}
+                /*
+                  The field is markdown and the student reads it rendered, so the button shows it
+                  the way they will see it. Nothing to preview means nothing to press, which is
+                  why an empty field disables it rather than offering an empty panel.
+                */
+                action={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={state.submissionInstructions.trim() === ""}
+                    onClick={() => setPreviewingInstructions(!previewingInstructions)}
+                  >
+                    {previewingInstructions ? (
+                      <PencilLine data-icon="inline-start" />
+                    ) : (
+                      <Eye data-icon="inline-start" />
+                    )}
+                    {previewingInstructions ? "Edit" : "Preview"}
+                  </Button>
+                }
                 hint={
                   isRepoKind(state.kind)
                     ? "Optional, in markdown. The draft-branch-and-pull-request steps are already shown, so this is for anything specific to this assignment."
@@ -1237,14 +1263,25 @@ function Editor({
                       : "Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here."
                 }
               >
-                <textarea
-                  rows={4}
-                  value={state.submissionInstructions}
-                  onChange={(event) =>
-                    setState({ ...state, submissionInstructions: event.target.value })
-                  }
-                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                />
+                {/*
+                  A trimmed-empty field falls back to the textarea, so switching kind — which
+                  clears the instructions — cannot leave an empty panel on screen with the
+                  disabled toggle as the only way back.
+                */}
+                {previewingInstructions && state.submissionInstructions.trim() !== "" ? (
+                  <div className="rounded-md border border-input bg-muted/20 px-3 py-2">
+                    <Markdown content={state.submissionInstructions} />
+                  </div>
+                ) : (
+                  <textarea
+                    rows={10}
+                    value={state.submissionInstructions}
+                    onChange={(event) =>
+                      setState({ ...state, submissionInstructions: event.target.value })
+                    }
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  />
+                )}
               </Field>
             </CardContent>
           </Card>

@@ -189,16 +189,23 @@ export function Field({
   label,
   hint,
   findings = [],
+  action,
   children,
 }: {
   label: string;
   hint?: string;
   findings?: { message: string; severity: "error" | "warning" }[];
+  // A control that belongs to this one field rather than to the form — a preview toggle, say.
+  // It sits on the label's row so that it reads as part of the field and not as a form button.
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        {action}
+      </div>
       {children}
       {hint && findings.length === 0 && <p className="text-xs text-muted-foreground">{hint}</p>}
       {findings.map((finding, index) => (
