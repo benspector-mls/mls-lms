@@ -27,17 +27,23 @@ import { RemoveAssignmentDialog } from "./remove-assignment-dialog";
  * What can be done to one assignment: preview it as a student, edit it, publish or unpublish it,
  * copy it, remove it.
  *
- * **Five buttons where there is room for them, and one menu where there is not.** A menu prices
- * every action at two presses and hides what can be done until it is opened, which is the wrong
- * trade on a wide screen; five icon buttons after a title and a due date is the wrong trade on a
- * phone, where they wrap onto a line of their own and crowd out the assignment. So the row draws
- * both and lets the viewport choose, at the same 768px the rest of the application calls mobile.
+ * **Two buttons and a menu.** Preview and edit are the two an instructor presses over and over
+ * while reading their own curriculum, so they are buttons and cost one press. Publishing, copying
+ * and removing are occasional or destructive, and a menu is the right price for those: it keeps
+ * the row short, and it puts a deliberate second press in front of the three that change what
+ * students can see, duplicate an assignment, or destroy one.
+ *
+ * **On a phone the two buttons fold into the menu as well**, at the same 768px the rest of the
+ * application calls mobile. A title, a due date and three controls already fill a narrow row, and
+ * the buttons would wrap onto a line of their own and crowd out the assignment they belong to.
+ * The menu holds all five there, so nothing becomes unreachable.
  *
  * **Chosen in CSS rather than by measuring the window.** `useIsMobile` reports false until an
- * effect has run, so a phone would draw five buttons for a frame and then swap them for a menu —
- * a flash and a reflow on every row of the screen. `hidden md:flex` against `md:hidden` has
- * neither, and the half that is not showing is `display: none`, so it is out of the accessibility
- * tree too and a screen reader is never offered both.
+ * effect has run, so a phone would draw the buttons for a frame and then swap them for menu items
+ * — a flash and a reflow on every row of the screen. `hidden md:flex` on the buttons, against
+ * `md:hidden` on the two items that repeat them, has neither; and whichever half is not showing
+ * is `display: none`, so it is out of the accessibility tree too and a screen reader is never
+ * offered one action twice.
  *
  * Its own file because the Curriculum screen draws it on every assignment row inside every
  * unit. The copy dialog and the typed-confirmation remove dialog are the same two it has
@@ -134,83 +140,13 @@ export function AssignmentActions({
           />
           <TooltipContent>Edit this assignment</TooltipContent>
         </Tooltip>
-
-        {/*
-          One button that toggles, rather than two of which one is always absent. The icon shows the
-          state — a checked book on a published assignment, a dashed one on a draft — so the row can
-          be read at a glance, and the tooltip and label name the press that changes it.
-        */}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={busy}
-                aria-label={
-                  published ? `Unpublish ${assignment.title}` : `Publish ${assignment.title}`
-                }
-                onClick={() =>
-                  published
-                    ? unpublish.mutate({ assignmentId: assignment.id })
-                    : publish.mutate({ assignmentId: assignment.id })
-                }
-              >
-                {published ? <BookCheck /> : <BookDashed />}
-              </Button>
-            }
-          />
-          <TooltipContent>
-            {published ? "Unpublish this assignment" : "Publish this assignment"}
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Copy ${assignment.title} to another course`}
-                onClick={() => setCopying(true)}
-              >
-                <Copy />
-              </Button>
-            }
-          />
-          <TooltipContent>Copy to another course</TooltipContent>
-        </Tooltip>
-
-        {/*
-          The dialog behind this is the one that counts submissions and requires the title to be
-          typed. Naming the consequence here as well would need a count this row deliberately
-          does not fetch, and the dialog states it before anything can happen.
-        */}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="text-destructive hover:text-destructive"
-                aria-label={`Remove ${assignment.title}`}
-                onClick={() => setRemoving(true)}
-              >
-                <Trash2 />
-              </Button>
-            }
-          />
-          <TooltipContent>Remove this assignment</TooltipContent>
-        </Tooltip>
       </div>
 
       {/*
-        The same five actions, in the shape a narrow row has space for. The dialogs and the two
-        mutations below are shared with the buttons above rather than duplicated — only the
-        controls are drawn twice, and never both at once.
+        The three that are always here, plus — on a narrow screen — the two that are buttons
+        above. An item that repeats a button hides itself at the width that button appears at, so
+        one action is never offered twice on one row. The dialogs and the two mutations below are
+        shared between both shapes rather than duplicated.
       */}
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -220,19 +156,20 @@ export function AssignmentActions({
               variant="ghost"
               size="icon-sm"
               disabled={busy}
-              aria-label={`Actions for ${assignment.title}`}
-              className="shrink-0 md:hidden"
+              aria-label={`More actions for ${assignment.title}`}
+              className="shrink-0"
             >
               <MoreHorizontal />
             </Button>
           }
         />
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onPreview}>
+          <DropdownMenuItem className="md:hidden" onClick={onPreview}>
             <Eye data-icon="inline-start" />
             Preview as a student
           </DropdownMenuItem>
           <DropdownMenuItem
+            className="md:hidden"
             render={
               <Link href={editAssignmentHref(courseId, assignment.id)}>
                 <Pencil data-icon="inline-start" />
@@ -256,6 +193,11 @@ export function AssignmentActions({
             Copy to…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          {/*
+            The dialog behind this is the one that counts submissions and requires the title to be
+            typed. Naming the consequence here as well would need a count this row deliberately
+            does not fetch, and the dialog states it before anything can happen.
+          */}
           <DropdownMenuItem variant="destructive" onClick={() => setRemoving(true)}>
             <Trash2 data-icon="inline-start" />
             Remove
