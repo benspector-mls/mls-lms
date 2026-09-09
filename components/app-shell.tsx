@@ -536,7 +536,7 @@ function CourseList({
   selected,
   pathname,
 }: {
-  courses: { id: string; name: string; archivedAt: Date | null }[];
+  courses: StudentCourse[];
   selected: string | null;
   pathname: string;
 }) {
@@ -572,6 +572,7 @@ function CourseList({
     <SidebarMenu>
       {ordered.map((course) => {
         const open = course.id === selected;
+        const note = courseNote(course);
         const link = <Link href={sameViewInCourse(pathname, course.id)} />;
 
         return (
@@ -587,14 +588,8 @@ function CourseList({
                   `TooltipTrigger` wrapper out of the row, leaving the preview card's trigger
                   composed straight onto the link.
                 */
-                tooltip={
-                  panels
-                    ? undefined
-                    : course.archivedAt != null
-                      ? `${course.name} · Archived`
-                      : course.name
-                }
-                // `h-auto` because an archived row is two lines where every other one is one.
+                tooltip={panels ? undefined : courseLabel(course)}
+                // `h-auto` because a noted row is two lines where every other one is one.
                 className="h-auto py-1.5"
                 /*
                   The trigger is the link itself rather than the row around it, so that reaching
@@ -613,8 +608,8 @@ function CourseList({
                 <CourseInitial name={course.name} />
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{course.name}</span>
-                  {course.archivedAt != null && (
-                    <span className="truncate text-xs text-muted-foreground">Archived</span>
+                  {note !== null && (
+                    <span className="truncate text-xs text-muted-foreground">{note}</span>
                   )}
                 </span>
               </SidebarMenuButton>
@@ -662,13 +657,7 @@ function CourseList({
  * is the screen behind it, so a panel without the mark would list five destinations and leave the
  * reader to work out which one they were standing on. `aria-current` carries it to a screen reader.
  */
-function CourseViewPanel({
-  course,
-  pathname,
-}: {
-  course: { id: string; name: string; archivedAt: Date | null };
-  pathname: string;
-}) {
+function CourseViewPanel({ course, pathname }: { course: StudentCourse; pathname: string }) {
   return (
     <PreviewCardPrimitive.Portal>
       <PreviewCardPrimitive.Positioner
@@ -687,7 +676,7 @@ function CourseViewPanel({
       >
         <PreviewCardPrimitive.Popup className="flex max-w-64 min-w-44 origin-(--transform-origin) flex-col rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
           <p className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
-            {course.archivedAt != null ? `${course.name} · Archived` : course.name}
+            {courseLabel(course)}
           </p>
           {COURSE_VIEWS.map((view) => {
             const active = isActiveCourseView(pathname, course.id, view.segment);
@@ -883,6 +872,8 @@ type StudentCourse = {
   /** The program the course belongs to, which is what the fellow's own list groups by. */
   program: { id: string; name: string; term: string; archivedAt: Date | null };
   archivedAt: Date | null;
+  /** Null until somebody publishes the course, which is how a new one arrives. */
+  publishedAt: Date | null;
   enrolledAs: "ACTIVE" | "REMOVED" | null;
   /** Whether the caller instructs the course's program, which scopes the course switcher. */
   teaches: boolean;
@@ -1090,11 +1081,31 @@ function StudentGcf({ pathname }: { pathname: string }) {
  *
  * Removal wins over archiving when both are true, because it is the fact about *this reader*: a
  * program that ended is something everybody in it shares, and having left one is not.
+ *
+ * **Unpublished is last, and it is the instructor's note.** A course arrives unpublished and stays
+ * that way until somebody publishes it, so without this an instructor who has just created one
+ * reads a row indistinguishable from a running course while no fellow on the roster can see it at
+ * all. It comes after archiving because a course that is both is finished rather than not started,
+ * and "Not published" on last year's work would read as a task left undone — the precedence the
+ * program's own course list already uses. A fellow never meets this case: `courses.listMine` gives
+ * them published courses only.
  */
 function courseNote(course: StudentCourse): string | null {
   if (course.enrolledAs === "REMOVED") return "No longer enrolled";
   if (course.archivedAt != null) return "Archived";
+  if (course.publishedAt == null) return "Not published";
   return null;
+}
+
+/**
+ * A course's name with its note, for the two places that have one line to say both.
+ *
+ * The collapsed rail's tooltip and its hover panel's heading, neither of which has the second line
+ * the expanded row puts the note on.
+ */
+function courseLabel(course: StudentCourse): string {
+  const note = courseNote(course);
+  return note === null ? course.name : `${course.name} · ${note}`;
 }
 
 /**

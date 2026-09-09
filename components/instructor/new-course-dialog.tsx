@@ -7,6 +7,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { courseSettingsHref } from "@/lib/links";
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { courseSlugProblem, MAX_COURSE_SLUG, suggestCourseSlug } from "@/lib/courses/course-slug";
@@ -62,6 +63,7 @@ export function NewCourseDialog({
 }) {
   const trpc = useTRPC();
   const router = useRouter();
+  const settled = useServerMutation();
 
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
@@ -128,44 +130,55 @@ export function NewCourseDialog({
     setStep("form");
   };
 
+  /*
+    `settled` matters more here than at most call sites, because the screen this navigates to
+    reads the course list to draw its own sidebar.
+
+    A course address names no program, so the sidebar finds the program by looking the course id
+    up in the cached `courses.listMine`. Without the invalidation that list is the one fetched
+    before this course existed, the lookup finds nothing, and the sidebar drops the program group
+    and the course group together — leaving the settings page with no way back out of itself, and
+    no way in except the address bar.
+  */
   const create = useMutation(
-    trpc.courses.create.mutationOptions({
-      onSuccess: (result) => {
-        if (result.failed.length > 0) {
-          // A warning rather than a success, and it names them: an instructor who is not told
-          // which assignments did not arrive would find out by noticing one missing weeks later.
-          toast.warning(
-            `Created ${result.course.name} with ${result.copied} of ` +
-              `${result.copied + result.failed.length} assignments. ` +
-              `Could not copy: ${result.failed.map((entry) => entry.title).join(", ")}.`,
-            { duration: 12_000 },
-          );
-        } else if (result.copied > 0) {
-          toast.success(
-            `Created ${result.course.name} with ${result.copied} ` +
-              `${result.copied === 1 ? "assignment" : "assignments"}, none published yet.`,
-          );
-        } else {
-          toast.success(`Created ${result.course.name}.`);
-        }
+    trpc.courses.create.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          if (result.failed.length > 0) {
+            // A warning rather than a success, and it names them: an instructor who is not told
+            // which assignments did not arrive would find out by noticing one missing weeks later.
+            toast.warning(
+              `Created ${result.course.name} with ${result.copied} of ` +
+                `${result.copied + result.failed.length} assignments. ` +
+                `Could not copy: ${result.failed.map((entry) => entry.title).join(", ")}.`,
+              { duration: 12_000 },
+            );
+          } else if (result.copied > 0) {
+            toast.success(
+              `Created ${result.course.name} with ${result.copied} ` +
+                `${result.copied === 1 ? "assignment" : "assignments"}, none published yet.`,
+            );
+          } else {
+            toast.success(`Created ${result.course.name}.`);
+          }
 
-        close();
-        setName("");
-        setCopyFrom("");
-        setSlug("");
-        setSlugEdited(false);
-        /*
-          Settings, named rather than reached through the bare course address's redirect.
+          close();
+          setName("");
+          setCopyFrom("");
+          setSlug("");
+          setSlugEdited(false);
+          /*
+            Settings, named rather than reached through the bare course address's redirect.
 
-          The right landing for a brand-new course, and for the same reason the assignment form
-          lands on the assignments list instead: it is where the result is. A course created a
-          second ago has no triage and no gradebook — what it has is a short name that will prefix
-          every repository it generates, and the control that lets fellows see it at all.
-        */
-        router.push(courseSettingsHref(result.course.id));
-      },
-      onError: (error) => toast.error(error.message),
-    }),
+            The right landing for a brand-new course, and for the same reason the assignment form
+            lands on the assignments list instead: it is where the result is. A course created a
+            second ago has no triage and no gradebook — what it has is a short name that will prefix
+            every repository it generates, and the control that lets fellows see it at all.
+          */
+          router.push(courseSettingsHref(result.course.id));
+        },
+      }),
+    ),
   );
 
   if (!open) {
