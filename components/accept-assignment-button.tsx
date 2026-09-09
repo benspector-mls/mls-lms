@@ -39,6 +39,7 @@ export function AcceptAssignmentButton({
   assignmentId,
   kind,
   templateDriveUrl,
+  disabled = false,
 }: {
   assignmentId: string;
   /** From the enum rather than spelled out, so a kind added later cannot be silently omitted. */
@@ -52,6 +53,13 @@ export function AcceptAssignmentButton({
    * a link built from nothing.
    */
   templateDriveUrl?: string | null;
+  /**
+   * Greys the control and refuses the press, whichever branch would have drawn it. The
+   * instructor's read-only preview of the student panel is the caller: the Drive branch below is
+   * a real anchor, which the disabled fieldset wrapping that preview cannot reach, so the refusal
+   * has to be made here.
+   */
+  disabled?: boolean;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -92,7 +100,7 @@ export function AcceptAssignmentButton({
 
   return (
     <>
-      {copyUrl ? (
+      {copyUrl && !disabled ? (
         /*
           `data-slot` and `buttonVariants` rather than a copied class list, so this is the same
           button as the branch below down to the focus ring: the size variants are keyed on that
@@ -112,7 +120,7 @@ export function AcceptAssignmentButton({
         <Button
           size="sm"
           onClick={() => accept.mutate({ assignmentId })}
-          disabled={accept.isPending}
+          disabled={disabled || accept.isPending}
         >
           {accept.isPending
             ? kind === "REPO"

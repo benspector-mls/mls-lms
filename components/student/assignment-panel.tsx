@@ -88,6 +88,7 @@ export function AssignmentPanel({
   now,
   open,
   onOpenChange,
+  preview = false,
 }: {
   /** Null while nothing is selected, which is what keeps one panel serving a whole page. */
   assignment: Assignment | null;
@@ -95,6 +96,13 @@ export function AssignmentPanel({
   now: Date;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * An instructor reading their own assignment as a student would, from the Curriculum page.
+   * The panel shows the state a student meets before they have started — the submission, if the
+   * payload somehow carries one, is ignored — and everything a student could press is drawn
+   * greyed and unpressable.
+   */
+  preview?: boolean;
 }) {
   /*
     Which tab is showing is deliberately not in the address, unlike which assignment is.
@@ -104,7 +112,12 @@ export function AssignmentPanel({
     link. Feedback opens when there is feedback, which is the same rule for a dashboard link and a
     row press, and neither needs the URL to say so.
   */
-  const submission = assignment?.submissions[0] ?? null;
+  /*
+    A preview shows the assignment as a student meets it before they have started, and ignoring
+    the submission is what makes that one deterministic state: no repository links, no Feedback
+    tab, no alerts about revised work — only what the instructor wrote.
+  */
+  const submission = preview ? null : (assignment?.submissions[0] ?? null);
   const rounds = submission ? feedbackRounds(submission) : [];
   const hasFeedback = rounds.length > 0;
 
@@ -125,6 +138,7 @@ export function AssignmentPanel({
         {assignment && (
           <PanelBody
             key={assignment.id}
+            preview={preview}
             assignment={assignment}
             submission={submission}
             rounds={rounds}
@@ -138,12 +152,14 @@ export function AssignmentPanel({
 }
 
 function PanelBody({
+  preview,
   assignment,
   submission,
   rounds,
   hasFeedback,
   now,
 }: {
+  preview: boolean;
   assignment: Assignment;
   submission: Submission | null;
   rounds: FeedbackRound[];
@@ -176,9 +192,11 @@ function PanelBody({
   const [announcement, setAnnouncement] = React.useState("");
 
   // Asked only once the tab is opened, so reading a course page fetches no conversations.
+  // Never in a preview: the thread is resolved against the caller's own submission, and the
+  // previewing instructor has none — the tab that would ask is not rendered there either.
   const comments = useQuery({
     ...trpc.submissionComments.thread.queryOptions({ assignmentId: assignment.id }),
-    enabled: tab === "comments",
+    enabled: !preview && tab === "comments",
   });
 
   // Mounting the thread is reading it, because the panel does not render it until selected.
@@ -199,10 +217,24 @@ function PanelBody({
     <>
       <PanelHeader assignment={assignment} submission={submission} />
 
+      {/*
+        Said once, above everything, because it is the one sentence that explains every greyed
+        control below it.
+      */}
+      {preview && (
+        <p className="border-b border-border bg-muted/50 px-4 py-2 text-sm text-muted-foreground">
+          A preview of this assignment as a student sees it before starting. Nothing in it can be
+          pressed.
+        </p>
+      )}
+
       <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0 my-3">
         {/*
-          Unguarded, because Comments is always reachable and so there are always at least two tabs.
-          The Feedback trigger stays conditional: an empty one reads as a page that failed to load.
+          Comments is always reachable for a student, so a student always has at least two tabs.
+          A preview hides it — the thread is resolved against a submission the previewing
+          instructor does not have, and an unstarted assignment has no conversation to show —
+          leaving the one tab that holds what the instructor came to check. The Feedback trigger
+          stays conditional: an empty one reads as a page that failed to load.
         */}
         <TabsList className="mx-4 mb-3 w-auto self-start">
           <TabsTrigger value="submission">Submission</TabsTrigger>
@@ -219,28 +251,43 @@ function PanelBody({
               )}
             </TabsTrigger>
           )}
-          <TabsTrigger value="comments">
-            Comments
-            {/*
-              Filled where the round count beside it is muted: that one is how much there is to
-              read, this one how much is new. Not `Badge`, which is `h-5` in an `h-8` list.
-            */}
-            {unread > 0 && (
-              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-medium text-primary-foreground tabular-nums">
-                {unread}
-                <span className="sr-only"> unread</span>
-              </span>
-            )}
-          </TabsTrigger>
+          {!preview && (
+            <TabsTrigger value="comments">
+              Comments
+              {/*
+                Filled where the round count beside it is muted: that one is how much there is to
+                read, this one how much is new. Not `Badge`, which is `h-5` in an `h-8` list.
+              */}
+              {unread > 0 && (
+                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-medium text-primary-foreground tabular-nums">
+                  {unread}
+                  <span className="sr-only"> unread</span>
+                </span>
+              )}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* The panels scroll, not the panel, so the header stays put while a long report moves. */}
         <TabsContent value="submission" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-          <SubmissionTab
-            assignment={assignment}
-            submission={submission}
-            onOpenComments={() => setTab("comments")}
-          />
+          {/*
+            The disabled fieldset is what makes a preview read-only. Disabling a fieldset natively
+            disables every form control beneath it — the hand-in forms, the LINK/FILE chooser, a
+            task's Mark-done button, the pointer to Comments — without a prop threaded into each,
+            and `buttonVariants` already styles `disabled:`, so the controls grey themselves. The
+            one control it cannot reach is the Drive copy link, a real anchor, which is why
+            `AcceptAssignmentButton` takes `disabled` on its own. `min-w-0` undoes the element's
+            default `min-width: min-content`, which would stop long content shrinking with the
+            sheet.
+          */}
+          <fieldset disabled={preview} className="min-w-0">
+            <SubmissionTab
+              preview={preview}
+              assignment={assignment}
+              submission={submission}
+              onOpenComments={() => setTab("comments")}
+            />
+          </fieldset>
         </TabsContent>
 
         <TabsContent value="feedback" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
@@ -453,10 +500,13 @@ function MarkFeedbackRead({ submission }: { submission: Submission }) {
  * to be doing, and the tab beside this one is the whole reason they are now apart.
  */
 function SubmissionTab({
+  preview,
   assignment,
   submission,
   onOpenComments,
 }: {
+  /** True in the instructor's read-only preview, where nothing here may write. */
+  preview: boolean;
   assignment: Assignment;
   submission: Submission | null;
   /** Opens the Comments tab, for the pointer at the foot of this one. */
@@ -535,6 +585,7 @@ function SubmissionTab({
             assignmentId={assignment.id}
             kind={assignment.kind}
             templateDriveUrl={assignment.templateDriveUrl}
+            disabled={preview}
           />
         </div>
       )}

@@ -3,13 +3,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
-import { ChevronRight, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Eye, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AssignmentKindIcon } from "@/components/status-badge";
 import { EmptyState, ErrorState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { SortableList, SortableRow } from "@/components/sortable-list";
+import { AssignmentPanel } from "@/components/student/assignment-panel";
 import { UnitList } from "@/components/unit-list";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CATEGORY_META, UNIT_CATEGORIES, partCount } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
@@ -73,6 +75,34 @@ export function Curriculum({ courseId }: { courseId: string }) {
   /** The placement select's value: `"end"`, `"start"`, or `"after:<id>"`. See `parsePlacement`. */
   const [newPlacement, setNewPlacement] = React.useState("end");
   const [renaming, setRenaming] = React.useState<string | null>(null);
+
+  /*
+    Which assignment is being previewed as a student would see it, or null for none. The panel is
+    the student's own `AssignmentPanel`, told it is a preview, so what the instructor reads is the
+    component a student reads rather than a description of it — the rule `ResourceItem` below
+    already follows for resources.
+  */
+  const [previewId, setPreviewId] = React.useState<string | null>(null);
+
+  /*
+    Created here rather than read on the server and passed down, which is the convention wherever
+    a time is rendered. The convention exists so a relative time is the same string in both render
+    passes — and a preview renders no time at all: `now` reaches only the feedback history and the
+    comment thread, and the panel draws neither in a preview.
+  */
+  const [now] = React.useState(() => new Date());
+
+  /*
+    The student-shaped payload the panel is typed against, asked for only once the first preview
+    is opened and served from the cache for every one after it. `courseUnits.listForCourse`, which
+    draws this page, carries none of what the panel shows — the instructions, the hand-in methods,
+    the template document. This read hands drafts to an instructor too, and previewing a draft
+    before publishing it is the main reason to press the eye.
+  */
+  const studentAssignments = useQuery({
+    ...trpc.assignments.listForCourse.queryOptions({ courseId }),
+    enabled: previewId !== null,
+  });
 
   const create = useMutation(
     trpc.courseUnits.create.mutationOptions(
@@ -356,6 +386,7 @@ export function Curriculum({ courseId }: { courseId: string }) {
                 courseId={courseId}
                 unit={unit}
                 busy={busy}
+                onPreview={setPreviewId}
                 onReorderResources={(resourceIds) =>
                   reorderResources.mutate({ courseUnitId: unit.id, resourceIds })
                 }
@@ -377,6 +408,21 @@ export function Curriculum({ courseId }: { courseId: string }) {
         between the modules it falls between. Drag a unit by its grip to move it. Assignments inside
         a unit are listed by due date; resources sit beneath them in the order you drag them into.
       </p>
+
+      {/*
+        One panel serving every row, the way the student's course page holds one. It opens the
+        moment the eye is pressed rather than when the payload lands, so the press answers at
+        once; the body fills in when the read returns.
+      */}
+      <AssignmentPanel
+        preview
+        assignment={studentAssignments.data?.find((row) => row.id === previewId) ?? null}
+        now={now}
+        open={previewId !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPreviewId(null);
+        }}
+      />
     </div>
   );
 }
@@ -385,6 +431,7 @@ function UnitSection({
   courseId,
   unit,
   busy,
+  onPreview,
   onReorderResources,
   renaming,
   onRename,
@@ -395,6 +442,8 @@ function UnitSection({
   courseId: string;
   unit: Unit;
   busy: boolean;
+  /** Opens the read-only student preview of one assignment, in the panel `Curriculum` holds. */
+  onPreview: (assignmentId: string) => void;
   onReorderResources: (resourceIds: string[]) => void;
   renaming: boolean;
   onRename: () => void;
@@ -569,9 +618,6 @@ function UnitSection({
                           <Badge variant="outline">Draft</Badge>
                         )}
                       </div>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {assignment.pointValue} pts
-                      </span>
                       {/*
                     The time as well as the date, because the instructor set one and it decides
                     which submissions are recorded as late. Wide enough for "Oct 9, 11:59 PM"
@@ -580,6 +626,29 @@ function UnitSection({
                       <span className="w-36 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
                         {assignment.dueAt ? formatDueDateShort(assignment.dueAt) : "No due date"}
                       </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {assignment.pointValue} pts
+                      </span>
+                      {/*
+                    What a student gets when they open this assignment, without leaving this page
+                    or provisioning a test student. Read-only — see `AssignmentPanel`'s `preview`.
+                  */}
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Preview ${assignment.title}`}
+                              onClick={() => onPreview(assignment.id)}
+                            >
+                              <Eye />
+                            </Button>
+                          }
+                        />
+                        <TooltipContent>Preview this assignment</TooltipContent>
+                      </Tooltip>
                       <AssignmentActions courseId={courseId} assignment={assignment} />
                     </li>
                   ))}
