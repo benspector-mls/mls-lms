@@ -469,7 +469,8 @@ function ProgramSwitcher({
  * The course's first letter, where every other row in the sidebar draws its icon. A book beside a
  * name the reader can already see says nothing; the collapsed sidebar is 48 pixels wide and shows
  * the icon alone, and that is where a row has to be recognisable. Two courses in one program whose
- * names begin with the same letter are told apart by the tooltip, which carries the full name.
+ * names begin with the same letter are told apart by the heading of the panel the row opens on
+ * hover, which carries the full name.
  *
  * `size-4 shrink-0` is written out rather than inherited. `SidebarMenuButton` sizes its icons with
  * `[&_svg]:size-4 [&_svg]:shrink-0`, and those two rules are the only thing it does to an icon —
@@ -506,19 +507,18 @@ function CourseInitial({ name }: { name: string }) {
  *
  * **Only the course being read expands in the list.** Three courses each showing five views is
  * fifteen rows to hold five destinations, and nobody is choosing among all of them at once — they
- * are in one course, looking for one of its parts. The expanded one is also the only place the
- * sidebar says which of the five views is on display, which is why it stays open rather than
- * closing once the panels below can reach the same screens.
+ * are in one course, looking for one of its parts.
  *
- * **Every row answers a hover**, with that course's five views drawn over the page beside it. One
- * rule for every course is what makes the list predictable: the row under the pointer behaves the
- * same way wherever the pointer came from, and an instructor moving between two courses' gradebooks
- * does not have to know which of the two they are currently in to know what the hover will do.
+ * **In the collapsed rail every row answers a hover instead**, with that course's five views drawn
+ * over the page beside it. The rail is 48 pixels of single letters: the group heading is hidden and
+ * the in-list views are hidden with it, so without the panels a collapsed sidebar can name courses
+ * and reach nothing inside them. One rule for every row, the open course included, is what makes it
+ * predictable — the row under the pointer behaves the same way wherever the pointer came from.
  *
- * **The panel is drawn over the page rather than inserted into the list.** Inserted, the five views
- * would push every course below them down by about 160 pixels while the pointer was over the row, so
- * moving down a list of four courses would have rows sliding out from under the pointer and the
- * instructor arriving somewhere they had not aimed at. Over the page nothing in the sidebar moves.
+ * **The panel is drawn over the page rather than widening the rail.** `SidebarInset` is the flex
+ * sibling of the sidebar's gap element, so a sidebar that grew on hover would re-lay out the main
+ * column under it, and a gradebook of fifty columns would reflow every time the pointer crossed the
+ * rail. Over the page nothing behind the panel moves at all.
  *
  * **Clicking a course keeps the view.** From course A's gradebook, course B's row goes to *its*
  * gradebook rather than to a front page, which is the one property the picker had that was worth
@@ -553,15 +553,20 @@ function CourseList({
   ];
 
   /*
-    Hover panels in the expanded sidebar on a pointer device, and nowhere else.
+    Hover panels in the collapsed rail on a pointer device, and nowhere else.
 
-    On a phone the sidebar is a sheet opened by a tap and there is no hover to open a panel with, so
-    it would be markup nothing could reach. In the collapsed sidebar every row already answers a
-    hover with the tooltip carrying its name, and a second popup arriving beside the first, both
-    anchored to the same 32-pixel button, is two answers to one gesture. So the rail keeps the
-    tooltip it shows today and the panel belongs to the sidebar an instructor is reading.
+    The collapsed rail is where a course is a single letter and nothing else — the group heading is
+    gone, and the two rules on `SidebarMenuSub` hide the open course's views along with everybody
+    else's. So it is the one state of the sidebar where the five views cannot be read at all, and
+    the panel is the whole of the navigation rather than a second copy of it.
+
+    The expanded sidebar needs no panel: it is 16rem of room that already lists the open course's
+    views, and the panel would arrive over the top of them.
+
+    On a phone the sidebar is a sheet opened by a tap. There is no hover to open a panel with, so it
+    would be markup nothing could reach.
   */
-  const panels = !isMobile && state === "expanded";
+  const panels = !isMobile && state === "collapsed";
 
   return (
     <SidebarMenu>
@@ -574,15 +579,28 @@ function CourseList({
             <PreviewCardPrimitive.Root>
               <SidebarMenuButton
                 isActive={open}
-                tooltip={course.archivedAt != null ? `${course.name} · Archived` : course.name}
+                /*
+                  The tooltip and the panel answer the same hover on the same 32-pixel button, so
+                  only one of them may be armed. The panel wins wherever it is drawn: its heading
+                  carries the course name the tooltip would have shown, and then five destinations
+                  the tooltip could not. Dropping it also takes `SidebarMenuButton`'s
+                  `TooltipTrigger` wrapper out of the row, leaving the preview card's trigger
+                  composed straight onto the link.
+                */
+                tooltip={
+                  panels
+                    ? undefined
+                    : course.archivedAt != null
+                      ? `${course.name} · Archived`
+                      : course.name
+                }
                 // `h-auto` because an archived row is two lines where every other one is one.
                 className="h-auto py-1.5"
                 /*
                   The trigger is the link itself rather than the row around it, so that reaching
                   the course by keyboard opens the panel the same way pointing at it does. Base UI
-                  composes the two through `render`: the tooltip's trigger wraps this one, both put
-                  their hover handlers on the one `<a>`, and the click still navigates because a
-                  preview card is the one popup that never opens on a press.
+                  composes the two through `render`, and the press still navigates: a preview card
+                  is the one popup that never opens on a click.
                 */
                 render={
                   panels ? (
@@ -628,20 +646,21 @@ function CourseList({
 /**
  * One course's five views, drawn over the page beside its row.
  *
- * **Portalled to the document rather than positioned inside the row.** `SidebarContent` scrolls,
- * which means it clips anything absolutely positioned that reaches past its edge — and reaching
- * past its edge is the whole point of this. The portal also puts the panel outside the sidebar's
- * `data-collapsible` group, so the two rules that hide the in-list sub-items in the collapsed rail
- * do not reach it; `CourseList` decides that case instead.
+ * **Portalled to the document rather than positioned inside the row.** Two things in the sidebar
+ * would otherwise swallow it. `SidebarContent` scrolls, so it clips anything absolutely positioned
+ * that reaches past its edge, and reaching past its edge is the whole point of this. And the rail
+ * carries `data-collapsible="icon"`, which is what the two rules on `SidebarMenuSub` and
+ * `SidebarMenuSubButton` match to hide the in-list views — a panel inside the rail would be hidden
+ * by the very state it exists to serve. In the document it is outside the reach of both.
  *
  * **It names the course.** The panel is anchored to a row but detached from it, and it covers a
  * page that usually belongs to a different course, so the heading is what says whose gradebook the
  * second item is.
  *
- * **The view on display is marked**, which matters on the one panel that can have one: the course
- * the reader is already in. Without it that panel would be the only place in the sidebar listing
- * five views and saying nothing about which of them is the screen underneath it — less than the
- * list it is covering. `aria-current` carries the same fact to a screen reader.
+ * **The view on display is marked**, on the one panel that can have one: the course the reader is
+ * already in. In the collapsed rail this is the only place the sidebar says which of the five views
+ * is the screen behind it, so a panel without the mark would list five destinations and leave the
+ * reader to work out which one they were standing on. `aria-current` carries it to a screen reader.
  */
 function CourseViewPanel({
   course,
