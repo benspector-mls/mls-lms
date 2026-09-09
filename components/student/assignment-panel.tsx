@@ -529,6 +529,12 @@ function SubmissionTab({
     status === "GRADED" &&
     submission?.isComplete === false;
 
+  /*
+    What this assignment can be handed in as, which is what decides whether it draws a form at
+    all. Empty for a repository and for a task — see the ternary that reads it below.
+  */
+  const handInMethods = handInMethodsFor(assignment);
+
   const inQueue =
     status === "SUBMITTED" ||
     status === "DRAFT_READY" ||
@@ -701,14 +707,22 @@ function SubmissionTab({
         Which forms are offered comes from the assignment rather than from its kind, because one
         kind now answers this three ways. Both forms are offered on exactly the same terms.
 
-        A task takes neither. `handInMethodsFor` answers empty for one — there is nothing to hand
-        in — and `HandInForms` reads that as "no link and no file", falls through to its link
-        branch, and draws a box for a URL nobody is being asked for. So the kind is asked here,
-        once, and a task gets the button that is its whole interface instead.
+        A task takes neither, and nor does a repository. `handInMethodsFor` answers empty for
+        both — a task has nothing to hand in, and a repository's work arrives as a pull request
+        this application watches rather than as something typed into this panel. `HandInForms`
+        reads an empty answer as "no link and no file", falls through to its link branch, and
+        draws a box for a URL nobody is being asked for, which for a repository sat directly
+        beneath the steps telling the fellow to open a pull request instead.
+
+        So the question is asked here, once, and it is asked of the methods rather than of the
+        kind: a task gets the button that is its whole interface, a repository gets the steps
+        above and no form at all, and a kind added later that hands in nothing is right without
+        this line being revisited.
       */}
       {assignment.kind === "TASK" ? (
         <TaskCompletion assignment={assignment} submission={submission ?? null} />
       ) : (
+        handInMethods.length > 0 &&
         mode !== "locked" && (
           <HandInForms assignment={assignment} submission={submission ?? null} mode={mode} />
         )
