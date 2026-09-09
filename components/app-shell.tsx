@@ -506,15 +506,19 @@ function CourseInitial({ name }: { name: string }) {
  *
  * **Only the course being read expands in the list.** Three courses each showing five views is
  * fifteen rows to hold five destinations, and nobody is choosing among all of them at once — they
- * are in one course, looking for one of its parts.
+ * are in one course, looking for one of its parts. The expanded one is also the only place the
+ * sidebar says which of the five views is on display, which is why it stays open rather than
+ * closing once the panels below can reach the same screens.
  *
- * **The other courses answer a hover instead**, with the same five views drawn over the page beside
- * the row rather than inserted into the list. Inserted, they would push every course below them
- * down by about 160 pixels while the pointer was over the row, so moving down a list of four
- * courses would have rows sliding out from under the pointer and the instructor arriving somewhere
- * they had not aimed at. Over the page nothing in the sidebar moves, and the panel is what lets a
- * second course's gradebook be reached in one gesture instead of by opening that course and losing
- * the screen already being read.
+ * **Every row answers a hover**, with that course's five views drawn over the page beside it. One
+ * rule for every course is what makes the list predictable: the row under the pointer behaves the
+ * same way wherever the pointer came from, and an instructor moving between two courses' gradebooks
+ * does not have to know which of the two they are currently in to know what the hover will do.
+ *
+ * **The panel is drawn over the page rather than inserted into the list.** Inserted, the five views
+ * would push every course below them down by about 160 pixels while the pointer was over the row, so
+ * moving down a list of four courses would have rows sliding out from under the pointer and the
+ * instructor arriving somewhere they had not aimed at. Over the page nothing in the sidebar moves.
  *
  * **Clicking a course keeps the view.** From course A's gradebook, course B's row goes to *its*
  * gradebook rather than to a front page, which is the one property the picker had that was worth
@@ -564,9 +568,6 @@ function CourseList({
       {ordered.map((course) => {
         const open = course.id === selected;
         const link = <Link href={sameViewInCourse(pathname, course.id)} />;
-        // The open course has its five views in the list below the row, so it is the one row a
-        // panel would repeat rather than reveal.
-        const panel = panels && !open;
 
         return (
           <SidebarMenuItem key={course.id}>
@@ -584,7 +585,7 @@ function CourseList({
                   preview card is the one popup that never opens on a press.
                 */
                 render={
-                  panel ? (
+                  panels ? (
                     <PreviewCardPrimitive.Trigger delay={250} closeDelay={200} render={link} />
                   ) : (
                     link
@@ -600,7 +601,7 @@ function CourseList({
                 </span>
               </SidebarMenuButton>
 
-              {panel && <CourseViewPanel course={course} />}
+              {panels && <CourseViewPanel course={course} pathname={pathname} />}
             </PreviewCardPrimitive.Root>
 
             {open && (
@@ -633,16 +634,21 @@ function CourseList({
  * `data-collapsible` group, so the two rules that hide the in-list sub-items in the collapsed rail
  * do not reach it; `CourseList` decides that case instead.
  *
- * **It names the course.** The panel appears beside a row it is not attached to and over a page
- * belonging to a different course, so the heading is what says whose gradebook the second item is.
+ * **It names the course.** The panel is anchored to a row but detached from it, and it covers a
+ * page that usually belongs to a different course, so the heading is what says whose gradebook the
+ * second item is.
  *
- * **No view is marked active**, and there is nothing to mark: a panel is only drawn for a course
- * the reader is not in, so none of its five views can be the screen on display.
+ * **The view on display is marked**, which matters on the one panel that can have one: the course
+ * the reader is already in. Without it that panel would be the only place in the sidebar listing
+ * five views and saying nothing about which of them is the screen underneath it — less than the
+ * list it is covering. `aria-current` carries the same fact to a screen reader.
  */
 function CourseViewPanel({
   course,
+  pathname,
 }: {
   course: { id: string; name: string; archivedAt: Date | null };
+  pathname: string;
 }) {
   return (
     <PreviewCardPrimitive.Portal>
@@ -664,15 +670,23 @@ function CourseViewPanel({
           <p className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
             {course.archivedAt != null ? `${course.name} · Archived` : course.name}
           </p>
-          {COURSE_VIEWS.map((view) => (
-            <Link
-              key={view.segment}
-              href={view.href(course.id)}
-              className="flex h-7 items-center rounded-md px-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {view.title}
-            </Link>
-          ))}
+          {COURSE_VIEWS.map((view) => {
+            const active = isActiveCourseView(pathname, course.id, view.segment);
+
+            return (
+              <Link
+                key={view.segment}
+                href={view.href(course.id)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex h-7 items-center rounded-md px-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  active && "bg-accent font-medium text-accent-foreground",
+                )}
+              >
+                {view.title}
+              </Link>
+            );
+          })}
         </PreviewCardPrimitive.Popup>
       </PreviewCardPrimitive.Positioner>
     </PreviewCardPrimitive.Portal>
