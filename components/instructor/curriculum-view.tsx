@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
-import { ChevronRight, Eye, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AssignmentKindIcon } from "@/components/status-badge";
@@ -25,7 +25,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CATEGORY_META, UNIT_CATEGORIES, partCount } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
@@ -626,27 +625,11 @@ function UnitSection({
                       <span className="w-36 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
                         {assignment.dueAt ? formatDueDateShort(assignment.dueAt) : "No due date"}
                       </span>
-                      {/*
-                    What a student gets when they open this assignment, without leaving this page
-                    or provisioning a test student. Read-only — see `AssignmentPanel`'s `preview`.
-                  */}
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Preview ${assignment.title}`}
-                              onClick={() => onPreview(assignment.id)}
-                            >
-                              <Eye />
-                            </Button>
-                          }
-                        />
-                        <TooltipContent>Preview this assignment</TooltipContent>
-                      </Tooltip>
-                      <AssignmentActions courseId={courseId} assignment={assignment} />
+                      <AssignmentActions
+                        courseId={courseId}
+                        assignment={assignment}
+                        onPreview={() => onPreview(assignment.id)}
+                      />
                     </li>
                   ))}
                 </UnitList>
