@@ -3,35 +3,35 @@
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
-import { Copy, Eye, EyeOff, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { BookCheck, BookDashed, Copy, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { editAssignmentHref } from "@/lib/links";
+import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
 import { CopyAssignmentDialog } from "./copy-assignment-dialog";
 import { RemoveAssignmentDialog } from "./remove-assignment-dialog";
 
 /**
- * What can be done to one assignment: edit it, publish or hide it, copy it, remove it.
+ * What can be done to one assignment: edit it, publish or unpublish it, copy it, remove it.
  *
- * Its own file because the Curriculum screen draws it on every assignment row inside every unit,
- * and it used to be a private function of the flat table that screen replaced. Nothing about it
- * changed in the move — the copy dialog and the typed-confirmation remove dialog are the same
- * two it always opened.
+ * Four buttons on the row rather than a three-dots menu, each named by its tooltip and its
+ * label for a screen reader. A menu prices every action at two presses and hides what can be
+ * done until it is opened; these say it at a glance, and the two presses that duplicate or
+ * destroy anything still open their dialogs before anything happens.
  *
- * **The row it sits on carries no grading figures**, which is what the flat table used to put
- * beside it. Triage is the screen for what needs grading, and this menu is about the assignment
- * rather than about the work handed in against it — so it needs no submission count to render,
- * and the destructive item says "with student work" only where the removal dialog will.
+ * Its own file because the Curriculum screen draws it on every assignment row inside every
+ * unit. The copy dialog and the typed-confirmation remove dialog are the same two it has
+ * always opened.
+ *
+ * **The row it sits on carries no grading figures.** Triage is the screen for what needs
+ * grading, and these buttons are about the assignment rather than about the work handed in
+ * against it — so they need no submission count to render, and the destructive one says
+ * "with student work" only where the removal dialog will.
  */
 
 /** The parts of an assignment this reads, structural so any payload carrying them satisfies it. */
@@ -84,55 +84,91 @@ export function AssignmentActions({
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger
+      <Tooltip>
+        <TooltipTrigger
           render={
-            <button
-              type="button"
-              disabled={busy}
-              aria-label={`Actions for ${assignment.title}`}
-              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            <Link
+              href={editAssignmentHref(courseId, assignment.id)}
+              aria-label={`Edit ${assignment.title}`}
+              className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
             >
-              <MoreHorizontal className="size-4" />
-            </button>
+              <Pencil />
+            </Link>
           }
         />
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            render={
-              <Link href={editAssignmentHref(courseId, assignment.id)}>
-                <Pencil data-icon="inline-start" />
-                Edit
-              </Link>
-            }
-          />
-          {published ? (
-            <DropdownMenuItem onClick={() => unpublish.mutate({ assignmentId: assignment.id })}>
-              <EyeOff data-icon="inline-start" />
-              Hide from students
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onClick={() => publish.mutate({ assignmentId: assignment.id })}>
-              <Eye data-icon="inline-start" />
-              Publish
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem onClick={() => setCopying(true)}>
-            <Copy data-icon="inline-start" />
-            Copy to…
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/*
-            The dialog behind this is the one that counts submissions and requires the title to be
-            typed. Naming the consequence here as well would need a count this row deliberately
-            does not fetch, and the dialog states it before anything can happen.
-          */}
-          <DropdownMenuItem variant="destructive" onClick={() => setRemoving(true)}>
-            <Trash2 data-icon="inline-start" />
-            Remove
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <TooltipContent>Edit this assignment</TooltipContent>
+      </Tooltip>
+
+      {/*
+        One button that toggles, rather than two of which one is always absent. The icon shows the
+        state — a checked book on a published assignment, a dashed one on a draft — so the row can
+        be read at a glance, and the tooltip and label name the press that changes it.
+      */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={busy}
+              aria-label={
+                published ? `Unpublish ${assignment.title}` : `Publish ${assignment.title}`
+              }
+              onClick={() =>
+                published
+                  ? unpublish.mutate({ assignmentId: assignment.id })
+                  : publish.mutate({ assignmentId: assignment.id })
+              }
+            >
+              {published ? <BookCheck /> : <BookDashed />}
+            </Button>
+          }
+        />
+        <TooltipContent>
+          {published ? "Unpublish this assignment" : "Publish this assignment"}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Copy ${assignment.title} to another course`}
+              onClick={() => setCopying(true)}
+            >
+              <Copy />
+            </Button>
+          }
+        />
+        <TooltipContent>Copy to another course</TooltipContent>
+      </Tooltip>
+
+      {/*
+        The dialog behind this is the one that counts submissions and requires the title to be
+        typed. Naming the consequence here as well would need a count this row deliberately
+        does not fetch, and the dialog states it before anything can happen.
+      */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-destructive hover:text-destructive"
+              aria-label={`Remove ${assignment.title}`}
+              onClick={() => setRemoving(true)}
+            >
+              <Trash2 />
+            </Button>
+          }
+        />
+        <TooltipContent>Remove this assignment</TooltipContent>
+      </Tooltip>
 
       <CopyAssignmentDialog
         assignmentId={assignment.id}

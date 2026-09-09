@@ -626,9 +626,6 @@ function UnitSection({
                       <span className="w-36 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
                         {assignment.dueAt ? formatDueDateShort(assignment.dueAt) : "No due date"}
                       </span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {assignment.pointValue} pts
-                      </span>
                       {/*
                     What a student gets when they open this assignment, without leaving this page
                     or provisioning a test student. Read-only — see `AssignmentPanel`'s `preview`.
