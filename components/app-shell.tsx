@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import {
   BarChart3,
   CalendarCheck,
@@ -40,6 +41,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -502,9 +504,17 @@ function CourseInitial({ name }: { name: string }) {
  * holds. It is the same shape a fellow's own sidebar has, and it is the shape for the same reason:
  * a flat list can say *which* course but has nothing to say which screen inside it.
  *
- * **Only the course being read expands.** Three courses each showing five views is fifteen rows to
- * hold five destinations, and nobody is choosing among all of them at once — they are in one course,
- * looking for one of its parts.
+ * **Only the course being read expands in the list.** Three courses each showing five views is
+ * fifteen rows to hold five destinations, and nobody is choosing among all of them at once — they
+ * are in one course, looking for one of its parts.
+ *
+ * **The other courses answer a hover instead**, with the same five views drawn over the page beside
+ * the row rather than inserted into the list. Inserted, they would push every course below them
+ * down by about 160 pixels while the pointer was over the row, so moving down a list of four
+ * courses would have rows sliding out from under the pointer and the instructor arriving somewhere
+ * they had not aimed at. Over the page nothing in the sidebar moves, and the panel is what lets a
+ * second course's gradebook be reached in one gesture instead of by opening that course and losing
+ * the screen already being read.
  *
  * **Clicking a course keeps the view.** From course A's gradebook, course B's row goes to *its*
  * gradebook rather than to a front page, which is the one property the picker had that was worth
@@ -526,6 +536,8 @@ function CourseList({
   selected: string | null;
   pathname: string;
 }) {
+  const { isMobile, state } = useSidebar();
+
   /*
     Archived courses last, and labelled. They belong in here — it is how somebody gets back into a
     course that has finished while the rest of the program runs on — but this is a list of
@@ -536,28 +548,60 @@ function CourseList({
     ...courses.filter((course) => course.archivedAt != null),
   ];
 
+  /*
+    Hover panels in the expanded sidebar on a pointer device, and nowhere else.
+
+    On a phone the sidebar is a sheet opened by a tap and there is no hover to open a panel with, so
+    it would be markup nothing could reach. In the collapsed sidebar every row already answers a
+    hover with the tooltip carrying its name, and a second popup arriving beside the first, both
+    anchored to the same 32-pixel button, is two answers to one gesture. So the rail keeps the
+    tooltip it shows today and the panel belongs to the sidebar an instructor is reading.
+  */
+  const panels = !isMobile && state === "expanded";
+
   return (
     <SidebarMenu>
       {ordered.map((course) => {
         const open = course.id === selected;
+        const link = <Link href={sameViewInCourse(pathname, course.id)} />;
+        // The open course has its five views in the list below the row, so it is the one row a
+        // panel would repeat rather than reveal.
+        const panel = panels && !open;
 
         return (
           <SidebarMenuItem key={course.id}>
-            <SidebarMenuButton
-              isActive={open}
-              tooltip={course.archivedAt != null ? `${course.name} · Archived` : course.name}
-              // `h-auto` because an archived row is two lines where every other one is one.
-              className="h-auto py-1.5"
-              render={<Link href={sameViewInCourse(pathname, course.id)} />}
-            >
-              <CourseInitial name={course.name} />
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate">{course.name}</span>
-                {course.archivedAt != null && (
-                  <span className="truncate text-xs text-muted-foreground">Archived</span>
-                )}
-              </span>
-            </SidebarMenuButton>
+            <PreviewCardPrimitive.Root>
+              <SidebarMenuButton
+                isActive={open}
+                tooltip={course.archivedAt != null ? `${course.name} · Archived` : course.name}
+                // `h-auto` because an archived row is two lines where every other one is one.
+                className="h-auto py-1.5"
+                /*
+                  The trigger is the link itself rather than the row around it, so that reaching
+                  the course by keyboard opens the panel the same way pointing at it does. Base UI
+                  composes the two through `render`: the tooltip's trigger wraps this one, both put
+                  their hover handlers on the one `<a>`, and the click still navigates because a
+                  preview card is the one popup that never opens on a press.
+                */
+                render={
+                  panel ? (
+                    <PreviewCardPrimitive.Trigger delay={250} closeDelay={200} render={link} />
+                  ) : (
+                    link
+                  )
+                }
+              >
+                <CourseInitial name={course.name} />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{course.name}</span>
+                  {course.archivedAt != null && (
+                    <span className="truncate text-xs text-muted-foreground">Archived</span>
+                  )}
+                </span>
+              </SidebarMenuButton>
+
+              {panel && <CourseViewPanel course={course} />}
+            </PreviewCardPrimitive.Root>
 
             {open && (
               <SidebarMenuSub>
@@ -577,6 +621,61 @@ function CourseList({
         );
       })}
     </SidebarMenu>
+  );
+}
+
+/**
+ * One course's five views, drawn over the page beside its row.
+ *
+ * **Portalled to the document rather than positioned inside the row.** `SidebarContent` scrolls,
+ * which means it clips anything absolutely positioned that reaches past its edge — and reaching
+ * past its edge is the whole point of this. The portal also puts the panel outside the sidebar's
+ * `data-collapsible` group, so the two rules that hide the in-list sub-items in the collapsed rail
+ * do not reach it; `CourseList` decides that case instead.
+ *
+ * **It names the course.** The panel appears beside a row it is not attached to and over a page
+ * belonging to a different course, so the heading is what says whose gradebook the second item is.
+ *
+ * **No view is marked active**, and there is nothing to mark: a panel is only drawn for a course
+ * the reader is not in, so none of its five views can be the screen on display.
+ */
+function CourseViewPanel({
+  course,
+}: {
+  course: { id: string; name: string; archivedAt: Date | null };
+}) {
+  return (
+    <PreviewCardPrimitive.Portal>
+      <PreviewCardPrimitive.Positioner
+        className="isolate z-50 outline-none"
+        side="right"
+        align="start"
+        /*
+          Four pixels of gap, kept small deliberately: the pointer has to cross it to reach the
+          panel, and every pixel of it is somewhere a slow diagonal can leave both the row and the
+          panel and close what it was travelling to. The 200ms `closeDelay` on the trigger covers
+          the rest of the trip.
+        */
+        sideOffset={4}
+        alignOffset={-4}
+        collisionPadding={12}
+      >
+        <PreviewCardPrimitive.Popup className="flex max-w-64 min-w-44 origin-(--transform-origin) flex-col rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
+          <p className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
+            {course.archivedAt != null ? `${course.name} · Archived` : course.name}
+          </p>
+          {COURSE_VIEWS.map((view) => (
+            <Link
+              key={view.segment}
+              href={view.href(course.id)}
+              className="flex h-7 items-center rounded-md px-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {view.title}
+            </Link>
+          ))}
+        </PreviewCardPrimitive.Popup>
+      </PreviewCardPrimitive.Positioner>
+    </PreviewCardPrimitive.Portal>
   );
 }
 
