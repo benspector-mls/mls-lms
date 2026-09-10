@@ -1,6 +1,7 @@
 import { ExternalLink, Link2 } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
+import { panelSurface } from "@/components/ui/card";
 import { linkHost } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
@@ -112,12 +113,7 @@ export function SubmittedLinkRow({
   const host = linkHost(url);
 
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-3 rounded-lg border border-border bg-background p-4",
-        className,
-      )}
-    >
+    <div className={cn(panelSurface, "flex flex-col gap-3 p-4", className)}>
       <SubmittedLinkHeading url={url} label={label} isLate={isLate} />
 
       {host ? (

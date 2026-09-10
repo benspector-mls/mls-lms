@@ -5,10 +5,12 @@ import { ChevronRight, Download, FileUp, Loader2 } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
+import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { UploadedCode } from "@/components/uploaded-code";
 import { useTRPC } from "@/trpc/client";
 import { formatBytes, previewKindOf } from "@/lib/uploads/file-types";
+import { cn } from "@/lib/utils";
 
 /**
  * One uploaded file: what it is, a view of it where there is one to give, and a download.
@@ -140,7 +142,7 @@ export function UploadedFileRow({
   );
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4">
+    <div className={cn(panelSurface, "flex flex-col gap-2 p-4")}>
       {previewKind === null ? (
         heading
       ) : (
@@ -200,14 +202,14 @@ export function UploadedFileRow({
                   title={filename}
                   // Tall enough to read a page of a resume without scrolling the page itself,
                   // and viewport-relative so it is usable on a laptop and on a large monitor.
-                  className="h-[70vh] min-h-80 w-full rounded-md border border-border bg-muted/30"
+                  className={cn(insetSurface, "h-[70vh] min-h-80 w-full")}
                 />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={previewUrl}
                   alt={filename}
-                  className="max-h-[70vh] w-auto max-w-full rounded-md border border-border"
+                  className={cn(insetSurface, "max-h-[70vh] w-auto max-w-full")}
                 />
               )}
             </div>

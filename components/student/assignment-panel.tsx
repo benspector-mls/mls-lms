@@ -29,6 +29,7 @@ import { SubmittedDocumentRow } from "@/components/submitted-document";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -571,7 +572,7 @@ function SubmissionTab({
   return (
     <div className="flex flex-col gap-4">
       {canCopyTemplate && (
-        <div className="flex flex-col items-start gap-2 rounded-lg border border-border bg-background p-4">
+        <div className={cn(panelSurface, "flex flex-col items-start gap-2 p-4")}>
           {/*
             Statements rather than instructions, which is what lets the Drive card persist: it is
             still true of a student who took their copy weeks ago. The Drive copy is not somewhere
@@ -603,14 +604,14 @@ function SubmissionTab({
         mechanical steps because it says what the work is, and those say how to hand it in.
       */}
       {assignment.submissionInstructions && (
-        <div className="rounded-lg border border-border bg-background p-4">
+        <div className={cn(panelSurface, "p-4")}>
           <p className="mb-2 text-sm font-medium">Instructions</p>
           <Markdown className="text-sm" content={assignment.submissionInstructions} />
         </div>
       )}
 
       {assignment.kind === "REPO" && status === "ACCEPTED" && (
-        <div className="rounded-lg border border-border bg-background p-4">
+        <div className={cn(panelSurface, "p-4")}>
           <p className="mb-2 text-sm font-medium">How to submit</p>
           <ol className="ml-4 list-decimal text-sm text-muted-foreground [&>li]:mt-1">
             {/*
@@ -911,7 +912,7 @@ function TaskCompletion({
   */
   if (!mayMark) {
     return (
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4">
+      <div className={cn(panelSurface, "flex flex-col gap-2 p-4")}>
         <p className="text-sm font-medium">
           {done ? "Your instructor marked this done" : "Your instructor marks this one"}
         </p>
@@ -934,7 +935,7 @@ function TaskCompletion({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4">
+    <div className={cn(panelSurface, "flex flex-col gap-3 p-4")}>
       <p className="text-sm font-medium">
         {done ? "You marked this done" : "When you have done it"}
       </p>
@@ -1170,7 +1171,7 @@ function SubmitWorkForm({
 
   return (
     <form
-      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4"
+      className={cn(panelSurface, "flex flex-col gap-2 p-4")}
       onSubmit={(event) => {
         event.preventDefault();
         submit.mutate({ assignmentId, submittedUrl: url.trim() });
@@ -1415,10 +1416,7 @@ function UploadWorkForm({
   }
 
   return (
-    <form
-      className="flex flex-col gap-2 rounded-lg border border-border bg-background p-4"
-      onSubmit={upload}
-    >
+    <form className={cn(panelSurface, "flex flex-col gap-2 p-4")} onSubmit={upload}>
       <label className="text-sm font-medium" htmlFor={inputId}>
         {UPLOAD_FORM_HEADING[mode]}
       </label>
@@ -1697,7 +1695,7 @@ function FeedbackRoundCard({
 
   if (isLatest) {
     return (
-      <div className="rounded-lg border border-border bg-background p-4">
+      <div className={cn(panelSurface, "p-4")}>
         <div className="mb-3">{header}</div>
         <Separator className="mb-3" />
         {body}

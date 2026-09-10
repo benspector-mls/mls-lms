@@ -4,6 +4,7 @@ import { ChevronRight, FileText } from "lucide-react";
 import * as React from "react";
 
 import { SubmittedLinkHeading, SubmittedLinkRow } from "@/components/submitted-link";
+import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DRIVE_DOC_KIND_LABEL, driveEmbedUrl, parseDriveDocUrl } from "@/lib/drive/embed";
 import { cn } from "@/lib/utils";
@@ -66,12 +67,7 @@ export function SubmittedDocumentRow({
   }
 
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-2 rounded-lg border border-border bg-background p-4",
-        className,
-      )}
-    >
+    <div className={cn(panelSurface, "flex flex-col gap-2 p-4", className)}>
       <Collapsible open={open} onOpenChange={setOpen}>
         {/*
           Above the trigger rather than wrapped by it, for the reason `UploadedFileRow` gives: the
@@ -115,7 +111,7 @@ export function SubmittedDocumentRow({
                   sends. That one addresses a PDF viewer the *browser* supplies; a Google page
                   draws its own chrome, which Google decides and a fragment cannot change.
                 */
-                className="h-[70vh] min-h-80 w-full rounded-md border border-border bg-muted/30"
+                className={cn(insetSurface, "h-[70vh] min-h-80 w-full")}
                 /*
                   Empty rather than omitted. An empty permissions policy is what a cross-origin
                   frame gets by default, so this changes nothing mechanically and puts the intent
