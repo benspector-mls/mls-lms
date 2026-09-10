@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
   stickyColumn,
+  stickyColumnContent,
 } from "@/components/ui/table";
 import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
 import {
@@ -267,10 +268,10 @@ function Grid({
           {fellows.map((summary) => (
             <TableRow key={summary.fellow.enrollmentId}>
               <TableCell className={stickyColumn}>
-                <div className="flex min-w-0 items-center gap-2">
+                <div className={stickyColumnContent}>
                   <Link
                     href={programStudentHref(programId, summary.fellow.studentId)}
-                    className="truncate font-medium hover:underline"
+                    className="font-medium hover:underline"
                   >
                     {displayNameOf(summary.fellow, "Unnamed")}
                   </Link>

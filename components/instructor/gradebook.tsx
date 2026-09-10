@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
   stickyColumn,
+  stickyColumnContent,
 } from "@/components/ui/table";
 import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/course-units";
 import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
@@ -245,10 +246,18 @@ function TabStrip({
     return query ? `${gradebookHref(courseId)}?${query}` : gradebookHref(courseId);
   };
 
+  /*
+    The strip scrolls sideways rather than sizing itself to its five pills. On a phone the five of
+    them are wider than the screen, and the shell holds the page itself to the window's width on
+    purpose — so a strip that overflowed simply had its last tab, the GCF, cut off with nothing to
+    scroll and no way to reach it. Scrolling within the strip is the arrangement every wide table
+    on this page already uses, and it leaves the tab reachable by keyboard either way: tabbing to a
+    link scrolls it into view.
+  */
   return (
     <nav
       aria-label="Gradebook categories"
-      className="inline-flex w-auto self-start items-center gap-1 rounded-lg bg-muted p-1"
+      className="no-scrollbar flex max-w-full self-start items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1"
     >
       {GRADEBOOK_TABS.map((tab) => (
         <Link
@@ -256,7 +265,7 @@ function TabStrip({
           href={href(tab)}
           aria-current={tab === active ? "page" : undefined}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
             tab === active
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground",
@@ -445,7 +454,7 @@ function OverviewTable({
           {students.map((student) => (
             <TableRow key={student.id}>
               <TableCell className={cn(stickyColumn, "font-medium")}>
-                <div className="flex items-center gap-2">
+                <div className={stickyColumnContent}>
                   <Link href={studentHref(courseId, student.id)} className="hover:underline">
                     {studentLabel(student)}
                   </Link>

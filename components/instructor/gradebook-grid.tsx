@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
   stickyColumn,
+  stickyColumnContent,
 } from "@/components/ui/table";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { WorkFilter } from "@/components/instructor/work-filter";
@@ -625,7 +626,7 @@ function Band({
               <TableCell className={cn(stickyColumn, "font-medium")}>
                 {/* Into their record for this cohort. A row of scores prompts "what happened
                     with this person", and the name is where a reader already points. */}
-                <div className="flex items-center gap-2">
+                <div className={stickyColumnContent}>
                   <Link href={studentHref(courseId, student.id)} className="hover:underline">
                     {studentLabel(student)}
                   </Link>

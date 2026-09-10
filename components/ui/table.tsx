@@ -4,9 +4,17 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+/*
+  `isolate` keeps the frozen first column's `z-10` inside this table. Without it, that z-index
+  competes with the shell's sticky breadcrumb header, which is also `z-10` and comes earlier in
+  the document — so scrolling the page down drew student names over the breadcrumbs. A stacking
+  context here leaves the column raised above the cells passing behind it, which is its whole job,
+  and below everything outside the table. The overlays a row opens — a dialog, a dropdown — are
+  portalled to the body and so are not held under it.
+*/
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div data-slot="table-container" className="relative isolate w-full overflow-x-auto">
       <table
         data-slot="table"
         className={cn("w-full caption-bottom text-sm", className)}
@@ -41,6 +49,25 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
  * three of them come to be one shade off the fourth.
  */
 const stickyColumn = "sticky left-0 z-10 bg-table-sticky";
+
+/**
+ * The row of content inside a frozen name cell: the name, and whatever sits beside it.
+ *
+ * **Capped, so that one long name cannot set the width of the column.** A frozen column is
+ * subtracted from the screen — every marks column has to fit in what is left of a phone — and a
+ * table's column takes the width of its widest cell, so a single fellow with a long name narrows
+ * every row's view of the marks. The name scrolls sideways within its cell instead.
+ *
+ * The cap has to sit here rather than on the `<td>`, which carries `whitespace-nowrap`: a cell's
+ * `max-width` is advisory in an auto-layout table and unwrappable text overrides it, while a
+ * block inside the cell contributes only its own capped width to the column.
+ *
+ * `no-scrollbar` because this is one scroller per row. Where a scrollbar takes real space rather
+ * than floating over the content, as it does on Windows, a bar inside every name would add height
+ * to every row of the table and draw a line down the column. The names remain reachable: the cell
+ * takes a swipe or a shift-wheel, and tabbing to the link inside scrolls it into view.
+ */
+const stickyColumnContent = "no-scrollbar flex max-w-48 items-center gap-2 overflow-x-auto";
 
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return <thead data-slot="table-header" className={cn("[&_tr]:border-b", className)} {...props} />;
@@ -122,4 +149,5 @@ export {
   TableCell,
   TableCaption,
   stickyColumn,
+  stickyColumnContent,
 };

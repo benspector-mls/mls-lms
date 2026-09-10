@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
   stickyColumn,
+  stickyColumnContent,
 } from "@/components/ui/table";
 import {
   formatTakenOn,
@@ -364,21 +365,19 @@ function StandingsTable({
                     The record itself is not lost, only moved: the dialog links to it, so the
                     destination the other tabs go to is one further click rather than gone.
                   */}
-                  <div className="flex items-center gap-2">
+                  <div className={stickyColumnContent}>
                     <button
                       type="button"
                       onClick={() => onOpen(student)}
                       title={`See ${studentLabel(student)}'s GCF attempts`}
                       aria-label={`See ${studentLabel(student)}'s GCF attempts`}
-                      className="group flex min-w-0 items-center gap-1.5 text-left"
+                      className="group flex items-center gap-1.5 text-left"
                     >
                       <ListTree
                         className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
                         aria-hidden
                       />
-                      <span className="truncate group-hover:underline">
-                        {studentLabel(student)}
-                      </span>
+                      <span className="group-hover:underline">{studentLabel(student)}</span>
                     </button>
                     {student.testStudentNumber !== null && <TestStudentBadge />}
                   </div>
