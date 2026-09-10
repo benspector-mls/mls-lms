@@ -28,6 +28,7 @@
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
+  --color-table-sticky: var(--table-sticky);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
@@ -61,6 +62,18 @@
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
+  /*
+    The frozen first column of a wide table, which needs a value of its own in each theme rather
+    than one value in both.
+
+    On a white page it has to be a step *darker* to be seen at all, and `--muted` is that step. On
+    a dark page `--muted` is a step *lighter* than the page and a much longer one — the same token
+    that is barely visible in light reads as a stripe down the table in dark. So this is `--muted`
+    in light and `--card` in dark, and it is a token rather than a `dark:` utility because most
+    readers never touch the theme toggle and so carry no class for `dark:` to match — see the note
+    above the `.shiki-code` rules.
+  */
+  --table-sticky: oklch(0.97 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -97,6 +110,7 @@
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
+  --table-sticky: oklch(0.205 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
@@ -133,6 +147,7 @@
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
     --muted-foreground: oklch(0.708 0 0);
+    --table-sticky: oklch(0.205 0 0);
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);

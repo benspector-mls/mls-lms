@@ -10,6 +10,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  stickyColumn,
 } from "@/components/ui/table";
 import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
 import {
@@ -243,7 +244,7 @@ function Grid({
               Only the name column is pinned. Pinning the summary columns too would leave a phone
               with nothing but frozen columns and no grid — the same note `gradebook.tsx` makes.
             */}
-            <TableHead className="sticky left-0 z-10 bg-card">Fellow</TableHead>
+            <TableHead className={stickyColumn}>Fellow</TableHead>
             <TableHead className="text-right">Rate</TableHead>
             <TableHead className="text-right">P</TableHead>
             <TableHead className="text-right">L</TableHead>
@@ -265,7 +266,7 @@ function Grid({
         <TableBody>
           {fellows.map((summary) => (
             <TableRow key={summary.fellow.enrollmentId}>
-              <TableCell className="sticky left-0 z-10 bg-card">
+              <TableCell className={stickyColumn}>
                 <div className="flex min-w-0 items-center gap-2">
                   <Link
                     href={programStudentHref(programId, summary.fellow.studentId)}

@@ -12,6 +12,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  stickyColumn,
 } from "@/components/ui/table";
 import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/course-units";
 import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
@@ -402,7 +403,7 @@ function OverviewTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="sticky left-0 z-10 bg-card">Student</TableHead>
+            <TableHead className={stickyColumn}>Student</TableHead>
             {UNIT_CATEGORIES.map((category) => (
               <TableHead key={category} className="text-center">
                 <span className="mx-auto block max-w-28 text-xs leading-tight">
@@ -443,7 +444,7 @@ function OverviewTable({
         <TableBody>
           {students.map((student) => (
             <TableRow key={student.id}>
-              <TableCell className="sticky left-0 z-10 bg-card font-medium">
+              <TableCell className={cn(stickyColumn, "font-medium")}>
                 <div className="flex items-center gap-2">
                   <Link href={studentHref(courseId, student.id)} className="hover:underline">
                     {studentLabel(student)}

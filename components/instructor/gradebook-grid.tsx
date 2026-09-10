@@ -13,6 +13,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  stickyColumn,
 } from "@/components/ui/table";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { WorkFilter } from "@/components/instructor/work-filter";
@@ -44,12 +45,7 @@ import {
   type Completion,
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
-import {
-  formatDueDate,
-  scoreLabel,
-  scorePercent,
-  SUBMISSION_STATUS_META,
-} from "@/lib/status";
+import { formatDueDate, scoreLabel, scorePercent, SUBMISSION_STATUS_META } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import type { RouterOutputs } from "@/trpc/types";
@@ -462,7 +458,7 @@ function Band({
             unit — and the divider between it and the first unit is the point rather than a cost.
           */}
           <TableRow className="hover:bg-transparent">
-            <TableHead className="sticky left-0 z-10 bg-card" />
+            <TableHead className={stickyColumn} />
             <TableHead
               colSpan={2}
               className="border-l border-border text-center text-xs font-medium"
@@ -482,7 +478,7 @@ function Band({
 
           <TableRow>
             <SortableHead
-              className="sticky left-0 z-10 bg-card"
+              className={stickyColumn}
               label="Student"
               sort={sort}
               column={{ by: "name" }}
@@ -586,7 +582,7 @@ function Band({
             as a student, and on a cohort of five that matters.
           */}
           <TableRow className="hover:bg-transparent">
-            <TableHead className="sticky left-0 z-10 bg-card text-xs font-normal text-muted-foreground">
+            <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
               Completed
             </TableHead>
             {/*
@@ -626,7 +622,7 @@ function Band({
         <TableBody>
           {rows.map((student) => (
             <TableRow key={student.id}>
-              <TableCell className="sticky left-0 z-10 bg-card font-medium">
+              <TableCell className={cn(stickyColumn, "font-medium")}>
                 {/* Into their record for this cohort. A row of scores prompts "what happened
                     with this person", and the name is where a reader already points. */}
                 <div className="flex items-center gap-2">

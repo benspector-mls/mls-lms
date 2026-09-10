@@ -22,6 +22,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  stickyColumn,
 } from "@/components/ui/table";
 import {
   formatTakenOn,
@@ -285,7 +286,7 @@ function StandingsTable({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="sticky left-0 z-10 bg-card" />
+            <TableHead className={stickyColumn} />
             {GCF_KINDS.map((kind) => (
               <TableHead
                 key={kind}
@@ -307,7 +308,7 @@ function StandingsTable({
 
           <TableRow>
             <SortHead
-              className="sticky left-0 z-10 bg-card"
+              className={stickyColumn}
               label="Student"
               active={sort.by === "name"}
               direction={sort.direction}
@@ -349,7 +350,7 @@ function StandingsTable({
 
             return (
               <TableRow key={student.id}>
-                <TableCell className="sticky left-0 z-10 bg-card font-medium">
+                <TableCell className={cn(stickyColumn, "font-medium")}>
                   {/*
                     **The name opens this fellow's attempts, and has to say so.**
 
