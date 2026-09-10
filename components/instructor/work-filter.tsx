@@ -34,6 +34,35 @@ import { dateColumnFor } from "@/lib/school-time";
 import { ASSIGNMENT_KIND_LABEL } from "@/lib/status";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 
+const STORAGE_PREFIX = "work-filter:";
+
+/**
+ * The remembered filter for one screen, or null where there is none or storage is unreadable.
+ * Stored as the encoded query string itself, so reading it back goes through `parseColumnFilter`
+ * like any other address and a stale unit id is dropped the same way.
+ */
+function readStoredFilter(pathname: string): string | null {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_PREFIX + pathname);
+    return stored === "" ? null : stored;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Storage can refuse — a browser set to block site data throws on touch — and the filter works
+ * without a memory, so a refusal is swallowed rather than surfaced.
+ */
+function writeStoredFilter(pathname: string, encoded: string): void {
+  try {
+    if (encoded === "") window.localStorage.removeItem(STORAGE_PREFIX + pathname);
+    else window.localStorage.setItem(STORAGE_PREFIX + pathname, encoded);
+  } catch {
+    // Nothing to do: the query string still carries the filter for this sitting.
+  }
+}
+
 /**
  * Which work a screen is about: its unit, how it is handed in, and when it was due.
  *
@@ -46,6 +75,17 @@ import type { AssignmentKind } from "@/lib/generated/prisma/enums";
  * router: both screens hold every row the filter narrows and neither refetches, so navigating here
  * would re-run a server render to produce the payload already in hand. The screens read the value
  * back with `useSearchParams`, which Next keeps in step with a native history write.
+ *
+ * **And it is remembered in localStorage, keyed by pathname.** Grading is triage, into an
+ * assignment's queue, back to triage — and the sidebar's links carry a clean query string, so the
+ * query string alone made that return trip start over. Every write stores the filter as well, and
+ * an address that names no filter gets the stored one written into it on mount. The precedence is
+ * the cohort picker's rule with the memory in the browser instead of the database: **the URL wins,
+ * the memory fills in when the URL is silent.** The browser rather than a column because the
+ * filter never reaches the server — both screens narrow rows they already hold, so there is no
+ * fetch for a server-side memory to inform. Keyed by pathname so triage and the gradebook remember
+ * separately per course: narrowing an afternoon's grading to one module and narrowing the
+ * gradebook's columns to it are different intentions.
  *
  * The screens differ only in wording, which is what `trigger` and `unitsLabel` carry. The gradebook
  * narrows *columns* — the question there is "how did the cohort do on this work" — where triage
@@ -89,15 +129,51 @@ export function WorkFilter({
     cohort and the gradebook's open tab through every change of filter. The three parameters are
     cleared first so that a filter losing a restriction loses the parameter too, rather than
     keeping a stale one nothing overwrites.
+
+    Every write is remembered as well as addressed. Clearing goes through here too, and an empty
+    encoding removes the memory — so a cleared filter stays cleared on the next visit rather than
+    coming back as the one thing "Clear the filter" could not clear.
   */
   function set(next: ColumnFilter) {
+    const encoded = encodeColumnFilter(next);
     const params = new URLSearchParams(searchParams.toString());
     for (const key of COLUMN_FILTER_PARAMS) params.delete(key);
-    for (const [key, value] of encodeColumnFilter(next)) params.set(key, value);
+    for (const [key, value] of encoded) params.set(key, value);
+
+    writeStoredFilter(pathname, encoded.toString());
 
     const query = params.toString();
     window.history.replaceState(null, "", query ? `?${query}` : pathname);
   }
+
+  /*
+    The memory's other half: an address that names no filter gets the stored one on mount. Guarded
+    on every filter parameter being absent, so an address that names any restriction — a
+    colleague's link, a bookmark — is taken at its word rather than mixed with the memory.
+    `replaceState` rather than component state, so the restored filter is read back through
+    `useSearchParams` exactly as a typed one would be and everything downstream — the chips, the
+    narrowed rows, the counts — follows from the one value. The write re-runs the effect, and the
+    guard is what stops it there.
+  */
+  React.useEffect(() => {
+    if (COLUMN_FILTER_PARAMS.some((key) => searchParams.has(key))) return;
+
+    const stored = readStoredFilter(pathname);
+    if (stored === null) return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    let restored = false;
+    for (const [key, value] of new URLSearchParams(stored)) {
+      if ((COLUMN_FILTER_PARAMS as readonly string[]).includes(key)) {
+        params.set(key, value);
+        restored = true;
+      }
+    }
+
+    // A memory holding none of the three parameters restores nothing, and writing the unchanged
+    // address anyway would be a second run of this effect for no movement.
+    if (restored) window.history.replaceState(null, "", `?${params.toString()}`);
+  }, [pathname, searchParams]);
 
   const toggleUnit = (unitId: string) =>
     set({
