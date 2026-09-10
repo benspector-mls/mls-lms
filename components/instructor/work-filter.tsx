@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import {
   activeFilterCount,
   COLUMN_FILTER_PARAMS,
+  dueIsActive,
   DUE_WINDOWS,
   DUE_WINDOW_META,
   encodeColumnFilter,
@@ -29,6 +30,7 @@ import {
   type DueRange,
   type DueWindow,
 } from "@/lib/gradebook/filters";
+import { dateColumnFor } from "@/lib/school-time";
 import { ASSIGNMENT_KIND_LABEL } from "@/lib/status";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 
@@ -48,6 +50,10 @@ import type { AssignmentKind } from "@/lib/generated/prisma/enums";
  * The screens differ only in wording, which is what `trigger` and `unitsLabel` carry. The gradebook
  * narrows *columns* — the question there is "how did the cohort do on this work" — where triage
  * narrows a pile of work to do; calling both "Columns" would name a thing triage does not have.
+ *
+ * **What is in force is shown as chips beside the button, one per restriction.** The chips are the
+ * filter's own display, so a heading never has to describe it — and each one is a button that
+ * removes exactly the restriction it names, which the menu can only do by being opened and read.
  */
 export function WorkFilter({
   filter,
@@ -193,6 +199,37 @@ export function WorkFilter({
       </DropdownMenu>
 
       {/*
+        One chip per restriction in force, each removing exactly what it names. Units come from the
+        caller's list rather than from `filter.unitIds` directly, which is what keeps them in course
+        order however they were ticked; a kind survives even when it is not among the offered
+        `kinds`, because a restriction a stale link put in force still narrows and still needs a
+        way off the screen. The due chip appears only when the choice narrows — a custom range with
+        no dates typed yet is the two inputs below, not a restriction.
+      */}
+      {units
+        .filter((unit) => filter.unitIds.includes(unit.id))
+        .map((unit) => (
+          <FilterChip key={unit.id} label={unit.name} onRemove={() => toggleUnit(unit.id)} />
+        ))}
+      {filter.kinds.map((kind) => (
+        <FilterChip
+          key={kind}
+          label={ASSIGNMENT_KIND_LABEL[kind]}
+          onRemove={() => toggleKind(kind)}
+        />
+      ))}
+      {dueIsActive(filter.due) && (
+        <FilterChip
+          label={
+            typeof filter.due === "string"
+              ? DUE_WINDOW_META[filter.due].label
+              : rangeLabel(filter.due)
+          }
+          onRemove={() => set({ ...filter, due: "all" })}
+        />
+      )}
+
+      {/*
         Beside the menu rather than inside it. A date input is a text field, and inside an open menu
         it competes with the menu's own typeahead and arrow keys for what is typed; out here it is
         an ordinary control and nothing can swallow a keystroke.
@@ -245,4 +282,46 @@ export function WorkFilter({
       )}
     </>
   );
+}
+
+/**
+ * One restriction in force, and the button that lifts it.
+ *
+ * The whole chip is the button rather than the cross alone, because at this size the cross is a
+ * ten-pixel target and the label beside it does nothing else — a chip is not a link to anywhere.
+ * The label still says what pressing does, for a screen reader that reads buttons by name.
+ */
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      aria-label={`Remove the ${label} filter`}
+      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-secondary px-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+    >
+      {label}
+      <X className="size-3 text-muted-foreground" aria-hidden />
+    </button>
+  );
+}
+
+/** A chosen range, as "Due Jan 6 – Feb 14" with either end allowed to be missing. */
+function rangeLabel({ from, to }: DueRange): string {
+  if (from !== null && to !== null) return `Due ${day(from)} – ${day(to)}`;
+  return from !== null ? `Due from ${day(from)}` : `Due up to ${day(to!)}`;
+}
+
+/**
+ * One end of a range, as "Jan 6".
+ *
+ * `dateColumnFor` and `timeZone: "UTC"` together, which is the pairing `formatSchoolDay` uses: a
+ * school day is a civil date rather than an instant, and reading it in any other zone prints the
+ * day before on every machine west of UTC.
+ */
+function day(value: string): string {
+  return dateColumnFor(value).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  });
 }

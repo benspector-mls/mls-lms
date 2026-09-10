@@ -30,19 +30,10 @@ import {
   parseCohortSelection,
   type CohortChoice,
 } from "@/lib/programs/cohorts";
-import {
-  dueIsActive,
-  DUE_WINDOW_META,
-  filterIsActive,
-  matchesColumnFilter,
-  parseColumnFilter,
-  type ColumnFilter,
-  type DueRange,
-} from "@/lib/gradebook/filters";
+import { filterIsActive, matchesColumnFilter, parseColumnFilter } from "@/lib/gradebook/filters";
 import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
 import { gradingQueueHref, studentHref } from "@/lib/links";
-import { dateColumnFor } from "@/lib/school-time";
-import { ASSIGNMENT_KIND_LABEL, formatRelative } from "@/lib/status";
+import { formatRelative } from "@/lib/status";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -135,57 +126,6 @@ const BUCKET_META: Record<
     accent: "bg-amber-500/10",
   },
 };
-
-/**
- * The filter in the heading's own words, one clause per restriction.
- *
- * **Short, because it sits in a line that already names the course, the term and the cohort.** A
- * reader who wants the detail can open the menu; what this has to answer is "is what I am reading
- * the whole pile", and for that the first unit and a count of the rest is enough.
- */
-function filterClauses(filter: ColumnFilter, units: { id: string; name: string }[]): string[] {
-  const clauses: string[] = [];
-
-  if (filter.unitIds.length > 0) {
-    const names = filter.unitIds.map(
-      (id) => units.find((unit) => unit.id === id)?.name ?? "an unknown unit",
-    );
-    clauses.push(names.length === 1 ? names[0]! : `${names[0]} and ${names.length - 1} more`);
-  }
-
-  if (filter.kinds.length > 0) {
-    clauses.push(filter.kinds.map((kind) => ASSIGNMENT_KIND_LABEL[kind]).join(" or "));
-  }
-
-  if (dueIsActive(filter.due)) {
-    clauses.push(
-      typeof filter.due === "string" ? DUE_WINDOW_META[filter.due].label : rangeLabel(filter.due),
-    );
-  }
-
-  return clauses;
-}
-
-/** A chosen range, as "Due Jan 6 – Feb 14" with either end allowed to be missing. */
-function rangeLabel({ from, to }: DueRange): string {
-  if (from !== null && to !== null) return `Due ${day(from)} – ${day(to)}`;
-  return from !== null ? `Due from ${day(from)}` : `Due up to ${day(to!)}`;
-}
-
-/**
- * One end of a range, as "Jan 6".
- *
- * `dateColumnFor` and `timeZone: "UTC"` together, which is the pairing `formatSchoolDay` uses: a
- * school day is a civil date rather than an instant, and reading it in any other zone prints the
- * day before on every machine west of UTC.
- */
-function day(value: string): string {
-  return dateColumnFor(value).toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 export function TriageOverview({
   triage,
@@ -281,8 +221,11 @@ export function TriageOverview({
             was caught up on would be making a claim about the roster that it has not checked.
           */
           ...(selection.kind === "all" ? [] : [cohortSelectionLabel(selection, cohorts.cohorts)]),
-          // And the filter, for exactly the same reason: it narrows the same figures.
-          ...filterClauses(filter, units),
+          /*
+            The filter is *not* named here, though it narrows the same figures: it is shown as
+            chips beside the filter button, where each restriction can also be lifted. The count
+            that follows is still computed from the narrowed rows, and the chips are what say so.
+          */
           remaining === 0
             ? "Caught up"
             : `${remaining} ${remaining === 1 ? "submission" : "submissions"} left to grade`,
