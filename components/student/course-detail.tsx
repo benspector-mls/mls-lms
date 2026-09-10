@@ -10,8 +10,12 @@ import { EmptyState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { UnitList } from "@/components/unit-list";
 import { PageHeader } from "@/components/page-header";
-import { AssignmentKindIcon, SubmissionStatusBadge } from "@/components/status-badge";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  AssignmentKindIcon,
+  SubmissionStatusBadge,
+  UnitCategoryIcon,
+} from "@/components/status-badge";
+import { Card, CardContent, panelSurface } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { gradingQueueHref } from "@/lib/links";
@@ -175,7 +179,7 @@ export function StudentCourseDetail({
         found there.
       */}
       {!githubLinked && (
-        <Card className="border-amber-500/50">
+        <Card className="ring-amber-500/50">
           <CardContent className="py-4 text-sm">
             <p className="font-medium">Your GitHub account is not linked</p>
             <p className="mt-1 text-muted-foreground">
@@ -194,7 +198,7 @@ export function StudentCourseDetail({
           description="When your instructor adds assignments or readings to this course, they will appear here."
         />
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
           {units.map(({ id, name, category, rows, resources: unitResources }) => (
             <UnitSection
               key={id}
@@ -327,19 +331,27 @@ function UnitSection({
 
   return (
     <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
-      <section className="overflow-hidden rounded-lg border border-border">
+      <section className={cn(panelSurface, "overflow-hidden")}>
         {/*
           The heading wraps the control rather than sitting inside it: a button may only
           contain phrasing content, so an <h2> within one is invalid markup, and this is
           the shape screen readers expect from a collapsible section anyway.
         */}
         <h2>
-          <CollapsibleTrigger className="group flex w-full items-center gap-2 bg-muted/40 px-3 py-2.5 text-left transition-colors hover:bg-muted/70">
+          <CollapsibleTrigger className="group flex w-full items-center gap-2 bg-muted px-3 py-2.5 text-left transition-colors hover:bg-muted-foreground/10">
             <ChevronRight
               aria-hidden="true"
               className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
             />
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{name}</span>
+            {/*
+              What kind of unit this is, as a shape rather than a word.
+
+              This is the screen where it carries the most: a module gets no badge below, so on a
+              course of eighteen sections the icon is the only mark distinguishing the project from
+              the modules around it. Hovering says the word and what the category is for.
+            */}
+            <UnitCategoryIcon category={category} />
+            <span className="min-w-0 flex-1 truncate text-base font-semibold">{name}</span>
             {/*
               What kind of unit this is, on everything but a module.
 
@@ -401,7 +413,7 @@ function UnitSection({
                 for comparing a deadline to a place in a list.
               */}
               {resources.length > 0 && (
-                <UnitList heading="Resources">
+                <UnitList heading="Resources" muted>
                   {resources.map((resource) => (
                     <li key={resource.id}>
                       <ResourceItem resource={resource} />

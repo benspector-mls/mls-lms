@@ -6,7 +6,7 @@ import * as React from "react";
 import { ChevronRight, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AssignmentKindIcon } from "@/components/status-badge";
+import { AssignmentKindIcon, UnitCategoryIcon } from "@/components/status-badge";
 import { EmptyState, ErrorState } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { SortableList, SortableRow } from "@/components/sortable-list";
@@ -14,6 +14,7 @@ import { AssignmentPanel } from "@/components/student/assignment-panel";
 import { UnitList } from "@/components/unit-list";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -373,7 +374,7 @@ export function Curriculum({ courseId }: { courseId: string }) {
           description="Add a module, a project, or an assessment. Assignments and resources go inside one."
         />
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-6">
           <SortableList
             ids={rows.map((row) => row.id)}
             announce={(id) => rows.find((row) => row.id === id)?.name ?? "this unit"}
@@ -459,8 +460,8 @@ function UnitSection({
     <SortableRow id={unit.id} label={unit.name}>
       {(handle) => (
         <Collapsible open={open} onOpenChange={setOpen}>
-          <section className="overflow-hidden rounded-lg border border-border">
-            <div className="flex flex-wrap items-center gap-2 bg-muted/40 px-2 py-2">
+          <section className={cn(panelSurface, "overflow-hidden")}>
+            <div className="flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
               {/*
             The grip sits where the up and down buttons sat, and it is the only part of this
             header that drags — the name, the rename form, and the collapse control all still do
@@ -502,11 +503,17 @@ function UnitSection({
                     The category on every unit, including a module. Labelling only two of the
                     three would make "no badge" the way a module is recognised, which is a rule a
                     reader has to be told rather than one they can see.
+
+                    Twice over, as a shape and as a word. This is the screen an instructor arranges
+                    a course on, where the word is worth its space and the icon is what makes a
+                    long list scannable; a student's course page shows the icon alone and keeps the
+                    badge for the two categories a word tells them something about.
                   */}
+                      <UnitCategoryIcon category={unit.category} />
                       <Badge variant="secondary" className="shrink-0 font-normal">
                         {meta.noun}
                       </Badge>
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                      <span className="min-w-0 flex-1 truncate text-base font-semibold">
                         {unit.name}
                       </span>
                     </CollapsibleTrigger>
@@ -645,6 +652,7 @@ function UnitSection({
             */
                 <UnitList
                   heading={`${unit.resources.length} ${unit.resources.length === 1 ? "resource" : "resources"}`}
+                  muted
                 >
                   {/*
                 A second sortable list, inside the one the unit itself is a row of. Only the grips

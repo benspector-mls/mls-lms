@@ -5,7 +5,10 @@
 // directive has to be here or the Base UI tooltip's hooks run in the wrong place.
 import {
   AlertTriangle,
+  Blocks,
+  BookOpen,
   CircleCheck,
+  ClipboardCheck,
   Code,
   FileText,
   Files,
@@ -18,8 +21,10 @@ import type * as React from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { handInMethodsFor, type HandInShape } from "@/lib/assignments/spec";
+import { CATEGORY_META } from "@/lib/course-units";
 import type {
   AttendanceStatus,
+  CourseUnitCategory,
   GradingDraftStatus,
   ResourceKind,
   SubmissionStatus,
@@ -255,6 +260,52 @@ export function AssignmentKindIcon({
       icon={kindIconFor(assignment)}
       label={meta.label}
       description={`${meta.label} — ${meta.description}`}
+      className={className}
+    />
+  );
+}
+
+/**
+ * What kind of unit this is: a module, a project, or an assessment.
+ *
+ * **On the header of the unit itself**, in front of its name, where the three currently differ
+ * only by a grey word. A course page is eighteen sections of identical shape, and the icon is
+ * what lets somebody find the project among them without reading every heading.
+ *
+ * No colour, for the reason `KindIcon` sets out above and `lib/status.ts` depends on: hue in this
+ * application means a status that wants attention, and it is already spent on the six tones there.
+ * A category is not a state — a project is not more urgent than a module — so it gets shape.
+ *
+ * `BookOpen` for a module, which is the ordinary teaching unit; `Blocks` for a project, several
+ * assignments that assemble into one piece of work; `ClipboardCheck` for an assessment, which is
+ * where the work is marked. The tick is `ClipboardCheck` rather than the plain `CircleCheck` that
+ * `kindIconFor` gives a task, so the two do not collide in a list holding both.
+ *
+ * The tooltip and the `sr-only` label matter more here than anywhere else this file draws an icon.
+ * A student's course page shows no badge on a module at all, deliberately, so on that screen this
+ * icon is the only thing naming the kind — and an icon nobody can expand is a glyph to be guessed
+ * at. Hovering gives the word and the sentence saying what the category is for.
+ */
+const UNIT_CATEGORY_ICON: Record<CourseUnitCategory, React.ElementType> = {
+  MODULE: BookOpen,
+  PROJECT: Blocks,
+  ASSESSMENT: ClipboardCheck,
+};
+
+export function UnitCategoryIcon({
+  category,
+  className,
+}: {
+  category: CourseUnitCategory;
+  className?: string;
+}) {
+  const meta = CATEGORY_META[category];
+
+  return (
+    <KindIcon
+      icon={UNIT_CATEGORY_ICON[category]}
+      label={meta.noun}
+      description={`${meta.noun.charAt(0).toUpperCase()}${meta.noun.slice(1)} — ${meta.blurb}`}
       className={className}
     />
   );
