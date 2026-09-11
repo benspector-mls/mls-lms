@@ -71,7 +71,13 @@ export function TaskReview({
   const name = displayNameOf(student, "Unknown student");
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+    /*
+      `relative` for the same reason the review pane's scrollers carry it: the conversation card
+      below renders the comment thread's `sr-only` live region, whose absolute box is clipped only
+      by a positioned ancestor. Without one here, a long enough thread stretches the window by the
+      height of the paragraph's phantom flow position instead of scrolling with the pane.
+    */
+    <div className="relative flex h-full flex-col gap-4 overflow-y-auto p-4">
       {/*
         The card does not name the fellow, because every screen that opens this pane already has:
         the queue's list highlights their row, the fellow record names them at the top of the page,
