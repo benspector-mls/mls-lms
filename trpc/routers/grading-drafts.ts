@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { isManualOnly, manualSections } from "@/lib/assignments/spec";
+import { inDeclaredOrder, isManualOnly, manualSections } from "@/lib/assignments/spec";
 import { assertWithinRate, DRAFT_GENERATION_LIMIT } from "@/lib/audit/rate-limit";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
@@ -27,6 +27,19 @@ import { createTRPCRouter, instructorProcedure } from "../init";
  * text in front of them, and it is deliberately a separate, explicit action.
  */
 
+/**
+ * A stable order for a round's section rows, so a section the assignment no longer declares —
+ * which `inDeclaredOrder` sorts to the end — sits in the same place on every read rather than
+ * wherever Postgres happened to store it.
+ *
+ * Typed and named rather than written inline, because `draftFields` below is `as const` and a
+ * readonly tuple is not something Prisma will accept.
+ */
+const sectionFetchOrder: Prisma.GradingDraftSectionOrderByWithRelationInput[] = [
+  { createdAt: "asc" },
+  { id: "asc" },
+];
+
 /** Columns safe to send to the browser. Keeps future additions opt-in. */
 const draftFields = {
   id: true,
@@ -40,6 +53,7 @@ const draftFields = {
   approvedAt: true,
   postedPrCommentId: true,
   sections: {
+    orderBy: sectionFetchOrder,
     select: {
       id: true,
       sectionType: true,
@@ -511,7 +525,10 @@ export const gradingDraftsRouter = createTRPCRouter({
       });
 
       return {
-        drafts,
+        drafts: drafts.map((draft) => ({
+          ...draft,
+          sections: inDeclaredOrder(submission.assignment.sections, draft.sections),
+        })),
         /**
          * Whether this assignment is graded by hand rather than by the pipeline, which decides
          * which action the review screen offers. Never both: a report cannot be generated for
@@ -589,9 +606,18 @@ export const gradingDraftsRouter = createTRPCRouter({
       if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
 
       // Authorization lives on the submission, so it is checked there rather than
-      // duplicated here.
-      await teachableSubmission(ctx, draft.submissionId, { id: true });
-      return draft;
+      // duplicated here. The assignment's own sections come back on the same lookup, because
+      // they are the order the round's sections are read in and a second query for one
+      // column would be a query for nothing.
+      const submission = await teachableSubmission(ctx, draft.submissionId, {
+        id: true,
+        assignment: { select: { sections: true } },
+      });
+
+      return {
+        ...draft,
+        sections: inDeclaredOrder(submission.assignment.sections, draft.sections),
+      };
     }),
 
   /**

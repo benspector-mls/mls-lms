@@ -757,3 +757,107 @@ describe("two attempts to grade one submission", () => {
     expect(afterExpiry.status).toBe("GENERATING");
   });
 });
+
+/**
+ * The order a round's sections are read in, which is the assignment's and not the database's.
+ *
+ * `grading_draft_sections` carries no order of its own, and saving an edit rewrites the row, which
+ * under Postgres moves it within an unordered scan. So an instructor who wrote four sections in
+ * order, opened the round, and edited the first two found the review screen listing them 3, 4, 1,
+ * 2 — and the comment posted to the student was built from the same unordered read.
+ *
+ * The sort itself is a pure function, checked over its awkward inputs in
+ * `tests/lib/assignments/sections.test.ts`. What needs a database is whether the procedures apply
+ * it, and the way to hold that here is to make the assignment's order and the stored order
+ * genuinely disagree: the round is opened, and the assignment's sections are then reordered. A
+ * procedure reading rows in whatever order they were written returns the old order and fails; one
+ * reading the assignment returns the new one. Reproducing the heap movement itself is not
+ * something a test can ask Postgres for.
+ */
+describe("a round whose sections are stored in one order and declared in another", () => {
+  const tx = withRollback();
+
+  const TASKS = [
+    "Task 1: Vending Machine",
+    "Task 2: Favorite App",
+    "Task 3: Scratch Tutorials",
+    "Task 4: Conditional Statements",
+  ];
+  /** The same four, as an instructor might drag them into a different order afterwards. */
+  const REORDERED = [TASKS[2]!, TASKS[3]!, TASKS[0]!, TASKS[1]!];
+
+  const declare = (labels: string[]) =>
+    labels.map((label) => ({ grading: "manual", label, pointValue: 1 }));
+
+  let world: World;
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  let assignmentId: string;
+  let submissionId: string;
+  let draftId: string;
+  /** The sections as the round was opened, which is also the order its rows were written in. */
+  let opened: string[];
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      sections: declare(TASKS),
+    });
+    assignmentId = assignment.id;
+
+    const submission = await makeSubmission(tx(), {
+      assignmentId,
+      studentId: world.student.studentId,
+      status: "SUBMITTED",
+    });
+    submissionId = submission.id;
+
+    draftId = (await asInstructor().gradingDrafts.startManual({ submissionId })).id;
+    opened = (await asInstructor().gradingDrafts.get({ draftId })).sections.map(
+      (section) => section.sectionType,
+    );
+
+    /*
+      One section written into, because that is the act that moved a row. It also has to leave the
+      order alone, which is what the second check below says.
+    */
+    const third = (await asInstructor().gradingDrafts.get({ draftId })).sections.find(
+      (section) => section.sectionType === TASKS[2],
+    );
+    await asInstructor().gradingDrafts.updateSection({
+      sectionId: third!.id,
+      reportMarkdown: "Nice observation that a vending machine needs some setting up first.",
+      scoreEarned: 1,
+    });
+  });
+
+  it("a round opens with its sections in the assignment's order", () => {
+    expect(opened).toEqual(TASKS);
+  });
+
+  it("...and writing into one leaves them where they were", async () => {
+    const afterEdit = await asInstructor().gradingDrafts.get({ draftId });
+    expect(afterEdit.sections.map((section) => section.sectionType)).toEqual(TASKS);
+  });
+
+  describe("the assignment's sections reordered under a round that already exists", () => {
+    beforeAll(async () => {
+      await tx().assignment.update({
+        where: { id: assignmentId },
+        data: { sections: declare(REORDERED) },
+      });
+    });
+
+    it("the review screen follows the assignment", async () => {
+      const draft = await asInstructor().gradingDrafts.get({ draftId });
+      expect(draft.sections.map((section) => section.sectionType)).toEqual(REORDERED);
+    });
+
+    it("and so does the list the grading queue reads", async () => {
+      const listed = await asInstructor().gradingDrafts.listForSubmission({ submissionId });
+      expect(listed.drafts[0]!.sections.map((section) => section.sectionType)).toEqual(REORDERED);
+    });
+  });
+});

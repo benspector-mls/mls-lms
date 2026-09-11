@@ -444,6 +444,35 @@ export function readSections(sections: unknown): Record<string, unknown>[] {
 }
 
 /**
+ * A round's sections, in the order the assignment declares them.
+ *
+ * `grading_draft_sections` rows carry no order of their own, so an unordered read returns
+ * them however Postgres stored them — and editing a section rewrites its row, which moves
+ * it. The assignment's `sections` array is the one place the order actually lives, so every
+ * read that shows or posts a round's sections sorts against it here.
+ *
+ * The join key is `sectionType`, which holds the declared section's `type` for a generated
+ * round and its `label` for a hand-graded one — the same match the review screen makes when
+ * it writes a score onto a just-opened round. A row matching nothing (a section renamed
+ * after the round was graded) sorts after every match, keeping its fetched position: the
+ * sort is stable, which is why callers give it a deterministically ordered fetch.
+ */
+export function inDeclaredOrder<T extends { sectionType: string }>(
+  declared: unknown,
+  rows: T[],
+): T[] {
+  const order = readSections(declared).flatMap((entry) => {
+    const key = entry.grading === "manual" ? entry.label : entry.type;
+    return typeof key === "string" ? [key] : [];
+  });
+  const rank = (row: T) => {
+    const index = order.indexOf(row.sectionType);
+    return index === -1 ? order.length : index;
+  };
+  return [...rows].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
  * Whether a section's score is checked against the test suite.
  *
  * Derived, never asked. The rule has no cases an instructor could usefully disagree with: a

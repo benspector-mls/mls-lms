@@ -1,5 +1,6 @@
 import {
   derivesTestEvidence,
+  inDeclaredOrder,
   isManualOnly,
   manualSections,
   sectionGradingModes,
@@ -130,5 +131,57 @@ describe("derivesTestEvidence", () => {
     expect(derivesTestEvidence("coding_algorithm", "node-jest")).toBe(true);
     expect(derivesTestEvidence("coding_frontend", "node-vitest")).toBe(true);
     expect(derivesTestEvidence("coding_sql", "python-pytest")).toBe(true);
+  });
+});
+
+describe("inDeclaredOrder", () => {
+  /*
+    A round's section rows carry no order of their own, and saving an edit rewrites the row, which
+    moves it — so the grading queue showed four sections an instructor had typed in order as 3, 4,
+    1, 2 after they edited the first two. The assignment's own array is the only place the order
+    lives, and this is what reads it.
+  */
+  const tasks = [1, 2, 3, 4].map((n) => ({
+    grading: "manual",
+    label: `Task ${n}`,
+    pointValue: 1,
+  }));
+  const rows = (...labels: string[]) => labels.map((label) => ({ sectionType: label }));
+
+  it("puts a round's sections back into the order the assignment declares them", () => {
+    expect(inDeclaredOrder(tasks, rows("Task 3", "Task 4", "Task 1", "Task 2"))).toEqual(
+      rows("Task 1", "Task 2", "Task 3", "Task 4"),
+    );
+  });
+
+  it("matches a section the pipeline graded by its type, not its label", () => {
+    // A generated round stores the declared `type`; a hand-graded one stores the `label`. One
+    // assignment can declare both, so both keys have to resolve against the same array.
+    expect(inDeclaredOrder([manual, ai], rows("coding_algorithm", "Reflection"))).toEqual(
+      rows("Reflection", "coding_algorithm"),
+    );
+  });
+
+  it("keeps a section the assignment no longer declares, after the ones it does", () => {
+    /*
+      Renaming a section after a round was graded leaves rows matching nothing. Dropping them
+      would hide feedback a student was already sent, so they sort to the end instead — and the
+      sort is stable, which is why the callers fetch in a deterministic order.
+    */
+    expect(inDeclaredOrder(tasks, rows("Old name", "Task 2", "Another old one"))).toEqual(
+      rows("Task 2", "Old name", "Another old one"),
+    );
+  });
+
+  it("returns the rows untouched when the column is not an array of sections", () => {
+    const unsorted = rows("Task 3", "Task 1");
+    expect(inDeclaredOrder(null, unsorted)).toEqual(unsorted);
+    expect(inDeclaredOrder("Task 1", unsorted)).toEqual(unsorted);
+  });
+
+  it("does not modify the array it is given", () => {
+    const given = rows("Task 2", "Task 1");
+    inDeclaredOrder(tasks, given);
+    expect(given).toEqual(rows("Task 2", "Task 1"));
   });
 });

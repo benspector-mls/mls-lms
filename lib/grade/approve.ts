@@ -1,5 +1,6 @@
 import "server-only";
 
+import { inDeclaredOrder } from "../assignments/spec";
 import { auditEventData, type AuditActor } from "../audit/record";
 import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
@@ -134,6 +135,9 @@ export async function approveDraft(params: {
       approvedAt: true,
       submissionId: true,
       sections: {
+        // Stable, so a section the assignment no longer declares — which `inDeclaredOrder`
+        // sorts to the end — lands in the same place every time rather than wherever stored.
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
           sectionType: true,
           reportMarkdown: true,
@@ -177,6 +181,9 @@ export async function approveDraft(params: {
               completionThreshold: true,
               title: true,
               courseId: true,
+              // The order the sections are declared in, which is the order the comment posted
+              // to the student lists them in.
+              sections: true,
               course: { select: { name: true } },
             },
           },
@@ -246,8 +253,12 @@ export async function approveDraft(params: {
     throw new ApprovalError(`This draft has no sections, so there is nothing to post.`);
   }
 
-  // Instructor edits where they exist, the model's output where they do not.
-  const sections = draft.sections.map(effectiveSection);
+  // Instructor edits where they exist, the model's output where they do not, in the order the
+  // assignment declares its sections — which is the order the student reads them in.
+  const sections = inDeclaredOrder(
+    submission.assignment.sections,
+    draft.sections.map(effectiveSection),
+  );
 
   /*
     Every section needs a score; written feedback is optional except where there is a pull
@@ -538,6 +549,8 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
       postedPrCommentId: true,
       // The same text the approval would have posted, edits included.
       sections: {
+        // Stable, for the reason `approveDraft`'s own selection gives.
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
           sectionType: true,
           reportMarkdown: true,
@@ -558,6 +571,8 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
           teamSubmissionId: true,
           team: { select: { id: true, name: true } },
           mirrors: { select: { id: true } },
+          // The declared order of the sections, which the comment being reposted lists them in.
+          assignment: { select: { sections: true } },
         },
       },
     },
@@ -603,7 +618,9 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
   const comment = await postOrUpdatePrComment(getConfiguredInstallationId(), {
     ...splitRepoFullName(submission.repoFullName),
     issueNumber: submission.prNumber,
-    body: buildFeedbackMarkdown(draft.sections.map(effectiveSection)),
+    body: buildFeedbackMarkdown(
+      inDeclaredOrder(submission.assignment.sections, draft.sections.map(effectiveSection)),
+    ),
   });
 
   const postedPrCommentId = BigInt(comment.id);
