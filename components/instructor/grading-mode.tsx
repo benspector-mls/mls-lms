@@ -123,6 +123,7 @@ export function GradingModeBar({
   currentId,
   listLabel,
   jumpLabel,
+  badges,
   onSelect,
   onExit,
 }: {
@@ -134,6 +135,13 @@ export function GradingModeBar({
   listLabel: string;
   /** What the dropdown is a list of, in this screen's own noun: a student, or an assignment. */
   jumpLabel: string;
+  /**
+   * The open submission's state — its status badge, and Late where it applies. In this bar
+   * because the pane below has no header of its own: the dropdown names who is open, and this is
+   * where their state stands beside the name. Whichever list this bar fronts decides what state
+   * means for its rows, so the badges come in rather than being read off a submission here.
+   */
+  badges?: React.ReactNode;
   onSelect: (id: string) => void;
   onExit: () => void;
 }) {
@@ -181,6 +189,9 @@ export function GradingModeBar({
             </SelectGroup>
           </SelectContent>
         </Select>
+
+        {/* Beside the name it describes, which the dropdown holds. */}
+        {badges}
 
         <span className="text-xs text-muted-foreground tabular-nums">
           {at >= 0 ? `${at + 1} of ${submissions.length}` : `${submissions.length} in the list`} ·{" "}

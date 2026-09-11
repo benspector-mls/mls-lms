@@ -14,6 +14,7 @@ import {
 import { GradingReview } from "@/components/instructor/grading-review";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import { Badge } from "@/components/ui/badge";
+import { SubmissionStatusBadge } from "@/components/status-badge";
 import {
   Select,
   SelectContent,
@@ -235,6 +236,20 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               )}
               currentId={selected?.submission?.id ?? null}
               jumpLabel="Jump to an assignment"
+              // The pane below draws no header — the list this mode put away was what showed the
+              // open assignment's state, so the state stands here beside the name in the dropdown.
+              badges={
+                selected?.submission ? (
+                  <span className="flex items-center gap-2">
+                    <SubmissionStatusBadge status={selected.submission.status} />
+                    {selected.submission.isLate && (
+                      <Badge variant="outline" className="font-normal">
+                        Late
+                      </Badge>
+                    )}
+                  </span>
+                ) : null
+              }
               listLabel={
                 filter === "needs_review"
                   ? "To do"

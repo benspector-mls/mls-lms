@@ -15,6 +15,8 @@ import { TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
+import { SubmissionStatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { studentHref } from "@/lib/links";
 import type { CohortChoice } from "@/lib/programs/cohorts";
@@ -411,6 +413,24 @@ export function GradingQueue({
               }))}
               currentId={selected?.id ?? null}
               jumpLabel="Jump to a student"
+              /*
+                The pane below draws no header — the list this mode put away was what named the
+                open student's state, so the state stands here instead, beside the name in the
+                dropdown. A task's pane names its own state (done, or not), so only graded work
+                sends badges up.
+              */
+              badges={
+                selected && !isTask ? (
+                  <span className="flex items-center gap-2">
+                    <SubmissionStatusBadge status={selected.status} />
+                    {selected.isLate && (
+                      <Badge variant="outline" className="font-normal">
+                        Late
+                      </Badge>
+                    )}
+                  </span>
+                ) : null
+              }
               listLabel={
                 filter === "needs_review"
                   ? "To do"
@@ -499,7 +519,6 @@ export function GradingQueue({
                 markedAt={null}
                 markedBy={null}
                 selfMarked={selfMarked}
-                studentHref={studentHref(data.assignment.courseId, selectedFellow.id)}
                 now={now}
               />
             ) : isTask && selected ? (
@@ -511,7 +530,6 @@ export function GradingQueue({
                 markedAt={selected.gradedAt}
                 markedBy={selected.gradedBy}
                 selfMarked={selfMarked}
-                studentHref={studentHref(data.assignment.courseId, selected.student.id)}
                 now={now}
               />
             ) : selected ? (
@@ -522,8 +540,8 @@ export function GradingQueue({
                 submission={selected}
                 assignmentId={data.assignment.id}
                 assignmentTitle={data.assignment.title}
-                // "What else has this person done" is the question a report prompts, and until
-                // now there was nowhere in the application to answer it.
+                // Links each member of a team's line to their own record — "what else has this
+                // person done" is the question a report prompts about a member.
                 studentHref={studentHref(data.assignment.courseId, selected.student.id)}
                 // Read here rather than by the review pane, which would have to wait on its
                 // own request to find out whether this assignment can have tests at all.

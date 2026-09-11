@@ -3,19 +3,16 @@
 /**
  * A report an instructor is reading and changing: the score, the sections, the rubric behind each
  * one, and what it took to produce it.
- *
- * The unsaved edits live here, which is why the approve action is a portal into the header rather
- * than a control the header draws — see `HeaderActionsSlot`.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
-import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { panelSurface } from "@/components/ui/card";
 import {
   Dialog,
   DialogClose,
@@ -33,7 +30,6 @@ import { SectionEditor } from "@/components/instructor/review/section-editor";
 import {
   Draft,
   FeedbackBoxes,
-  HeaderActionsSlot,
   QueueSubmission,
   effectiveReport,
   effectiveScore,
@@ -71,7 +67,6 @@ export function DraftEditor({
   const trpc = useTRPC();
   const settled = useServerMutation();
   const queryClient = useQueryClient();
-  const actionsSlot = React.useContext(HeaderActionsSlot);
   const boxes = React.useContext(FeedbackBoxes);
 
   /*
@@ -290,52 +285,62 @@ export function DraftEditor({
         beside the reports is holding it instead.
       */}
 
-      {actionsSlot &&
-        createPortal(
-          <>
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col">
-                <span className="text-xs text-muted-foreground">Total</span>
-                {/*
+      {/*
+        The total and the way to release it, pinned (`sticky bottom-0`) to the foot of the form.
+        Approving has to be reachable from the bottom of a long report, and the pinned bar keeps
+        that exactly while the form is on screen — then parks at the form's end once the reader
+        has scrolled past it into the history and the conversation, because a bar for a card that
+        is not in view would be a control over something the reader cannot see.
+      */}
+      <div
+        className={cn(
+          panelSurface,
+          "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 p-3",
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col">
+            <span className="text-xs text-muted-foreground">Total</span>
+            {/*
                   Whether the score clears the completion threshold is said in its colour
                   rather than in a badge beside it: green at or above, red below. The classes
                   come from `completionMeta`, so this pane, the queue, and the student's own
                   page use the same green and the same red to mean the same thing.
                 */}
-                <span
-                  className={cn(
-                    "text-lg font-semibold tabular-nums",
-                    completionMeta(isComplete)?.className,
-                  )}
-                >
-                  {totalEarned}
-                  <span className="text-muted-foreground"> / {totalPossible}</span>
-                </span>
-              </div>
-              {/*
+            <span
+              className={cn(
+                "text-lg font-semibold tabular-nums",
+                completionMeta(isComplete)?.className,
+              )}
+            >
+              {totalEarned}
+              <span className="text-muted-foreground"> / {totalPossible}</span>
+            </span>
+          </div>
+          {/*
                 Said plainly, next to the number it affects. Approving saves first anyway,
                 but an instructor should never have to wonder whether what is on screen is
                 what would go out.
               */}
-              {unsaved && (
-                <span className="text-xs text-amber-700 dark:text-amber-300">
-                  {changedSections.length === 1
-                    ? "1 unsaved change"
-                    : `${changedSections.length} unsaved changes`}
-                </span>
-              )}
-            </div>
+          {unsaved && (
+            <span className="text-xs text-amber-700 dark:text-amber-300">
+              {changedSections.length === 1
+                ? "1 unsaved change"
+                : `${changedSections.length} unsaved changes`}
+            </span>
+          )}
+        </div>
 
-            <div className="flex items-center gap-2">
-              {unsaved && (
-                <Button variant="outline" disabled={busy} onClick={() => void save()}>
-                  {updateSection.isPending && (
-                    <Loader2 data-icon="inline-start" className="animate-spin" />
-                  )}
-                  {updateSection.isPending ? "Saving…" : "Save"}
-                </Button>
+        <div className="flex items-center gap-2">
+          {unsaved && (
+            <Button variant="outline" disabled={busy} onClick={() => void save()}>
+              {updateSection.isPending && (
+                <Loader2 data-icon="inline-start" className="animate-spin" />
               )}
-              {/*
+              {updateSection.isPending ? "Saving…" : "Save"}
+            </Button>
+          )}
+          {/*
                 The way out, beside the way on. A round opened and then not wanted — a correction
                 to a grade that turned out to be right, a report an instructor would rather write
                 themselves — otherwise had no exit but approving something, and approving a
@@ -348,26 +353,22 @@ export function DraftEditor({
                 buttons are the work. And absent while an unreleased grade has unsaved edits in
                 it, so the discarding press cannot be the one that was meant for Save.
               */}
-              {!unsaved && (
-                <Button
-                  variant="ghost"
-                  disabled={busy || discard.isPending}
-                  onClick={() => discard.mutate({ draftId: draft.id })}
-                >
-                  {discard.isPending && (
-                    <Loader2 data-icon="inline-start" className="animate-spin" />
-                  )}
-                  {discard.isPending ? "Discarding…" : "Discard this feedback"}
-                </Button>
-              )}
-              <Button disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
-                <CheckCircle2 data-icon="inline-start" />
-                Approve and release
-              </Button>
-            </div>
-          </>,
-          actionsSlot,
-        )}
+          {!unsaved && (
+            <Button
+              variant="ghost"
+              disabled={busy || discard.isPending}
+              onClick={() => discard.mutate({ draftId: draft.id })}
+            >
+              {discard.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
+              {discard.isPending ? "Discarding…" : "Discard this feedback"}
+            </Button>
+          )}
+          <Button disabled={!canApprove || busy} onClick={() => setConfirmOpen(true)}>
+            <CheckCircle2 data-icon="inline-start" />
+            Approve and release
+          </Button>
+        </div>
+      </div>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

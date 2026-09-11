@@ -1,13 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import * as React from "react";
 import { CircleCheck, CircleSlash } from "lucide-react";
 
 import { CommentsCard } from "@/components/instructor/review/comments-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { displayNameOf } from "@/lib/people";
 import { formatDateTime } from "@/lib/status";
@@ -54,7 +53,6 @@ export function TaskReview({
    * checked, rather than not having started.
    */
   selfMarked,
-  studentHref,
   now,
 }: {
   assignmentId: string;
@@ -63,7 +61,6 @@ export function TaskReview({
   markedAt: Date | null;
   markedBy: Person | null;
   selfMarked: boolean;
-  studentHref?: string;
   now: Date;
 }) {
   const trpc = useTRPC();
@@ -75,18 +72,13 @@ export function TaskReview({
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+      {/*
+        The card does not name the fellow, because every screen that opens this pane already has:
+        the queue's list highlights their row, the fellow record names them at the top of the page,
+        and grading mode holds them in its jump dropdown. It opens on the verdict instead, which is
+        what the pane is for.
+      */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {studentHref ? (
-              <Link href={studentHref} className="hover:underline">
-                {name}
-              </Link>
-            ) : (
-              name
-            )}
-          </CardTitle>
-        </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
             {isComplete === true ? (

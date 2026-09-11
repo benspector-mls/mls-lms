@@ -1,8 +1,19 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
-import { AlertTriangle, GitPullRequest } from "lucide-react";
+import Link from "next/link";
+import {
+  AlertTriangle,
+  ExternalLink,
+  FolderGit2,
+  GitPullRequest,
+  Loader2,
+  RotateCcw,
+  Users,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { SubmittedDocumentRow } from "@/components/submitted-document";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,11 +23,11 @@ import { useTRPC } from "@/trpc/client";
 import { CommentsCard } from "@/components/instructor/review/comments-card";
 import { DraftBody } from "@/components/instructor/review/draft-body";
 import { DraftHistory } from "@/components/instructor/review/draft-history";
-import { CommentRecoveryNotice, ReviewHeader } from "@/components/instructor/review/review-header";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { RubricBreakdown } from "@/components/instructor/review/section-editor";
 import {
+  DraftList,
   FeedbackBoxes,
-  HeaderActionsSlot,
   QueueSubmission,
   readRubricItems,
   StateCard,
@@ -53,15 +64,14 @@ export function GradingReview({
   /**
    * Where this student's own record lives, if there is somewhere to go.
    *
-   * Absent on the student overview, because that *is* their record — a name linking to the page it
-   * is already on is a dead control. Present in the grading queue, where "what else has this person
-   * done" is the question a report prompts and there was previously no way to answer it.
+   * It links each member of a team's line to their record — "what else has this person done" is
+   * the question a report prompts about a member. Absent on the student overview, because that
+   * *is* their record, and a link to the page you are on is a dead control.
    */
   studentHref?: string;
   now: Date;
 }) {
   const trpc = useTRPC();
-  const [actionsSlot, setActionsSlot] = React.useState<HTMLDivElement | null>(null);
   const [openBoxes, setOpenBoxes] = React.useState<readonly string[]>([]);
 
   const feedbackBoxes = React.useMemo(
@@ -103,11 +113,8 @@ export function GradingReview({
   */
   const diffAside = canHaveTests && submission.prNumber !== null;
 
-  /*
-    The conversation about this work, read here rather than inside the card so that the header's
-    "Reply owed" badge and the card itself are the same answer. React Query holds one entry for the
-    key either way, so asking in the parent costs nothing and removes the chance of two.
-  */
+  // The conversation about this work, read in the parent so the card below can be handed its
+  // loading and error states along with the thread.
   const comments = useQuery(
     trpc.submissionComments.thread.queryOptions({
       assignmentId,
@@ -272,7 +279,25 @@ export function GradingReview({
             ? "This student has not submitted this assignment, so there is nothing to grade."
             : "This student has a repository but has not opened a pull request, so there is nothing to grade."
         }
-      />
+      >
+        {/*
+          The one state with code to look at and no pull request to reach it by. The diff panel
+          carries the PR link wherever a pull request exists, so this card is the only place the
+          bare repository needs a way in.
+        */}
+        {submission.repoUrl && (
+          <a
+            href={submission.repoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <FolderGit2 data-icon="inline-start" />
+            Open the repository
+            <ExternalLink data-icon="inline-end" />
+          </a>
+        )}
+      </StateCard>
     ));
 
   /*
@@ -299,18 +324,18 @@ export function GradingReview({
     </>
   );
 
+  /*
+    No header naming who is open, deliberately. Both screens that draw this pane already say it:
+    the grading queue's list names the student, their status and whether a reply is owed on the
+    very row that is highlighted, the fellow record names the fellow at the top of the page, and
+    grading mode names either in the jump dropdown with the status beside it. What a header would
+    hold that those do not lives on the pane itself instead: the editor's approve bar is pinned to
+    the foot of the form, the team's members head the grade column, and the way to the code is on
+    the work.
+  */
   return (
     <div className="flex h-full flex-col">
-      <ReviewHeader
-        submission={submission}
-        draft={draft}
-        studentHref={studentHref}
-        actionsRef={setActionsSlot}
-        awaitsReply={comments.data?.awaitsReply ?? false}
-      />
-
-      <HeaderActionsSlot.Provider value={actionsSlot}>
-        {/*
+      {/*
           `@container`, so the two columns below turn on at a width of this pane rather than of the
           window. It is the pane that has to hold them, and what is left of the window after the
           360px queue list and the application sidebar is not something the window knows.
@@ -323,7 +348,7 @@ export function GradingReview({
           needs, and which split leaves with nothing to scroll because its one child is then
           exactly as tall as it is.
         */}
-        {/*
+      {/*
           `relative` on this scroller and on the two column scrollers below, because `sr-only`
           content is `position: absolute` and an absolute box is clipped only by ancestors on the
           way to its containing block. Without a positioned ancestor down here, the comment
@@ -333,8 +358,8 @@ export function GradingReview({
           scroller is the containing block, and the invisible box scrolls and clips with the
           content it belongs to.
         */}
-        <div className="@container relative flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
-          {/*
+      <div className="@container relative flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
+        {/*
             One column until there is both something to put beside the grade and the room to put it
             there, and two after that.
 
@@ -378,8 +403,8 @@ export function GradingReview({
             is clipped away, leaving cards with their sides and top missing. The padding is what
             keeps the outline inside the box that clips it.
           */}
-          <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-6">
-            {/*
+        <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-6">
+          {/*
               Stacked, the work reads last: an instructor on a narrow pane reads the feedback the
               student will read, then the conversation, then scrolls to what the grade is about.
               Split, it is the left column. `order-last` and its undoing at the breakpoint are what
@@ -388,53 +413,177 @@ export function GradingReview({
               Its own scroll, so a diff and the working beneath it can be read to the end without
               the report leaving the screen. The padding is there for the cards' outlines.
             */}
-            <div className="relative order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1">
-              <div className="flex min-w-0 flex-col gap-5">{aside}</div>
-            </div>
+          <div className="relative order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1">
+            <div className="flex min-w-0 flex-col gap-5">{aside}</div>
+          </div>
 
-            <div className="relative min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
-              <div className="flex min-w-0 flex-col gap-5">
-                <CommentRecoveryNotice submission={submission} grade={data.grade} />
+          <div className="relative min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
+            <div className="flex min-w-0 flex-col gap-5">
+              {/*
+                  The team is named at the head of the grade column rather than over the work,
+                  because who is on the team is a fact about where the release goes — the same
+                  reason the release dialog spells the members out — and the work column is the
+                  same work whoever it is released to.
+                */}
+              {submission.team && (
+                <TeamLine
+                  team={submission.team}
+                  studentId={submission.student.id}
+                  studentHref={studentHref}
+                />
+              )}
 
-                {/*
+              <CommentRecoveryNotice submission={submission} grade={data.grade} />
+
+              {/*
                 The provider sits here rather than around the whole pane because this is everything
                 that reads it: the section cards are inside, and a card that opens its feedback box
                 is rebuilt around a round a moment later.
               */}
-                <FeedbackBoxes.Provider value={feedbackBoxes}>
-                  <DraftBody
-                    key={draft?.id ?? "none"}
-                    submission={submission}
-                    assignmentTitle={assignmentTitle}
-                    completionThreshold={completionThreshold}
-                    draft={draft}
-                    data={data}
-                  />
-                </FeedbackBoxes.Provider>
+              <FeedbackBoxes.Provider value={feedbackBoxes}>
+                <DraftBody
+                  key={draft?.id ?? "none"}
+                  submission={submission}
+                  assignmentTitle={assignmentTitle}
+                  completionThreshold={completionThreshold}
+                  draft={draft}
+                  data={data}
+                />
+              </FeedbackBoxes.Provider>
 
-                {history.length > 1 && (
-                  <DraftHistory drafts={history} activeId={draft?.id} now={now} />
-                )}
+              {history.length > 1 && (
+                <DraftHistory drafts={history} activeId={draft?.id} now={now} />
+              )}
 
-                {/*
+              {/*
                   Last in the column of things said to this fellow — after the report and the
                   rounds that came before it, which is the order they happened in.
                 */}
-                <CommentsCard
-                  assignmentId={assignmentId}
-                  studentId={submission.student.id}
-                  studentName={displayNameOf(submission.student, "this fellow")}
-                  thread={comments.data}
-                  loading={comments.isPending}
-                  error={comments.isError}
-                  onRetry={() => void comments.refetch()}
-                  now={now}
-                />
-              </div>
+              <CommentsCard
+                assignmentId={assignmentId}
+                studentId={submission.student.id}
+                studentName={displayNameOf(submission.student, "this fellow")}
+                thread={comments.data}
+                loading={comments.isPending}
+                error={comments.isError}
+                onRetry={() => void comments.refetch()}
+                now={now}
+              />
             </div>
           </div>
         </div>
-      </HeaderActionsSlot.Provider>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Who is on the team, and which of them handed in the version being read.
+ *
+ * Named rather than counted, because the release goes to all of them and a count cannot show a
+ * team whose membership is wrong. Each name links to that fellow's own record, which is the
+ * question a report prompts about a member — a team heading could not carry that link, because a
+ * team has no record of its own.
+ */
+function TeamLine({
+  team,
+  studentId,
+  studentHref,
+}: {
+  team: NonNullable<QueueSubmission["team"]>;
+  /** Whose row is open, so each teammate's link can be built by swapping the id. */
+  studentId: string;
+  studentHref?: string;
+}) {
+  const memberHref = (memberId: string) =>
+    studentHref ? studentHref.replace(studentId, memberId) : "";
+
+  return (
+    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+      <Users className="size-3.5 shrink-0" />
+      <span>{team.setName}</span>
+      <span aria-hidden>·</span>
+      {team.members.map((member, index) => {
+        const label = member.displayName ?? member.email ?? "Unknown";
+        const href = memberHref(member.id);
+        return (
+          <span key={member.id}>
+            {href ? (
+              <Link href={href} className="text-foreground hover:underline">
+                {label}
+              </Link>
+            ) : (
+              <span className="text-foreground">{label}</span>
+            )}
+            {index < team.members.length - 1 && ","}
+          </span>
+        );
+      })}
+      {team.handedInBy && (
+        <span>
+          · handed in by{" "}
+          <span className="text-foreground">{team.handedInBy.displayName ?? "a member"}</span>
+        </span>
+      )}
+    </p>
+  );
+}
+
+/**
+ * A grade that was recorded but whose comment never reached the pull request.
+ *
+ * The grade and the comment are written in two steps on purpose, so a GitHub outage
+ * during approval leaves a real grade and an unsent comment rather than losing both.
+ * This is the way out of that state that does not involve approving twice.
+ */
+function CommentRecoveryNotice({
+  submission,
+  grade,
+}: {
+  submission: QueueSubmission;
+  grade: DraftList["grade"];
+}) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const retry = useMutation(
+    trpc.gradingDrafts.retryComment.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Comment posted to the pull request.");
+        },
+      }),
+    ),
+  );
+
+  // Only a real failure. `not_applicable` — a hand-graded assignment with no pull request
+  // — is a finished grade, and offering it a retry would offer a button that cannot
+  // succeed against a fault that does not exist.
+  if (grade?.delivery !== "failed") return null;
+
+  return (
+    <Alert className="border-amber-500/40 text-amber-700 dark:text-amber-300">
+      <AlertTriangle className="text-amber-600 dark:text-amber-400" />
+      <AlertTitle>The feedback comment was never posted</AlertTitle>
+      <AlertDescription className="flex flex-col items-start gap-3">
+        <p>
+          This grade is recorded and the student can see it in the application, but the comment did
+          not reach the pull request. The score is safe; only the comment is missing.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={retry.isPending}
+          onClick={() => retry.mutate({ submissionId: submission.id })}
+        >
+          {retry.isPending ? (
+            <Loader2 data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <RotateCcw data-icon="inline-start" />
+          )}
+          {retry.isPending ? "Posting…" : "Post the comment"}
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }

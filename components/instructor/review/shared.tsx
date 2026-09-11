@@ -17,19 +17,6 @@ import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 /**
- * Where the approve action renders.
- *
- * The score and the approve button belong beside the student's name in the header, which
- * does not scroll — an instructor at the bottom of a long report can still see what they
- * are about to release. But the state those two read is the unsaved edits, which live in
- * `DraftEditor` three levels down, and only one branch of
- * `DraftBody`'s state machine renders it at all: a generating, failed, approved, or
- * empty draft has nothing to approve. Deciding that a second time in the header is how
- * the two readings drift apart. So the header offers a slot and `DraftEditor` fills it.
- */
-export const HeaderActionsSlot = React.createContext<HTMLElement | null>(null);
-
-/**
  * Which sections have their feedback box open, held above the card that owns the box.
  *
  * On a hand-graded assignment, opening the box is also what creates the round: a draft appears,

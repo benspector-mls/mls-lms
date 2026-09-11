@@ -105,8 +105,8 @@ export function SubmissionRow({
           {/*
               The draft's own state, where it says anything the submission's does not —
               generating a report does not move the submission, only approving does. The rule
-              lives in `draftStatusAddsSomething` so this screen and the review header cannot
-              disagree about it.
+              lives in `draftStatusAddsSomething` rather than inline, with the row as its one
+              reader.
             */}
           {draft && draftStatusAddsSomething(draft.status) && (
             <DraftStatusBadge status={draft.status} />
