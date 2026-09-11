@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { teachableTeam, teachableTeamSet } from "@/lib/courses/scope";
+import { syncTeamRows } from "@/lib/submissions/team";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure } from "../init";
 import { personSelect } from "../selects";
@@ -462,6 +463,25 @@ export const teamSetsRouter = createTRPCRouter({
           })),
           skipDuplicates: true,
         });
+
+        /*
+          Every write to a team's work ends in `syncTeamRows`, and a placement change is the other
+          event that changes who should hold a mirror. Without this, a fellow placed on a team
+          after its last hand-in has no row of their own until the team's next write — days, for a
+          team working through one long pull request — and every screen keyed by student reads
+          them as missing work their team has already handed in. Only the teams that gained
+          somebody: a leaver keeps the rows they have, which is the same rule the roster follows.
+        */
+        const gained = [...new Set(toAdd.map(([, teamId]) => teamId as string))];
+        const teamWork = await ctx.db.submission.findMany({
+          // `teamSubmissionId: null` keeps this to the rows holding the work — syncing *from* a
+          // mirror is a no-op by design, so asking would only be wasted round trips.
+          where: { teamId: { in: gained }, teamSubmissionId: null },
+          select: { id: true },
+        });
+        for (const row of teamWork) {
+          await syncTeamRows(ctx.db, { submissionId: row.id });
+        }
       }
 
       return { teamSetId: set.id, moved: toAdd.length, unplaced: toRemove.length - toAdd.length };

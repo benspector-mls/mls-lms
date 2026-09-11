@@ -622,6 +622,35 @@ describe("what a team's submissions may look like", () => {
       ]).toEqual([true, null, null]);
     });
   });
+
+  /*
+    Mirror rows are made by writes to the team's work, so a fellow placed on a team between writes
+    would have no row of their own — and every screen keyed by student would read them as missing
+    work their team already handed in. `setPlacements` closes that gap by syncing the teams that
+    gained somebody, and this is the check that fails if it stops.
+  */
+  describe("a fellow placed after the team's last write", () => {
+    const tx = withRollback();
+
+    it("receives a mirror of what the team already holds", async () => {
+      const fx = await inFixture(tx(), false);
+      await tx().submission.update({
+        where: { id: fx.teamRowId },
+        data: { status: "SUBMITTED", submittedAt: new Date() },
+      });
+
+      await createCaller(tx(), fx.world.instructorId).teamSets.setPlacements({
+        teamSetId: fx.setId,
+        placements: [{ enrollmentId: fx.world.students[1]!.id, teamId: fx.teamId }],
+      });
+
+      const mirror = await tx().submission.findFirstOrThrow({
+        where: { assignmentId: fx.assignmentId, studentId: fx.world.students[1]!.studentId },
+        select: { teamSubmissionId: true, status: true },
+      });
+      expect([mirror.teamSubmissionId, mirror.status]).toEqual([fx.teamRowId, "SUBMITTED"]);
+    });
+  });
 });
 
 /*
