@@ -18,6 +18,7 @@
 import { slugifyCourse } from "@/lib/courses/course-slug";
 import { csvLine, csvPersonName } from "@/lib/csv";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
+import { lateByStudent } from "@/lib/gradebook/summary";
 
 /**
  * The parts of the gradebook payload a CSV reads, named structurally rather than taken from
@@ -48,6 +49,8 @@ export type GradebookCsvCell = {
   assignmentId: string;
   studentId: string;
   finalScore: number | null;
+  /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
+  isLate: boolean | null;
 };
 
 export type GradebookCsvData = {
@@ -114,6 +117,13 @@ function csvStudentName(student: GradebookCsvPerson): string {
  * assignment rather than to any student. Without them a raw-score export is uninterpretable: 7 is a
  * good result out of 8 and a poor one out of 20, and the grid never had to say which because every
  * cell on screen reads `7/8`.
+ *
+ * **"Handed in late" is a count of the student's missed deadlines, and it is the one column here
+ * that is not a score.** It sits with the identity columns rather than after the assignments, both
+ * because it describes the student rather than any one piece of work and because a figure fifty
+ * columns to the right of the name is one nobody scrolls to. Lateness is deliberately *not* also
+ * written per assignment: that would mean a second column beside every existing one, doubling the
+ * width of the file and putting text in among the numbers that make it worth having.
  */
 export function gradebookCsv(data: GradebookCsvData): string {
   const assignments = sortGradebookAssignments(data.assignments);
@@ -132,12 +142,32 @@ export function gradebookCsv(data: GradebookCsvData): string {
     scores.set(`${cell.assignmentId}:${cell.studentId}`, cell.finalScore);
   }
 
+  /*
+    **`lateByStudent` rather than a count written here**, which is the same rule the grid's column
+    is drawn from: `isLate === true`, with null meaning nothing was handed in rather than handed in
+    on time. A second implementation of that test is exactly how a file downloaded from a screen
+    comes to disagree with the screen about which student missed what.
+
+    **Over every assignment in the course, where the grid's column counts one tab.** The file is one
+    table across all four, so a student with two late modules and one late project reads as three
+    here and as two or one there. Both are right about what they count; only this one is a total.
+  */
+  const late = lateByStudent([...data.cells, ...data.removedCells]);
+
   function studentRow(student: GradebookCsvPerson, enrollment: string): string {
     return csvLine([
       csvStudentName(student),
       student.email,
       student.githubUsername,
       enrollment,
+      /*
+        **A zero here, where an ungraded assignment leaves a blank.** The rule against writing a
+        zero for a gap is about scores, and it holds because a missing score is unknown. This
+        figure is never unknown: every student has a number of missed deadlines, and for most of
+        them it is none. A blank would drop those students out of an average rather than counting
+        them as the zeros they are.
+      */
+      late.get(student.id) ?? 0,
       /*
         Missing and present-but-ungraded both land here as an empty cell. `get` returns undefined
         for a student who never accepted the assignment and null for one whose submission is not
@@ -164,10 +194,13 @@ export function gradebookCsv(data: GradebookCsvData): string {
       "Email",
       "GitHub username",
       "Enrollment",
+      // The same words the grid's column uses, so the file and the screen name one fact once.
+      "Handed in late",
       ...assignments.map((assignment) => assignment.title),
     ]),
     csvLine([
       "Unit",
+      null,
       null,
       null,
       null,
@@ -185,6 +218,8 @@ export function gradebookCsv(data: GradebookCsvData): string {
       "Points possible",
       null,
       null,
+      null,
+      // Blank rather than a total: a count of missed deadlines is not out of anything.
       null,
       ...assignments.map((assignment) => assignment.pointValue),
     ]),
