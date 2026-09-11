@@ -52,6 +52,7 @@ export function DraftEditor({
   draft,
   approvalBlocked,
   manualOnly,
+  onApproved,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
@@ -61,6 +62,12 @@ export function DraftEditor({
   approvalBlocked: boolean;
   /** True when this assignment is graded by hand, so there is no report to generate again. */
   manualOnly: boolean;
+  /**
+   * Called once the grade has been released and the comment has posted, so the screen around this
+   * one can move on. Not called when the comment fails to post: that row is still outstanding work
+   * and the warning about it is here, on this submission.
+   */
+  onApproved?: () => void;
   /** Rendered below the sections: the reports come first, the evidence behind them second. */
   /** True when the column beside the reports is drawing the rubric breakdowns. */
 }) {
@@ -114,6 +121,7 @@ export function DraftEditor({
                     submission.student.displayName ?? "the student"
                   }.`,
             );
+            onApproved?.();
           }
         },
         onError: (error) => {

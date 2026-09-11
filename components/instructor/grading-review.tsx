@@ -42,6 +42,7 @@ export function GradingReview({
   completionThreshold,
   studentHref,
   now,
+  onApproved,
 }: {
   submission: QueueSubmission;
   /**
@@ -70,6 +71,12 @@ export function GradingReview({
    */
   studentHref?: string;
   now: Date;
+  /**
+   * Called once a report has been released, so the screen around this one can move on. The grading
+   * queue uses it to open the next student still waiting; the fellow's own record has nowhere to
+   * go next and leaves it out.
+   */
+  onApproved?: () => void;
 }) {
   const trpc = useTRPC();
   const [openBoxes, setOpenBoxes] = React.useState<readonly string[]>([]);
@@ -448,6 +455,7 @@ export function GradingReview({
                   completionThreshold={completionThreshold}
                   draft={draft}
                   data={data}
+                  onApproved={onApproved}
                 />
               </FeedbackBoxes.Provider>
 

@@ -212,6 +212,21 @@ export function GradingQueue({
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
+  /*
+    After a release under the To do filter, the approved row is about to leave the list, so the
+    selection moves to the next student still waiting. Called before the server refresh lands, so
+    `filtered` still contains the approved row and its index says where "next" is. When the
+    approved row was last in the list the selection moves to the row just above it; when it was
+    the only one left, the selection stays and the pane shows the released report.
+  */
+  function advanceAfterApproval() {
+    if (filter !== "needs_review") return;
+    const at = filtered.findIndex((row) => row.id === selected?.id);
+    if (at === -1) return;
+    const next = filtered[at + 1] ?? filtered[at - 1];
+    if (next) select(next.id);
+  }
+
   /** Opens a fellow who has no submission row. The mirror of `select` above. */
   function selectFellow(studentId: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -548,6 +563,7 @@ export function GradingQueue({
                 assignmentKind={data.assignment.kind}
                 completionThreshold={completionThreshold}
                 now={now}
+                onApproved={advanceAfterApproval}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">

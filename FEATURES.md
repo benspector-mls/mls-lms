@@ -270,7 +270,7 @@ Test results are an *input* to the rubric rather than the score. Anything the re
 
 **Editing.** Every section's score and prose is editable in place. Your edit is kept alongside the model's original rather than over it, so you can put it back. Students only ever see your version.
 
-**Approving.** One press does everything: records the grade, decides complete or incomplete against the threshold, posts the feedback as a comment on the student's pull request, and shows it to the student. **There is no separate publish step** — feedback appears the moment you approve, and appears even if the GitHub comment fails to send.
+**Approving.** One press does everything: records the grade, decides complete or incomplete against the threshold, posts the feedback as a comment on the student's pull request, and shows it to the student. **There is no separate publish step** — feedback appears the moment you approve, and appears even if the GitHub comment fails to send. Working down the **To do** tab, approving opens the next fellow still waiting, so a screen's worth of grading is a run of approvals rather than an approval and a click each time. On the other tabs the released report stays on screen, and a grade whose comment failed to send stays too — it is still outstanding work, and the retry is on it.
 
 Three things are refused rather than warned about, because each one would produce a wrong grade: approving the same draft twice, approving a draft that describes a commit the student has since pushed past, and approving a report whose text states a different score than the one recorded.
 

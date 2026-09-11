@@ -55,12 +55,15 @@ export function DraftBody({
   completionThreshold,
   draft,
   data,
+  onApproved,
 }: {
   submission: QueueSubmission;
   assignmentTitle: string;
   completionThreshold: number;
   draft: Draft | null;
   data: DraftList;
+  /** Called once the report has been released, so the screen around this one can move on. */
+  onApproved?: () => void;
 }) {
   if (!draft) {
     /*
@@ -158,6 +161,7 @@ export function DraftBody({
           draft={draft}
           approvalBlocked={stale}
           manualOnly={data.manualOnly}
+          onApproved={onApproved}
         />
       ) : (
         <>
