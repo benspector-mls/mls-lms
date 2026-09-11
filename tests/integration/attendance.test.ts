@@ -712,9 +712,9 @@ describe("a day of attendance, from starting it to reading the averages", () => 
     });
 
     it("the instructor's decisions survive", async () => {
-      expect(await tx().attendanceRecord.count({ where: { sessionId, source: "INSTRUCTOR" } })).toBe(
-        instructorBefore,
-      );
+      expect(
+        await tx().attendanceRecord.count({ where: { sessionId, source: "INSTRUCTOR" } }),
+      ).toBe(instructorBefore);
     });
 
     it("and it is open again", () => {
@@ -816,7 +816,9 @@ describe("a day of attendance, from starting it to reading the averages", () => 
     const wednesdays = ["2026-03-04", "2026-03-11"];
 
     let theirs: NonNullable<
-      Awaited<ReturnType<ReturnType<typeof asInstructor>["attendance"]["history"]>>["arrivals"][string]
+      Awaited<
+        ReturnType<ReturnType<typeof asInstructor>["attendance"]["history"]>
+      >["arrivals"][string]
     >;
 
     beforeAll(async () => {

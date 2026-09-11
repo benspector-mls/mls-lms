@@ -30,7 +30,14 @@ import { db } from "@/lib/prisma";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
-import { enroll, makeAccount, makeAssignment, makeProgram, makeWorld, type World } from "./fixtures";
+import {
+  enroll,
+  makeAccount,
+  makeAssignment,
+  makeProgram,
+  makeWorld,
+  type World,
+} from "./fixtures";
 import { withRollback, type Tx } from "./transaction";
 
 const factory = createCallerFactory(appRouter);
@@ -94,9 +101,11 @@ describe("the procedures", () => {
   let otherTeamId: string;
 
   const setsOf = async () =>
-    (await createCaller(tx(), world.instructorId).teamSets.listForCourse({
-      courseId: world.courseId,
-    })).sets;
+    (
+      await createCaller(tx(), world.instructorId).teamSets.listForCourse({
+        courseId: world.courseId,
+      })
+    ).sets;
 
   const thisSet = async () => (await setsOf()).find((row) => row.id === setId)!;
 
@@ -606,9 +615,11 @@ describe("what a team's submissions may look like", () => {
         where: { id: fx.mirrorId! },
         select: { teamSubmissionId: true, repoFullName: true, prNumber: true },
       });
-      expect([mirror.teamSubmissionId === fx.teamRowId, mirror.repoFullName, mirror.prNumber]).toEqual(
-        [true, null, null],
-      );
+      expect([
+        mirror.teamSubmissionId === fx.teamRowId,
+        mirror.repoFullName,
+        mirror.prNumber,
+      ]).toEqual([true, null, null]);
     });
   });
 });

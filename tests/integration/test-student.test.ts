@@ -240,7 +240,9 @@ describe("who may make and delete a test student", () => {
     });
 
     it("nor read what deleting one would destroy", async () => {
-      const code = await refusal(() => asAdmin().testStudents.removalPreview({ profileId: fellowId }));
+      const code = await refusal(() =>
+        asAdmin().testStudents.removalPreview({ profileId: fellowId }),
+      );
       expect(code).toBe("FORBIDDEN");
     });
 
@@ -369,8 +371,7 @@ describe("looking through a test student", () => {
     });
   });
 
-  const permitted = () =>
-    resolveViewAs(tx(), { realUserId: adminId, cookieValue: markedId });
+  const permitted = () => resolveViewAs(tx(), { realUserId: adminId, cookieValue: markedId });
 
   it("an admin may look through a test student", async () => {
     expect(await permitted()).not.toBeNull();

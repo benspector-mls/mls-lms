@@ -474,7 +474,9 @@ describe("creating, renaming, reordering and removing a course's modules", () =>
       });
 
       it("an instructor sees an unpublished assignment in the module", () => {
-        expect(asInstructorSees.assignments.some((row) => row.id === draftAssignment.id)).toBe(true);
+        expect(asInstructorSees.assignments.some((row) => row.id === draftAssignment.id)).toBe(
+          true,
+        );
       });
 
       it("...and a student does not", () => {

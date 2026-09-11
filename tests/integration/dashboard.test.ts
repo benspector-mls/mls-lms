@@ -651,7 +651,9 @@ describe("the progress bar", () => {
   */
   it("the complete count is the green segment", () => {
     const segments = progressSegments(courseRows);
-    expect(completeCount(courseRows)).toBe(segments.find((s) => s.state === "complete")?.count ?? 0);
+    expect(completeCount(courseRows)).toBe(
+      segments.find((s) => s.state === "complete")?.count ?? 0,
+    );
   });
 
   // `isComplete` is the column approval writes, never arithmetic done in the browser. If these ever

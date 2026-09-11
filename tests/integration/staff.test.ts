@@ -216,9 +216,7 @@ describe("invitations, promotion, and who may grant either", () => {
         would look correct without the other.
       */
       it("a second person cannot use the same link", async () => {
-        const code = await refusal(() =>
-          asAdmin().staff.redeemInvite({ token: created.token }),
-        );
+        const code = await refusal(() => asAdmin().staff.redeemInvite({ token: created.token }));
         expect(code).toBe("PRECONDITION_FAILED");
       });
 
@@ -366,7 +364,10 @@ describe("invitations, promotion, and who may grant either", () => {
     });
 
     it("...and it is written", async () => {
-      const row = await tx().profile.findUnique({ where: { id: joinerId }, select: { role: true } });
+      const row = await tx().profile.findUnique({
+        where: { id: joinerId },
+        select: { role: true },
+      });
       expect(row?.role).toBe("INSTRUCTOR");
     });
   });

@@ -105,8 +105,7 @@ export async function makeUnit(
   options: { courseId: string; name?: string; position?: number },
 ) {
   const position =
-    options.position ??
-    (await tx.courseUnit.count({ where: { courseId: options.courseId } }));
+    options.position ?? (await tx.courseUnit.count({ where: { courseId: options.courseId } }));
 
   return tx.courseUnit.create({
     data: {

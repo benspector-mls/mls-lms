@@ -216,7 +216,9 @@ describe("instructing a program, owning it, and retiring it", () => {
     });
 
     it("an unknown instructor token previews as nothing", async () => {
-      const preview = await asJoiner().programs.previewInstructorLink({ token: "not-a-real-token" });
+      const preview = await asJoiner().programs.previewInstructorLink({
+        token: "not-a-real-token",
+      });
       expect(preview).toBeNull();
     });
   });
@@ -282,7 +284,9 @@ describe("instructing a program, owning it, and retiring it", () => {
       nothing about which programs, which is the distinction every gate here rests on.
     */
     it("an instructor who does not instruct it cannot replace its link", async () => {
-      const code = await refusal(() => asJoiner().programs.regenerateInstructorToken({ programId }));
+      const code = await refusal(() =>
+        asJoiner().programs.regenerateInstructorToken({ programId }),
+      );
       expect(code).toBe("FORBIDDEN");
     });
 

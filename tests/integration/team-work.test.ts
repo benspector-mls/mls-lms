@@ -224,10 +224,7 @@ describe("one hand-in, and what every member's row then says", () => {
     });
 
     it("the link is on the row holding the work and nowhere else", () => {
-      expect([work.submittedUrl, mirror.submittedUrl]).toEqual([
-        "https://example.com/alice",
-        null,
-      ]);
+      expect([work.submittedUrl, mirror.submittedUrl]).toEqual(["https://example.com/alice", null]);
     });
 
     it("every member reads as having handed in, at the same moment", () => {
@@ -256,9 +253,9 @@ describe("one hand-in, and what every member's row then says", () => {
     });
 
     it("a second member handing in writes onto the same row", () => {
-      expect(afterSecond.filter((row) => row.teamSubmissionId === null).map((row) => row.id)).toEqual(
-        [work.id],
-      );
+      expect(
+        afterSecond.filter((row) => row.teamSubmissionId === null).map((row) => row.id),
+      ).toEqual([work.id]);
     });
 
     it("their link replaces what was there", () => {
@@ -268,9 +265,7 @@ describe("one hand-in, and what every member's row then says", () => {
     });
 
     it("who handed it in moves to them, on every member's row", () => {
-      expect(new Set(afterSecond.map((row) => row.handedInById))).toEqual(
-        new Set([bob.studentId]),
-      );
+      expect(new Set(afterSecond.map((row) => row.handedInById))).toEqual(new Set([bob.studentId]));
     });
 
     it("and when the team first handed in does not move", () => {
@@ -511,9 +506,7 @@ describe("releasing a grade", () => {
   });
 
   describe("a hand-graded round, scored and written, then released", () => {
-    let released: Awaited<
-      ReturnType<ReturnType<typeof asInstructor>["gradingDrafts"]["approve"]>
-    >;
+    let released: Awaited<ReturnType<ReturnType<typeof asInstructor>["gradingDrafts"]["approve"]>>;
     let graded: {
       status: string;
       finalScore: number | null;

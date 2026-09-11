@@ -171,10 +171,14 @@ describe("the column filter", () => {
 
       it("leaves an open end unbounded", () => {
         expect(
-          filterAssignments([overdue, soon, later], range("2026-03-05", null), NOW).map((a) => a.id),
+          filterAssignments([overdue, soon, later], range("2026-03-05", null), NOW).map(
+            (a) => a.id,
+          ),
         ).toEqual(["soon", "later"]);
         expect(
-          filterAssignments([overdue, soon, later], range(null, "2026-03-14"), NOW).map((a) => a.id),
+          filterAssignments([overdue, soon, later], range(null, "2026-03-14"), NOW).map(
+            (a) => a.id,
+          ),
         ).toEqual(["past", "soon"]);
       });
 
