@@ -277,7 +277,8 @@ describe("what listMine keeps out", () => {
  * An unread report is derived from two columns on the row itself, so `listMine` could always draw
  * it. An unread message is a comparison against this reader's own receipt on a thread that may hang
  * off a teammate's row, which is why it is a second query, and why the checks worth having are
- * about who the count belongs to rather than about the arithmetic — `unreadCount` is tested pure.
+ * about whose news it is and which message is quoted rather than about the arithmetic — `isUnread`
+ * and `unreadCount` are tested pure.
  */
 describe("unread comments on the dashboard", () => {
   const asStudent = () => as(tx(), studentId);
@@ -317,8 +318,9 @@ describe("unread comments on the dashboard", () => {
       });
     });
 
-    it("the row carries the count", async () => {
-      expect((await mine())?.unreadComments?.count).toBe(1);
+    // The row quotes the message rather than counting it, so this is the line a student reads.
+    it("the row carries what was written", async () => {
+      expect((await mine())?.unreadComments?.excerpt).toBe("In the src folder.");
     });
 
     // What the row's Mark as read button sends. The thread it names must be the row the
@@ -336,18 +338,40 @@ describe("unread comments on the dashboard", () => {
       expect(sections.unreadComments.map((row) => row.id)).toContain(assignmentId);
     });
 
-    // The count on the dashboard and the count on the course page are the same question asked
-    // twice, and a screen that disagreed with the one beside it would be worse than either.
-    it("and agrees with the thread's own count", async () => {
-      const unread = (await mine())?.unreadComments;
-      const thread = await asStudent().submissionComments.thread({ assignmentId });
-
-      expect(unread?.count).toBe(thread.unreadCount);
-    });
-
     it("tells the other fellow nothing", async () => {
       const theirs = await as(tx(), otherId).assignments.listMine();
       expect(theirs.every((row) => row.submission?.unreadComments == null)).toBe(true);
+    });
+
+    /*
+      The case that makes "the newest message" and "the newest message that is news" two different
+      questions, and the reason the row is drawn from the second. Writing does not record a read, so
+      a fellow who asks again before reading the answer has the newest message on the thread — and a
+      row quoting it would be showing them their own words as the thing waiting to be read.
+    */
+    describe("and the fellow writes again without reading the answer", () => {
+      beforeAll(async () => {
+        await asStudent().submissionComments.post({ assignmentId, body: "Thanks, one more thing" });
+      });
+
+      it("the row still quotes the instructor", async () => {
+        expect((await mine())?.unreadComments?.excerpt).toBe("In the src folder.");
+      });
+
+      // And is dated by it, so the row does not claim to have moved when only the fellow wrote.
+      it("and is dated by the instructor's message", async () => {
+        const thread = await asStudent().submissionComments.thread({ assignmentId });
+        const answer = thread.comments.find((comment) => !comment.isMine)!;
+
+        expect((await mine())?.unreadComments?.lastCommentAt).toEqual(answer.createdAt);
+      });
+
+      // `upTo` is the other question: reading as far as the newest message is what leaves nothing
+      // behind, so it names the fellow's own message even though the row does not quote it.
+      it("while what it would be read as far as is the newest message of all", async () => {
+        const thread = await asStudent().submissionComments.thread({ assignmentId });
+        expect((await mine())?.unreadComments?.upTo).toBe(thread.lastCommentId);
+      });
     });
   });
 
@@ -370,15 +394,16 @@ describe("unread comments on the dashboard", () => {
         await asStudent().submissionComments.markUnread({ submissionId: thread.submissionId! });
       });
 
-      it("puts it back", async () => {
-        expect((await mine())?.unreadComments?.count).toBe(1);
+      it("puts it back, quoting the instructor again", async () => {
+        expect((await mine())?.unreadComments?.excerpt).toBe("In the src folder.");
       });
     });
   });
 
   /*
-    A withdrawn message says nothing. The receipt is untouched by this — the student is left with
-    the thread they had already taken back — so what has to change is the count alone.
+    A withdrawn message says nothing. The receipt is untouched by this — the fellow is left with the
+    thread they had already taken back — so what has to change is what counts as news on it. Their
+    own writing on the thread is not news to them, so nothing is left.
   */
   describe("when the instructor withdraws what they wrote", () => {
     beforeAll(async () => {

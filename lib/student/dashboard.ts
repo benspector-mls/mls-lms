@@ -52,16 +52,18 @@ export type DashboardRow = {
     gradedAt: Date | null;
     feedbackReviewedAt: Date | null;
     /**
-     * Messages on this work's conversation that the student has not read, or null when there are
-     * none. Counted by `listMine` against the student's own receipt, because who has read how far
-     * is a question only the server can answer.
+     * The newest message on this work's conversation that the student has not read, or null when
+     * there is none. Worked out by `listMine` against the student's own receipt, because who has
+     * read how far is a question only the server can answer.
      */
     unreadComments: {
-      count: number;
       /** The row the conversation hangs off — a team's row where a team did the work. */
       threadId: string;
-      /** The newest message, which is what marking the thread read is read as far as. */
+      /** The newest message on the thread, which is what marking it read is read as far as. */
       upTo: string;
+      /** The first line or so of the message, which is what the row shows. */
+      excerpt: string;
+      /** When that message was written. */
       lastCommentAt: Date;
     } | null;
   } | null;

@@ -56,15 +56,15 @@ function row(
             gradedAt: null,
             feedbackReviewedAt: null,
             /*
-              Null unless a case asks for messages. The count and the two ids are what the row
+              Null unless a case asks for messages. The excerpt and the two ids are what the row
               draws itself from and what its Mark as read button sends; nothing here reads them,
               so one shape covers every case.
             */
             unreadComments: lastCommentAt
               ? {
-                  count: 2,
                   threadId: `thread-${counter}`,
                   upTo: `comment-${counter}`,
+                  excerpt: `Something written on ${lastCommentAt.toISOString()}`,
                   lastCommentAt,
                 }
               : null,

@@ -24,7 +24,13 @@ import { teachableAssignment } from "@/lib/courses/scope";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import type { HandInMethod } from "@/lib/generated/prisma/enums";
 import { effectiveSection } from "@/lib/grade/approve";
-import { threadSubmissionId, type ThreadComment, unreadCount } from "@/lib/submissions/comments";
+import {
+  commentExcerpt,
+  isUnread,
+  threadSubmissionId,
+  type ThreadComment,
+  unreadCount,
+} from "@/lib/submissions/comments";
 import { teamForStudent } from "@/lib/submissions/team";
 import { listAnswerKeyEntries, listAnswerKeys, MAX_ANSWER_KEYS } from "@/lib/grade/assets";
 
@@ -154,27 +160,40 @@ const studentWorkSelect = {
   },
 } satisfies Prisma.SubmissionSelect;
 
+/** What one reader is owed about one thread they have not finished reading. */
+type UnreadSummary = {
+  /** How many messages on it are news to them. */
+  unreadCount: number;
+  /** The newest message on it, whoever wrote it and whether or not it stands. */
+  lastCommentId: string;
+  /** The newest of the messages that are news, or null when none of them is. */
+  newestUnread: { excerpt: string; createdAt: Date } | null;
+};
+
 /**
- * How many messages on each of these threads are news to one reader.
+ * What is unread on each of these threads, for one reader.
  *
  * **A separate query, because a select cannot express it.** A `_count` can say how many comments a
  * thread holds, but not how many arrived after *this reader's receipt for this thread* — the cutoff
  * differs on every row. So both are read for the page at once and folded with the same
- * `unreadCount` the thread badges with.
+ * `unreadCount` the thread badges with. The ids must already be resolved through
+ * `threadSubmissionId`.
  *
- * No bodies and no names: fifty rows each want one integer and the newest message's id. The ids
- * must already be resolved through `threadSubmissionId`.
+ * **Two different messages leave this, and they answer two different questions.** `lastCommentId` is
+ * the newest message on the thread whoever wrote it, because `markRead` names a message rather than
+ * sending a clock and a receipt advanced to the newest one leaves nothing behind; advancing past a
+ * withdrawn message, or past your own, changes no answer `isUnread` gives. `newestUnread` is the
+ * newest message that is *news*, because that is the one a screen quotes and dates — a fellow who
+ * marked a conversation unread and then wrote in it would otherwise be shown their own words as the
+ * thing waiting to be read.
  *
- * **The newest message travels alongside the count** because the dashboard offers a button that
- * marks a thread read without opening it, and `markRead` names a message rather than sending a
- * clock. The newest message regardless of whether it stands or who wrote it is the right one to
- * name: advancing a receipt past a withdrawn message, or past your own, changes no answer
- * `isUnread` gives.
+ * No names, and no body past the first line or so: `commentExcerpt` runs here, so a page of fifty
+ * rows carries fifty short strings rather than fifty conversations.
  */
-async function unreadCommentCounts(
+async function summarizeUnread(
   db: Db,
   params: { threadIds: readonly string[]; readerId: string },
-): Promise<Map<string, { unreadCount: number; lastCommentId: string; lastCommentAt: Date }>> {
+): Promise<Map<string, UnreadSummary>> {
   if (params.threadIds.length === 0) return new Map();
 
   const ids = [...new Set(params.threadIds)];
@@ -188,6 +207,7 @@ async function unreadCommentCounts(
         submissionId: true,
         authorId: true,
         authorRole: true,
+        body: true,
         createdAt: true,
         deletedAt: true,
       },
@@ -199,7 +219,7 @@ async function unreadCommentCounts(
   ]);
 
   const lastReadOf = new Map(receipts.map((receipt) => [receipt.submissionId, receipt.lastReadAt]));
-  const byThread = new Map<string, (ThreadComment & { id: string })[]>();
+  const byThread = new Map<string, (ThreadComment & { id: string; body: string })[]>();
 
   for (const comment of comments) {
     const existing = byThread.get(comment.submissionId);
@@ -207,26 +227,24 @@ async function unreadCommentCounts(
     else byThread.set(comment.submissionId, [comment]);
   }
 
-  const counts = new Map<
-    string,
-    { unreadCount: number; lastCommentId: string; lastCommentAt: Date }
-  >();
+  const summaries = new Map<string, UnreadSummary>();
 
   for (const [threadId, thread] of byThread) {
-    // Oldest first out of the query, so the newest is the last of them.
+    const reader = { id: params.readerId, lastReadAt: lastReadOf.get(threadId) ?? null };
+    // Oldest first out of the query, so the newest of either kind is the last one found.
     const newest = thread[thread.length - 1];
+    const newestUnread = thread.filter((comment) => isUnread(comment, reader)).at(-1);
 
-    counts.set(threadId, {
-      unreadCount: unreadCount(thread, {
-        id: params.readerId,
-        lastReadAt: lastReadOf.get(threadId) ?? null,
-      }),
+    summaries.set(threadId, {
+      unreadCount: unreadCount(thread, reader),
       lastCommentId: newest.id,
-      lastCommentAt: newest.createdAt,
+      newestUnread: newestUnread
+        ? { excerpt: commentExcerpt(newestUnread.body), createdAt: newestUnread.createdAt }
+        : null,
     });
   }
 
-  return counts;
+  return summaries;
 }
 
 /** Refuses a draft that would not grade correctly, naming the fields. */
@@ -373,7 +391,7 @@ export const assignmentsRouter = createTRPCRouter({
       learn anywhere else without opening each assignment in turn, which is the whole reason the
       dashboard asks for it.
     */
-    const unreadComments = await unreadCommentCounts(ctx.db, {
+    const unread = await summarizeUnread(ctx.db, {
       threadIds: assignments.flatMap((assignment) =>
         assignment.submissions.map((submission) => threadSubmissionId(submission)),
       ),
@@ -400,7 +418,7 @@ export const assignmentsRouter = createTRPCRouter({
       */
       const { teamSubmissionId, ...submission } = own;
       const threadId = threadSubmissionId({ id: submission.id, teamSubmissionId });
-      const thread = unreadComments.get(threadId);
+      const thread = unread.get(threadId);
 
       return {
         ...assignment,
@@ -408,19 +426,21 @@ export const assignmentsRouter = createTRPCRouter({
           ...submission,
           /*
             Null when there is nothing to tell them, so the screen asks one question rather than
-            comparing a count against zero. What it carries when there is something is what the
-            row needs to draw itself and what `markRead` needs to clear it: the thread the
-            conversation hangs off, and the message being read as far as.
+            comparing a count against zero. What it carries when there is something is what the row
+            draws — the newest message waiting and when it was written — and what clearing it needs:
+            the thread the conversation hangs off, and the message to be read as far as.
+
+            No count. The row quotes the message instead, which is the more useful line and the one
+            that does not need a number beside it to be read.
           */
-          unreadComments:
-            thread && thread.unreadCount > 0
-              ? {
-                  count: thread.unreadCount,
-                  threadId,
-                  upTo: thread.lastCommentId,
-                  lastCommentAt: thread.lastCommentAt,
-                }
-              : null,
+          unreadComments: thread?.newestUnread
+            ? {
+                threadId,
+                upTo: thread.lastCommentId,
+                excerpt: thread.newestUnread.excerpt,
+                lastCommentAt: thread.newestUnread.createdAt,
+              }
+            : null,
         },
       };
     });
@@ -567,7 +587,7 @@ export const assignmentsRouter = createTRPCRouter({
         Unread comments, for the badge on the panel's Comments tab. One query for the page rather
         than one per row, and resolved through the mirror so a team's members all see the count.
       */
-      const unreadComments = await unreadCommentCounts(ctx.db, {
+      const unreadComments = await summarizeUnread(ctx.db, {
         threadIds: assignments.flatMap((assignment) =>
           assignment.submissions.map((submission) => threadSubmissionId(submission)),
         ),

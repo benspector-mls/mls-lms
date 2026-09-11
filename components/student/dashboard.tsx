@@ -297,7 +297,7 @@ function RowLink({
  * readable. A student holding four cohorts' assignments in one list needs the cohort to tell two
  * similarly named assignments apart.
  */
-function RowTitle({ row }: { row: DashboardAssignment }) {
+function RowTitle({ row, subtitle }: { row: DashboardAssignment; subtitle?: string }) {
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
       <span className="flex min-w-0 items-center gap-2">
@@ -308,8 +308,13 @@ function RowTitle({ row }: { row: DashboardAssignment }) {
         <AssignmentKindIcon assignment={row} />
         <span className="min-w-0 truncate text-sm font-medium">{row.title}</span>
       </span>
+      {/*
+        Where the work sits, unless the row has something more useful to say on its second line.
+        The comments row does: what somebody wrote is why that row is on the screen, and the course
+        and unit are the two facts a student holding one assignment already knows.
+      */}
       <span className="truncate text-xs text-muted-foreground">
-        {row.course.name} · {row.courseUnit.name}
+        {subtitle ?? `${row.course.name} · ${row.courseUnit.name}`}
       </span>
     </span>
   );
@@ -404,7 +409,12 @@ function FeedbackRow({ row, now }: { row: DashboardAssignment; now: Date }) {
  *
  * `RowLink` makes the whole item an anchor, and a button inside an anchor is not something a
  * browser can make sense of — so the link and the button are siblings here, and the link takes the
- * width that is left. The hover shading moves to the item so the two still read as one row.
+ * width that is left. The hover shading moves to the item so the two still read as one row. The
+ * triage screen's question rows are built the same way, for the same reason.
+ *
+ * **It quotes the message and does not count it.** What was written is why the row is here, and a
+ * number beside it would be a second thing to read that says less: a student who wants to know how
+ * many are waiting is one press away from the conversation itself.
  *
  * Its address is every other row's, with no tab named in it. Which tab opens is the panel's own
  * rule — Comments when a reply is the only news, and the report first when both are unread — and a
@@ -420,15 +430,10 @@ function CommentsRow({ row, now }: { row: DashboardAssignment; now: Date }) {
         href={`/courses/${row.course.id}?assignment=${row.id}`}
         className="flex min-w-0 flex-1 items-center gap-x-3 px-3 py-2.5"
       >
-        <RowTitle row={row} />
+        <RowTitle row={row} subtitle={unread.excerpt} />
 
-        <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
-          <span className="text-sm font-medium whitespace-nowrap tabular-nums">
-            {unread.count} new {unread.count === 1 ? "comment" : "comments"}
-          </span>
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            {formatRelative(unread.lastCommentAt, now)}
-          </span>
+        <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
+          {formatRelative(unread.lastCommentAt, now)}
         </span>
       </Link>
 
