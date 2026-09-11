@@ -7,7 +7,7 @@ import { ChevronRight, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "l
 import { toast } from "sonner";
 
 import { AssignmentKindIcon, UnitCategoryIcon } from "@/components/status-badge";
-import { EmptyState, ErrorState } from "@/components/list-states";
+import { EmptyState, ErrorState, ListSkeleton } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { SortableList, SortableRow } from "@/components/sortable-list";
 import { AssignmentPanel } from "@/components/student/assignment-panel";
@@ -412,7 +412,10 @@ export function Curriculum({ courseId }: { courseId: string }) {
       {/*
         One panel serving every row, the way the student's course page holds one. It opens the
         moment the eye is pressed rather than when the payload lands, so the press answers at
-        once; the body fills in when the read returns.
+        once; the body fills in when the read returns. The fallback covers the wait and the two
+        ways the body can fail to arrive: the read erroring, and the read returning without the
+        pressed row in it. Each says what it is — an open sheet that stays silently empty is
+        indistinguishable from a slow load.
       */}
       <AssignmentPanel
         preview
@@ -422,6 +425,26 @@ export function Curriculum({ courseId }: { courseId: string }) {
         onOpenChange={(nextOpen) => {
           if (!nextOpen) setPreviewId(null);
         }}
+        fallback={
+          studentAssignments.isError ? (
+            <ErrorState
+              className="m-4"
+              title="The preview did not load"
+              description={studentAssignments.error.message}
+              onRetry={() => void studentAssignments.refetch()}
+            />
+          ) : studentAssignments.data ? (
+            <EmptyState
+              className="m-4"
+              title="This assignment is no longer in the course"
+              description="It may have been removed since this page loaded. Close the panel and the list will catch up."
+            />
+          ) : (
+            <div className="p-4">
+              <ListSkeleton rows={4} />
+            </div>
+          )
+        }
       />
     </div>
   );

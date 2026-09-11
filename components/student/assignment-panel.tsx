@@ -90,6 +90,7 @@ export function AssignmentPanel({
   open,
   onOpenChange,
   preview = false,
+  fallback,
 }: {
   /** Null while nothing is selected, which is what keeps one panel serving a whole page. */
   assignment: Assignment | null;
@@ -104,6 +105,13 @@ export function AssignmentPanel({
    * greyed and unpressable.
    */
   preview?: boolean;
+  /**
+   * What the open sheet shows while `assignment` is null. A caller that opens the panel before
+   * its payload has arrived owes the reader a body for the wait and for the failure — without
+   * one, a read that errors leaves an open, permanently empty sheet indistinguishable from a
+   * slow load.
+   */
+  fallback?: React.ReactNode;
 }) {
   /*
     Which tab is showing is deliberately not in the address, unlike which assignment is.
@@ -136,7 +144,7 @@ export function AssignmentPanel({
         in the list and let source order decide.
       */}
       <SheetContent className="w-full gap-0 p-0 data-[side=right]:sm:max-w-2xl">
-        {assignment && (
+        {assignment ? (
           <PanelBody
             key={assignment.id}
             preview={preview}
@@ -146,7 +154,14 @@ export function AssignmentPanel({
             hasFeedback={hasFeedback}
             now={now}
           />
-        )}
+        ) : fallback ? (
+          // The title PanelBody's header would carry, because the dialog must be named even
+          // while what it will hold is still on the way.
+          <>
+            <SheetTitle className="sr-only">Assignment</SheetTitle>
+            {fallback}
+          </>
+        ) : null}
       </SheetContent>
     </Sheet>
   );
