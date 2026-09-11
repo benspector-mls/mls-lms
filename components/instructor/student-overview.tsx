@@ -13,6 +13,8 @@ import {
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { SubmissionRow } from "@/components/instructor/submission-row";
+import { TaskReview } from "@/components/instructor/task-review";
+import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { Badge } from "@/components/ui/badge";
 import { SubmissionStatusBadge } from "@/components/status-badge";
 import {
@@ -84,12 +86,36 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
   });
 
   /*
+    Which assignment with no submission row is open, when one is.
+
+    **A second selection parameter rather than a second meaning for the first** — the decision the
+    queue's `?fellow=` records, met from the other side: there the fixed thing is the assignment
+    and the rowless thing is a fellow, here the fellow is fixed and the rowless thing is a task
+    they have not started. `?submission=` names a row, and these have none.
+
+    Resolved against any row by assignment id rather than only the rowless ones, because marking
+    the task done creates its row and the refresh that follows should land back on the same
+    assignment — now through its submission — rather than on the fallback.
+
+    Only a row the pane can draw: a task opens with or without a submission, anything else needs
+    one, so a hand-typed address naming an unstarted repository falls through to the fallback
+    instead of opening a pane with nothing to show.
+  */
+  const selectedAssignmentId = searchParams.get("assignment");
+  const byAssignment = data.rows.find((row) => row.assignment.id === selectedAssignmentId);
+  const selectedByAssignment =
+    byAssignment && (byAssignment.assignment.kind === "TASK" || byAssignment.submission !== null)
+      ? byAssignment
+      : null;
+
+  /*
     The selection survives a filter that no longer contains it, and falls back to the first row that
     *has* a submission rather than the first row — opening this screen on an assignment nobody has
     started would show an empty review pane and read as the page being broken.
   */
   const selected =
     started.find((row) => row.submission!.id === selectedId) ??
+    selectedByAssignment ??
     filtered.find((row) => row.submission !== null) ??
     started[0] ??
     null;
@@ -97,6 +123,15 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
   function select(submissionId: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("submission", submissionId);
+    params.delete("assignment");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
+
+  /** Opens a task the fellow has not started. The mirror of `select` above. */
+  function selectAssignment(assignmentId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("assignment", assignmentId);
+    params.delete("submission");
     router.replace(`?${params.toString()}`, { scroll: false });
   }
 
@@ -215,7 +250,21 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       pending={batch?.inFlight.has(row.submission.id) ?? false}
                     />
                   ) : (
-                    <NotStartedRow key={row.assignment.id} row={row} />
+                    <NotStartedRow
+                      key={row.assignment.id}
+                      row={row}
+                      active={selected?.assignment.id === row.assignment.id}
+                      /*
+                        Openable only as a task, where "nobody has touched this" is exactly the row
+                        an instructor wants: the one to chase, or to mark done on their behalf.
+                        Every other kind has nothing a pane could show until work exists.
+                      */
+                      onSelect={
+                        row.assignment.kind === "TASK"
+                          ? () => selectAssignment(row.assignment.id)
+                          : undefined
+                      }
+                    />
                   ),
                 )}
               </ul>
@@ -269,7 +318,26 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             Without it the header above would push the approve button off the screen.
           */}
           <div className="min-h-0 flex-1">
-            {selected?.submission ? (
+            {/*
+              A task takes the pane built for one, exactly as the grading queue decides it: a task
+              has no report, no test runs and no score, so `GradingReview` would offer to generate
+              a report about work that can never have one. It opens with or without a submission
+              row — a task nobody has marked has none, and nothing on record is what the pane's
+              nulls say. Whether the fellow could have marked it themselves comes off the row's own
+              assignment, because every row on this screen is a different assignment.
+            */}
+            {selected?.assignment.kind === "TASK" ? (
+              <TaskReview
+                key={selected.submission?.id ?? selected.assignment.id}
+                assignmentId={selected.assignment.id}
+                student={data.student}
+                isComplete={selected.submission?.isComplete ?? null}
+                markedAt={selected.submission?.gradedAt ?? null}
+                markedBy={selected.submission?.gradedBy ?? null}
+                selfMarked={taskIsSelfMarked(selected.assignment)}
+                now={now}
+              />
+            ) : selected?.submission ? (
               // Keyed on the submission so moving between assignments resets the editor rather
               // than carrying unsaved edits from one report onto another.
               <GradingReview
@@ -414,24 +482,58 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
 /**
  * An assignment this student has no submission for.
  *
- * Not selectable, because there is nothing to open. Present because its absence would be
- * indistinguishable from the assignment not existing — the count above says how many, and this is
- * which ones.
+ * Present because its absence would be indistinguishable from the assignment not existing — the
+ * count above says how many, and this is which ones. Selectable only where the caller passes
+ * `onSelect`, which it does for a task: a task with nothing on record is exactly the row an
+ * instructor came for, where every other kind has nothing a pane could show. "Not marked" rather
+ * than "Not started" on those, in the words the queue's rowless rows use — nothing has been said
+ * about the task, which is not the same claim as the fellow not having begun it.
  */
-function NotStartedRow({ row }: { row: Row }) {
-  return (
-    <li>
-      <div className="flex items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 opacity-60">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm">{row.assignment.title}</span>
-          <span className="truncate text-xs text-muted-foreground">
-            {secondaryLine(row.assignment)}
-          </span>
-        </div>
-        <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-          {row.assignment.distributedAt === null ? "Not published" : "Not started"}
+function NotStartedRow({
+  row,
+  active = false,
+  onSelect,
+}: {
+  row: Row;
+  active?: boolean;
+  onSelect?: () => void;
+}) {
+  const body = (
+    <>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm">{row.assignment.title}</span>
+        <span className="truncate text-xs text-muted-foreground">
+          {secondaryLine(row.assignment)}
         </span>
       </div>
+      <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
+        {row.assignment.distributedAt === null
+          ? "Not published"
+          : row.assignment.kind === "TASK"
+            ? "Not marked"
+            : "Not started"}
+      </span>
+    </>
+  );
+
+  return (
+    <li>
+      {onSelect ? (
+        <button
+          type="button"
+          onClick={onSelect}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 text-left transition-colors",
+            active ? "bg-muted" : "opacity-60 hover:bg-muted/60 hover:opacity-100",
+          )}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="flex items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 opacity-60">
+          {body}
+        </div>
+      )}
     </li>
   );
 }

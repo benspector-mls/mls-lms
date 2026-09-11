@@ -1700,6 +1700,9 @@ export const submissionsRouter = createTRPCRouter({
           pointValue: true,
           completionThreshold: true,
           distributedAt: true,
+          // So the task pane can say whether the fellow could have marked this themselves —
+          // `taskIsSelfMarked` reads it beside `kind`.
+          studentMayMarkDone: true,
           courseUnit: { select: courseUnitSummarySelect },
           // Read for the grading mode and not returned whole: `manualOnly` is the answer the
           // review pane needs, and `sections` is a large object a screen has no use for.
