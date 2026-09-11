@@ -76,6 +76,13 @@ async function FullGradebook({
   const cohortLabel =
     selection.kind === "all" ? null : cohortSelectionLabel(selection, cohorts.cohorts);
 
+  /*
+    One clock read for the whole render, handed to the file and the grid alike. Each reading its
+    own `new Date()` would leave a millisecond gap between them, and a deadline falling inside it
+    would make the downloaded file and the screen it came from disagree about one cell.
+  */
+  const now = new Date();
+
   return (
     <div className="flex w-full flex-col gap-6 p-4 md:p-6">
       <PageHeader
@@ -101,7 +108,7 @@ async function FullGradebook({
             */}
             {!gradebookIsEmpty(data) && (
               <GradebookDownload
-                csv={gradebookCsv(data, new Date())}
+                csv={gradebookCsv(data, now)}
                 term={data.course.program.term}
                 cohortLabel={cohortLabel}
               />
@@ -110,7 +117,7 @@ async function FullGradebook({
         }
       />
 
-      <Gradebook data={data} gcf={gcf} tab={tab} cohort={cohorts.cohort} />
+      <Gradebook data={data} gcf={gcf} tab={tab} cohort={cohorts.cohort} now={now.toISOString()} />
     </div>
   );
 }

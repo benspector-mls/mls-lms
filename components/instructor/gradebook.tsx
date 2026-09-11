@@ -116,6 +116,7 @@ export function Gradebook({
   gcf,
   tab,
   cohort,
+  now,
 }: {
   data: Gradebook;
   /**
@@ -128,6 +129,12 @@ export function Gradebook({
   tab: GradebookTab;
   /** The cohort the grid was built for, carried into every tab link. */
   cohort: string;
+  /**
+   * The page's one clock read, as an ISO string. Handed down rather than read here so the grid,
+   * the browser that hydrates it, and the CSV built beside it all mean the same instant by "now" —
+   * a deadline can never have passed in the file and not on the screen, or the reverse.
+   */
+  now: string;
 }) {
   const active = data.activeEnrollments.map((enrollment) => enrollment.student);
   const removed = data.removedEnrollments.map((enrollment) => enrollment.student);
@@ -145,12 +152,6 @@ export function Gradebook({
     on top of it.
   */
   const grouped = groupByUnit(assignments, data.courseUnits);
-
-  /*
-    Rendered once here rather than read inside the grid, so the due-date windows mean the same
-    instant on the server and in the browser that hydrates it.
-  */
-  const now = new Date().toISOString();
 
   if (gradebookIsEmpty(data)) {
     return (
