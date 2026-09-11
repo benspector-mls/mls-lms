@@ -324,7 +324,12 @@ export function GradingQueue({
             <GradingModeButton onEnter={grading.enter} />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {/*
+            `relative` for the reason the review pane's scrollers carry it: the rows hold
+            `sr-only` spans, which are absolutely positioned and would otherwise resolve against
+            the shell and stretch the window past a long roster instead of scrolling with it.
+          */}
+          <div className="relative min-h-0 flex-1 overflow-y-auto p-2">
             {filtered.length === 0 && notStarted.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
                 <Inbox className="size-8 text-muted-foreground" />

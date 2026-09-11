@@ -323,7 +323,17 @@ export function GradingReview({
           needs, and which split leaves with nothing to scroll because its one child is then
           exactly as tall as it is.
         */}
-        <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
+        {/*
+          `relative` on this scroller and on the two column scrollers below, because `sr-only`
+          content is `position: absolute` and an absolute box is clipped only by ancestors on the
+          way to its containing block. Without a positioned ancestor down here, the comment
+          thread's live-region paragraph resolved against the shell's `SidebarInset`, skipped
+          every overflow between them, and stretched the window by the height of its phantom flow
+          position — a blank half-screen of scroll under every graded submission. Positioned, each
+          scroller is the containing block, and the invisible box scrolls and clips with the
+          content it belongs to.
+        */}
+        <div className="@container relative flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
           {/*
             One column until there is both something to put beside the grade and the room to put it
             there, and two after that.
@@ -378,11 +388,11 @@ export function GradingReview({
               Its own scroll, so a diff and the working beneath it can be read to the end without
               the report leaving the screen. The padding is there for the cards' outlines.
             */}
-            <div className="order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1">
+            <div className="relative order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1">
               <div className="flex min-w-0 flex-col gap-5">{aside}</div>
             </div>
 
-            <div className="min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
+            <div className="relative min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
               <div className="flex min-w-0 flex-col gap-5">
                 <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
