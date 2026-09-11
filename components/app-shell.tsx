@@ -570,71 +570,147 @@ function CourseList({
 
   return (
     <SidebarMenu>
-      {ordered.map((course) => {
-        const open = course.id === selected;
-        const note = courseNote(course);
-        const link = <Link href={sameViewInCourse(pathname, course.id)} />;
-
-        return (
-          <SidebarMenuItem key={course.id}>
-            <PreviewCardPrimitive.Root>
-              <SidebarMenuButton
-                isActive={open}
-                /*
-                  The tooltip and the panel answer the same hover on the same 32-pixel button, so
-                  only one of them may be armed. The panel wins wherever it is drawn: its heading
-                  carries the course name the tooltip would have shown, and then five destinations
-                  the tooltip could not. Dropping it also takes `SidebarMenuButton`'s
-                  `TooltipTrigger` wrapper out of the row, leaving the preview card's trigger
-                  composed straight onto the link.
-                */
-                tooltip={panels ? undefined : courseLabel(course)}
-                // `h-auto` because a noted row is two lines where every other one is one.
-                className="h-auto py-1.5"
-                /*
-                  The trigger is the link itself rather than the row around it, so that reaching
-                  the course by keyboard opens the panel the same way pointing at it does. Base UI
-                  composes the two through `render`, and the press still navigates: a preview card
-                  is the one popup that never opens on a click.
-                */
-                render={
-                  panels ? (
-                    <PreviewCardPrimitive.Trigger delay={250} closeDelay={200} render={link} />
-                  ) : (
-                    link
-                  )
-                }
-              >
-                <CourseInitial name={course.name} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{course.name}</span>
-                  {note !== null && (
-                    <span className="truncate text-xs text-muted-foreground">{note}</span>
-                  )}
-                </span>
-              </SidebarMenuButton>
-
-              {panels && <CourseViewPanel course={course} pathname={pathname} />}
-            </PreviewCardPrimitive.Root>
-
-            {open && (
-              <SidebarMenuSub>
-                {COURSE_VIEWS.map((view) => (
-                  <SidebarMenuSubItem key={view.segment}>
-                    <SidebarMenuSubButton
-                      isActive={isActiveCourseView(pathname, course.id, view.segment)}
-                      render={<Link href={view.href(course.id)} />}
-                    >
-                      <span>{view.title}</span>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                ))}
-              </SidebarMenuSub>
-            )}
-          </SidebarMenuItem>
-        );
-      })}
+      {ordered.map((course) => (
+        <CourseRow
+          key={course.id}
+          course={course}
+          open={course.id === selected}
+          panels={panels}
+          pathname={pathname}
+        />
+      ))}
     </SidebarMenu>
+  );
+}
+
+/**
+ * One course's row, holding the state its hover panel needs.
+ *
+ * **The panel is controlled from here rather than left to hover alone, and the keyboard is why.**
+ * The panel opens when the row takes focus, but Base UI portals the popup to the document, so
+ * tabbing toward its links blurs the trigger and closes the panel before they can be reached — a
+ * keyboard user could see the five views and never press one. The row therefore treats the panel
+ * the way a menu treats a submenu: ArrowRight — the direction the panel visually sits — opens it
+ * and moves focus onto its first link, Escape closes it and hands focus back to the row, and
+ * Enter still navigates, exactly as a press does. Hover behaves as it always has; the controlled
+ * state only adds the moves the pointer never needed.
+ */
+function CourseRow({
+  course,
+  open,
+  panels,
+  pathname,
+}: {
+  course: StudentCourse;
+  open: boolean;
+  panels: boolean;
+  pathname: string;
+}) {
+  const note = courseNote(course);
+
+  const [panelOpen, setPanelOpen] = React.useState(false);
+  /** Set by ArrowRight alone: whether the next open should carry focus into the panel. */
+  const [focusPanel, setFocusPanel] = React.useState(false);
+  const popupRef = React.useRef<HTMLDivElement | null>(null);
+  const triggerRef = React.useRef<HTMLAnchorElement | null>(null);
+
+  React.useEffect(() => {
+    if (panelOpen && focusPanel) {
+      popupRef.current?.querySelector<HTMLAnchorElement>("a")?.focus();
+      setFocusPanel(false);
+    }
+  }, [panelOpen, focusPanel]);
+
+  const link = <Link href={sameViewInCourse(pathname, course.id)} ref={triggerRef} />;
+
+  return (
+    <SidebarMenuItem>
+      <PreviewCardPrimitive.Root
+        open={panels && panelOpen}
+        onOpenChange={(next, details) => {
+          /*
+            A close asked for while the reader stands inside the panel is the trigger blurring
+            because focus moved *into* the panel — the one move the keyboard path exists for — so
+            it is refused. Escape is the exception: it is the reader asking to leave, from either
+            side, and it puts focus back on the row so the rail is not lost.
+          */
+          if (
+            !next &&
+            details.reason !== "escape-key" &&
+            popupRef.current?.contains(document.activeElement)
+          ) {
+            return;
+          }
+          setPanelOpen(next);
+          if (!next && details.reason === "escape-key") triggerRef.current?.focus();
+        }}
+      >
+        <SidebarMenuButton
+          isActive={open}
+          /*
+            The tooltip and the panel answer the same hover on the same 32-pixel button, so
+            only one of them may be armed. The panel wins wherever it is drawn: its heading
+            carries the course name the tooltip would have shown, and then five destinations
+            the tooltip could not. Dropping it also takes `SidebarMenuButton`'s
+            `TooltipTrigger` wrapper out of the row, leaving the preview card's trigger
+            composed straight onto the link.
+          */
+          tooltip={panels ? undefined : courseLabel(course)}
+          // `h-auto` because a noted row is two lines where every other one is one.
+          className="h-auto py-1.5"
+          aria-keyshortcuts={panels ? "ArrowRight" : undefined}
+          onKeyDown={
+            panels
+              ? (event: React.KeyboardEvent) => {
+                  if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    setPanelOpen(true);
+                    setFocusPanel(true);
+                  }
+                }
+              : undefined
+          }
+          /*
+            The trigger is the link itself rather than the row around it, so that reaching
+            the course by keyboard opens the panel the same way pointing at it does. Base UI
+            composes the two through `render`, and the press still navigates: a preview card
+            is the one popup that never opens on a click.
+          */
+          render={
+            panels ? (
+              <PreviewCardPrimitive.Trigger delay={250} closeDelay={200} render={link} />
+            ) : (
+              link
+            )
+          }
+        >
+          <CourseInitial name={course.name} />
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate">{course.name}</span>
+            {note !== null && (
+              <span className="truncate text-xs text-muted-foreground">{note}</span>
+            )}
+          </span>
+        </SidebarMenuButton>
+
+        {panels && <CourseViewPanel course={course} pathname={pathname} popupRef={popupRef} />}
+      </PreviewCardPrimitive.Root>
+
+      {open && (
+        <SidebarMenuSub>
+          {COURSE_VIEWS.map((view) => (
+            <SidebarMenuSubItem key={view.segment}>
+              <SidebarMenuSubButton
+                isActive={isActiveCourseView(pathname, course.id, view.segment)}
+                render={<Link href={view.href(course.id)} />}
+              >
+                <span>{view.title}</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ))}
+        </SidebarMenuSub>
+      )}
+    </SidebarMenuItem>
   );
 }
 
@@ -657,7 +733,16 @@ function CourseList({
  * is the screen behind it, so a panel without the mark would list five destinations and leave the
  * reader to work out which one they were standing on. `aria-current` carries it to a screen reader.
  */
-function CourseViewPanel({ course, pathname }: { course: StudentCourse; pathname: string }) {
+function CourseViewPanel({
+  course,
+  pathname,
+  popupRef,
+}: {
+  course: StudentCourse;
+  pathname: string;
+  /** So the row can move focus onto the first link, and can tell whether focus stands inside. */
+  popupRef: React.RefObject<HTMLDivElement | null>;
+}) {
   return (
     <PreviewCardPrimitive.Portal>
       <PreviewCardPrimitive.Positioner
@@ -674,7 +759,10 @@ function CourseViewPanel({ course, pathname }: { course: StudentCourse; pathname
         alignOffset={-4}
         collisionPadding={12}
       >
-        <PreviewCardPrimitive.Popup className="flex max-w-64 min-w-44 origin-(--transform-origin) flex-col rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
+        <PreviewCardPrimitive.Popup
+          ref={popupRef}
+          className="flex max-w-64 min-w-44 origin-(--transform-origin) flex-col rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
+        >
           <p className="truncate px-2 py-1 text-xs font-medium text-muted-foreground">
             {courseLabel(course)}
           </p>
