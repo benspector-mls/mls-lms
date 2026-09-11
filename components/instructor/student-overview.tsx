@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from "lucide-react";
+import { ArrowLeft, GitBranch, Inbox, Mail, MessageSquare, UserMinus } from "lucide-react";
 
 import { BatchGenerate } from "@/components/instructor/batch-generate";
 import {
@@ -294,6 +294,32 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                     {selected.submission.isLate && (
                       <Badge variant="outline" className="font-normal">
                         Late
+                      </Badge>
+                    )}
+                    {/*
+                      The conversation, said the way the hidden row says it: teal while somebody
+                      is owed an answer, muted once nobody is. This mode put the list away, so the
+                      bar is the one place left that can say a reply is owed — and the badge is an
+                      anchor to the thread, the jump the old header's badge carried.
+                    */}
+                    {selected.submission.commentCount > 0 && (
+                      <Badge
+                        variant="outline"
+                        render={<a href={`#comments-${data.student.id}`} />}
+                        className={cn(
+                          "gap-1 font-normal",
+                          selected.submission.commentsAwaitReply
+                            ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        <MessageSquare className="size-3" />
+                        <span className="tabular-nums">{selected.submission.commentCount}</span>
+                        <span className="sr-only">
+                          {selected.submission.commentsAwaitReply
+                            ? " comments, waiting on a reply"
+                            : " comments"}
+                        </span>
                       </Badge>
                     )}
                   </span>
