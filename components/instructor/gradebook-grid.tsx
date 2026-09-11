@@ -43,7 +43,9 @@ import {
   completionByAssignment,
   completionByStudent,
   completionLabel,
+  isMissing,
   lateByStudent,
+  missingByStudent,
   type Completion,
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
@@ -203,6 +205,7 @@ export function GradebookGrid({
             cells={cells}
             work={work}
             pending="waiting"
+            at={at}
             sort={sort}
             onSort={setSort}
             emptySearch={active.length > 0}
@@ -231,6 +234,7 @@ export function GradebookGrid({
                 cells={removedCells}
                 work={work}
                 pending="not-graded"
+                at={at}
                 sort={sort}
                 onSort={setSort}
                 emptySearch={removed.length > 0}
@@ -338,6 +342,7 @@ function Band({
   cells,
   work,
   pending,
+  at,
   sort,
   onSort,
   emptySearch,
@@ -356,6 +361,8 @@ function Band({
   cells: Cell[];
   work: Assignment[];
   pending: Pending;
+  /** When the page was rendered, which is the instant "past due" is judged against. */
+  at: Date;
   sort: RowSort;
   onSort: (sort: RowSort) => void;
   emptySearch: boolean;
@@ -393,6 +400,21 @@ function Band({
     student leaves the cohort.
   */
   const late = lateByStudent(shown);
+
+  /*
+    From `work` and `shown` for the same reason again: the figure has to count the red rings in
+    its own row, which are the visible columns' — not every missed deadline in the course.
+
+    Not suppressed for removed students, like the late count and unlike the waiting one: a
+    deadline that passed with nothing handed in stays true after the student leaves, and it names
+    no task of the instructor's.
+  */
+  const missing = missingByStudent(
+    students.map((student) => student.id),
+    work,
+    shown,
+    at,
+  );
 
   /**
    * How much of each unit each student has finished: "3/5", per unit, per student.
@@ -437,13 +459,14 @@ function Band({
         completed: (studentId) => acrossRow.get(studentId)?.complete ?? 0,
         waiting: (studentId) => awaiting?.get(studentId) ?? 0,
         late: (studentId) => late.get(studentId) ?? 0,
+        missing: (studentId) => missing.get(studentId) ?? 0,
         score: (studentId, assignmentId) => {
           const cell = byKey.get(`${assignmentId}:${studentId}`);
           if (!cell || cell.finalScore == null) return null;
           return scorePercent(cell.finalScore, cell.finalScorePossible) ?? cell.finalScore;
         },
       }),
-    [students, sort, acrossRow, awaiting, late, byKey],
+    [students, sort, acrossRow, awaiting, late, missing, byKey],
   );
 
   if (students.length === 0) {
@@ -474,7 +497,7 @@ function Band({
           <TableRow className="hover:bg-transparent">
             <TableHead className={stickyColumn} />
             <TableHead
-              colSpan={3}
+              colSpan={4}
               className="border-l border-border text-center text-xs font-medium"
             >
               Summary
@@ -541,6 +564,13 @@ function Band({
               }
               sort={sort}
               column={{ by: "late" }}
+              onSort={onSort}
+              center
+            />
+            <SortableHead
+              label={<span className="mx-auto block max-w-28 text-xs leading-tight">Missing</span>}
+              sort={sort}
+              column={{ by: "missing" }}
               onSort={onSort}
               center
             />
@@ -627,6 +657,7 @@ function Band({
             <TableHead className="border-l border-border" />
             <TableHead />
             <TableHead />
+            <TableHead />
             {units.map((entry) => {
               // How many students have finished the whole unit, which is a different question
               // from the fraction each student's own cell below shows.
@@ -689,12 +720,13 @@ function Band({
               </TableCell>
 
               {/*
-                **Not coloured when there is something, unlike the column beside it.** Amber there
-                means "a task you can clear", and every other colour in this grid is a judgment on
-                the work. A missed deadline is neither: nothing an instructor does will empty this
-                column, and a red or amber figure would read as a verdict on the student that the
-                gradebook has not made and is not qualified to make. Weight alone is enough to find
-                the rows worth looking at, and the number is the whole of what is being claimed.
+                **Not coloured when there is something, unlike the columns either side of it.**
+                Amber is a task an instructor can clear, and red — the Missing column next door —
+                is a claim that is still live: hand the work in and the figure falls. This one is
+                neither: it is a record of hand-ins that already happened, nothing anybody does
+                will empty it, and a coloured figure would read as a verdict on the student that
+                the gradebook has not made. Weight alone is enough to find the rows worth looking
+                at, and the number is the whole of what is being claimed.
 
                 Zero is printed rather than blanked, for the same reason it is next door: "nothing
                 late" is worth reading, where an empty cell says only that something failed.
@@ -706,6 +738,23 @@ function Band({
                 )}
               >
                 {late.get(student.id) ?? 0}
+              </TableCell>
+
+              {/*
+                Red when there is anything, and the same red as the rings it counts — the waiting
+                column's argument: a reader scanning for the students in trouble looks for the
+                colour the cells beside it already use. Zero is printed and muted for the reason
+                its neighbours print theirs.
+              */}
+              <TableCell
+                className={cn(
+                  "text-center text-sm tabular-nums",
+                  missing.get(student.id)
+                    ? "font-medium text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
+                {missing.get(student.id) ?? 0}
               </TableCell>
 
               {units.map((entry) => (
@@ -729,15 +778,21 @@ function Band({
                       published(entry.work).length,
                     )}
                   </TableCell>
-                  {entry.work.map((assignment) => (
-                    <ScoreCell
-                      key={assignment.id}
-                      courseId={courseId}
-                      assignmentId={assignment.id}
-                      cell={byKey.get(`${assignment.id}:${student.id}`)}
-                      pending={pending}
-                    />
-                  ))}
+                  {entry.work.map((assignment) => {
+                    const cell = byKey.get(`${assignment.id}:${student.id}`);
+                    return (
+                      <ScoreCell
+                        key={assignment.id}
+                        courseId={courseId}
+                        assignmentId={assignment.id}
+                        cell={cell}
+                        pending={pending}
+                        // The same predicate the Missing column counts with, so the column
+                        // equals the red rings in its row by construction.
+                        missing={isMissing(assignment, cell?.status, at)}
+                      />
+                    );
+                  })}
                 </React.Fragment>
               ))}
             </TableRow>
@@ -865,21 +920,22 @@ export function VerdictMark({ verdict }: { verdict: UnitVerdict }) {
 /**
  * The marks a cell carries when it has no score, drawn from one definition.
  *
- * **One shape at three fills, rather than three unrelated symbols.** They were a dot, a dot, and an
- * em dash, and the dash was the odd one — a typographic mark for "no value" standing in a row with
- * two pieces of interface, which read as a different kind of thing rather than as the first step of
- * the same scale. A ring, a grey dot, and an amber dot are one scale, in the order work actually
- * moves: nothing taken up, taken up, handed in.
+ * **One shape, rather than unrelated symbols.** A ring, a grey dot, and an amber dot are one
+ * scale, in the order work actually moves: nothing taken up, taken up, handed in. The ring has a
+ * second state — red once the assignment's deadline has passed with nothing handed in — which is
+ * the same step of the scale with the clock run out, not a fourth step.
  *
  * The same distinction is drawn the same way on the student's progress bar, where "not accepted" is
  * outlined and "accepted" is filled. Two screens describing one fact should not need two visual
  * languages to do it.
  *
- * **Fill against outline rather than two colours**, which is what keeps the pair legible to a
- * reader who cannot tell the hues apart — and every mark carries its label as text besides.
+ * **Fill against outline rather than two colours**, which is what keeps "not handed in" apart from
+ * "handed in" for a reader who cannot tell the hues apart — the missing ring stays an outline for
+ * exactly that reason — and every mark carries its label as text besides.
  */
 const CELL_MARK = {
   notStarted: "border border-muted-foreground/50",
+  missing: "border border-destructive",
   accepted: "bg-muted-foreground/40",
   waiting: "bg-amber-500",
 } as const;
@@ -907,8 +963,9 @@ function CellMark({ kind, label }: { kind: keyof typeof CELL_MARK; label?: strin
  *
  * **Muted rather than amber or red.** Amber is "waiting on you", and the two marks appear together
  * on a resubmitted cell — a second amber dot beside the first would read as more of the same task.
- * Red is a failing score. A deadline missed weeks ago is neither an instructor's task nor a verdict
- * on the work, and colouring it as either would say something this grid does not know.
+ * Red is a judgment: a failing score, or a deadline passed with nothing handed in at all. Work that
+ * was eventually handed in, however late, is neither of those, and colouring it as one would say
+ * something this grid does not know.
  */
 function LateMark() {
   return (
@@ -923,7 +980,7 @@ function LateMark() {
 /**
  * What a cell that is not a score means.
  *
- * **Four marks that are not self-explanatory, and the grid is where they appear.** A number is
+ * **Five marks that are not self-explanatory, and the grid is where they appear.** A number is
  * read without help, where a mark is a convention — and the one the grid most needs to keep apart
  * is the empty ring against the grey dot, since never having started is not the same as having
  * scored nothing.
@@ -942,8 +999,10 @@ function LateMark() {
  *
  * `NOT_STARTED` is the empty ring and `ACCEPTED` the grey dot, which is what those cells mean in
  * practice: the row exists only once a student has taken the work up, so its absence is a student
- * who has not. The amber dot has no status behind it, because it is not a status — `bucket` is a
- * triage question, and "Waiting on you" is the phrase the cell itself already uses. The fourth
+ * who has not. The ring turns red once the deadline has passed with nothing handed in — `isMissing`,
+ * built on the same `handedIn` rule that fills the student's own overdue list, so the two screens
+ * name one fact. The amber dot has no status behind it, because it is not a status — `bucket` is a
+ * triage question, and "Waiting on you" is the phrase the cell itself already uses. The last
  * entry is the one that carries a score *and* a dot, which is the state below.
  */
 function CellLegend() {
@@ -963,6 +1022,11 @@ function CellLegend() {
         mark={<CellMark kind="waiting" />}
         label="Waiting on you"
         description="submitted (or resubmitted), not yet graded"
+      />
+      <LegendItem
+        mark={<CellMark kind="missing" />}
+        label="Missing"
+        description="past the due date, nothing handed in"
       />
       {/*
         The one entry that is not a state the cell is *in*. It sits beside a score or beside any of
@@ -1017,23 +1081,31 @@ function ScoreCell({
   assignmentId,
   cell,
   pending,
+  missing,
 }: {
   courseId: string;
   assignmentId: string;
   cell: Cell | undefined;
   pending: Pending;
+  /** Past the due date with nothing handed in — `isMissing`, precomputed where the column is. */
+  missing: boolean;
 }) {
   if (!cell) {
     /*
       No submission row at all, which is the same fact as `NOT_STARTED` and drawn the same way.
       An empty ring rather than an em dash: the dash was a typographic mark for "no value"
       sitting among two interface dots, and it read as a different kind of thing rather than as
-      the first step of the same scale.
+      the first step of the same scale. The ring is red once the deadline has passed, because
+      "not taken up, due next week" and "not taken up, due last month" are the two facts this
+      grid most needs to keep apart.
     */
     return (
       <TableCell className="text-center">
         <span className="flex items-center justify-center">
-          <CellMark kind="notStarted" label={SUBMISSION_STATUS_META.NOT_STARTED.label} />
+          <CellMark
+            kind={missing ? "missing" : "notStarted"}
+            label={missing ? "Missing" : SUBMISSION_STATUS_META.NOT_STARTED.label}
+          />
         </span>
       </TableCell>
     );
@@ -1086,15 +1158,20 @@ function ScoreCell({
             </span>
             {waiting && <CellMark kind="waiting" label="Waiting on you" />}
           </>
-        ) : pending === "not-graded" ? (
+        ) : pending === "not-graded" && !missing ? (
           // In words rather than as a dot. A dot needs a legend, and the one thing worth
           // knowing about a removed student's ungraded work is exactly that: it was never graded.
+          // A missing cell falls through to the mark instead — work never handed in was not
+          // "never graded", and the ring is what keeps the Missing column equal to its row.
           <span className="text-xs text-muted-foreground">Not graded</span>
         ) : (
           /*
             Accepted or submitted but not graded. A mark rather than a number, because there is
             no number yet — and the same mark the legend draws, from `CELL_MARK`, so the two
-            cannot come to disagree.
+            cannot come to disagree. An accepted cell past its deadline is missing — `handedIn`
+            counts `ACCEPTED` as not handed in — so the ring is red there too, and the Missing
+            column stays equal to the marks in its row. A bucketed cell cannot be missing, since
+            triage holds only work that was handed in.
 
             The label goes through `SUBMISSION_STATUS_META` rather than the raw column, which put
             `NOT_STARTED` in a tooltip. The legend names these states in the instructor's
@@ -1102,8 +1179,14 @@ function ScoreCell({
             reader had just been given.
           */
           <CellMark
-            kind={cell.bucket ? "waiting" : "accepted"}
-            label={cell.bucket ? "Waiting on you" : SUBMISSION_STATUS_META[cell.status].label}
+            kind={cell.bucket ? "waiting" : missing ? "missing" : "accepted"}
+            label={
+              cell.bucket
+                ? "Waiting on you"
+                : missing
+                  ? "Missing"
+                  : SUBMISSION_STATUS_META[cell.status].label
+            }
           />
         )}
 

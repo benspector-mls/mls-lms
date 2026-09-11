@@ -15,6 +15,9 @@
  * yet", which is not the same as failing and must not be counted as either.
  */
 
+import { handedIn } from "@/lib/status";
+import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
+
 /** The parts of a cell these read. Structural, so a test can build a cohort in a few lines. */
 export type SummaryCell = {
   assignmentId: string;
@@ -152,6 +155,81 @@ export function lateByStudent(cells: readonly LateCell[]): Map<string, number> {
   for (const cell of cells) {
     if (cell.isLate !== true) continue;
     counts.set(cell.studentId, (counts.get(cell.studentId) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+/** The parts of an assignment the missing count reads. */
+export type MissingAssignment = {
+  id: string;
+  dueAt: Date | string | null;
+  /** Null means a draft. A student cannot miss what has not been handed out. */
+  distributedAt: Date | string | null;
+};
+
+/** The parts of a cell the missing count reads. */
+export type MissingCell = {
+  assignmentId: string;
+  studentId: string;
+  status: SubmissionStatus;
+};
+
+/**
+ * Whether this assignment is missing for a student: past its deadline with nothing handed in.
+ *
+ * **"Handed in" is `handedIn` from `lib/status.ts`, which is the rule behind the student's own
+ * overdue list** — so the instructor's "missing" and the student's "overdue" name one fact, and a
+ * second implementation cannot come to disagree with the screen the student is looking at. An
+ * absent cell passes the same test as `NOT_STARTED`, because it is the same fact: the row exists
+ * only once a student has taken the work up.
+ *
+ * A draft is never missing, and neither is an assignment with no deadline. Strictly before `at`,
+ * which is the comparison the student dashboard makes — due *at* this instant is not yet missed.
+ *
+ * **Judged against a clock, where `isLate` is read from a column.** Lateness records an event and
+ * is written once, at hand-in; missing is the *absence* of an event, so there is nothing written
+ * anywhere to read. `at` comes from the server render, so the markup React sent and the markup it
+ * hydrates agree on which deadlines have passed.
+ */
+export function isMissing(
+  assignment: { dueAt: Date | string | null; distributedAt: Date | string | null },
+  status: SubmissionStatus | null | undefined,
+  at: Date,
+): boolean {
+  if (assignment.dueAt == null || assignment.distributedAt == null) return false;
+  return new Date(assignment.dueAt).getTime() < at.getTime() && !handedIn(status);
+}
+
+/**
+ * Per student: how many past-due assignments they have not handed in.
+ *
+ * **The one counter here that cannot work from cells alone.** A student who never took the work up
+ * has no cell at all, and that absent cell is the central missing case — so this takes the roster
+ * and the columns, and counts every student-assignment pair the grid draws. `isMissing` above is
+ * the same test the grid runs per cell, which is what makes the column equal the marks in its row.
+ *
+ * Unlike the late count, this figure is clearable: handing in, however late, removes it. It trades
+ * one for the other — a missing assignment handed in becomes a late one.
+ */
+export function missingByStudent(
+  studentIds: readonly string[],
+  work: readonly MissingAssignment[],
+  cells: readonly MissingCell[],
+  at: Date,
+): Map<string, number> {
+  const statusByKey = new Map(
+    cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell.status]),
+  );
+
+  const counts = new Map<string, number>();
+
+  for (const assignment of work) {
+    for (const studentId of studentIds) {
+      const status = statusByKey.get(`${assignment.id}:${studentId}`);
+      if (!isMissing(assignment, status, at)) continue;
+      counts.set(studentId, (counts.get(studentId) ?? 0) + 1);
+    }
   }
 
   return counts;

@@ -7,18 +7,21 @@
  * its own read of the database can disagree with the page it was downloaded from, and there is no
  * way for a reader holding the file to notice.
  *
- * **A score is a number and a gap is blank.** The grid draws four states — never accepted, accepted
- * but not graded, graded, and graded incomplete — and a spreadsheet flattens them, so the question
- * is which distinction survives. It is the number: a column of raw points sums and averages, and
- * `9/10` in a cell does neither. The two kinds of gap both become empty, which is the honest
- * flattening; writing a zero for either would turn work nobody has looked at yet into a score of
- * nothing, and that is the one error this file must not make.
+ * **A score is a number, a missing assignment is the word "Missing", and every other gap is
+ * blank.** The grid draws more states than a spreadsheet can keep, so the question is which
+ * distinctions survive. The number survives because a column of raw points sums and averages, and
+ * `9/10` in a cell does neither. "Missing" survives because it is the one gap with a verdict in it
+ * — past the deadline, nothing handed in — and as text it drops out of a SUM or AVERAGE the way a
+ * blank does, where a zero would turn work nobody has looked at yet into a score of nothing. That
+ * is the one error this file must not make, and it is why the remaining gaps — not due yet, or
+ * handed in but not graded — stay blank.
  */
 
 import { slugifyCourse } from "@/lib/courses/course-slug";
 import { csvLine, csvPersonName } from "@/lib/csv";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
-import { lateByStudent } from "@/lib/gradebook/summary";
+import { isMissing, lateByStudent, missingByStudent } from "@/lib/gradebook/summary";
+import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 
 /**
  * The parts of the gradebook payload a CSV reads, named structurally rather than taken from
@@ -32,6 +35,9 @@ export type GradebookCsvAssignment = {
   id: string;
   title: string;
   pointValue: number;
+  dueAt: Date | string | null;
+  /** Null means a draft, which cannot be missing however far past its due date. */
+  distributedAt: Date | string | null;
   /** The unit this belongs to: a module, a project, or an assessment. */
   courseUnit: { id: string; name: string; position: number; category: CourseUnitCategory };
 };
@@ -48,6 +54,7 @@ export type GradebookCsvPerson = {
 export type GradebookCsvCell = {
   assignmentId: string;
   studentId: string;
+  status: SubmissionStatus;
   finalScore: number | null;
   /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
   isLate: boolean | null;
@@ -118,14 +125,19 @@ function csvStudentName(student: GradebookCsvPerson): string {
  * good result out of 8 and a poor one out of 20, and the grid never had to say which because every
  * cell on screen reads `7/8`.
  *
- * **"Handed in late" is a count of the student's missed deadlines, and it is the one column here
- * that is not a score.** It sits with the identity columns rather than after the assignments, both
- * because it describes the student rather than any one piece of work and because a figure fifty
- * columns to the right of the name is one nobody scrolls to. Lateness is deliberately *not* also
- * written per assignment: that would mean a second column beside every existing one, doubling the
- * width of the file and putting text in among the numbers that make it worth having.
+ * **"Handed in late" and "Missing" are counts, and they are the two columns here that are not
+ * scores.** They sit with the identity columns rather than after the assignments, both because
+ * they describe the student rather than any one piece of work and because a figure fifty columns
+ * to the right of the name is one nobody scrolls to. Lateness is not also written per assignment:
+ * that would mean a second column beside every existing one, doubling the width of the file and
+ * putting text in among the numbers that make it worth having. Missing *is* written per assignment
+ * — as the word "Missing" in the assignment's own cell — because that cell was blank anyway, so
+ * the word displaces nothing and says which work the count is counting.
+ *
+ * `at` is the instant "past due" is judged against — the render the download was built in, so the
+ * file and the screen it came from agree on which deadlines have passed.
  */
-export function gradebookCsv(data: GradebookCsvData): string {
+export function gradebookCsv(data: GradebookCsvData, at: Date): string {
   const assignments = sortGradebookAssignments(data.assignments);
 
   /*
@@ -137,9 +149,9 @@ export function gradebookCsv(data: GradebookCsvData): string {
     partitions the course's submissions by whether the student is still enrolled, so no key appears
     in both.
   */
-  const scores = new Map<string, number | null>();
+  const cellByKey = new Map<string, GradebookCsvCell>();
   for (const cell of [...data.cells, ...data.removedCells]) {
-    scores.set(`${cell.assignmentId}:${cell.studentId}`, cell.finalScore);
+    cellByKey.set(`${cell.assignmentId}:${cell.studentId}`, cell);
   }
 
   /*
@@ -154,6 +166,19 @@ export function gradebookCsv(data: GradebookCsvData): string {
   */
   const late = lateByStudent([...data.cells, ...data.removedCells]);
 
+  /*
+    **`missingByStudent` rather than a count written here**, for the late column's reason: it is
+    the same rule the grid's Missing column and red rings are drawn from, and a second
+    implementation is how the file comes to disagree with the screen. Course-wide like the late
+    count, over both rosters, where the grid's column counts one tab.
+  */
+  const missing = missingByStudent(
+    [...data.activeEnrollments, ...data.removedEnrollments].map(({ student }) => student.id),
+    data.assignments,
+    [...data.cells, ...data.removedCells],
+    at,
+  );
+
   function studentRow(student: GradebookCsvPerson, enrollment: string): string {
     return csvLine([
       csvStudentName(student),
@@ -162,19 +187,24 @@ export function gradebookCsv(data: GradebookCsvData): string {
       enrollment,
       /*
         **A zero here, where an ungraded assignment leaves a blank.** The rule against writing a
-        zero for a gap is about scores, and it holds because a missing score is unknown. This
-        figure is never unknown: every student has a number of missed deadlines, and for most of
-        them it is none. A blank would drop those students out of an average rather than counting
-        them as the zeros they are.
+        zero for a gap is about scores, and it holds because a missing score is unknown. These
+        figures are never unknown: every student has a number of late hand-ins and a number of
+        missing assignments, and for most of them it is none. A blank would drop those students
+        out of an average rather than counting them as the zeros they are.
       */
       late.get(student.id) ?? 0,
+      missing.get(student.id) ?? 0,
       /*
-        Missing and present-but-ungraded both land here as an empty cell. `get` returns undefined
-        for a student who never accepted the assignment and null for one whose submission is not
-        graded yet, and `?? null` collapses the pair deliberately — see the note at the top of this
-        file about why neither may become a zero.
+        "Missing" where the screen draws the red ring — `isMissing`, the same predicate the count
+        column left of here is built from, so the word appears exactly as many times in a row as
+        that column claims. Everything else that has no score is blank: not due yet, or handed in
+        but not graded — see the note at the top of this file on why no gap may become a zero.
       */
-      ...assignments.map((assignment) => scores.get(`${assignment.id}:${student.id}`) ?? null),
+      ...assignments.map((assignment) => {
+        const cell = cellByKey.get(`${assignment.id}:${student.id}`);
+        if (isMissing(assignment, cell?.status, at)) return "Missing";
+        return cell?.finalScore ?? null;
+      }),
     ]);
   }
 
@@ -194,12 +224,14 @@ export function gradebookCsv(data: GradebookCsvData): string {
       "Email",
       "GitHub username",
       "Enrollment",
-      // The same words the grid's column uses, so the file and the screen name one fact once.
+      // The same words the grid's columns use, so the file and the screen name each fact once.
       "Handed in late",
+      "Missing",
       ...assignments.map((assignment) => assignment.title),
     ]),
     csvLine([
       "Unit",
+      null,
       null,
       null,
       null,
@@ -219,7 +251,8 @@ export function gradebookCsv(data: GradebookCsvData): string {
       null,
       null,
       null,
-      // Blank rather than a total: a count of missed deadlines is not out of anything.
+      // Blank rather than totals: a count of late or missing assignments is not out of anything.
+      null,
       null,
       ...assignments.map((assignment) => assignment.pointValue),
     ]),

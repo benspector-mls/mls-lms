@@ -101,7 +101,7 @@ async function FullGradebook({
             */}
             {!gradebookIsEmpty(data) && (
               <GradebookDownload
-                csv={gradebookCsv(data)}
+                csv={gradebookCsv(data, new Date())}
                 term={data.course.program.term}
                 cohortLabel={cohortLabel}
               />

@@ -3,7 +3,11 @@ import {
   completionByAssignment,
   completionByStudent,
   completionLabel,
+  isMissing,
   lateByStudent,
+  missingByStudent,
+  type MissingAssignment,
+  type MissingCell,
   type SummaryCell,
 } from "@/lib/gradebook/summary";
 
@@ -194,6 +198,105 @@ describe("lateByStudent", () => {
 
   it("says nothing about a student who has missed no deadline", () => {
     expect(lateByStudent([]).size).toBe(0);
+  });
+});
+
+/**
+ * Whether an assignment is missing for a student, and how many each student has.
+ *
+ * The rule is `!handedIn`, the same rule that builds the student's own overdue list — so the
+ * instructor's "missing" and the student's "overdue" name one fact. And this is the one counter
+ * that takes the roster and the assignments as well as the cells, because the central missing case
+ * has no cell to count: a student who never took the work up has no submission row at all.
+ */
+describe("isMissing", () => {
+  const AT = new Date("2026-09-11T12:00:00.000Z");
+  const PAST = "2026-09-01T00:00:00.000Z";
+  const FUTURE = "2026-10-01T00:00:00.000Z";
+
+  function pastDue(overrides: Partial<MissingAssignment> = {}) {
+    return { dueAt: PAST, distributedAt: "2026-08-01T00:00:00.000Z", ...overrides };
+  }
+
+  it("is missing when past due and never taken up, accepted, or reset", () => {
+    expect(isMissing(pastDue(), undefined, AT)).toBe(true);
+    expect(isMissing(pastDue(), "NOT_STARTED", AT)).toBe(true);
+    expect(isMissing(pastDue(), "ACCEPTED", AT)).toBe(true);
+  });
+
+  // Handing in, however late, clears it — a missed deadline becomes a late hand-in, not both.
+  it("is not missing once anything is handed in", () => {
+    expect(isMissing(pastDue(), "SUBMITTED", AT)).toBe(false);
+    expect(isMissing(pastDue(), "GRADED", AT)).toBe(false);
+  });
+
+  // A student cannot miss what was never handed out.
+  it("never counts a draft, however far past its due date", () => {
+    expect(isMissing(pastDue({ distributedAt: null }), undefined, AT)).toBe(false);
+  });
+
+  it("is not missing before the deadline, and no deadline is never missed", () => {
+    expect(isMissing(pastDue({ dueAt: FUTURE }), undefined, AT)).toBe(false);
+    expect(isMissing(pastDue({ dueAt: null }), undefined, AT)).toBe(false);
+  });
+
+  // Strictly before, which is the comparison the student dashboard makes: due *at* this instant
+  // is not yet missed.
+  it("is not missing at the deadline itself", () => {
+    expect(isMissing(pastDue({ dueAt: AT.toISOString() }), undefined, AT)).toBe(false);
+  });
+});
+
+describe("missingByStudent", () => {
+  const AT = new Date("2026-09-11T12:00:00.000Z");
+
+  function assignment(id: string, overrides: Partial<MissingAssignment> = {}): MissingAssignment {
+    return {
+      id,
+      dueAt: "2026-09-01T00:00:00.000Z",
+      distributedAt: "2026-08-01T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  function cell(
+    assignmentId: string,
+    studentId: string,
+    status: MissingCell["status"],
+  ): MissingCell {
+    return { assignmentId, studentId, status };
+  }
+
+  it("counts absent cells and un-handed-in ones alike", () => {
+    const counts = missingByStudent(
+      ["s1", "s2"],
+      [assignment("a1"), assignment("a2")],
+      // s1 accepted one and never touched the other; s2 handed both in.
+      [cell("a1", "s1", "ACCEPTED"), cell("a1", "s2", "SUBMITTED"), cell("a2", "s2", "GRADED")],
+      AT,
+    );
+
+    expect(counts.get("s1")).toBe(2);
+    expect(counts.get("s2")).toBeUndefined();
+  });
+
+  it("counts nothing for a future deadline or a draft", () => {
+    const counts = missingByStudent(
+      ["s1"],
+      [
+        assignment("a1", { dueAt: "2026-10-01T00:00:00.000Z" }),
+        assignment("a2", { distributedAt: null }),
+      ],
+      [],
+      AT,
+    );
+
+    expect(counts.size).toBe(0);
+  });
+
+  it("has nothing to say with no roster or no work", () => {
+    expect(missingByStudent([], [assignment("a1")], [], AT).size).toBe(0);
+    expect(missingByStudent(["s1"], [], [], AT).size).toBe(0);
   });
 });
 

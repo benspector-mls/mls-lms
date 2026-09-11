@@ -9,11 +9,14 @@ import {
   type GradebookCsvPerson,
 } from "@/lib/gradebook/csv";
 
+/** Published with no deadline, so a case about scores or quoting says nothing about missing. */
 function assignment(overrides: Partial<GradebookCsvAssignment> = {}): GradebookCsvAssignment {
   return {
     id: "a1",
     title: "Loops",
     pointValue: 10,
+    dueAt: null,
+    distributedAt: "2026-01-01T00:00:00.000Z",
     courseUnit: { id: "u1", position: 0, name: "Module 1", category: "MODULE" },
     ...overrides,
   };
@@ -31,13 +34,13 @@ function student(overrides: Partial<GradebookCsvPerson> = {}): GradebookCsvPerso
 }
 
 /**
- * One submission. Ungraded and on time unless the case says otherwise, which is what lets a test
- * about column order say nothing about lateness.
+ * One submission. Handed in, ungraded, and on time unless the case says otherwise, which is what
+ * lets a test about column order say nothing about lateness or missing.
  */
 function cell(
   overrides: Pick<GradebookCsvCell, "assignmentId" | "studentId"> & Partial<GradebookCsvCell>,
 ): GradebookCsvCell {
-  return { finalScore: null, isLate: false, ...overrides };
+  return { status: "SUBMITTED", finalScore: null, isLate: false, ...overrides };
 }
 
 function gradebook(overrides: Partial<GradebookCsvData> = {}): GradebookCsvData {
@@ -52,13 +55,25 @@ function gradebook(overrides: Partial<GradebookCsvData> = {}): GradebookCsvData 
 }
 
 /**
- * Where the assignment columns start, past the per-student ones.
+ * Where the two count columns sit and where the assignment columns start, past the per-student
+ * ones.
  *
- * Named rather than written as `4` at a dozen call sites, for the reason `headerRow` is looked up
- * by label: the block of identity columns grows — it gained "Handed in late" — and every assertion
- * spelling the offset out by hand had to be renumbered for a change none of them were about.
+ * Named rather than written as numbers at a dozen call sites, for the reason `headerRow` is looked
+ * up by label: the block of identity columns grows — it gained "Handed in late", then "Missing" —
+ * and every assertion spelling an offset out by hand had to be renumbered for a change none of
+ * them were about.
  */
-const FIRST_WORK_COLUMN = 5;
+const LATE_COLUMN = 4;
+const MISSING_COLUMN = 5;
+const FIRST_WORK_COLUMN = 6;
+
+/** When every export in this file is taken, so "past due" is the same instant in every case. */
+const AT = new Date("2026-09-11T12:00:00.000Z");
+
+/** The file at that instant, so each assertion reads as being about one export. */
+function toCsv(data: GradebookCsvData): string {
+  return gradebookCsv(data, AT);
+}
 
 /** The file split back into records and fields, for assertions that are about one cell. */
 function rows(csv: string): string[][] {
@@ -122,7 +137,7 @@ describe("column order follows the course, not the alphabet", () => {
   });
 
   it("puts the columns of the file in that same order", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         assignments: [
           assignment({
@@ -154,26 +169,26 @@ describe("column order follows the course, not the alphabet", () => {
 
 describe("a gap is blank and never a zero", () => {
   it("leaves a cell empty when the student never accepted the assignment", () => {
-    const csv = gradebookCsv(gradebook({ cells: [] }));
+    const csv = toCsv(gradebook({ cells: [] }));
     expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
   });
 
   it("leaves a cell empty when the submission exists but is not graded", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null })] }),
     );
     expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
   });
 
   it("writes a score as a bare number a spreadsheet can sum", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: 8.5 })] }),
     );
     expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["8.5"]);
   });
 
   it("writes a zero when the score really is zero", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: 0 })] }),
     );
     expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["0"]);
@@ -182,7 +197,7 @@ describe("a gap is blank and never a zero", () => {
 
 describe("who is in the file", () => {
   it("puts removed students below the active ones and says which is which", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         activeEnrollments: [{ student: student({ id: "s1", displayName: "Ada" }) }],
         removedEnrollments: [{ student: student({ id: "s2", displayName: "Grace" }) }],
@@ -202,7 +217,7 @@ describe("who is in the file", () => {
   });
 
   it("marks a test student in the name, the way the grid marks it with a badge", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         activeEnrollments: [{ student: student({ displayName: "Test 1", testStudentNumber: 1 }) }],
       }),
@@ -212,7 +227,7 @@ describe("who is in the file", () => {
   });
 
   it("falls back through the name chain rather than leaving the column empty", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         activeEnrollments: [{ student: student({ displayName: null }) }],
       }),
@@ -222,7 +237,7 @@ describe("who is in the file", () => {
   });
 
   it("carries email and GitHub username as their own columns", () => {
-    const csv = gradebookCsv(gradebook());
+    const csv = toCsv(gradebook());
     const header = headerRow(csv, "Student");
     const [ada] = studentRows(csv);
 
@@ -232,6 +247,7 @@ describe("who is in the file", () => {
       "GitHub username",
       "Enrollment",
       "Handed in late",
+      "Missing",
     ]);
     expect(ada.slice(1, 3)).toEqual(["ada@example.com", "ada"]);
   });
@@ -239,7 +255,7 @@ describe("who is in the file", () => {
 
 describe("the point values row", () => {
   it("sits under the header, labelled, with one value per assignment", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         assignments: [
           assignment({ id: "a1", title: "Loops", pointValue: 10 }),
@@ -261,6 +277,7 @@ describe("the point values row", () => {
       "",
       "",
       "",
+      "",
       "10",
       "20",
     ]);
@@ -277,11 +294,11 @@ describe("the point values row", () => {
 describe("the handed-in-late column", () => {
   /** The count as the file writes it, so a case does not have to know the column's index. */
   function lateCount(csv: string, row = 0): string {
-    return studentRows(csv)[row][FIRST_WORK_COLUMN - 1];
+    return studentRows(csv)[row][LATE_COLUMN];
   }
 
   it("counts the assignments handed in after the deadline", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         assignments: [
           assignment({ id: "a1", title: "Loops" }),
@@ -307,7 +324,7 @@ describe("the handed-in-late column", () => {
     an average rather than counting them as the zeros they are.
   */
   it("writes a zero for a student who missed no deadline", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: 9 })] }),
     );
 
@@ -317,7 +334,7 @@ describe("the handed-in-late column", () => {
   // Null is "nothing handed in", which is not the same as handed in on time — and a course of
   // assignments nobody has started would otherwise read as a course of missed deadlines.
   it("does not count work that was never handed in", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null, isLate: null })],
       }),
@@ -331,7 +348,7 @@ describe("the handed-in-late column", () => {
     Their count is their own: it is a record of what happened, not a task anybody can still clear.
   */
   it("counts a removed student's missed deadlines too", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         activeEnrollments: [{ student: student({ id: "s1", displayName: "Ada" }) }],
         removedEnrollments: [{ student: student({ id: "s2", displayName: "Grace" }) }],
@@ -347,17 +364,136 @@ describe("the handed-in-late column", () => {
   // It describes the student, so it sits with the name rather than fifty columns to the right of
   // it — and the two header rows have to leave it blank, or they describe the wrong columns.
   it("sits with the identity columns and is left blank by the header rows", () => {
-    const csv = gradebookCsv(gradebook());
+    const csv = toCsv(gradebook());
 
-    expect(headerRow(csv, "Student")[FIRST_WORK_COLUMN - 1]).toBe("Handed in late");
-    expect(headerRow(csv, "Unit")[FIRST_WORK_COLUMN - 1]).toBe("");
-    expect(headerRow(csv, "Points possible")[FIRST_WORK_COLUMN - 1]).toBe("");
+    expect(headerRow(csv, "Student")[LATE_COLUMN]).toBe("Handed in late");
+    expect(headerRow(csv, "Unit")[LATE_COLUMN]).toBe("");
+    expect(headerRow(csv, "Points possible")[LATE_COLUMN]).toBe("");
+  });
+});
+
+/**
+ * How many past-due assignments each student has not handed in, beside the late count.
+ *
+ * The rule itself — what counts as handed in, drafts, deadlines — is `isMissing`'s, tested with
+ * the counter in `summary.test.ts`. These cases are about the file: where the column sits, that a
+ * zero is written, and that it is a course-wide total over both rosters.
+ */
+describe("the missing column", () => {
+  /** The count as the file writes it, so a case does not have to know the column's index. */
+  function missingCount(csv: string, row = 0): string {
+    return studentRows(csv)[row][MISSING_COLUMN];
+  }
+
+  const PAST_DUE = "2026-09-01T00:00:00.000Z";
+
+  it("counts a past-due assignment the student never took up", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: PAST_DUE })],
+        cells: [],
+      }),
+    );
+
+    expect(missingCount(csv)).toBe("1");
+  });
+
+  it("writes a zero for a student with nothing missing", () => {
+    const csv = toCsv(
+      gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: 9 })] }),
+    );
+
+    expect(missingCount(csv)).toBe("0");
+  });
+
+  // A late hand-in clears the figure: the two columns trade, never double-count.
+  it("does not count work handed in after the deadline", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: PAST_DUE })],
+        cells: [cell({ assignmentId: "a1", studentId: "s1", isLate: true })],
+      }),
+    );
+
+    expect(missingCount(csv)).toBe("0");
+    expect(studentRows(csv)[0][LATE_COLUMN]).toBe("1");
+  });
+
+  it("counts a removed student's missing work too", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: PAST_DUE })],
+        activeEnrollments: [{ student: student({ id: "s1", displayName: "Ada" }) }],
+        removedEnrollments: [{ student: student({ id: "s2", displayName: "Grace" }) }],
+        cells: [cell({ assignmentId: "a1", studentId: "s1" })],
+        removedCells: [],
+      }),
+    );
+
+    expect(missingCount(csv, 0)).toBe("0");
+    expect(missingCount(csv, 1)).toBe("1");
+  });
+
+  it("sits with the identity columns and is left blank by the header rows", () => {
+    const csv = toCsv(gradebook());
+
+    expect(headerRow(csv, "Student")[MISSING_COLUMN]).toBe("Missing");
+    expect(headerRow(csv, "Unit")[MISSING_COLUMN]).toBe("");
+    expect(headerRow(csv, "Points possible")[MISSING_COLUMN]).toBe("");
+  });
+
+  /*
+    The word in the cell and the count in the column come from the same predicate, so a row reads
+    consistently: the count says how many, the cells say which. As text, "Missing" drops out of a
+    SUM or AVERAGE the way a blank does — it is the one gap with a verdict in it, not a zero.
+  */
+  it("writes the word Missing in the cell itself, whether never taken up or only accepted", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [
+          assignment({ id: "a1", title: "Loops", dueAt: PAST_DUE }),
+          assignment({
+            id: "a2",
+            title: "Recursion",
+            dueAt: PAST_DUE,
+            courseUnit: { id: "u2", position: 1, name: "Module 2", category: "MODULE" },
+          }),
+        ],
+        cells: [cell({ assignmentId: "a2", studentId: "s1", status: "ACCEPTED" })],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Missing", "Missing"]);
+    expect(missingCount(csv)).toBe("2");
+  });
+
+  // Handed in but ungraded stays blank even past the deadline: that gap is unknown, not a verdict.
+  it("leaves a past-due but handed-in cell blank until it is graded", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: PAST_DUE })],
+        cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null })],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
+  });
+
+  it("leaves a not-yet-due cell blank rather than marking it", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: "2026-10-01T00:00:00.000Z" })],
+        cells: [],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
   });
 });
 
 describe("text a spreadsheet cannot misread", () => {
   it("quotes a name containing a comma so the row does not shift a column", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ activeEnrollments: [{ student: student({ displayName: "Lovelace, Ada" }) }] }),
     );
 
@@ -366,11 +502,11 @@ describe("text a spreadsheet cannot misread", () => {
     // to the right of the assignment it belongs to. Located by its content rather than by line
     // number, so a header row added later does not renumber an assertion about quoting.
     const line = csv.split("\r\n").find((record) => record.includes("Lovelace, Ada"))!;
-    expect(line.split('"')[2]).toBe(",ada@example.com,ada,Active,0,9");
+    expect(line.split('"')[2]).toBe(",ada@example.com,ada,Active,0,0,9");
   });
 
   it("doubles a quote inside a field", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         activeEnrollments: [{ student: student({ displayName: 'Ada "The Countess"' }) }],
       }),
@@ -380,7 +516,7 @@ describe("text a spreadsheet cannot misread", () => {
   });
 
   it("keeps a newline inside a field from becoming a new record", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ activeEnrollments: [{ student: student({ displayName: "Ada\nLovelace" }) }] }),
     );
 
@@ -395,7 +531,7 @@ describe("text a spreadsheet cannot misread", () => {
   });
 
   it("refuses to let a display name run as a formula", () => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({
         activeEnrollments: [{ student: student({ displayName: '=HYPERLINK("http://evil","x")' }) }],
       }),
@@ -407,7 +543,7 @@ describe("text a spreadsheet cannot misread", () => {
   });
 
   it.each(["+1", "-1", "@sum", "=1"])("neutralizes a leading %s", (name) => {
-    const csv = gradebookCsv(
+    const csv = toCsv(
       gradebook({ activeEnrollments: [{ student: student({ displayName: name }) }] }),
     );
 
@@ -415,7 +551,7 @@ describe("text a spreadsheet cannot misread", () => {
   });
 
   it("leaves an ordinary name alone", () => {
-    const csv = gradebookCsv(gradebook());
+    const csv = toCsv(gradebook());
     expect(studentRows(csv)[0][0]).toBe("Ada Lovelace");
   });
 });
@@ -506,7 +642,7 @@ describe("which unit a column belongs to", () => {
     that it lines up with the columns as the file actually writes them.
   */
   it("names the unit and what kind of thing it is", () => {
-    expect(headerRow(data0(data), "Unit").slice(FIRST_WORK_COLUMN)).toEqual([
+    expect(headerRow(toCsv(data), "Unit").slice(FIRST_WORK_COLUMN)).toEqual([
       "module: Mod 4",
       "project: Mod 4 Project",
       "assessment: Mod 4 Assessment",
@@ -520,7 +656,7 @@ describe("which unit a column belongs to", () => {
   */
   it("fills every field, because every assignment belongs to a unit", () => {
     expect(
-      headerRow(data0(data), "Unit")
+      headerRow(toCsv(data), "Unit")
         .slice(FIRST_WORK_COLUMN)
         .every((field) => field !== ""),
     ).toBe(true);
@@ -528,13 +664,8 @@ describe("which unit a column belongs to", () => {
 
   // The row has to line up with the titles above it, or it describes the wrong columns.
   it("has one field per assignment, in the same order as the titles", () => {
-    const titles = headerRow(data0(data), "Student").slice(FIRST_WORK_COLUMN);
-    const units = headerRow(data0(data), "Unit").slice(FIRST_WORK_COLUMN);
+    const titles = headerRow(toCsv(data), "Student").slice(FIRST_WORK_COLUMN);
+    const units = headerRow(toCsv(data), "Unit").slice(FIRST_WORK_COLUMN);
     expect(units).toHaveLength(titles.length);
   });
 });
-
-/** The file, so each assertion above reads as being about one export rather than three. */
-function data0(input: GradebookCsvData): string {
-  return gradebookCsv(input);
-}

@@ -289,6 +289,7 @@ describe("sorting the rows", () => {
     completed: (id: string) => ({ ada: 3, grace: 1, kat: 2 })[id] ?? 0,
     waiting: (id: string) => ({ ada: 0, grace: 5, kat: 2 })[id] ?? 0,
     late: (id: string) => ({ ada: 1, grace: 0, kat: 4 })[id] ?? 0,
+    missing: (id: string) => ({ ada: 0, grace: 3, kat: 1 })[id] ?? 0,
     score: (id: string) => ({ ada: 0.9, grace: 0.5 })[id] ?? null,
   };
 
@@ -319,6 +320,11 @@ describe("sorting the rows", () => {
     expect(sorted.map((s) => s.id)).toEqual(["kat", "ada", "grace"]);
   });
 
+  it("orders by how much is missing", () => {
+    const sorted = sortStudents(roster, { by: "missing", direction: "desc" }, values);
+    expect(sorted.map((s) => s.id)).toEqual(["grace", "kat", "ada"]);
+  });
+
   /*
     A missing score is not a low one — the same distinction the cells draw between an empty ring
     and a zero. Sorting by an assignment nobody has started should not reorder the roster into
@@ -340,6 +346,7 @@ describe("sorting the rows", () => {
       completed: () => 1,
       waiting: () => 1,
       late: () => 1,
+      missing: () => 1,
       score: () => 1,
     };
     const sorted = sortStudents(roster, { by: "completed", direction: "desc" }, flat);
@@ -374,6 +381,7 @@ describe("clicking a header", () => {
   it("opens a number descending, because the question is who has the most", () => {
     expect(toggleSort(byName, { by: "waiting" })).toEqual({ by: "waiting", direction: "desc" });
     expect(toggleSort(byName, { by: "completed" })).toEqual({ by: "completed", direction: "desc" });
+    expect(toggleSort(byName, { by: "missing" })).toEqual({ by: "missing", direction: "desc" });
   });
 
   it("tells two assignment columns apart", () => {
