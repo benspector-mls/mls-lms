@@ -3,6 +3,7 @@ import {
   completionByAssignment,
   completionByStudent,
   completionLabel,
+  lateByStudent,
   type SummaryCell,
 } from "@/lib/gradebook/summary";
 
@@ -154,6 +155,45 @@ describe("awaitingByStudent", () => {
   it("says nothing about a student with nothing outstanding", () => {
     expect(awaitingByStudent([{ studentId: "s1", bucket: null }]).get("s1")).toBeUndefined();
     expect(awaitingByStudent([]).size).toBe(0);
+  });
+});
+
+/**
+ * How many of a student's submissions were handed in after the deadline.
+ *
+ * The rule is `isLate === true`, which is the column `handInState` writes against the deadline as
+ * it stood at hand-in. It is read and never recomputed here: a second comparison of a submission
+ * time against a due date in the browser is how this figure would come to disagree with the "Late"
+ * badge on the grading screen and with the student's own view of the same submission.
+ */
+describe("lateByStudent", () => {
+  it("counts the submissions handed in after the deadline", () => {
+    const counts = lateByStudent([
+      { studentId: "s1", isLate: true },
+      { studentId: "s1", isLate: true },
+      { studentId: "s1", isLate: false },
+      { studentId: "s2", isLate: true },
+    ]);
+
+    expect(counts.get("s1")).toBe(2);
+    expect(counts.get("s2")).toBe(1);
+  });
+
+  /*
+    Null is "nothing handed in yet", which is not the same as handed in on time — and counting it
+    as late would turn every assignment nobody has started into a missed deadline.
+  */
+  it("counts neither an on-time hand-in nor a missing one", () => {
+    const counts = lateByStudent([
+      { studentId: "s1", isLate: false },
+      { studentId: "s1", isLate: null },
+    ]);
+
+    expect(counts.get("s1")).toBeUndefined();
+  });
+
+  it("says nothing about a student who has missed no deadline", () => {
+    expect(lateByStudent([]).size).toBe(0);
   });
 });
 

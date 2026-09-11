@@ -284,6 +284,7 @@ describe("sorting the rows", () => {
   const values = {
     completed: (id: string) => ({ ada: 3, grace: 1, kat: 2 })[id] ?? 0,
     waiting: (id: string) => ({ ada: 0, grace: 5, kat: 2 })[id] ?? 0,
+    late: (id: string) => ({ ada: 1, grace: 0, kat: 4 })[id] ?? 0,
     score: (id: string) => ({ ada: 0.9, grace: 0.5 })[id] ?? null,
   };
 
@@ -309,6 +310,11 @@ describe("sorting the rows", () => {
     expect(sorted.map((s) => s.id)).toEqual(["ada", "kat", "grace"]);
   });
 
+  it("orders by how many deadlines were missed", () => {
+    const sorted = sortStudents(roster, { by: "late", direction: "desc" }, values);
+    expect(sorted.map((s) => s.id)).toEqual(["kat", "ada", "grace"]);
+  });
+
   /*
     A missing score is not a low one — the same distinction the cells draw between an empty ring
     and a zero. Sorting by an assignment nobody has started should not reorder the roster into
@@ -329,6 +335,7 @@ describe("sorting the rows", () => {
     const flat = {
       completed: () => 1,
       waiting: () => 1,
+      late: () => 1,
       score: () => 1,
     };
     const sorted = sortStudents(roster, { by: "completed", direction: "desc" }, flat);

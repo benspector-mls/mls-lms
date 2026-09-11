@@ -300,14 +300,15 @@ function asSchoolDay(value: string): string | null {
 /**
  * What the rows are ordered by.
  *
- * `name` is the roster's own order, which is what the grid opens on. `completed` and `waiting`
- * are the two summary columns. `assignment` names one column by id, which is how a reader asks
- * "who did badly on this one" without reading down forty rows.
+ * `name` is the roster's own order, which is what the grid opens on. `completed`, `waiting` and
+ * `late` are the three summary columns. `assignment` names one column by id, which is how a reader
+ * asks "who did badly on this one" without reading down forty rows.
  */
 export type RowSort =
   | { by: "name"; direction: SortDirection }
   | { by: "completed"; direction: SortDirection }
   | { by: "waiting"; direction: SortDirection }
+  | { by: "late"; direction: SortDirection }
   | { by: "assignment"; assignmentId: string; direction: SortDirection };
 
 export type SortDirection = "asc" | "desc";
@@ -322,6 +323,7 @@ export type SortColumn =
   | { by: "name" }
   | { by: "completed" }
   | { by: "waiting" }
+  | { by: "late" }
   | { by: "assignment"; assignmentId: string };
 
 export const DEFAULT_ROW_SORT: RowSort = { by: "name", direction: "asc" };
@@ -375,6 +377,8 @@ export function sortStudents<S extends SearchableStudent & { id: string }>(
     completed: (studentId: string) => number;
     /** How many of their submissions are waiting on an instructor. */
     waiting: (studentId: string) => number;
+    /** How many of their submissions were handed in after the deadline. */
+    late: (studentId: string) => number;
     /** Their score on one assignment as a fraction, or null where there is none. */
     score: (studentId: string, assignmentId: string) => number | null;
   },
@@ -385,6 +389,7 @@ export function sortStudents<S extends SearchableStudent & { id: string }>(
     if (sort.by === "name") return null;
     if (sort.by === "completed") return values.completed(student.id);
     if (sort.by === "waiting") return values.waiting(student.id);
+    if (sort.by === "late") return values.late(student.id);
     return values.score(student.id, sort.assignmentId);
   };
 

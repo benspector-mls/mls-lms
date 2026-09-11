@@ -43,6 +43,7 @@ import {
   completionByAssignment,
   completionByStudent,
   completionLabel,
+  lateByStudent,
   type Completion,
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
@@ -382,6 +383,17 @@ function Band({
   */
   const awaiting = pending === "waiting" ? awaitingByStudent(shown) : null;
 
+  /*
+    From `shown` for the same reason, so the figure counts the marks in its own row rather than
+    every late hand-in in the course.
+
+    Not suppressed for removed students, unlike the waiting count. That column is null there
+    because nobody is going to grade the work — it names a task that cannot be cleared. This one
+    names no task at all: it is a record of deadlines already missed, and it stays true after a
+    student leaves the cohort.
+  */
+  const late = lateByStudent(shown);
+
   /**
    * How much of each unit each student has finished: "3/5", per unit, per student.
    *
@@ -424,13 +436,14 @@ function Band({
       sortStudents(students, sort, {
         completed: (studentId) => acrossRow.get(studentId)?.complete ?? 0,
         waiting: (studentId) => awaiting?.get(studentId) ?? 0,
+        late: (studentId) => late.get(studentId) ?? 0,
         score: (studentId, assignmentId) => {
           const cell = byKey.get(`${assignmentId}:${studentId}`);
           if (!cell || cell.finalScore == null) return null;
           return scorePercent(cell.finalScore, cell.finalScorePossible) ?? cell.finalScore;
         },
       }),
-    [students, sort, acrossRow, awaiting, byKey],
+    [students, sort, acrossRow, awaiting, late, byKey],
   );
 
   if (students.length === 0) {
@@ -454,14 +467,14 @@ function Band({
             somewhere off to the right of it. Only the name has to stay visible while reading
             across; the summary figures scroll with the work they count.
 
-            So the two summary columns get a band of their own rather than sitting under the
-            frozen cell. That is what they are — a summary of the whole tab, not part of any one
-            unit — and the divider between it and the first unit is the point rather than a cost.
+            So the summary columns get a band of their own rather than sitting under the frozen
+            cell. That is what they are — a summary of the whole tab, not part of any one unit —
+            and the divider between it and the first unit is the point rather than a cost.
           */}
           <TableRow className="hover:bg-transparent">
             <TableHead className={stickyColumn} />
             <TableHead
-              colSpan={2}
+              colSpan={3}
               className="border-l border-border text-center text-xs font-medium"
             >
               Summary
@@ -509,6 +522,25 @@ function Band({
               }
               sort={sort}
               column={{ by: "waiting" }}
+              onSort={onSort}
+              center
+            />
+            {/*
+              **"Handed in late" rather than "Late".** On its own the word is the attendance
+              vocabulary this application already uses for a student arriving after a session
+              started, and a gradebook column headed "Late" beside an attendance screen headed
+              "Late" invites reading one as the other. The phrase says which of the two is meant.
+            */}
+            <SortableHead
+              label={
+                <span className="mx-auto block max-w-28 text-xs leading-tight">
+                  Handed in
+                  <br />
+                  late
+                </span>
+              }
+              sort={sort}
+              column={{ by: "late" }}
               onSort={onSort}
               center
             />
@@ -594,6 +626,7 @@ function Band({
             */}
             <TableHead className="border-l border-border" />
             <TableHead />
+            <TableHead />
             {units.map((entry) => {
               // How many students have finished the whole unit, which is a different question
               // from the fraction each student's own cell below shows.
@@ -653,6 +686,26 @@ function Band({
                 )}
               >
                 {awaiting === null ? "—" : (awaiting.get(student.id) ?? 0)}
+              </TableCell>
+
+              {/*
+                **Not coloured when there is something, unlike the column beside it.** Amber there
+                means "a task you can clear", and every other colour in this grid is a judgment on
+                the work. A missed deadline is neither: nothing an instructor does will empty this
+                column, and a red or amber figure would read as a verdict on the student that the
+                gradebook has not made and is not qualified to make. Weight alone is enough to find
+                the rows worth looking at, and the number is the whole of what is being claimed.
+
+                Zero is printed rather than blanked, for the same reason it is next door: "nothing
+                late" is worth reading, where an empty cell says only that something failed.
+              */}
+              <TableCell
+                className={cn(
+                  "text-center text-sm tabular-nums",
+                  late.get(student.id) ? "font-medium text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {late.get(student.id) ?? 0}
               </TableCell>
 
               {units.map((entry) => (
@@ -844,6 +897,30 @@ function CellMark({ kind, label }: { kind: keyof typeof CELL_MARK; label?: strin
 }
 
 /**
+ * The mark on a cell whose work was handed in after the deadline.
+ *
+ * **A square, where every other mark in this grid is a circle.** The three in `CELL_MARK` are one
+ * scale — nothing taken up, taken up, handed in — and lateness is not a fourth step along it. It is
+ * a different kind of fact about the same cell, true at the same time as any of the three and
+ * changing none of them, so it is drawn as a different kind of thing rather than as another point
+ * on a scale it does not belong to.
+ *
+ * **Muted rather than amber or red.** Amber is "waiting on you", and the two marks appear together
+ * on a resubmitted cell — a second amber dot beside the first would read as more of the same task.
+ * Red is a failing score. A deadline missed weeks ago is neither an instructor's task nor a verdict
+ * on the work, and colouring it as either would say something this grid does not know.
+ */
+function LateMark() {
+  return (
+    <span
+      className="size-1.5 shrink-0 rounded-[1px] bg-muted-foreground/70"
+      aria-label="Handed in late"
+      title="Handed in late"
+    />
+  );
+}
+
+/**
  * What a cell that is not a score means.
  *
  * **Four marks that are not self-explanatory, and the grid is where they appear.** A number is
@@ -886,6 +963,16 @@ function CellLegend() {
         mark={<CellMark kind="waiting" />}
         label="Waiting on you"
         description="submitted (or resubmitted), not yet graded"
+      />
+      {/*
+        The one entry that is not a state the cell is *in*. It sits beside a score or beside any of
+        the three marks above, which is the thing the legend most needs to say about it — a reader
+        who has taken the marks for a scale would otherwise expect it to replace them.
+      */}
+      <LegendItem
+        mark={<LateMark />}
+        label="Handed in late"
+        description="first submitted after the due date"
       />
     </ul>
   );
@@ -1019,6 +1106,14 @@ function ScoreCell({
             label={cell.bucket ? "Waiting on you" : SUBMISSION_STATUS_META[cell.status].label}
           />
         )}
+
+        {/*
+          After whatever the cell already says, in every one of the three branches above: a late
+          hand-in can be graded, ungraded, or a removed student's work that nobody will mark, and
+          it is equally true in all three. Drawn only for `=== true`, since null means nothing was
+          handed in — which is not the same as handed in on time.
+        */}
+        {cell.isLate === true && <LateMark />}
       </Link>
     </TableCell>
   );

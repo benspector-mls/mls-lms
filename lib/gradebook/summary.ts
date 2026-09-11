@@ -117,6 +117,46 @@ export function awaitingByStudent(cells: readonly AwaitingCell[]): Map<string, n
   return counts;
 }
 
+/** The parts of a cell the late count reads. Separate again, for the same reason as above. */
+export type LateCell = {
+  studentId: string;
+  /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
+  isLate: boolean | null;
+};
+
+/**
+ * Per student: how many of their submissions were handed in after the deadline.
+ *
+ * **A count rather than a fraction**, for the same reason the waiting column is one: the useful
+ * figure is how many times this has happened, not how many of the course's assignments it happened
+ * on. Unlike the waiting count, though, this one does not describe anything anybody can clear — it
+ * is a record of what already happened, so it climbs and stays climbed.
+ *
+ * **`isLate` is read, never recomputed from a due date here.** The verdict is made once, in
+ * `handInState`, against the deadline as it stood when the work was handed in, and the column it
+ * writes is the answer. Comparing a submission time against `dueAt` in the browser would be a
+ * second implementation free to disagree with the "Late" badge on the grading screen and with the
+ * student's own view of the same submission.
+ *
+ * **It means the *first* hand-in was late, and a resubmission cannot make it so.** `submittedAt` is
+ * recorded once and never moved, deliberately, so that revising work does not retroactively turn an
+ * on-time submission into a late one. That is what makes this a count of missed deadlines rather
+ * than a count of students who kept working.
+ *
+ * Null is "nothing handed in yet", which is not the same as on time, so the test is `=== true` —
+ * the same convention `isComplete` follows above.
+ */
+export function lateByStudent(cells: readonly LateCell[]): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (const cell of cells) {
+    if (cell.isLate !== true) continue;
+    counts.set(cell.studentId, (counts.get(cell.studentId) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
 /**
  * What a summary cell reads: "2/5", or an em dash where there is nothing to be a fraction of.
  *
