@@ -172,6 +172,40 @@ async function threadRowForWriting(db: Tx, scope: ThreadScope): Promise<string> 
   return created.id;
 }
 
+/**
+ * Whether the caller may read one thread, named by the row it hangs off.
+ *
+ * The other way in. `resolveThread` above starts from an assignment, which is what a screen holding
+ * an open panel has; this starts from the submission, which is what a screen holding a receipt has —
+ * the dashboard's list of unread conversations, where there is no assignment payload to resolve
+ * against and no need to fetch one.
+ *
+ * A query whose `where` is the check, because Prisma bypasses row level security. Three ways to be
+ * admitted: your own work, your team's, or an instructor of the program it belongs to. Not found
+ * rather than forbidden, so a refusal does not report that the row exists.
+ */
+async function assertMayReadThread(db: Db, submissionId: string, profileId: string): Promise<void> {
+  const submission = await db.submission.findFirst({
+    where: {
+      id: submissionId,
+      OR: [
+        // Their own work, or their team's.
+        { studentId: profileId },
+        { mirrors: { some: { studentId: profileId } } },
+        // Or an instructor of the program, which is where authority lives.
+        {
+          assignment: { course: { program: { instructors: { some: { userId: profileId } } } } },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+
+  if (!submission) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
+  }
+}
+
 /** What an author whose account has gone is called. One string, used twice in one expression. */
 const GONE = "Someone who has left";
 
@@ -458,27 +492,7 @@ export const submissionCommentsRouter = createTRPCRouter({
       }
 
       // Whether the caller may read this thread at all, asked before writing a row about it.
-      const submission = await ctx.db.submission.findFirst({
-        where: {
-          id: input.submissionId,
-          OR: [
-            // Their own work, or their team's.
-            { studentId: ctx.profile.id },
-            { mirrors: { some: { studentId: ctx.profile.id } } },
-            // Or an instructor of the program, which is where authority lives.
-            {
-              assignment: {
-                course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
-              },
-            },
-          ],
-        },
-        select: { id: true },
-      });
-
-      if (!submission) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
-      }
+      await assertMayReadThread(ctx.db, input.submissionId, ctx.profile.id);
 
       /*
         Two writes, because the receipt must only move forwards and one upsert cannot say so. Two
@@ -512,5 +526,42 @@ export const submissionCommentsRouter = createTRPCRouter({
       }
 
       return { submissionId: input.submissionId, lastReadAt: comment.createdAt };
+    }),
+
+  /**
+   * A reader taking their receipt back, so the conversation reads as news again.
+   *
+   * **By deleting the receipt rather than by moving `lastReadAt` backwards.** A reader with no row
+   * has read nothing, which is a state the table already defines and `isUnread` already answers for;
+   * setting the clock back would mean finding the newest message that stands and was written by
+   * somebody else, then writing a moment just before it, to express a half-read state nothing asks
+   * about. `deleteMany` rather than `delete`, so pressing twice, or pressing with no receipt, is
+   * nothing rather than a refusal.
+   *
+   * The inverse of `markRead` and deliberately not its opposite in shape: that one only moves
+   * forwards, because two tabs settling out of order must not relight a badge. This is somebody
+   * saying they want the conversation back, and a stale tab that later marks it read again has said
+   * something true.
+   *
+   * Per reader. A teammate's receipt is their own, and this leaves it alone.
+   */
+  markUnread: profileProcedure
+    .input(z.object({ submissionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertMayReadThread(ctx.db, input.submissionId, ctx.profile.id);
+
+      await ctx.db.submissionCommentRead.deleteMany({
+        where: { submissionId: input.submissionId, profileId: ctx.profile.id },
+      });
+
+      // The whole thread back, as `post` and `remove` do, so the panel replaces what it holds and
+      // its badge comes from the server rather than from a count the browser worked out.
+      return {
+        submissionId: input.submissionId,
+        ...(await readThread(ctx.db, {
+          submissionId: input.submissionId,
+          readerId: ctx.profile.id,
+        })),
+      };
     }),
 });

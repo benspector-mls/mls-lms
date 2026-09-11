@@ -162,13 +162,19 @@ const studentWorkSelect = {
  * differs on every row. So both are read for the page at once and folded with the same
  * `unreadCount` the thread badges with.
  *
- * No bodies and no names: fifty rows each want one integer. The ids must already be resolved
- * through `threadSubmissionId`.
+ * No bodies and no names: fifty rows each want one integer and the newest message's id. The ids
+ * must already be resolved through `threadSubmissionId`.
+ *
+ * **The newest message travels alongside the count** because the dashboard offers a button that
+ * marks a thread read without opening it, and `markRead` names a message rather than sending a
+ * clock. The newest message regardless of whether it stands or who wrote it is the right one to
+ * name: advancing a receipt past a withdrawn message, or past your own, changes no answer
+ * `isUnread` gives.
  */
 async function unreadCommentCounts(
   db: Db,
   params: { threadIds: readonly string[]; readerId: string },
-): Promise<Map<string, number>> {
+): Promise<Map<string, { unreadCount: number; lastCommentId: string; lastCommentAt: Date }>> {
   if (params.threadIds.length === 0) return new Map();
 
   const ids = [...new Set(params.threadIds)];
@@ -176,7 +182,9 @@ async function unreadCommentCounts(
   const [comments, receipts] = await Promise.all([
     db.submissionComment.findMany({
       where: { submissionId: { in: ids } },
+      orderBy: { createdAt: "asc" },
       select: {
+        id: true,
         submissionId: true,
         authorId: true,
         authorRole: true,
@@ -191,7 +199,7 @@ async function unreadCommentCounts(
   ]);
 
   const lastReadOf = new Map(receipts.map((receipt) => [receipt.submissionId, receipt.lastReadAt]));
-  const byThread = new Map<string, ThreadComment[]>();
+  const byThread = new Map<string, (ThreadComment & { id: string })[]>();
 
   for (const comment of comments) {
     const existing = byThread.get(comment.submissionId);
@@ -199,16 +207,23 @@ async function unreadCommentCounts(
     else byThread.set(comment.submissionId, [comment]);
   }
 
-  const counts = new Map<string, number>();
+  const counts = new Map<
+    string,
+    { unreadCount: number; lastCommentId: string; lastCommentAt: Date }
+  >();
 
   for (const [threadId, thread] of byThread) {
-    counts.set(
-      threadId,
-      unreadCount(thread, {
+    // Oldest first out of the query, so the newest is the last of them.
+    const newest = thread[thread.length - 1];
+
+    counts.set(threadId, {
+      unreadCount: unreadCount(thread, {
         id: params.readerId,
         lastReadAt: lastReadOf.get(threadId) ?? null,
       }),
-    );
+      lastCommentId: newest.id,
+      lastCommentAt: newest.createdAt,
+    });
   }
 
   return counts;
@@ -337,6 +352,9 @@ export const assignmentsRouter = createTRPCRouter({
             isComplete: true,
             gradedAt: true,
             feedbackReviewedAt: true,
+            // Which row the conversation hangs off, for a team's work. Read but not returned:
+            // it is resolved into `unreadComments.threadId` below and has no other reader here.
+            teamSubmissionId: true,
           },
         },
       },
@@ -347,6 +365,22 @@ export const assignmentsRouter = createTRPCRouter({
     });
 
     /*
+      Unread comments, for the dashboard's list of replies a student has not read. One query for
+      every course at once rather than one per row, and resolved through the mirror so every
+      member of a team is told about their team's conversation.
+
+      The same call `listForCourse` makes. It is the one thing on this screen a student cannot
+      learn anywhere else without opening each assignment in turn, which is the whole reason the
+      dashboard asks for it.
+    */
+    const unreadComments = await unreadCommentCounts(ctx.db, {
+      threadIds: assignments.flatMap((assignment) =>
+        assignment.submissions.map((submission) => threadSubmissionId(submission)),
+      ),
+      readerId: ctx.profile.id,
+    });
+
+    /*
       Flattened from a list of at most one to one row or null.
 
       The relation is scoped to the caller, so `submissions` can only ever hold their own
@@ -354,10 +388,42 @@ export const assignmentsRouter = createTRPCRouter({
       for no reason. `listForCourse` leaves it as an array because its consumers were written
       against that shape; a new read has no such history to keep.
     */
-    return assignments.map(({ submissions, ...assignment }) => ({
-      ...assignment,
-      submission: submissions[0] ?? null,
-    }));
+    return assignments.map(({ submissions, ...assignment }) => {
+      const own = submissions[0] ?? null;
+
+      if (!own) return { ...assignment, submission: null };
+
+      /*
+        The mirror column comes off the payload here and goes no further: it is an id for a row the
+        student does not own, and the one question it answers — which row the conversation hangs
+        off — is answered below and sent as `threadId`.
+      */
+      const { teamSubmissionId, ...submission } = own;
+      const threadId = threadSubmissionId({ id: submission.id, teamSubmissionId });
+      const thread = unreadComments.get(threadId);
+
+      return {
+        ...assignment,
+        submission: {
+          ...submission,
+          /*
+            Null when there is nothing to tell them, so the screen asks one question rather than
+            comparing a count against zero. What it carries when there is something is what the
+            row needs to draw itself and what `markRead` needs to clear it: the thread the
+            conversation hangs off, and the message being read as far as.
+          */
+          unreadComments:
+            thread && thread.unreadCount > 0
+              ? {
+                  count: thread.unreadCount,
+                  threadId,
+                  upTo: thread.lastCommentId,
+                  lastCommentAt: thread.lastCommentAt,
+                }
+              : null,
+        },
+      };
+    });
   }),
 
   /**
@@ -548,7 +614,7 @@ export const assignmentsRouter = createTRPCRouter({
             */
             instructorHasStarted: work._count.gradingDrafts > 0,
             // The panel seeds its badge from this before the Comments tab has been opened.
-            unreadCommentCount: unreadComments.get(threadSubmissionId(own)) ?? 0,
+            unreadCommentCount: unreadComments.get(threadSubmissionId(own))?.unreadCount ?? 0,
             gradingDrafts: work.gradingDrafts.map((draft) => ({
               ...draft,
               sections: draft.sections.map(effectiveSection),

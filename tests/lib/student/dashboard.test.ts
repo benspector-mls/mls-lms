@@ -3,7 +3,7 @@ import {
   dashboardIsEmpty,
   dashboardSections,
   DEFAULT_UPCOMING_WINDOW_DAYS,
-  UNREAD_FEEDBACK_LIMIT,
+  UNREAD_NEWS_LIMIT,
   UPCOMING_WINDOW_CHOICES,
   upcomingWindowOf,
   type DashboardRow,
@@ -33,10 +33,12 @@ function row(
     gradedAt?: Date | null;
     feedbackReviewedAt?: Date | null;
     isComplete?: boolean | null;
+    /** When there are unread messages, the moment the newest of them was written. */
+    lastCommentAt?: Date;
   } = {},
 ): DashboardRow {
   counter += 1;
-  const { dueAt = null, status, ...submissionOverrides } = overrides;
+  const { dueAt = null, status, lastCommentAt, ...submissionOverrides } = overrides;
 
   return {
     id: `assignment-${counter}`,
@@ -53,6 +55,19 @@ function row(
             isComplete: null,
             gradedAt: null,
             feedbackReviewedAt: null,
+            /*
+              Null unless a case asks for messages. The count and the two ids are what the row
+              draws itself from and what its Mark as read button sends; nothing here reads them,
+              so one shape covers every case.
+            */
+            unreadComments: lastCommentAt
+              ? {
+                  count: 2,
+                  threadId: `thread-${counter}`,
+                  upTo: `comment-${counter}`,
+                  lastCommentAt,
+                }
+              : null,
             ...submissionOverrides,
           },
   };
@@ -185,20 +200,127 @@ describe("unread feedback", () => {
     list of thirty says the opposite by being one more pile to work through.
   */
   it("caps the list, keeping the newest", () => {
-    const rows = Array.from({ length: UNREAD_FEEDBACK_LIMIT + 5 }, (_, i) =>
+    const rows = Array.from({ length: UNREAD_NEWS_LIMIT + 5 }, (_, i) =>
       row({ status: "GRADED", gradedAt: new Date(2026, 9, i + 1) }),
     );
     const sections = dashboardSections(rows, NOW);
 
-    expect(sections.unreadFeedback).toHaveLength(UNREAD_FEEDBACK_LIMIT);
+    expect(sections.unreadFeedback).toHaveLength(UNREAD_NEWS_LIMIT);
     expect(sections.unreadFeedback[0].submission?.gradedAt).toEqual(
-      new Date(2026, 9, UNREAD_FEEDBACK_LIMIT + 5),
+      new Date(2026, 9, UNREAD_NEWS_LIMIT + 5),
     );
   });
 
   it("has nothing to report for work still with an instructor", () => {
     const sections = dashboardSections([row({ status: "SUBMITTED" })], NOW);
     expect(sections.unreadFeedback).toHaveLength(0);
+  });
+});
+
+/**
+ * Messages from somebody else that the student has not read.
+ *
+ * The only list on this screen that is not about the student's own work having moved. Whether a
+ * message is unread is settled on the server, against the student's own receipt, so what these
+ * cases are about is which rows the list holds and in what order — never the counting.
+ */
+describe("unread comments", () => {
+  it("lists work with messages the student has not read", () => {
+    const sections = dashboardSections(
+      [row({ status: "SUBMITTED", lastCommentAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.unreadComments).toHaveLength(1);
+  });
+
+  it("leaves out work whose conversation has been read", () => {
+    const sections = dashboardSections([row({ status: "SUBMITTED" })], NOW);
+    expect(sections.unreadComments).toHaveLength(0);
+  });
+
+  // A conversation can be had about work nobody has started, which is the point of the panel
+  // offering the tab before there is anything to hand in.
+  it("lists work that has no submission row of its own", () => {
+    const sections = dashboardSections(
+      [row({ status: "NOT_STARTED", lastCommentAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(sections.unreadComments).toHaveLength(1);
+  });
+
+  /*
+    A reply and a report are separate pieces of news, cleared by separate acts. Reading the report
+    says nothing about the question the instructor answered underneath it, so hiding one behind the
+    other would drop a message the student never saw.
+  */
+  it("counts a row as both unread feedback and an unread reply", () => {
+    const sections = dashboardSections(
+      [row({ status: "GRADED", gradedAt: YESTERDAY, lastCommentAt: NOW })],
+      NOW,
+    );
+
+    expect(sections.unreadFeedback).toHaveLength(1);
+    expect(sections.unreadComments).toHaveLength(1);
+    expect(sections.unreadFeedback[0].id).toBe(sections.unreadComments[0].id);
+  });
+
+  // Work below the threshold is in `needsAnotherAttempt` and not in `unreadFeedback`; a question
+  // answered on it is still a message to read.
+  it("lists a reply on work that needs another attempt", () => {
+    const sections = dashboardSections(
+      [
+        row({
+          status: "GRADED",
+          isComplete: false,
+          gradedAt: YESTERDAY,
+          lastCommentAt: NOW,
+        }),
+      ],
+      NOW,
+    );
+
+    expect(sections.needsAnotherAttempt).toHaveLength(1);
+    expect(sections.unreadComments).toHaveLength(1);
+  });
+
+  it("shows the conversation that moved most recently first", () => {
+    const sections = dashboardSections(
+      [
+        row({ status: "SUBMITTED", lastCommentAt: new Date("2026-10-01T09:00:00Z") }),
+        row({ status: "SUBMITTED", lastCommentAt: new Date("2026-10-08T09:00:00Z") }),
+      ],
+      NOW,
+    );
+
+    expect(sections.unreadComments.map((r) => r.submission?.unreadComments?.lastCommentAt)).toEqual(
+      [new Date("2026-10-08T09:00:00Z"), new Date("2026-10-01T09:00:00Z")],
+    );
+  });
+
+  // News, like the reports above it, and capped for the same reason.
+  it("caps the list, keeping the newest", () => {
+    const rows = Array.from({ length: UNREAD_NEWS_LIMIT + 5 }, (_, i) =>
+      row({ status: "SUBMITTED", lastCommentAt: new Date(2026, 9, i + 1) }),
+    );
+    const sections = dashboardSections(rows, NOW);
+
+    expect(sections.unreadComments).toHaveLength(UNREAD_NEWS_LIMIT);
+    expect(sections.unreadComments[0].submission?.unreadComments?.lastCommentAt).toEqual(
+      new Date(2026, 9, UNREAD_NEWS_LIMIT + 5),
+    );
+  });
+
+  // An unread reply on work that is otherwise finished is the whole reason this list exists: it is
+  // the one thing that would leave the screen congratulating a student who has a message waiting.
+  it("keeps the screen from reading as empty", () => {
+    const sections = dashboardSections(
+      [row({ status: "SUBMITTED", lastCommentAt: YESTERDAY })],
+      NOW,
+    );
+
+    expect(dashboardIsEmpty(sections)).toBe(false);
   });
 });
 
@@ -489,13 +611,11 @@ describe("needs another attempt", () => {
 
   // A cap here would hide work. The feedback list is capped because it is news; this is a to-do.
   it("is not capped", () => {
-    const rows = Array.from({ length: UNREAD_FEEDBACK_LIMIT + 5 }, (_, i) =>
+    const rows = Array.from({ length: UNREAD_NEWS_LIMIT + 5 }, (_, i) =>
       row({ status: "GRADED", isComplete: false, gradedAt: new Date(2026, 9, i + 1) }),
     );
 
-    expect(dashboardSections(rows, NOW).needsAnotherAttempt).toHaveLength(
-      UNREAD_FEEDBACK_LIMIT + 5,
-    );
+    expect(dashboardSections(rows, NOW).needsAnotherAttempt).toHaveLength(UNREAD_NEWS_LIMIT + 5);
   });
 });
 

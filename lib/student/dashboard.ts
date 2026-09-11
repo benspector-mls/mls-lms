@@ -17,6 +17,12 @@
  * would let this screen say a student was finished when they were not, which is the one thing it
  * must never do.
  *
+ * **A read receipt is state, not a dismissal.** The two lists of news — an unreleased report and an
+ * unread reply — clear when the student records having read the thing, which is what
+ * `feedbackReviewedAt` and the receipt behind `unreadComments` are. The distinction is that the
+ * record is true afterwards and the student can take it back: marking a conversation unread puts it
+ * back on this screen, because nothing was done to the work by reading it.
+ *
  * **Reading a report is not doing the work, and the two graded lists are that distinction.**
  * Marking feedback read clears the report from Feedback to read, because a report that has been
  * read is not news. It clears nothing from Needs another attempt, because work that came back
@@ -45,6 +51,19 @@ export type DashboardRow = {
     isComplete: boolean | null;
     gradedAt: Date | null;
     feedbackReviewedAt: Date | null;
+    /**
+     * Messages on this work's conversation that the student has not read, or null when there are
+     * none. Counted by `listMine` against the student's own receipt, because who has read how far
+     * is a question only the server can answer.
+     */
+    unreadComments: {
+      count: number;
+      /** The row the conversation hangs off — a team's row where a team did the work. */
+      threadId: string;
+      /** The newest message, which is what marking the thread read is read as far as. */
+      upTo: string;
+      lastCommentAt: Date;
+    } | null;
   } | null;
 };
 
@@ -57,6 +76,13 @@ export interface DashboardSections<Row> {
   needsAnotherAttempt: Row[];
   /** Graded, passed, with a report the student has not said they read. Newest first, at most ten. */
   unreadFeedback: Row[];
+  /**
+   * With messages from somebody else the student has not read. Newest message first, at most ten.
+   *
+   * The only list here that is not about the student's own work having moved: somebody wrote to
+   * them, and until this existed the only way to find out was to open each assignment in turn.
+   */
+  unreadComments: Row[];
   /** Taken up and not handed in. */
   inProgress: Row[];
   /**
@@ -71,17 +97,17 @@ export interface DashboardSections<Row> {
 }
 
 /**
- * At most ten unread reports.
+ * At most ten of each kind of news: unread reports, and assignments with unread messages.
  *
- * A cap rather than a scroll: this section exists to say "there is something new to read", and a
- * list of thirty says the opposite by being one more thing to work through. Ten is enough to cover
- * a fortnight of a heavy module.
+ * A cap rather than a scroll: those two sections exist to say "there is something new to read", and
+ * a list of thirty says the opposite by being one more thing to work through. Ten is enough to
+ * cover a fortnight of a heavy module.
  *
- * Nothing else here is capped, and the difference is what each list is for. Unread feedback is
- * news; the deadline lists and Needs another attempt are work, and a cap on a list of work hides
- * some of it.
+ * Nothing else here is capped, and the difference is what each list is for. Feedback and replies
+ * are news; the deadline lists and Needs another attempt are work, and a cap on a list of work
+ * hides some of it.
  */
-export const UNREAD_FEEDBACK_LIMIT = 10;
+export const UNREAD_NEWS_LIMIT = 10;
 
 /**
  * The windows a student may choose between, in days.
@@ -161,6 +187,11 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * else that is graded and unread is feedback. A student who has read the report on a 9/15 has
  * finished reading and has not finished the work, and only one of those is what this screen is
  * counting.
+ *
+ * **Unread messages are outside that partition, and one assignment can be in both.** A report and a
+ * reply are separate pieces of news, cleared by separate acts — reading the report says nothing
+ * about the question the instructor answered underneath it. Hiding the reply behind the report
+ * would drop a message the student never saw.
  */
 export function dashboardSections<Row extends DashboardRow>(
   rows: readonly Row[],
@@ -176,6 +207,7 @@ export function dashboardSections<Row extends DashboardRow>(
   const overdue: Row[] = [];
   const needsAnotherAttempt: Row[] = [];
   const unreadFeedback: Row[] = [];
+  const unreadComments: Row[] = [];
   const inProgress: Row[] = [];
   let laterCount = 0;
 
@@ -208,6 +240,16 @@ export function dashboardSections<Row extends DashboardRow>(
       unreadFeedback.push(row);
     }
 
+    /*
+      Its own test rather than a branch of the one above, so a piece of work can be in this list
+      and in one of the graded lists at once. A student whose 9/15 came back with a reply to their
+      question needs to be told about both, and the reply is the half nothing else on this screen
+      would mention.
+    */
+    if (submission?.unreadComments != null) {
+      unreadComments.push(row);
+    }
+
     if (submission?.status === "ACCEPTED") {
       inProgress.push(row);
     }
@@ -235,6 +277,14 @@ export function dashboardSections<Row extends DashboardRow>(
     (a, b) => (b.submission?.gradedAt?.getTime() ?? 0) - (a.submission?.gradedAt?.getTime() ?? 0),
   );
 
+  // Newest message first, for the reason above it: the conversation that moved this morning is
+  // above the one that moved last week.
+  unreadComments.sort(
+    (a, b) =>
+      (b.submission?.unreadComments?.lastCommentAt.getTime() ?? 0) -
+      (a.submission?.unreadComments?.lastCommentAt.getTime() ?? 0),
+  );
+
   // Soonest deadline first here too. Work already taken up is ordered by when it is wanted.
   inProgress.sort(byDueAtAscending);
 
@@ -242,7 +292,8 @@ export function dashboardSections<Row extends DashboardRow>(
     upcoming,
     overdue,
     needsAnotherAttempt,
-    unreadFeedback: unreadFeedback.slice(0, UNREAD_FEEDBACK_LIMIT),
+    unreadFeedback: unreadFeedback.slice(0, UNREAD_NEWS_LIMIT),
+    unreadComments: unreadComments.slice(0, UNREAD_NEWS_LIMIT),
     inProgress,
     laterCount,
   };
@@ -269,6 +320,7 @@ export function dashboardIsEmpty(sections: DashboardSections<DashboardRow>): boo
     sections.overdue.length === 0 &&
     sections.needsAnotherAttempt.length === 0 &&
     sections.unreadFeedback.length === 0 &&
+    sections.unreadComments.length === 0 &&
     sections.inProgress.length === 0
   );
 }

@@ -107,12 +107,19 @@ export function CommentThread({
  *
  * A ref rather than `isPending` guards it, because the effect can run again before the request
  * settles.
+ *
+ * **`suppress` is that same ref, offered to the caller.** A screen that lets a student mark the
+ * conversation unread has to be able to stop this: the refetch that follows arrives with messages
+ * unread again, and without a word from the caller this effect would read them on the spot and
+ * undo what was just asked for. Suppression lasts until the component is mounted afresh, which is
+ * the contract this hook already has — opening the panel again later marks the thread read again,
+ * and that is the honest answer, because the student did come back to it.
  */
 export function useMarkThreadRead(params: {
   thread: Thread | undefined;
   enabled: boolean;
   onRead: () => void;
-}) {
+}): { suppress: () => void } {
   const trpc = useTRPC();
   const mark = useMutation(
     trpc.submissionComments.markRead.mutationOptions({ onError: shownInPlace }),
@@ -134,4 +141,6 @@ export function useMarkThreadRead(params: {
     // `mark` and `onRead` are stable; the ref above is what makes this run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, unread, submissionId, upTo]);
+
+  return React.useMemo(() => ({ suppress: () => void (marked.current = true) }), []);
 }

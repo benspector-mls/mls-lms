@@ -201,11 +201,40 @@ function PanelBody({
   });
 
   // Mounting the thread is reading it, because the panel does not render it until selected.
-  useMarkThreadRead({
+  const autoRead = useMarkThreadRead({
     thread: comments.data,
     enabled: tab === "comments",
     onRead: () => setUnread(0),
   });
+
+  /*
+    Putting the conversation back on the dashboard, for a student who opened it in passing and
+    wants to come back to it properly.
+
+    `onMutate` rather than `onSuccess`: the refetch that `useServerMutation` sets off arrives with
+    the messages unread again, and the effect above would read them the moment it did. Suppressing
+    it before the request leaves is what makes the button mean what it says.
+  */
+  const settled = useServerMutation();
+  const markUnread = useMutation(
+    trpc.submissionComments.markUnread.mutationOptions(
+      settled({
+        onMutate: () => autoRead.suppress(),
+        onSuccess: (result) => setUnread(result.unreadCount),
+      }),
+    ),
+  );
+
+  /*
+    Whether there is anything to put back. Read against `unread` rather than the thread's own count,
+    because the effect above clears the badge without refetching — the count on the payload is still
+    the one from before it was read, and testing it would hide the button on the one thread the
+    student has this moment finished reading.
+  */
+  const threadCanBeUnread =
+    unread === 0 &&
+    comments.data?.submissionId != null &&
+    comments.data.comments.some((comment) => !comment.isMine && comment.deletedAt === null);
 
   /** Answering one round from its card on the Feedback tab, which is where it was read. */
   function respondToRound(round: FeedbackRound) {
@@ -329,6 +358,33 @@ function PanelBody({
             announcement={announcement}
             className="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
           />
+
+          {/*
+            Offered only once there is nothing left unread and there is something that could be:
+            a conversation holding only your own messages, or only withdrawn ones, has nothing to
+            come back to. It sits above the composer because it is about what has been read rather
+            than about what to write, and it is drawn here rather than inside `CommentThread` so
+            that no instructor screen grows a control only a student has a use for.
+          */}
+          {threadCanBeUnread && (
+            <div className="flex shrink-0 flex-col items-start gap-1 border-t border-border px-4 pt-3">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground"
+                disabled={markUnread.isPending}
+                onClick={() => markUnread.mutate({ submissionId: comments.data!.submissionId! })}
+              >
+                <RotateCcw data-icon="inline-start" />
+                {markUnread.isPending ? "Saving…" : "Mark as unread"}
+              </Button>
+              {markUnread.error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {markUnread.error.message}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="shrink-0 border-t border-border px-4 py-3">
             <CommentComposer

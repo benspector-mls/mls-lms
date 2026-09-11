@@ -61,8 +61,10 @@ const days = (count: number) => new Date(now.getTime() + count * 24 * 60 * 60 * 
 
 let studentId: string;
 let otherId: string;
+let instructorId: string;
 let programId: string;
 let courseId: string;
+let unitId: string;
 let rows: Awaited<ReturnType<ReturnType<typeof as>["assignments"]["listMine"]>>;
 /** The pieces of work later groups name. */
 let unpublishedWork: { id: string };
@@ -78,6 +80,8 @@ beforeAll(async () => {
   courseId = world.courseId;
   studentId = world.students[0]!.studentId;
   otherId = world.students[1]!.studentId;
+  instructorId = world.instructorId;
+  unitId = world.unitId;
 
   const unit = world.unitId;
 
@@ -264,6 +268,128 @@ describe("what listMine keeps out", () => {
       },
     });
     expect(foreign).toBe(0);
+  });
+});
+
+/**
+ * The one thing on this screen a student could not find out anywhere else.
+ *
+ * An unread report is derived from two columns on the row itself, so `listMine` could always draw
+ * it. An unread message is a comparison against this reader's own receipt on a thread that may hang
+ * off a teammate's row, which is why it is a second query, and why the checks worth having are
+ * about who the count belongs to rather than about the arithmetic — `unreadCount` is tested pure.
+ */
+describe("unread comments on the dashboard", () => {
+  const asStudent = () => as(tx(), studentId);
+  const asInstructor = () => as(tx(), instructorId);
+
+  let assignmentId: string;
+
+  /** The row for the assignment this group made, read fresh each time it is asked for. */
+  async function mine() {
+    const listed = await asStudent().assignments.listMine();
+    return listed.find((row) => row.id === assignmentId)?.submission ?? null;
+  }
+
+  beforeAll(async () => {
+    const assignment = await makeAssignment(tx(), {
+      courseId,
+      courseUnitId: unitId,
+      title: "A conversation",
+      dueAt: days(4),
+    });
+    assignmentId = assignment.id;
+
+    await asStudent().submissionComments.post({ assignmentId, body: "Where does this go?" });
+  });
+
+  // Your own writing is not news to you, receipt or no receipt.
+  it("a fellow's own question tells them nothing", async () => {
+    expect((await mine())?.unreadComments).toBeNull();
+  });
+
+  describe("once the instructor answers", () => {
+    beforeAll(async () => {
+      await asInstructor().submissionComments.post({
+        assignmentId,
+        studentId,
+        body: "In the src folder.",
+      });
+    });
+
+    it("the row carries the count", async () => {
+      expect((await mine())?.unreadComments?.count).toBe(1);
+    });
+
+    // What the row's Mark as read button sends. The thread it names must be the row the
+    // conversation actually hangs off, and the message the newest on it.
+    it("and names the thread and the message to be read as far as", async () => {
+      const unread = (await mine())?.unreadComments;
+      const thread = await asStudent().submissionComments.thread({ assignmentId });
+
+      expect(unread?.threadId).toBe(thread.submissionId);
+      expect(unread?.upTo).toBe(thread.lastCommentId);
+    });
+
+    it("which the dashboard's own list holds", async () => {
+      const sections = dashboardSections(await asStudent().assignments.listMine(), now);
+      expect(sections.unreadComments.map((row) => row.id)).toContain(assignmentId);
+    });
+
+    // The count on the dashboard and the count on the course page are the same question asked
+    // twice, and a screen that disagreed with the one beside it would be worse than either.
+    it("and agrees with the thread's own count", async () => {
+      const unread = (await mine())?.unreadComments;
+      const thread = await asStudent().submissionComments.thread({ assignmentId });
+
+      expect(unread?.count).toBe(thread.unreadCount);
+    });
+
+    it("tells the other fellow nothing", async () => {
+      const theirs = await as(tx(), otherId).assignments.listMine();
+      expect(theirs.every((row) => row.submission?.unreadComments == null)).toBe(true);
+    });
+  });
+
+  describe("marking it read from the row", () => {
+    beforeAll(async () => {
+      const unread = (await mine())!.unreadComments!;
+      await asStudent().submissionComments.markRead({
+        submissionId: unread.threadId,
+        upTo: unread.upTo,
+      });
+    });
+
+    it("takes it off the dashboard", async () => {
+      expect((await mine())?.unreadComments).toBeNull();
+    });
+
+    describe("and marking it unread again", () => {
+      beforeAll(async () => {
+        const thread = await asStudent().submissionComments.thread({ assignmentId });
+        await asStudent().submissionComments.markUnread({ submissionId: thread.submissionId! });
+      });
+
+      it("puts it back", async () => {
+        expect((await mine())?.unreadComments?.count).toBe(1);
+      });
+    });
+  });
+
+  /*
+    A withdrawn message says nothing. The receipt is untouched by this — the student is left with
+    the thread they had already taken back — so what has to change is the count alone.
+  */
+  describe("when the instructor withdraws what they wrote", () => {
+    beforeAll(async () => {
+      const thread = await asInstructor().submissionComments.thread({ assignmentId, studentId });
+      const theirs = thread.comments.find((comment) => comment.isMine)!;
+      await asInstructor().submissionComments.remove({ commentId: theirs.id });
+    });
+
+    it("there is nothing left to tell the fellow about", async () => {
+      expect((await mine())?.unreadComments).toBeNull();
+    });
   });
 });
 

@@ -1003,6 +1003,152 @@ describe("the count the course list carries", () => {
 });
 
 /*
+  ---- Taking a receipt back ---------------------------------------------------
+
+  `markUnread` deletes the receipt rather than moving the clock back, because a reader with no row
+  has read nothing — which is a state the table already defines. The checks worth having are that it
+  restores the whole count rather than some of it, that it is one reader's answer and not a team's,
+  and that pressing it twice is nothing rather than a refusal.
+*/
+describe("a fellow marking a conversation unread", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let assignmentId: string;
+  let threadId: string;
+
+  const asAlice = () => createCaller(tx(), world.student.studentId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    assignmentId = await soloAssignment(tx(), world);
+
+    await asAlice().submissionComments.post({ assignmentId, body: "a question" });
+    await createCaller(tx(), world.instructorId).submissionComments.post({
+      assignmentId,
+      studentId: world.student.studentId,
+      body: "an answer",
+    });
+
+    const read = await asAlice().submissionComments.thread({ assignmentId });
+    threadId = read.submissionId!;
+
+    await asAlice().submissionComments.markRead({
+      submissionId: threadId,
+      upTo: read.comments[read.comments.length - 1]!.id,
+    });
+  });
+
+  it("reading it leaves nothing unread", async () => {
+    expect((await asAlice().submissionComments.thread({ assignmentId })).unreadCount).toBe(0);
+  });
+
+  describe("and then marking it unread", () => {
+    let after: Thread;
+
+    beforeAll(async () => {
+      after = await asAlice().submissionComments.markUnread({ submissionId: threadId });
+    });
+
+    // The instructor's reply, and not the fellow's own question: your own writing is never news to
+    // you, whether or not there is a receipt.
+    it("gives back the whole count", () => {
+      expect(after.unreadCount).toBe(1);
+    });
+
+    it("and the thread agrees when it is asked again", async () => {
+      expect((await asAlice().submissionComments.thread({ assignmentId })).unreadCount).toBe(1);
+    });
+
+    it("which the course list carries too", async () => {
+      const list = await asAlice().assignments.listForCourse({ courseId: world.courseId });
+      const row = list
+        .flatMap((assignment) => (assignment.id === assignmentId ? assignment.submissions : []))
+        .at(0);
+
+      expect(row?.unreadCommentCount).toBe(1);
+    });
+
+    // There is no receipt left to delete, and asking for one thing twice is the same intention.
+    it("is nothing the second time rather than a refusal", async () => {
+      const twice = await asAlice().submissionComments.markUnread({ submissionId: threadId });
+      expect(twice.unreadCount).toBe(1);
+    });
+
+    // Nothing instructor-facing moved: the newest message is still theirs, so nobody is waiting.
+    it("leaves the instructor's questions list alone", async () => {
+      const thread = await createCaller(tx(), world.instructorId).submissionComments.thread({
+        assignmentId,
+        studentId: world.student.studentId,
+      });
+
+      expect(thread.awaitsReply).toBe(false);
+    });
+  });
+
+  it("a fellow cannot take back a receipt on somebody else's work", async () => {
+    const other = await makeWorld(tx(), { students: 1 });
+    const stranger = createCaller(tx(), other.student.studentId);
+
+    expect(
+      await refusal(() => stranger.submissionComments.markUnread({ submissionId: threadId })),
+    ).toBe("NOT_FOUND");
+  });
+});
+
+/*
+  ---- A receipt is one reader's, on a team's thread as much as anywhere --------
+*/
+describe("one member marking a team's conversation unread", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let assignmentId: string;
+  let alicesUnread: number;
+  let bobsUnread: number;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 2 });
+    assignmentId = await teamAssignment(tx(), world, world.students);
+
+    const asAlice = createCaller(tx(), world.students[0]!.studentId);
+    const asBob = createCaller(tx(), world.students[1]!.studentId);
+
+    // Alice's question makes the row; the instructor's answer is the message neither of them wrote.
+    await asAlice.submissionComments.post({ assignmentId, body: "Who writes the API?" });
+    await createCaller(tx(), world.instructorId).submissionComments.post({
+      assignmentId,
+      studentId: world.students[0]!.studentId,
+      body: "Split it however you like.",
+    });
+
+    // Both read it, so neither has anything outstanding to begin with.
+    for (const caller of [asAlice, asBob]) {
+      const thread = await caller.submissionComments.thread({ assignmentId });
+      await caller.submissionComments.markRead({
+        submissionId: thread.submissionId!,
+        upTo: thread.comments[thread.comments.length - 1]!.id,
+      });
+    }
+
+    // Bob holds a mirror, so this is also the check that the thread resolves through it.
+    const bobsThread = await asBob.submissionComments.thread({ assignmentId });
+    await asBob.submissionComments.markUnread({ submissionId: bobsThread.submissionId! });
+
+    alicesUnread = (await asAlice.submissionComments.thread({ assignmentId })).unreadCount;
+    bobsUnread = (await asBob.submissionComments.thread({ assignmentId })).unreadCount;
+  });
+
+  it("gives it back to the member who asked for it", () => {
+    expect(bobsUnread).toBe(2);
+  });
+
+  it("and leaves their teammate's receipt alone", () => {
+    expect(alicesUnread).toBe(0);
+  });
+});
+
+/*
   ---- Accepting after a comment created the row -------------------------------
 */
 describe("accepting work a comment already made a row for", () => {

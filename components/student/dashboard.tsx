@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   CircleSlash,
+  MessagesSquare,
   MessageSquare,
   PenLine,
   RotateCcw,
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 import { AttendanceStrip } from "./attendance-strip";
+import { MarkCommentsRead } from "./mark-comments-read";
 import type { DashboardAssignment } from "./types";
 import { UpcomingWindowPicker } from "./upcoming-window";
 
@@ -35,14 +37,16 @@ import { UpcomingWindowPicker } from "./upcoming-window";
  * application could give: what is due, and what have I not done. That question spans cohorts, and
  * a course page can only answer it one cohort at a time.
  *
- * A server component with no `"use client"`. Every row is a link and `dashboardSections` is a pure
- * function, so the lists cost no client JavaScript; the attendance strip is the only interactive
- * piece, and it is its own client component rather than a reason to make this one.
+ * A server component with no `"use client"`. Almost every row is a link and `dashboardSections` is a
+ * pure function, so the lists cost next to no client JavaScript; the attendance strip and the
+ * mark-as-read button are the two interactive pieces, and each is its own client component rather
+ * than a reason to make this one.
  *
  * Every list is derived from real submission state and nothing is dismissible. Handing the work in
- * is what clears a deadline, handing it in again is what clears a second attempt, and reading the
- * feedback is what clears a report — see the comment at the top of `lib/student/dashboard.ts` for
- * why a dismiss button would be the one mistake this screen must not make.
+ * is what clears a deadline, handing it in again is what clears a second attempt, reading the
+ * feedback is what clears a report, and reading the conversation — or saying you have — is what
+ * clears a reply. See the comment at the top of `lib/student/dashboard.ts` for why a dismiss button
+ * would be the one mistake this screen must not make, and why a read receipt is not one.
  *
  * **Coming up is as deep as the fellow asked for, and the empty state is what keeps that honest.**
  * A week by default, and 3, 14 or 30 days from the picker in the header. Work due further out
@@ -174,6 +178,23 @@ export function StudentDashboard({
             >
               {sections.unreadFeedback.map((row) => (
                 <FeedbackRow key={row.id} row={row} now={now} />
+              ))}
+            </Section>
+          )}
+
+          {/*
+            Below the reports, because a report is about a student's own work having moved and a
+            reply is somebody writing to them — the first is what they came to find out, and the
+            second is what they had no way to find out at all before this section existed.
+          */}
+          {sections.unreadComments.length > 0 && (
+            <Section
+              icon={<MessagesSquare className="size-4" />}
+              title="New comments"
+              count={sections.unreadComments.length}
+            >
+              {sections.unreadComments.map((row) => (
+                <CommentsRow key={row.id} row={row} now={now} />
               ))}
             </Section>
           )}
@@ -375,6 +396,46 @@ function FeedbackRow({ row, now }: { row: DashboardAssignment; now: Date }) {
         </span>
       </span>
     </RowLink>
+  );
+}
+
+/**
+ * The one row on this screen that is not entirely a link.
+ *
+ * `RowLink` makes the whole item an anchor, and a button inside an anchor is not something a
+ * browser can make sense of — so the link and the button are siblings here, and the link takes the
+ * width that is left. The hover shading moves to the item so the two still read as one row.
+ *
+ * Its address is every other row's, with no tab named in it. Which tab opens is the panel's own
+ * rule — Comments when a reply is the only news, and the report first when both are unread — and a
+ * link that overrode it would be this screen claiming to know what the student came for.
+ */
+function CommentsRow({ row, now }: { row: DashboardAssignment; now: Date }) {
+  const unread = row.submission?.unreadComments;
+  if (!unread) return null;
+
+  return (
+    <li className="flex items-center transition-colors hover:bg-accent/50">
+      <Link
+        href={`/courses/${row.course.id}?assignment=${row.id}`}
+        className="flex min-w-0 flex-1 items-center gap-x-3 px-3 py-2.5"
+      >
+        <RowTitle row={row} />
+
+        <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+          <span className="text-sm font-medium whitespace-nowrap tabular-nums">
+            {unread.count} new {unread.count === 1 ? "comment" : "comments"}
+          </span>
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            {formatRelative(unread.lastCommentAt, now)}
+          </span>
+        </span>
+      </Link>
+
+      <span className="pr-2 pl-1">
+        <MarkCommentsRead threadId={unread.threadId} upTo={unread.upTo} title={row.title} />
+      </span>
+    </li>
   );
 }
 
