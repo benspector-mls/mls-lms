@@ -482,6 +482,14 @@ export const submissionCommentsRouter = createTRPCRouter({
   markRead: profileProcedure
     .input(z.object({ submissionId: z.string().uuid(), upTo: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      /*
+        Whether the caller may read this thread at all, asked before the comment is even looked
+        up. Asked after, the two NOT_FOUNDs would differ — "Comment not found" against
+        "Submission not found" — and a caller with no right to the thread could tell from the
+        message whether a comment id and a submission id belong together.
+      */
+      await assertMayReadThread(ctx.db, input.submissionId, ctx.profile.id);
+
       const comment = await ctx.db.submissionComment.findFirst({
         where: { id: input.upTo, submissionId: input.submissionId },
         select: { createdAt: true },
@@ -490,9 +498,6 @@ export const submissionCommentsRouter = createTRPCRouter({
       if (!comment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found." });
       }
-
-      // Whether the caller may read this thread at all, asked before writing a row about it.
-      await assertMayReadThread(ctx.db, input.submissionId, ctx.profile.id);
 
       /*
         Two writes, because the receipt must only move forwards and one upsert cannot say so. Two
