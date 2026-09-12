@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
+import type { ReleaseGrade } from "@/hooks/use-release-grade";
 import { SubmittedDocumentRow } from "@/components/submitted-document";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -27,7 +28,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { RubricBreakdown } from "@/components/instructor/review/section-editor";
 import {
   DraftList,
-  FeedbackBoxes,
   QueueSubmission,
   readRubricItems,
   StateCard,
@@ -37,12 +37,13 @@ import { displayNameOf } from "@/lib/people";
 export function GradingReview({
   submission,
   assignmentId,
-  assignmentTitle,
   assignmentKind,
   completionThreshold,
   studentHref,
   now,
   onApproved,
+  release,
+  releasing,
 }: {
   submission: QueueSubmission;
   /**
@@ -54,7 +55,6 @@ export function GradingReview({
    * question can be asked before there is a submission at all.
    */
   assignmentId: string;
-  assignmentTitle: string;
   /**
    * Decides whether a test suite is even a possibility for this assignment. Typed from the
    * enum rather than spelled out, so a kind added later is a compile error in the places that
@@ -72,29 +72,18 @@ export function GradingReview({
   studentHref?: string;
   now: Date;
   /**
-   * Called once a report has been released, so the screen around this one can move on. The grading
+   * Called at the moment a release is asked for — before the request, not after it — so the
+   * screen around this one can move on while the release runs in the background. The grading
    * queue uses it to open the next student still waiting; the fellow's own record has nowhere to
-   * go next and leaves it out.
+   * go next and leaves it out. A release that then fails says so in a toast carrying a way back.
    */
   onApproved?: () => void;
+  /** Runs the release in the background — owned by the screen, because this pane unmounts when the queue moves on. */
+  release: ReleaseGrade;
+  /** True while this submission's release is in flight. */
+  releasing: boolean;
 }) {
   const trpc = useTRPC();
-  const [openBoxes, setOpenBoxes] = React.useState<readonly string[]>([]);
-
-  const feedbackBoxes = React.useMemo(
-    () => ({
-      open: openBoxes,
-      setOpen: (sectionType: string, open: boolean) =>
-        setOpenBoxes((prev) =>
-          open
-            ? prev.includes(sectionType)
-              ? prev
-              : [...prev, sectionType]
-            : prev.filter((entry) => entry !== sectionType),
-        ),
-    }),
-    [openBoxes],
-  );
 
   /*
     Test evidence exists only where a template repository does. The suite comes from the
@@ -178,13 +167,16 @@ export function GradingReview({
   const draft = data.drafts.find((entry) => entry.status !== "SUPERSEDED") ?? null;
 
   /*
-    Rounds worth listing under the grade. A discarded round was never sent to anybody, so it is
-    not previous feedback and does not belong in a list called that. The row stays in the
-    database — a report that cost a model call and a report an instructor rejected are both
-    things a later judgment about the grading wants — and off a screen whose subject is one
-    student's record.
+    Rounds worth listing under the grade: released, and not the round on screen. A discarded
+    round was never sent to anybody, so it is not previous feedback; the current round is on the
+    card above, so listing it here would call the thing being read "previous"; and while a round
+    is being drafted nothing is previous yet — the list appears once the new round has gone out,
+    which is when the one before it becomes history.
   */
-  const history = data.drafts.filter((entry) => entry.status !== "SUPERSEDED");
+  const previous =
+    draft?.status === "APPROVED"
+      ? data.drafts.filter((entry) => entry.status === "APPROVED" && entry.id !== draft.id)
+      : [];
 
   // The run that describes the code currently on the pull request. An older run is not
   // evidence about this commit, so it is not offered as if it were.
@@ -443,25 +435,21 @@ export function GradingReview({
               <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
               {/*
-                The provider sits here rather than around the whole pane because this is everything
-                that reads it: the section cards are inside, and a card that opens its feedback box
-                is rebuilt around a round a moment later.
+                No key on the round, deliberately. A hand-graded round coming into being, or a
+                refetch of the same round, must not remount the editor under the instructor's
+                hands — the editor itself decides when a *different* round means starting over.
               */}
-              <FeedbackBoxes.Provider value={feedbackBoxes}>
-                <DraftBody
-                  key={draft?.id ?? "none"}
-                  submission={submission}
-                  assignmentTitle={assignmentTitle}
-                  completionThreshold={completionThreshold}
-                  draft={draft}
-                  data={data}
-                  onApproved={onApproved}
-                />
-              </FeedbackBoxes.Provider>
+              <DraftBody
+                submission={submission}
+                completionThreshold={completionThreshold}
+                draft={draft}
+                data={data}
+                onApproved={onApproved}
+                release={release}
+                releasing={releasing}
+              />
 
-              {history.length > 1 && (
-                <DraftHistory drafts={history} activeId={draft?.id} now={now} />
-              )}
+              {previous.length > 0 && <DraftHistory drafts={previous} now={now} />}
 
               {/*
                   Last in the column of things said to this fellow — after the report and the

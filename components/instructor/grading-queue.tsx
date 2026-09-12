@@ -18,6 +18,7 @@ import { SubmissionRow } from "@/components/instructor/submission-row";
 import { SubmissionStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import type { BatchState } from "@/hooks/use-batch-generate";
+import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { studentHref } from "@/lib/links";
 import type { CohortChoice } from "@/lib/programs/cohorts";
 import { displayNameOf } from "@/lib/people";
@@ -64,8 +65,35 @@ export function GradingQueue({
     and the difference is what the screen is for: "what do I do next" against "how is this cohort
     doing on this piece of work". The second is the one an instructor cannot get anywhere else,
     since To do is a click away and is also what triage already answers a cohort at a time.
+
+    A tab picked once holds for the sitting: it is kept in sessionStorage per assignment, and read
+    back in an effect rather than in the initializer because this component is rendered on the
+    server first, where "all" is the only answer — an initializer reading storage would hydrate
+    against different markup. Not in the URL, deliberately: a colleague's link to a submission
+    should not impose the sender's tab, and the sidebar's links carry no parameters anyway. The
+    search box is not remembered — an invisible day-old search hiding students would read as rows
+    gone missing.
   */
-  const [filter, setFilter] = React.useState<Filter>("all");
+  const tabStorageKey = `grading-tab:${data.assignment.id}`;
+  const [filter, setFilterState] = React.useState<Filter>("all");
+  React.useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem(tabStorageKey);
+      if (stored === "all" || stored === "needs_review" || stored === "graded") {
+        setFilterState(stored);
+      }
+    } catch {
+      // Storage can be unavailable (private windows, blocked site data); the default stands.
+    }
+  }, [tabStorageKey]);
+  function setFilter(next: Filter) {
+    setFilterState(next);
+    try {
+      window.sessionStorage.setItem(tabStorageKey, next);
+    } catch {
+      // Remembering the tab is a convenience; failing to is not worth interrupting anything.
+    }
+  }
   const [query, setQuery] = React.useState("");
 
   /*
@@ -76,6 +104,14 @@ export function GradingQueue({
     looking untouched for several minutes.
   */
   const [batch, setBatch] = React.useState<BatchState | null>(null);
+
+  /*
+    Releases run up here rather than in the review pane, because the pane is keyed on the
+    submission and unmounts the moment the selection advances — which is the first thing a release
+    now does. The failure toasts' "Open" action routes back through the same `select` every row
+    uses.
+  */
+  const releasing = useReleaseGrade({ reopen: (submissionId) => select(submissionId) });
 
   /**
    * Whether this screen is a roster rather than a queue.
@@ -213,17 +249,21 @@ export function GradingQueue({
   }
 
   /*
-    After a release under the To do filter, the approved row is about to leave the list, so the
-    selection moves to the next student still waiting. Called before the server refresh lands, so
-    `filtered` still contains the approved row and its index says where "next" is. When the
-    approved row was last in the list the selection moves to the row just above it; when it was
-    the only one left, the selection stays and the pane shows the released report.
+    The moment a release is asked for, the selection moves to the next student still waiting —
+    computed here, before any request has gone out, which is what makes it reliable: `filtered`
+    still contains the approved row, so its index says where "next" is, and the URL names the next
+    student before the server refresh lands, so the refresh finds the selection already pointing
+    at a row it still lists and never falls through to `filtered[0]`.
+
+    On any tab, not only To do: the next row *still needing review* is searched forward from the
+    released one and then backward, so on All the graded rows in between are stepped over. With
+    nothing left to grade the selection stays put and the pane shows the released report.
   */
   function advanceAfterApproval() {
-    if (filter !== "needs_review") return;
     const at = filtered.findIndex((row) => row.id === selected?.id);
     if (at === -1) return;
-    const next = filtered[at + 1] ?? filtered[at - 1];
+    const next =
+      filtered.slice(at + 1).find(needsReview) ?? filtered.slice(0, at).reverse().find(needsReview);
     if (next) select(next.id);
   }
 
@@ -376,7 +416,9 @@ export function GradingQueue({
                     active={selected?.id === row.id}
                     onSelect={() => select(row.id)}
                     now={now}
-                    pending={batch?.inFlight.has(row.id) ?? false}
+                    pending={
+                      (batch?.inFlight.has(row.id) ?? false) || releasing.inFlight.has(row.id)
+                    }
                   />
                 ))}
 
@@ -580,7 +622,6 @@ export function GradingQueue({
                 key={selected.id}
                 submission={selected}
                 assignmentId={data.assignment.id}
-                assignmentTitle={data.assignment.title}
                 // Links each member of a team's line to their own record — "what else has this
                 // person done" is the question a report prompts about a member.
                 studentHref={studentHref(data.assignment.courseId, selected.student.id)}
@@ -590,6 +631,8 @@ export function GradingQueue({
                 completionThreshold={completionThreshold}
                 now={now}
                 onApproved={advanceAfterApproval}
+                release={releasing.release}
+                releasing={releasing.inFlight.has(selected.id)}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">

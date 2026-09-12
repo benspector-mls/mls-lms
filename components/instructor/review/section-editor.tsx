@@ -10,10 +10,9 @@
  */
 
 import * as React from "react";
-import { ListChecks, Loader2, Pencil, Undo2 } from "lucide-react";
+import { ListChecks, Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,9 +28,7 @@ export function SectionEditor({
   onReport,
   onReset,
   unsaved = false,
-  startsOpen = false,
   onEditingChange,
-  busy = false,
 }: {
   /**
    * Enough of a section to read and to score: what it is called and what it is out of.
@@ -43,12 +40,7 @@ export function SectionEditor({
    * which is drawn beside this card or below it depending on the room.
    */
   section: Pick<Section, "sectionType" | "scorePossible"> &
-    Partial<
-      Pick<
-        Section,
-        "flags" | "instructorNotes" | "confidence" | "submissionProcessNote" | "editedAt"
-      >
-    >;
+    Partial<Pick<Section, "flags" | "instructorNotes" | "confidence" | "submissionProcessNote">>;
   /** Null when this section has no score yet, which the empty box says and a 0 does not. */
   score: number | null;
   report: string;
@@ -56,27 +48,18 @@ export function SectionEditor({
   /**
    * Told when the score box loses focus, which is the moment a typed score is finished.
    *
-   * The blank hand-graded form opens its round from this rather than from the keystrokes — see
-   * `BlankHandGrade`, the only caller with anything to do at that moment.
+   * The editor opens a hand-graded round from this rather than from the keystrokes, and it is
+   * also a flush point for the autosave — see `DraftEditor`.
    */
   onScoreBlur?: () => void;
   onReport: (value: string) => void;
   onReset?: () => void;
   /** True when this section differs from what is stored. */
   unsaved?: boolean;
-  /** Whether the feedback box is open on arrival — see `FeedbackBoxes`. */
-  startsOpen?: boolean;
-  /** Told whenever the box is opened or closed, so the answer outlives this card. */
+  /** Told whenever the box is opened or closed. Opening it is what opens a hand-graded round. */
   onEditingChange?: (editing: boolean) => void;
-  /**
-   * True while the round this card belongs to is being created.
-   *
-   * The feedback box is not offered until it exists, because a box that is about to be replaced
-   * would take whatever was typed into it away with it.
-   */
-  busy?: boolean;
 }) {
-  const [editing, setEditing] = React.useState(startsOpen);
+  const [editing, setEditing] = React.useState(false);
   const possible = section.scorePossible ?? 0;
   const flags = section.flags ?? [];
   const instructorNotes = section.instructorNotes ?? [];
@@ -86,28 +69,33 @@ export function SectionEditor({
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-1.5">
-            <CardTitle className="text-base">
+            <CardTitle className="flex items-center gap-2 text-base">
               Section Report — {sectionLabel(section.sectionType)}
+              {/*
+                Whether this section's edits have reached the server, as one icon that is always
+                there. A badge that came and went resized the card and moved everything under the
+                reader's cursor; the icon holds the same space in both states.
+              */}
+              {unsaved ? (
+                <span title="Not saved yet">
+                  <SavePen className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="sr-only">This section has changes not saved yet</span>
+                </span>
+              ) : (
+                <span title="Saved">
+                  <SaveCheck className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="sr-only">This section is saved</span>
+                </span>
+              )}
             </CardTitle>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {unsaved && (
-                <Badge
-                  variant="outline"
-                  className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300"
-                >
-                  Unsaved
-                </Badge>
-              )}
-              {section.editedAt && !unsaved && (
-                <Badge variant="outline" className="font-normal text-muted-foreground">
-                  Edited by you
-                </Badge>
-              )}
-              {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
-              {flags.map((flag) => (
-                <FlagBadge key={flag} code={flag} />
-              ))}
-            </div>
+            {(section.confidence || flags.length > 0) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {section.confidence && <ConfidenceBadge confidence={section.confidence} />}
+                {flags.map((flag) => (
+                  <FlagBadge key={flag} code={flag} />
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -162,7 +150,6 @@ export function SectionEditor({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={busy}
                 onClick={() => {
                   const next = !editing;
                   setEditing(next);
@@ -175,20 +162,12 @@ export function SectionEditor({
             </div>
           </div>
 
-          {busy ? (
-            <p className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Opening this round of feedback…
-            </p>
-          ) : editing ? (
+          {editing ? (
             <Textarea
               value={report}
               onChange={(event) => onReport(event.target.value)}
               rows={16}
-              /*
-                  Focused on opening, which is what a box asked for by a click wants — and the one
-                  thing the swap from the blank form to the round cannot carry across on its own.
-                */
+              // Focused on opening, which is what a box asked for by a click wants.
               autoFocus
               className="font-mono text-xs"
             />

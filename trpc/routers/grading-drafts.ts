@@ -70,6 +70,9 @@ const draftFields = {
       editedReportMarkdown: true,
       editedScoreEarned: true,
       editedAt: true,
+      // Who made the edit, so the review screen can say whose words are standing in for the
+      // model's — one line on the score bar, not a claim per section.
+      editedBy: { select: { displayName: true } },
     },
   },
 } as const;
@@ -327,7 +330,7 @@ export const gradingDraftsRouter = createTRPCRouter({
           status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
         },
         orderBy: { createdAt: "desc" },
-        select: { id: true },
+        select: openedManualDraft,
       });
 
       if (open) return open;
@@ -388,7 +391,10 @@ export const gradingDraftsRouter = createTRPCRouter({
             }),
           },
         },
-        select: { id: true },
+        // The same shape opening a hand grade returns, for the same reason: the review screen
+        // draws the correction before this round exists and writes edits onto the sections the
+        // moment they do, matching each one up by its own label.
+        select: openedManualDraft,
       });
     }),
 

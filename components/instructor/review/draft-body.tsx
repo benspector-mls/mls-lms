@@ -5,12 +5,12 @@
  * read, or released.
  *
  * `DraftBody` is the state machine; everything else in here is one of its branches — the panel
- * that offers to write a report, the first typed word that starts a hand grade, and the panel for
- * correcting a grade that has already gone out.
+ * that offers to write a report, and the panel for correcting a grade that has already gone out.
+ * A hand-graded submission with no round yet is not a state of its own: it takes the same editor
+ * branch as a round that exists, with `draft` null, so the round arriving replaces nothing on the
+ * screen. The editor itself owns that transition — see `DraftEditor`.
  */
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
   AlertTriangle,
@@ -25,7 +25,7 @@ import {
   RotateCcw,
   Sparkles,
 } from "lucide-react";
-import { useServerMutation } from "@/hooks/use-server-mutation";
+import type { ReleaseGrade } from "@/hooks/use-release-grade";
 import { Markdown } from "@/components/markdown";
 import { FlagBadge } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -34,13 +34,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime, formatPercent, scorePercent, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import { useTRPC } from "@/trpc/client";
-import { DraftEditor } from "@/components/instructor/review/draft-editor";
-import { SectionEditor } from "@/components/instructor/review/section-editor";
+import { useTRPCClient } from "@/trpc/client";
+import { Blueprint, DraftEditor } from "@/components/instructor/review/draft-editor";
 import {
   Draft,
   DraftList,
-  FeedbackBoxes,
   QueueSubmission,
   Section,
   StateCard,
@@ -51,20 +49,42 @@ import {
 /** Routes to the presentation for whatever state the grading run is actually in. */
 export function DraftBody({
   submission,
-  assignmentTitle,
   completionThreshold,
   draft,
   data,
   onApproved,
+  release,
+  releasing,
 }: {
   submission: QueueSubmission;
-  assignmentTitle: string;
   completionThreshold: number;
   draft: Draft | null;
   data: DraftList;
-  /** Called once the report has been released, so the screen around this one can move on. */
+  /** Called at the moment of release, so the screen around this one can move on immediately. */
   onApproved?: () => void;
+  /** Runs the release in the background — see `useReleaseGrade`. */
+  release: ReleaseGrade;
+  /** True while this submission's release is in flight. */
+  releasing: boolean;
 }) {
+  const client = useTRPCClient();
+
+  /*
+    Whether the released grade is being corrected. The pen on the released card flips this and
+    nothing else: the correction editor is on screen at the click, seeded from what was sent,
+    while `reviseReleased` creates the round underneath it.
+
+    Cleared, during render, whenever the round on top changes — the correction arriving from the
+    server routes to the editor on its own, and a correction discarded puts the released card
+    back, where leaving this set would open another round on the spot.
+  */
+  const [correcting, setCorrecting] = React.useState(false);
+  const [heldDraftId, setHeldDraftId] = React.useState<string | null>(draft?.id ?? null);
+  if ((draft?.id ?? null) !== heldDraftId) {
+    setHeldDraftId(draft?.id ?? null);
+    if (correcting) setCorrecting(false);
+  }
+
   if (!draft) {
     /*
       Nothing to say here yet. The card saying so is in the column beside this one, with the work
@@ -74,17 +94,17 @@ export function DraftBody({
       return null;
     }
     // One of the two, never both. Which one is decided on the server, from the same reading
-    // of the assignment that put this submission in its triage bucket.
-    // One of the two, never both. Which one is decided on the server, from the same reading
-    // of the assignment that put this submission in its triage bucket.
-    return data.manualOnly ? (
-      <BlankHandGrade submission={submission} data={data} />
-    ) : (
-      <GeneratePanel submission={submission} data={data} label="Generate report" />
-    );
+    // of the assignment that put this submission in its triage bucket. A hand-graded
+    // submission falls through to the editor below, with no round to hand it yet.
+    if (!data.manualOnly) {
+      return <GeneratePanel submission={submission} data={data} label="Generate report" />;
+    }
+    if (data.handSections.length === 0) {
+      return <NothingToScore />;
+    }
   }
 
-  if (draft.status === "GENERATING") {
+  if (draft?.status === "GENERATING") {
     return (
       <StateCard
         icon={Loader2}
@@ -95,15 +115,7 @@ export function DraftBody({
     );
   }
 
-  // Surfaced before approval is attempted, because approval refuses it outright. The
-  // instructor read a report about one commit; attaching it to different code would
-  // record a grade for work nobody has looked at.
-  const stale =
-    data.currentHeadSha !== null &&
-    draft.headSha !== data.currentHeadSha &&
-    draft.approvedAt === null;
-
-  if (draft.status === "FAILED") {
+  if (draft?.status === "FAILED") {
     return (
       <div className="flex flex-col gap-4">
         <Alert variant="destructive">
@@ -126,71 +138,143 @@ export function DraftBody({
     );
   }
 
-  if (draft.status === "APPROVED") {
-    return <ReleasedBody submission={submission} draft={draft} data={data} />;
+  if (draft?.status === "APPROVED" && !correcting) {
+    return (
+      <ReleasedBody
+        submission={submission}
+        draft={draft}
+        data={data}
+        completionThreshold={completionThreshold}
+        onApproved={onApproved}
+        release={release}
+        releasing={releasing}
+        onEdit={() => setCorrecting(true)}
+      />
+    );
   }
 
+  /*
+    The released round being corrected, when that is what is happening. The editor is handed no
+    draft — the correction round does not exist yet — and a blueprint holding exactly what the
+    student was sent, which is also what `reviseReleased` seeds the round with server-side.
+  */
+  const correction = draft?.status === "APPROVED" ? draft : null;
+  const editorDraft = correction ? null : draft;
+
+  const blueprint: Blueprint[] = correction
+    ? correction.sections.map((section) => ({
+        key: section.sectionType,
+        scorePossible: section.scorePossible,
+        score: effectiveScore(section),
+        report: effectiveReport(section) ?? "",
+      }))
+    : data.handSections.map((section) => ({
+        key: section.label,
+        scorePossible: section.pointValue,
+        score: null,
+        report: "",
+      }));
+
+  const start = correction
+    ? () => client.gradingDrafts.reviseReleased.mutate({ submissionId: submission.id })
+    : data.manualOnly
+      ? () => client.gradingDrafts.startManual.mutate({ submissionId: submission.id })
+      : undefined;
+
+  // Surfaced before approval is attempted, because approval refuses it outright. The
+  // instructor read a report about one commit; attaching it to different code would
+  // record a grade for work nobody has looked at.
+  const stale =
+    editorDraft !== null &&
+    data.currentHeadSha !== null &&
+    editorDraft.headSha !== data.currentHeadSha &&
+    editorDraft.approvedAt === null;
+
+  /*
+    One static tree for "no round yet" and "a round being edited", so the moment a round comes
+    into being — a hand grade opened by typing, a correction opened by the pen — changes nothing
+    about where the editor sits: React keeps the same instance, the same boxes, the same focus.
+    That is the whole trick behind opening a draft without interrupting the typing that opened it.
+  */
   return (
     <div className="flex flex-col gap-4">
-      {stale && (
+      {stale && editorDraft && (
         <Alert className="border-amber-500/40 text-amber-700 dark:text-amber-300">
           <RotateCcw className="text-amber-600 dark:text-amber-400" />
           <AlertTitle>This report describes older code</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-3">
             <p>
-              The report was written against <code>{shortSha(draft.headSha)}</code>, and the pull
-              request is now at <code>{shortSha(data.currentHeadSha)}</code>. Approving is refused
-              while that is true — generate a new report so the grade describes the code that is
-              there.
+              The report was written against <code>{shortSha(editorDraft.headSha)}</code>, and the
+              pull request is now at <code>{shortSha(data.currentHeadSha)}</code>. Approving is
+              refused while that is true — generate a new report so the grade describes the code
+              that is there.
             </p>
           </AlertDescription>
         </Alert>
       )}
 
-      {draft.errorDetail && (
-        <FindingsNotice draft={draft} hasSections={draft.sections.length > 0} />
+      {editorDraft?.errorDetail && (
+        <FindingsNotice draft={editorDraft} hasSections={editorDraft.sections.length > 0} />
       )}
 
-      <WithheldFilesNotice draft={draft} />
+      {editorDraft && <WithheldFilesNotice draft={editorDraft} />}
 
-      {draft.sections.length > 0 ? (
+      {editorDraft === null || editorDraft.sections.length > 0 ? (
         <DraftEditor
           submission={submission}
-          assignmentTitle={assignmentTitle}
           completionThreshold={completionThreshold}
-          draft={draft}
+          draft={editorDraft}
+          blueprint={blueprint}
+          start={start}
+          autoOpen={correction !== null}
           approvalBlocked={stale}
           manualOnly={data.manualOnly}
           onApproved={onApproved}
+          release={release}
+          releasing={releasing}
         />
       ) : (
-        <>
-          <StateCard
-            icon={Pencil}
-            tone="warning"
-            title="No report to start from"
-            description="Open the pull request to read the work, then grade it directly."
-          >
-            {submission.prUrl && (
-              <a
-                href={submission.prUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(buttonVariants())}
-              >
-                <GitPullRequest data-icon="inline-start" />
-                Open the pull request
-                <ExternalLink data-icon="inline-end" />
-              </a>
-            )}
-          </StateCard>
-        </>
+        <StateCard
+          icon={Pencil}
+          tone="warning"
+          title="No report to start from"
+          description="Open the pull request to read the work, then grade it directly."
+        >
+          {submission.prUrl && (
+            <a
+              href={submission.prUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants())}
+            >
+              <GitPullRequest data-icon="inline-start" />
+              Open the pull request
+              <ExternalLink data-icon="inline-end" />
+            </a>
+          )}
+        </StateCard>
       )}
 
       {stale && (
         <GeneratePanel submission={submission} data={data} label="Generate a new report" retry />
       )}
     </div>
+  );
+}
+
+/*
+  An assignment that says it is graded by hand and declares nothing to score by hand. Said
+  rather than shown as a form with no boxes in it, because the fix is to the assignment and
+  nobody reading a blank screen would know that.
+*/
+function NothingToScore() {
+  return (
+    <StateCard
+      icon={PencilLine}
+      tone="warning"
+      title="There is nothing here to score"
+      description="This assignment is graded by hand, but none of its sections carries both a name and a point value, so there is nothing to score out of. Correct the assignment's sections, then grade this."
+    />
   );
 }
 
@@ -306,256 +390,6 @@ function FindingsNotice({ draft, hasSections }: { draft: Draft; hasSections: boo
   );
 }
 
-/** What an instructor has typed into one section before there is a round to hold it. */
-type Written = { score: number | null; report: string };
-
-/**
- * The hand-graded round, before there is a round.
- *
- * A grade written by hand is a `GradingDraft` like any other and has to exist before a score can
- * be stored against it. But asking an instructor to press a button to bring one into being put a
- * step in front of the work that told them nothing they did not already know, so the form is on
- * the screen from the start: one card per section the assignment declares, an empty score box, and
- * an empty feedback box. Filling in either one is what opens the round, and what was written is
- * put onto the sections the moment they exist — so the round arrives holding the instructor's
- * first score rather than blank, and the total, the discard and the release appear in the header
- * where they do for every other round.
- *
- * **A score is written when its box is left rather than as it is typed.** Opening the round
- * replaces this form with the editor, which means new boxes: a round opened on the first keystroke
- * of "18" would take away the box the second was meant for. Leaving the box — clicking elsewhere,
- * tabbing on, moving to the next section — is the moment a score is finished, and it is also what
- * happens on the way to anything else an instructor does next. A feedback box is different and
- * opens the round on the click, because the box being asked for belongs to the round.
- *
- * **Reading the screen creates nothing.** A submission opened, looked at and left alone leaves no
- * round behind, and a score typed and then taken back out again opens none either. That is what
- * keeps triage counting work somebody actually started rather than work somebody glanced at.
- */
-function BlankHandGrade({ submission, data }: { submission: QueueSubmission; data: DraftList }) {
-  const trpc = useTRPC();
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const boxes = React.useContext(FeedbackBoxes);
-
-  const start = useMutation(trpc.gradingDrafts.startManual.mutationOptions());
-  const updateSection = useMutation(trpc.gradingDrafts.updateSection.mutationOptions());
-
-  const sections = data.handSections;
-
-  const [written, setWritten] = React.useState<Record<string, Written>>({});
-  const [opening, setOpening] = React.useState(false);
-  /*
-    A refusal, kept on the screen rather than in a toast that goes away.
-
-    Two of them are real: this submission is one member's copy of their team's grade and is not
-    where the work is graded, and the request did not arrive. Both leave an instructor typing into
-    a form that is saving nothing, so the news has to stay in front of them — and while it is
-    there, typing stops asking again, because a paragraph written against a refusal that will not
-    change is one refusal repeated at every pause.
-  */
-  const [failure, setFailure] = React.useState<string | null>(null);
-
-  /*
-    The same values, readable from outside a render.
-
-    What is written to the server is sent after a round trip, and what it has to send is what has
-    been typed by then rather than what had been typed when the write was scheduled.
-  */
-  const latest = React.useRef(written);
-  const started = React.useRef(false);
-
-  /**
-   * Creates the round and writes what has been typed onto it.
-   *
-   * Once, however many times it is called: the timer and a click on Edit can both arrive, and two
-   * rounds for one submission would leave an instructor choosing between forms, one of which their
-   * writing is not in. `startManual` refuses to open a second one as well — this is the half of
-   * that rule which does not need a request to enforce it.
-   */
-  async function openRound() {
-    if (started.current) return;
-    started.current = true;
-    setOpening(true);
-    setFailure(null);
-
-    try {
-      const draft = await start.mutateAsync({ submissionId: submission.id });
-
-      // Matched by label, which is the section's own name and the one thing both sides hold.
-      for (const section of draft.sections) {
-        const typed = latest.current[section.sectionType];
-        if (!typed) continue;
-
-        const report = typed.report.trim();
-        if (typed.score === null && report === "") continue;
-
-        await updateSection.mutateAsync({
-          sectionId: section.id,
-          reportMarkdown: report === "" ? null : typed.report,
-          scoreEarned: typed.score,
-        });
-      }
-
-      /*
-        Both, for the reason `useServerMutation` gives: the round is read through a query in this
-        pane and through the server-rendered queue beside it, and a submission that has just
-        acquired a round is in a different triage bucket than it was a moment ago.
-      */
-      void queryClient.invalidateQueries();
-      router.refresh();
-    } catch (error) {
-      // Nothing was opened, so another attempt is allowed — asked for by the button the refusal
-      // below carries, rather than by the next keystroke.
-      started.current = false;
-      setOpening(false);
-      setFailure(
-        error instanceof Error ? error.message : "This round of feedback could not be opened.",
-      );
-    }
-  }
-
-  function write(sectionType: string, patch: Partial<Written>) {
-    const current = latest.current[sectionType] ?? { score: null, report: "" };
-    const next = { ...latest.current, [sectionType]: { ...current, ...patch } };
-    latest.current = next;
-    setWritten(next);
-  }
-
-  /**
-   * A score box left behind, which is when a score is finished being typed.
-   *
-   * Nothing happens where nothing was written: a box tabbed through, or a score typed and then
-   * cleared out again, leaves no round behind, because there is nothing for one to hold. Nothing
-   * happens while a refusal is standing either — that one is asked again by its own button.
-   */
-  function scoreSettled() {
-    const anything = Object.values(latest.current).some(
-      (entry) => entry.score !== null || entry.report.trim() !== "",
-    );
-    if (!anything || failure !== null) return;
-    void openRound();
-  }
-
-  /*
-    An assignment that says it is graded by hand and declares nothing to score by hand. Said
-    rather than shown as a form with no boxes in it, because the fix is to the assignment and
-    nobody reading a blank screen would know that.
-  */
-  if (sections.length === 0) {
-    return (
-      <StateCard
-        icon={PencilLine}
-        tone="warning"
-        title="There is nothing here to score"
-        description="This assignment is graded by hand, but none of its sections carries both a name and a point value, so there is nothing to score out of. Correct the assignment's sections, then grade this."
-      />
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      {failure && (
-        <Alert variant="destructive">
-          <AlertTriangle />
-          <AlertTitle>This round of feedback could not be opened</AlertTitle>
-          <AlertDescription className="flex flex-col items-start gap-3">
-            <p>
-              {failure} Nothing has been recorded. What you have written is still on the screen, and
-              it is saved as soon as the round opens.
-            </p>
-            <Button size="sm" variant="outline" disabled={opening} onClick={() => void openRound()}>
-              {opening ? (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <RotateCcw data-icon="inline-start" />
-              )}
-              {opening ? "Opening…" : "Try again"}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {sections.map((section) => (
-        <SectionEditor
-          key={section.label}
-          section={{ sectionType: section.label, scorePossible: section.pointValue }}
-          score={written[section.label]?.score ?? null}
-          report={written[section.label]?.report ?? ""}
-          onScore={(value) => write(section.label, { score: value })}
-          onScoreBlur={scoreSettled}
-          onReport={(value) => write(section.label, { report: value })}
-          startsOpen={boxes.open.includes(section.label)}
-          onEditingChange={(open) => {
-            boxes.setOpen(section.label, open);
-            /*
-              Opened on the click rather than on the first keystroke, and this is the one case
-              that cannot wait for a pause: the box being asked for belongs to the round, and one
-              that has to be replaced mid-sentence would take the sentence with it. Closing a box
-              opens nothing.
-            */
-            if (open) void openRound();
-          }}
-          /*
-            Only the card whose box was asked for. A score typed into another section opens the
-            round too, and replacing every report on the screen while it happens would announce
-            something about sections nobody touched.
-          */
-          busy={opening && boxes.open.includes(section.label)}
-        />
-      ))}
-    </div>
-  );
-}
-
-/**
- * Correcting a grade that has already gone out.
- *
- * The way back into a submission nobody is waiting on. A mistyped score or a sentence read back
- * and regretted had no route at all before this: editing an approved draft is refused, and the
- * only other round was the one a student's resubmission started — so a wrong grade stayed wrong
- * until the student acted, which is the wrong person entirely.
- *
- * Deliberately quieter than the two panels it stands in for. Those are work waiting on the
- * instructor and say so; this is an offer on a submission that is finished, and a card competing
- * with the released report above it would read as though something were wrong with it.
- */
-function CorrectionPanel({ submission }: { submission: QueueSubmission }) {
-  const trpc = useTRPC();
-  const settled = useServerMutation();
-
-  const revise = useMutation(trpc.gradingDrafts.reviseReleased.mutationOptions(settled()));
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Pencil className="size-4 text-muted-foreground" />
-          Provide new feedback
-        </CardTitle>
-        <CardDescription>
-          Opens a new round of feedback. The current feedback can be viewed in the feedback history.
-          {submission.prUrl && " Releasing posts a second comment to the PR thread."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button
-          variant="outline"
-          disabled={revise.isPending}
-          onClick={() => revise.mutate({ submissionId: submission.id })}
-        >
-          {revise.isPending ? (
-            <Loader2 data-icon="inline-start" className="animate-spin" />
-          ) : (
-            <Pencil data-icon="inline-start" />
-          )}
-          {revise.isPending ? "Opening…" : "Open a correction"}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
 function GeneratePanel({
   submission,
   data,
@@ -636,7 +470,19 @@ function GeneratePanel({
  * explaining why are not two findings — and separating them meant a heading ("As it was sent")
  * whose only job was to say the cards below belonged to the card above.
  */
-export function ReleasedGradeCard({ draft, data }: { draft: Draft; data: DraftList }) {
+export function ReleasedGradeCard({
+  draft,
+  data,
+  onEdit,
+}: {
+  draft: Draft;
+  data: DraftList;
+  /**
+   * Opens a correction to this grade, offered as a pen on the card itself. Absent where a
+   * correction is not what comes next — work handed in again is graded anew instead.
+   */
+  onEdit?: () => void;
+}) {
   const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
 
   return (
@@ -648,7 +494,7 @@ export function ReleasedGradeCard({ draft, data }: { draft: Draft; data: DraftLi
               <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
               Released
             </CardTitle>
-            <CardDescription>Approved {formatDateTime(draft.approvedAt)}.</CardDescription>
+            <CardDescription>{formatDateTime(draft.approvedAt)}</CardDescription>
           </div>
 
           {data.grade?.finalScore != null && (
@@ -681,6 +527,22 @@ export function ReleasedGradeCard({ draft, data }: { draft: Draft; data: DraftLi
         {draft.sections.map((section, index) => (
           <ReleasedSection key={section.id} section={section} first={index === 0} />
         ))}
+
+        {/*
+          The way to change what went out, at the foot of the thing that went out — where an
+          instructor lands having read it, which is when a correction is decided on. A card
+          offering to "provide new feedback" underneath said the same thing in a paragraph and
+          pushed the conversation down to say it; this opens the correction editor on the click,
+          already holding what the student was sent.
+        */}
+        {onEdit && (
+          <div className="flex justify-end border-t border-border pt-4">
+            <Button variant="outline" size="sm" onClick={onEdit}>
+              <Pencil data-icon="inline-start" />
+              Edit
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -691,12 +553,24 @@ function ReleasedBody({
   submission,
   draft,
   data,
+  completionThreshold,
+  onApproved,
+  release,
+  releasing,
+  onEdit,
 }: {
   submission: QueueSubmission;
   draft: Draft;
   data: DraftList;
-  /** Below what was sent, for the same reason it is below the report while one is being edited. */
+  completionThreshold: number;
+  onApproved?: () => void;
+  release: ReleaseGrade;
+  releasing: boolean;
+  /** Opens a correction to this grade — the pen on the released card. */
+  onEdit: () => void;
 }) {
+  const client = useTRPCClient();
+
   /*
     Work handed in again since the grade went out, which is the one state in which a released
     report is not the end of the story.
@@ -718,27 +592,48 @@ function ReleasedBody({
   */
   return (
     <div className="flex flex-col gap-4">
-      <ReleasedGradeCard draft={draft} data={data} />
+      {/*
+        The pen on the card opens a correction — a new round pre-filled with what was sent — and
+        only where a correction is what comes next. Revised work is graded anew from the work
+        itself, by the round offered below, so the pen would be a second, worse way in.
+      */}
+      <ReleasedGradeCard draft={draft} data={data} onEdit={revised ? undefined : onEdit} />
 
       {/*
         Revising a released grade means a new round, not an edit of this one. The student keeps
         both, which is the point of having a history at all.
 
         Which round is offered depends on whether there is new work to judge. Revised work needs
-        assessing from the work itself — a blank draft on a hand-graded assignment, a fresh report
-        on one the pipeline can read, which is the same choice `DraftBody` makes for a first
-        grade. With no new work, what the instructor came here for is to fix what they wrote, so
-        the round opens holding it.
+        assessing from the work itself — a blank hand-graded round on a hand-graded assignment, a
+        fresh report on one the pipeline can read, which is the same choice `DraftBody` makes for
+        a first grade.
       */}
-      {revised ? (
-        data.manualOnly ? (
-          <BlankHandGrade submission={submission} data={data} />
+      {revised &&
+        (data.manualOnly ? (
+          data.handSections.length === 0 ? (
+            <NothingToScore />
+          ) : (
+            <DraftEditor
+              submission={submission}
+              completionThreshold={completionThreshold}
+              draft={null}
+              blueprint={data.handSections.map((section) => ({
+                key: section.label,
+                scorePossible: section.pointValue,
+                score: null,
+                report: "",
+              }))}
+              start={() => client.gradingDrafts.startManual.mutate({ submissionId: submission.id })}
+              approvalBlocked={false}
+              manualOnly={data.manualOnly}
+              onApproved={onApproved}
+              release={release}
+              releasing={releasing}
+            />
+          )
         ) : (
           <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
-        )
-      ) : (
-        <CorrectionPanel submission={submission} />
-      )}
+        ))}
     </div>
   );
 }

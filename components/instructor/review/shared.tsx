@@ -16,21 +16,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
-/**
- * Which sections have their feedback box open, held above the card that owns the box.
- *
- * On a hand-graded assignment, opening the box is also what creates the round: a draft appears,
- * and everything below the header is rebuilt around it. State kept inside the section card would
- * go with it and close the box the click had just opened, so which boxes are open is remembered
- * out here, where nothing about the round can reach it.
- *
- * Keyed by the section's own label, which is what a hand-graded section has instead of a type
- * and is the same string the round is created with.
- */
-export const FeedbackBoxes = React.createContext<{
-  open: readonly string[];
-  setOpen: (sectionType: string, open: boolean) => void;
-}>({ open: [], setOpen: () => {} });
 
 export type QueueSubmission =
   RouterOutputs["submissions"]["listForAssignment"]["submissions"][number];
@@ -49,8 +34,9 @@ export function effectiveReport(section: Section): string | null {
 /**
  * "Ana, Ben, Chi and Dev" — a list a person reads rather than one a program prints.
  *
- * Its own function because the release dialog is the one place the whole team is spelled out, and
- * a comma-joined list there would read as data at the moment somebody is being asked to check it.
+ * Its own function because the armed release button's caption is the one place the whole team is
+ * spelled out, and a comma-joined list there would read as data at the moment somebody is being
+ * asked to check it.
  */
 export function listNames(members: { displayName: string | null; email: string | null }[]): string {
   const names = members.map((member) => member.displayName ?? member.email ?? "Unknown");

@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { BatchState } from "@/hooks/use-batch-generate";
+import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { courseHref, studentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
@@ -77,6 +78,13 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
 
   /* Lifted only so a row can show a spinner while its report is being generated. */
   const [batch, setBatch] = React.useState<BatchState | null>(null);
+
+  /*
+    Releases run up here rather than in the review pane, which is keyed on the submission and can
+    unmount while one is in flight. No advance on this screen — a fellow's record has nowhere to
+    go next — so the release simply runs behind whatever is read next.
+  */
+  const releasing = useReleaseGrade({ reopen: (submissionId) => select(submissionId) });
 
   const filtered = data.rows.filter((row) => {
     if (filter === "needs_review") return needsReview(row);
@@ -247,7 +255,10 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       active={selected?.assignment.id === row.assignment.id}
                       onSelect={() => select(row.submission!.id)}
                       now={now}
-                      pending={batch?.inFlight.has(row.submission.id) ?? false}
+                      pending={
+                        (batch?.inFlight.has(row.submission.id) ?? false) ||
+                        releasing.inFlight.has(row.submission.id)
+                      }
                     />
                   ) : (
                     <NotStartedRow
@@ -370,13 +381,14 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 key={selected.submission.id}
                 submission={selected.submission}
                 assignmentId={selected.assignment.id}
-                assignmentTitle={selected.assignment.title}
                 assignmentKind={selected.assignment.kind}
                 // Per row here, where the queue reads it once for the page: every row on this
                 // screen is a different assignment, and the threshold is what decides whether a
                 // score passes.
                 completionThreshold={selected.assignment.completionThreshold}
                 now={now}
+                release={releasing.release}
+                releasing={releasing.inFlight.has(selected.submission.id)}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
