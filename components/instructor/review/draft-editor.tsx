@@ -799,7 +799,7 @@ export function DraftEditor({
               </Button>
               <Button variant="destructive" onClick={releaseNow}>
                 <CheckCircle2 data-icon="inline-start" />
-                Release Feedback
+                Confirm: Feedback will be sent to the student
               </Button>
             </>
           ) : (
@@ -809,7 +809,7 @@ export function DraftEditor({
               ) : (
                 <CheckCircle2 data-icon="inline-start" />
               )}
-              {releasing ? "Releasing…" : `Approve ${totalEarned}/${totalPossible}`}
+              {releasing ? "Releasing…" : "Release Feedback"}
             </Button>
           )}
         </div>
