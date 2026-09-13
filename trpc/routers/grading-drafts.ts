@@ -51,6 +51,9 @@ const draftFields = {
   // An approved draft is a round of feedback the student has actually received, not a
   // discarded proposal. The interface keeps them apart on this.
   approvedAt: true,
+  // Who released it, said on the released card and in the feedback history — the answer to
+  // "who told the student this", which is the question a released round prompts.
+  approvedBy: { select: { displayName: true } },
   postedPrCommentId: true,
   sections: {
     orderBy: sectionFetchOrder,
@@ -70,9 +73,6 @@ const draftFields = {
       editedReportMarkdown: true,
       editedScoreEarned: true,
       editedAt: true,
-      // Who made the edit, so the review screen can say whose words are standing in for the
-      // model's — one line on the score bar, not a claim per section.
-      editedBy: { select: { displayName: true } },
     },
   },
 } as const;

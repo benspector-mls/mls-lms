@@ -26,7 +26,6 @@ import { statedScoreInText } from "@/lib/grade/report-text";
 import { completionMeta, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
-import { Badge } from "@/components/ui/badge";
 import { SectionEditor } from "@/components/instructor/review/section-editor";
 import {
   Draft,
@@ -554,19 +553,6 @@ export function DraftEditor({
     : (submission.student.displayName ?? "the student");
 
   /*
-    Whose words are standing in for the model's, said once on the bar rather than once per
-    section: a per-section claim appeared and disappeared as edits were made, and every
-    appearance resized the card under the reader. What matters is that somebody edited this
-    round and who did — the newest edit's author speaks for it.
-  */
-  const lastEditor = rows.reduce<{ at: Date; name: string | null } | null>((newest, row) => {
-    const at = row.stored?.editedAt;
-    if (!at) return newest;
-    if (newest && newest.at >= at) return newest;
-    return { at, name: row.stored?.editedBy?.displayName ?? null };
-  }, null);
-
-  /*
     Armed is a state of the bar, not of the page: a click anywhere else, an Escape, or any edit
     stands the button down. No timeout — a pause spent re-reading the total should not silently
     un-arm the button under the hand about to press it.
@@ -757,11 +743,6 @@ export function DraftEditor({
               Not saved — kept here, and your next change tries again
             </span>
           ) : null}
-          {lastEditor && (
-            <Badge variant="outline" className="font-normal text-muted-foreground">
-              Edited by {lastEditor.name ?? "an instructor"}
-            </Badge>
-          )}
           {/*
                 Every member named, not counted. This is the last moment before several people are
                 given a grade, and a count cannot show a team whose membership is wrong — which is

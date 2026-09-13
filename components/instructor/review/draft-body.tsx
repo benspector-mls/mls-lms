@@ -495,6 +495,8 @@ export function ReleasedGradeCard({
               Released
             </CardTitle>
             <CardDescription>{formatDateTime(draft.approvedAt)}</CardDescription>
+            {/* Who told the student this — the question a released round prompts. */}
+            <CardDescription>{draft.approvedBy?.displayName ?? "An instructor"}</CardDescription>
           </div>
 
           {data.grade?.finalScore != null && (
@@ -643,8 +645,11 @@ function ReleasedBody({
  *
  * A block rather than a card of its own, because a card inside a card reads as a separate
  * finding. A rule above every section but the first is what keeps them apart instead.
+ *
+ * Exported for the feedback history, which shows an earlier round's content when a row is
+ * expanded — the same thing this draws, from an older draft.
  */
-function ReleasedSection({ section, first }: { section: Section; first: boolean }) {
+export function ReleasedSection({ section, first }: { section: Section; first: boolean }) {
   const report = effectiveReport(section);
 
   return (
