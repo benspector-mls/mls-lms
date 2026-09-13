@@ -60,6 +60,21 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
   const selectedId = searchParams.get("submission");
   const grading = useGradingMode();
 
+  /*
+    Whether the list is slid over the pane as a sheet — the list's only form below the `lg`
+    breakpoint, and its grading-mode form above it, exactly as on the grading queue. Picking a row
+    closes it, and so do Escape and the dimmed pane behind it.
+  */
+  const [listOpen, setListOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!listOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setListOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [listOpen]);
+
   const [filter, setFilter] = React.useState<Filter>("all");
 
   const started = data.rows.filter((row) => row.submission !== null);
@@ -133,6 +148,8 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     params.set("submission", submissionId);
     params.delete("assignment");
     router.replace(`?${params.toString()}`, { scroll: false });
+    // Picking a row is what the sheet was opened for, so picking one closes it.
+    setListOpen(false);
   }
 
   /** Opens a task the fellow has not started. The mirror of `select` above. */
@@ -141,6 +158,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     params.set("assignment", assignmentId);
     params.delete("submission");
     router.replace(`?${params.toString()}`, { scroll: false });
+    setListOpen(false);
   }
 
   const name = displayNameOf(data.student, "Unknown student");
@@ -151,17 +169,29 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
 
       {/*
         In grading mode the list is not narrowed, it is put away: what an instructor wanted from it
-        is two buttons, and those are on the other side of the divider. Hidden rather than
-        unmounted, so it comes back holding the search text, the tab and the scroll it was left
-        with.
+        is two buttons, and those are on the other side of the divider.
+
+        One aside element in every layout, and only its presentation changes — docked as the left
+        column in the wide two-pane layout, a fixed sheet slid in from the left everywhere else —
+        for the reasons the grading queue's aside gives: the same element, so the tab and the
+        scroll survive every change of form.
       */}
       <div
         className={cn("grid min-h-0 flex-1 grid-cols-1", !grading.on && "lg:grid-cols-[360px_1fr]")}
       >
+        {listOpen && (
+          <div
+            aria-hidden
+            onClick={() => setListOpen(false)}
+            className={cn("fixed inset-0 z-40 bg-black/40", !grading.on && "lg:hidden")}
+          />
+        )}
         <aside
           className={cn(
-            "flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0",
-            grading.on && "hidden",
+            "fixed inset-y-0 left-0 z-50 flex min-h-0 w-[85vw] max-w-80 flex-col border-r border-border bg-background shadow-lg transition-transform duration-300 motion-reduce:transition-none",
+            listOpen ? "translate-x-0" : "-translate-x-full",
+            !grading.on &&
+              "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:shadow-none lg:transition-none",
           )}
         >
           <div className="border-b border-border p-3">
@@ -219,7 +249,11 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               onStateChange={setBatch}
             />
 
-            <GradingModeButton onEnter={grading.enter} className="mt-3" />
+            {/* Only beside the docked list — see the grading queue's note on this button. */}
+            <GradingModeButton
+              onEnter={grading.enter}
+              className={cn("mt-3", grading.on ? "hidden" : "max-lg:hidden")}
+            />
           </div>
 
           {/*
@@ -284,71 +318,75 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
         </aside>
 
         <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
-          {grading.on && (
-            <GradingModeBar
-              /*
+          {/*
+            Always rendered, shown by width, exactly as on the grading queue: below `lg` the bar
+            is the layout's own header, and at `lg` and up it belongs to grading mode alone.
+          */}
+          <GradingModeBar
+            className={grading.on ? undefined : "lg:hidden"}
+            /*
                 Only rows there is something to grade on. An assignment the student has not started
                 has no submission, so it is not somewhere Next can go — the pane would have nothing
                 to open.
               */
-              submissions={filtered.flatMap((row) =>
-                row.submission ? [{ id: row.submission.id, label: row.assignment.title }] : [],
-              )}
-              currentId={selected?.submission?.id ?? null}
-              jumpLabel="Jump to an assignment"
-              // The pane below draws no header — the list this mode put away was what showed the
-              // open assignment's state, so the state stands here beside the name in the dropdown.
-              badges={
-                selected?.submission ? (
-                  <span className="flex items-center gap-2">
-                    <SubmissionStatusBadge status={selected.submission.status} />
-                    {selected.submission.isLate && (
-                      <Badge variant="outline" className="font-normal">
-                        Late
-                      </Badge>
-                    )}
-                    {/*
+            submissions={filtered.flatMap((row) =>
+              row.submission ? [{ id: row.submission.id, label: row.assignment.title }] : [],
+            )}
+            currentId={selected?.submission?.id ?? null}
+            currentLabel={selected?.assignment.title ?? null}
+            // The pane below draws no header — the list this bar stands in for is what showed the
+            // open assignment's state, so the state stands here beside the name.
+            badges={
+              selected?.submission ? (
+                <span className="flex items-center gap-2">
+                  <SubmissionStatusBadge status={selected.submission.status} />
+                  {selected.submission.isLate && (
+                    <Badge variant="outline" className="font-normal">
+                      Late
+                    </Badge>
+                  )}
+                  {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the
                       bar is the one place left that can say a reply is owed — and the badge is an
                       anchor to the thread, the jump the old header's badge carried.
                     */}
-                    {selected.submission.commentCount > 0 && (
-                      <Badge
-                        variant="outline"
-                        render={<a href={`#comments-${data.student.id}`} />}
-                        className={cn(
-                          "gap-1 font-normal",
-                          selected.submission.commentsAwaitReply
-                            ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        <MessageSquare className="size-3" />
-                        <span className="tabular-nums">{selected.submission.commentCount}</span>
-                        <span className="sr-only">
-                          {selected.submission.commentsAwaitReply
-                            ? " comments, waiting on a reply"
-                            : " comments"}
-                        </span>
-                      </Badge>
-                    )}
-                  </span>
-                ) : null
-              }
-              listLabel={
-                filter === "needs_review"
-                  ? "To do"
-                  : filter === "graded"
-                    ? "Graded"
-                    : filter === "not_started"
-                      ? "Not started"
-                      : "All assignments"
-              }
-              onSelect={select}
-              onExit={grading.exit}
-            />
-          )}
+                  {selected.submission.commentCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      render={<a href={`#comments-${data.student.id}`} />}
+                      className={cn(
+                        "gap-1 font-normal",
+                        selected.submission.commentsAwaitReply
+                          ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <MessageSquare className="size-3" />
+                      <span className="tabular-nums">{selected.submission.commentCount}</span>
+                      <span className="sr-only">
+                        {selected.submission.commentsAwaitReply
+                          ? " comments, waiting on a reply"
+                          : " comments"}
+                      </span>
+                    </Badge>
+                  )}
+                </span>
+              ) : null
+            }
+            listLabel={
+              filter === "needs_review"
+                ? "To do"
+                : filter === "graded"
+                  ? "Graded"
+                  : filter === "not_started"
+                    ? "Not started"
+                    : "All assignments"
+            }
+            onSelect={select}
+            onOpenList={() => setListOpen(true)}
+            onExit={grading.exit}
+          />
 
           {/*
             `min-h-0 flex-1` because the review pane sizes itself with `h-full` and scrolls inside.

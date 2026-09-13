@@ -1,17 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, List, Maximize2, Minimize2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
@@ -24,10 +16,15 @@ import { cn } from "@/lib/utils";
  * application sidebar and the width they take are all in the way of the two things actually being
  * read: the student's document and the feedback being written about it.
  *
- * So the mode collapses both and offers what is left of the list as two buttons. On a 1440px
- * window that hands the review pane about 1390px instead of about 820px, which is what takes it
- * from too narrow to hold the document beside the grade to comfortably wide enough — the split is
- * a width the pane either has or does not, and this is how a laptop gets it.
+ * So the mode collapses both and offers what is left of the list as this bar, with the list
+ * itself a sheet the bar's leftmost button slides in when it is wanted. On a 1440px window that
+ * hands the review pane about 1390px instead of about 820px, which is what takes it from too
+ * narrow to hold the document beside the grade to comfortably wide enough — the split is a width
+ * the pane either has or does not, and this is how a laptop gets it.
+ *
+ * Below the `lg` breakpoint this is not a mode but the layout: the screens have no room for a
+ * docked list, so the bar is always shown and the list is only ever the sheet. One presentation
+ * at every width, entered by a button where there is a wider one to come back to.
  *
  * One component for both screens. The grading queue's list is one assignment's students and the
  * student overview's is one student's assignments, but the shape either side of the divider is the
@@ -97,7 +94,7 @@ export function GradingModeButton({
   className?: string;
 }) {
   return (
-    <Button variant="outline" size="sm" onClick={onEnter} className={cn("w-full", className)}>
+    <Button variant="outline" size="sm" onClick={onEnter} className={className}>
       <Maximize2 data-icon="inline-start" />
       Grading mode
     </Button>
@@ -105,45 +102,51 @@ export function GradingModeButton({
 }
 
 /**
- * What is left of the list once it is gone: where you are in it, the way to either side, and the
- * way straight to one of them.
+ * What is left of the list once it is gone: the way back to it, the way to either side of where
+ * you are, and who is open.
  *
  * **Movement follows the list as it is currently filtered.** The rows arrive in the order they
  * were drawn, so a search narrowed to one group, or the To do tab, is still in force here — Next
- * means the next one an instructor was actually looking at, and the dropdown offers exactly the
- * names that list holds. Which filter that is stays written beside the count, because a dropdown
- * missing a student it does not explain reads as a fault rather than as a filter.
+ * means the next one an instructor was actually looking at. The leftmost button says which filter
+ * that is and how many rows it holds, and pressing it slides the list itself in as a sheet — the
+ * whole list, with its search, its tabs and its badges, which is everything the jump dropdown it
+ * replaced could not carry.
  *
- * Placed at the top of the submission pane with the movement on the right, directly above Approve
- * and release: approving and moving on are one gesture repeated all afternoon, and they belong
- * under the same hand.
+ * Movement on the left, directly above where the queue list used to sit; the open row's name and
+ * state on the right, because the pane below draws no header of its own. Exit is only drawn at
+ * widths where a two-pane layout exists to go back to.
  */
 export function GradingModeBar({
   submissions,
   currentId,
+  currentLabel,
   listLabel,
-  jumpLabel,
   badges,
   onSelect,
+  onOpenList,
   onExit,
+  className,
 }: {
   /** Every submission in the list, in the order it is drawn, under the name to reach it by. */
   submissions: { id: string; label: string }[];
   /** The one open, which may not be in the list at all — see below. */
   currentId: string | null;
+  /** The open row's own name — a team's, a student's, an assignment's — shown beside its badges. */
+  currentLabel: string | null;
   /** What the list is currently showing, in the words its own tab uses. */
   listLabel: string;
-  /** What the dropdown is a list of, in this screen's own noun: a student, or an assignment. */
-  jumpLabel: string;
   /**
    * The open submission's state — its status badge, and Late where it applies. In this bar
-   * because the pane below has no header of its own: the dropdown names who is open, and this is
-   * where their state stands beside the name. Whichever list this bar fronts decides what state
-   * means for its rows, so the badges come in rather than being read off a submission here.
+   * because the pane below has no header of its own: this is where the open row's state stands
+   * beside its name. Whichever list this bar fronts decides what state means for its rows, so the
+   * badges come in rather than being read off a submission here.
    */
   badges?: React.ReactNode;
   onSelect: (id: string) => void;
+  /** Slides the list in as a sheet over the pane. */
+  onOpenList: () => void;
   onExit: () => void;
+  className?: string;
 }) {
   const at = currentId === null ? -1 : submissions.findIndex((row) => row.id === currentId);
 
@@ -152,73 +155,65 @@ export function GradingModeBar({
 
     A submission can legitimately be open and not in the list beside it: a student who has left the
     cohort, one outside the group selected, one member's copy of their team's grade. The pane says
-    which of those it is; this says only that Previous and Next have nowhere to go and that the
-    dropdown is not showing what is open, which is the honest answer and better than a control that
-    names somebody else's work.
+    which of those it is; this says only that Previous and Next have nowhere to go, which is the
+    honest answer and better than a control that names somebody else's work.
   */
   const previous = at > 0 ? submissions[at - 1] : null;
   const next = at >= 0 && at < submissions.length - 1 ? submissions[at + 1] : null;
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-2">
-      <Button variant="ghost" size="sm" onClick={onExit}>
-        <Minimize2 data-icon="inline-start" />
-        Exit grading mode
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2",
+        className,
+      )}
+    >
+      <Button variant="outline" size="sm" onClick={onOpenList}>
+        <List data-icon="inline-start" />
+        {listLabel}
+        <span className="text-muted-foreground tabular-nums">({submissions.length})</span>
       </Button>
 
-      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-        {/*
-          The list itself, folded into one control. Going three students back is otherwise three
-          presses of Previous, each one loading a submission nobody wanted to look at.
-        */}
-        <Select
-          value={at >= 0 ? currentId : null}
-          onValueChange={(id) => id && onSelect(id)}
-          items={Object.fromEntries(submissions.map((row) => [row.id, row.label]))}
-        >
-          <SelectTrigger size="sm" aria-label={jumpLabel} className="w-56 min-w-0">
-            <SelectValue placeholder={jumpLabel} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {submissions.map((row) => (
-                <SelectItem key={row.id} value={row.id}>
-                  {row.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+      {/*
+        With the movement, not with the name: leaving the mode is the last move of the sitting.
+        Only where the wider layout exists to go back to — below `lg` the bar and the sheet are
+        the layout, so there is nothing to exit.
+      */}
+      <Button variant="ghost" size="sm" onClick={onExit} className="max-lg:hidden">
+        <Minimize2 data-icon="inline-start" />
+        Exit
+      </Button>
 
-        {/* Beside the name it describes, which the dropdown holds. */}
+      <div className="ml-auto flex min-w-0 items-center gap-2">
         {badges}
-
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {at >= 0 ? `${at + 1} of ${submissions.length}` : `${submissions.length} in the list`} ·{" "}
-          {listLabel}
-        </span>
-
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={previous === null}
-            onClick={() => previous && onSelect(previous.id)}
-          >
-            <ChevronLeft data-icon="inline-start" />
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={next === null}
-            onClick={() => next && onSelect(next.id)}
-          >
-            Next
-            <ChevronRight data-icon="inline-end" />
-          </Button>
-        </div>
+        {currentLabel && (
+          <span className="truncate text-sm font-medium" title={currentLabel}>
+            {currentLabel}
+          </span>
+        )}
       </div>
+
+      {/* Worded where there is room, arrows alone where there is not. */}
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={previous === null}
+        onClick={() => previous && onSelect(previous.id)}
+        aria-label="Previous"
+      >
+        <ChevronLeft data-icon="inline-start" />
+        <span className="max-lg:hidden">Previous</span>
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={next === null}
+        onClick={() => next && onSelect(next.id)}
+        aria-label="Next"
+      >
+        <span className="max-lg:hidden">Next</span>
+        <ChevronRight data-icon="inline-end" />
+      </Button>
     </div>
   );
 }

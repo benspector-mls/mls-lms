@@ -58,6 +58,23 @@ export function GradingQueue({
   const grading = useGradingMode();
 
   /*
+    Whether the list is slid over the pane as a sheet. The sheet is the list's only form below the
+    `lg` breakpoint and its grading-mode form above it; picking a row closes it, and so do Escape
+    and the dimmed pane behind it. While the docked two-pane layout is on screen this is inert —
+    the aside ignores it there by media query rather than by mount, so the search text, the tab
+    and the scroll survive every change of form.
+  */
+  const [listOpen, setListOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!listOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setListOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [listOpen]);
+
+  /*
     All, and it is the first tab as well as the opening one — a leftmost tab that is not the one
     selected reads as a control somebody has already touched.
 
@@ -246,6 +263,8 @@ export function GradingQueue({
     params.set("submission", id);
     params.delete("fellow");
     router.replace(`?${params.toString()}`, { scroll: false });
+    // Picking a row is what the sheet was opened for, so picking one closes it.
+    setListOpen(false);
   }
 
   /*
@@ -273,6 +292,7 @@ export function GradingQueue({
     params.set("fellow", studentId);
     params.delete("submission");
     router.replace(`?${params.toString()}`, { scroll: false });
+    setListOpen(false);
   }
 
   /*
@@ -285,17 +305,31 @@ export function GradingQueue({
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
       {/*
         In grading mode the list is not narrowed, it is put away: what an instructor wanted from it
-        is two buttons, and those are on the other side of the divider. Hidden rather than
-        unmounted, so it comes back holding the search text, the tab and the scroll it was left
-        with.
+        is two buttons, and those are on the other side of the divider.
+
+        One aside element in every layout, and only its presentation changes: docked as the left
+        column while the wide two-pane layout is on (`lg:static` overrides every sheet class), and
+        a fixed sheet slid in from the left everywhere else — below `lg`, and in grading mode at
+        any width. The same element rather than two, so the search text, the tab and the scroll
+        survive entering the mode or narrowing the window; and off-screen rather than unmounted,
+        for the same reason.
       */}
       <div
         className={cn("grid min-h-0 flex-1 grid-cols-1", !grading.on && "lg:grid-cols-[360px_1fr]")}
       >
+        {listOpen && (
+          <div
+            aria-hidden
+            onClick={() => setListOpen(false)}
+            className={cn("fixed inset-0 z-40 bg-black/40", !grading.on && "lg:hidden")}
+          />
+        )}
         <aside
           className={cn(
-            "flex min-h-0 flex-col border-b border-border lg:border-r lg:border-b-0",
-            grading.on && "hidden",
+            "fixed inset-y-0 left-0 z-50 flex min-h-0 w-[85vw] max-w-80 flex-col border-r border-border bg-background shadow-lg transition-transform duration-300 motion-reduce:transition-none",
+            listOpen ? "translate-x-0" : "-translate-x-full",
+            !grading.on &&
+              "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:shadow-none lg:transition-none",
           )}
         >
           <div className="flex flex-col gap-3 border-b border-border p-3">
@@ -344,8 +378,7 @@ export function GradingQueue({
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {tab.label}
-                    <br />({tab.count})
+                    {tab.label} ({tab.count})
                   </button>
                 ))}
               </div>
@@ -378,7 +411,15 @@ export function GradingQueue({
               />
             )}
 
-            <GradingModeButton onEnter={grading.enter} />
+            {/*
+              Only beside the docked list. Below `lg` this layout already is grading mode, and in
+              the mode itself the button would re-enter it — collapsing a sidebar that is already
+              collapsed and forgetting how it was found.
+            */}
+            <GradingModeButton
+              onEnter={grading.enter}
+              className={grading.on ? "hidden" : "max-lg:hidden"}
+            />
           </div>
 
           {/*
@@ -457,74 +498,82 @@ export function GradingQueue({
         </aside>
 
         <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
-          {grading.on && (
-            <GradingModeBar
-              /*
+          {/*
+            Always rendered, shown by width: below `lg` the bar is the layout's own header, and at
+            `lg` and up it belongs to grading mode alone — the docked list holds everything it
+            says.
+          */}
+          <GradingModeBar
+            className={grading.on ? undefined : "lg:hidden"}
+            /*
                 Named the way the row beside it was named: a team's work is the team's, and
                 heading it with whichever member claimed it would name somebody the work is not
                 about.
               */
-              submissions={filtered.map((row) => ({
-                id: row.id,
-                label: row.team ? row.team.name : displayNameOf(row.student, "Unknown student"),
-              }))}
-              currentId={selected?.id ?? null}
-              jumpLabel="Jump to a student"
-              /*
-                The pane below draws no header — the list this mode put away was what named the
-                open student's state, so the state stands here instead, beside the name in the
-                dropdown. A task's pane names its own state (done, or not), so only graded work
-                sends badges up.
+            submissions={filtered.map((row) => ({
+              id: row.id,
+              label: row.team ? row.team.name : displayNameOf(row.student, "Unknown student"),
+            }))}
+            currentId={selected?.id ?? null}
+            currentLabel={
+              selected
+                ? selected.team
+                  ? selected.team.name
+                  : displayNameOf(selected.student, "Unknown student")
+                : selectedFellow
+                  ? displayNameOf(selectedFellow, "Unknown student")
+                  : null
+            }
+            /*
+                The pane below draws no header — the list this bar stands in for is what named the
+                open student's state, so the state stands here instead, beside the name. A task's
+                pane names its own state (done, or not), so only graded work sends badges up.
               */
-              badges={
-                selected && !isTask ? (
-                  <span className="flex items-center gap-2">
-                    <SubmissionStatusBadge status={selected.status} />
-                    {selected.isLate && (
-                      <Badge variant="outline" className="font-normal">
-                        Late
-                      </Badge>
-                    )}
-                    {/*
+            badges={
+              selected && !isTask ? (
+                <span className="flex items-center gap-2">
+                  <SubmissionStatusBadge status={selected.status} />
+                  {selected.isLate && (
+                    <Badge variant="outline" className="font-normal">
+                      Late
+                    </Badge>
+                  )}
+                  {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the
                       bar is the one place left that can say a reply is owed — and the badge is an
                       anchor to the thread, the jump the old header's badge carried.
                     */}
-                    {selected.commentCount > 0 && (
-                      <Badge
-                        variant="outline"
-                        render={<a href={`#comments-${selected.student.id}`} />}
-                        className={cn(
-                          "gap-1 font-normal",
-                          selected.commentsAwaitReply
-                            ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        <MessageSquare className="size-3" />
-                        <span className="tabular-nums">{selected.commentCount}</span>
-                        <span className="sr-only">
-                          {selected.commentsAwaitReply
-                            ? " comments, waiting on a reply"
-                            : " comments"}
-                        </span>
-                      </Badge>
-                    )}
-                  </span>
-                ) : null
-              }
-              listLabel={
-                filter === "needs_review"
-                  ? "To do"
-                  : filter === "graded"
-                    ? "Graded"
-                    : "All students"
-              }
-              onSelect={select}
-              onExit={grading.exit}
-            />
-          )}
+                  {selected.commentCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      render={<a href={`#comments-${selected.student.id}`} />}
+                      className={cn(
+                        "gap-1 font-normal",
+                        selected.commentsAwaitReply
+                          ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <MessageSquare className="size-3" />
+                      <span className="tabular-nums">{selected.commentCount}</span>
+                      <span className="sr-only">
+                        {selected.commentsAwaitReply
+                          ? " comments, waiting on a reply"
+                          : " comments"}
+                      </span>
+                    </Badge>
+                  )}
+                </span>
+              ) : null
+            }
+            listLabel={
+              filter === "needs_review" ? "To do" : filter === "graded" ? "Graded" : "All students"
+            }
+            onSelect={select}
+            onOpenList={() => setListOpen(true)}
+            onExit={grading.exit}
+          />
 
           {/*
             Said before the work rather than left to be noticed. This submission is not in the
