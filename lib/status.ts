@@ -166,8 +166,13 @@ export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
     tone: "pending",
     description: "The grading run is in progress.",
   },
+  /*
+    "Drafted" rather than "ready for review", because this same status covers a report the
+    pipeline wrote and one an instructor is still typing by hand — and a hand grade half filled in
+    is not ready for anything yet. What is true of both is only that a draft now exists.
+  */
   READY: {
-    label: "Ready for review",
+    label: "Feedback drafted",
     tone: "review",
     description: "A proposal awaiting your approval.",
   },
@@ -177,7 +182,7 @@ export const DRAFT_STATUS_META: Record<GradingDraftStatus, StatusMeta> = {
     `errorDetail`. See the note in `generateReportForSubmission` for why the distinction went.
   */
   NEEDS_MANUAL_REVIEW: {
-    label: "Ready for review",
+    label: "Feedback drafted",
     tone: "review",
     description: "A proposal awaiting your approval.",
   },
