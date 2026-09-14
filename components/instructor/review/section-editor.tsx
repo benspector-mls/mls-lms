@@ -67,26 +67,58 @@ export function SectionEditor({
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-col gap-1.5">
-            <CardTitle className="flex items-center gap-2 text-base">
-              {sectionLabel(section.sectionType)}
-              {/*
-                Whether this section's edits have reached the server, as one icon that is always
-                there. A badge that came and went resized the card and moved everything under the
-                reader's cursor; the icon holds the same space in both states.
-              */}
-              {unsaved ? (
-                <span title="Not saved yet">
-                  <SavePen className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span className="sr-only">This section has changes not saved yet</span>
-                </span>
-              ) : (
-                <span title="Saved">
-                  <SaveCheck className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="sr-only">This section is saved</span>
-                </span>
-              )}
+        {/*
+          The title wraps; the score box never moves. `min-w-0` is what lets the title column
+          shrink below the width of its own text, and without it flex takes the one way it has
+          left to fit both — putting the score box on a row of its own, which is a row of height
+          every card then pays for because one section was named at length.
+        */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            {/*
+              `min-h-9` is the height of the score box beside it, and the title sits centred in
+              that height rather than at the top of it. A one-line title — which is nearly every
+              title — then reads level with the number, and a title that has wrapped is taller
+              than the box and so is unaffected, which is why the row itself still aligns to the
+              top: the number stays beside the first line rather than drifting down the block.
+            */}
+            <CardTitle className="flex min-h-9 items-center text-base">
+              <span>
+                {sectionLabel(section.sectionType)}
+                {/*
+                  Whether this section's edits have reached the server, as one icon that is always
+                  there. A badge that came and went resized the card and moved everything under the
+                  reader's cursor; the icon holds the same space in both states.
+
+                  Inline, inside the same span as the title, so that a title running to two lines
+                  carries the icon after its last word. As a flex item of its own it would sit
+                  level with the gap between the lines, attached to nothing.
+
+                  `align-middle` puts the centre of the icon on the x-height midline — the
+                  baseline plus half the height of a lowercase x. The middle a reader sees is the
+                  cap-height midline, which is two pixels higher at this font size, so the icon is
+                  moved up those two pixels to land on it. Moved rather than aligned differently:
+                  a transform does not change the line box, so a title running to two lines keeps
+                  its lines the same distance apart.
+                */}
+                {unsaved ? (
+                  <span
+                    title="Not saved yet"
+                    className="ml-1.5 inline-flex -translate-y-[2px] align-middle"
+                  >
+                    <SavePen className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span className="sr-only">This section has changes not saved yet</span>
+                  </span>
+                ) : (
+                  <span
+                    title="Saved"
+                    className="ml-1.5 inline-flex -translate-y-[2px] align-middle"
+                  >
+                    <SaveCheck className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="sr-only">This section is saved</span>
+                  </span>
+                )}
+              </span>
             </CardTitle>
             {(section.confidence || flags.length > 0) && (
               <div className="flex flex-wrap items-center gap-1.5">
@@ -98,7 +130,7 @@ export function SectionEditor({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
             <Input
               type="number"
               min={0}
