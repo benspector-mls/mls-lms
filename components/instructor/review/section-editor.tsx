@@ -70,7 +70,7 @@ export function SectionEditor({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-1.5">
             <CardTitle className="flex items-center gap-2 text-base">
-              Section Report — {sectionLabel(section.sectionType)}
+              {sectionLabel(section.sectionType)}
               {/*
                 Whether this section's edits have reached the server, as one icon that is always
                 there. A badge that came and went resized the card and moved everything under the
