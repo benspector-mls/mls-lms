@@ -2,8 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { Inbox, MessageSquare, Search, UserMinus, Users } from "lucide-react";
+import { Inbox, MessageSquare, UserMinus, Users } from "lucide-react";
 
+import { AssignmentPicker } from "@/components/instructor/assignment-picker";
 import { BatchGenerate } from "@/components/instructor/batch-generate";
 import {
   GradingModeBar,
@@ -22,7 +23,6 @@ import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { studentHref } from "@/lib/links";
 import type { CohortChoice } from "@/lib/programs/cohorts";
 import { displayNameOf } from "@/lib/people";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -61,8 +61,8 @@ export function GradingQueue({
     Whether the list is slid over the pane as a sheet. The sheet is the list's only form below the
     `lg` breakpoint and its grading-mode form above it; picking a row closes it, and so do Escape
     and the dimmed pane behind it. While the docked two-pane layout is on screen this is inert —
-    the aside ignores it there by media query rather than by mount, so the search text, the tab
-    and the scroll survive every change of form.
+    the aside ignores it there by media query rather than by mount, so the tab and the scroll
+    survive every change of form.
   */
   const [listOpen, setListOpen] = React.useState(false);
   React.useEffect(() => {
@@ -87,9 +87,7 @@ export function GradingQueue({
     back in an effect rather than in the initializer because this component is rendered on the
     server first, where "all" is the only answer — an initializer reading storage would hydrate
     against different markup. Not in the URL, deliberately: a colleague's link to a submission
-    should not impose the sender's tab, and the sidebar's links carry no parameters anyway. The
-    search box is not remembered — an invisible day-old search hiding students would read as rows
-    gone missing.
+    should not impose the sender's tab, and the sidebar's links carry no parameters anyway.
   */
   const tabStorageKey = `grading-tab:${data.assignment.id}`;
   const [filter, setFilterState] = React.useState<Filter>("all");
@@ -111,7 +109,6 @@ export function GradingQueue({
       // Remembering the tab is a convenience; failing to is not worth interrupting anything.
     }
   }
-  const [query, setQuery] = React.useState("");
 
   /*
     The batch's state, lifted here only so the rows can draw a spinner on what is in flight.
@@ -184,20 +181,11 @@ export function GradingQueue({
 
   // Filtering a cohort's worth of rows is not work worth memoizing, and `submissions` is
   // a fresh array on every render anyway, so a memo here would recompute regardless.
-  const term = query.trim().toLowerCase();
-  const filtered = submissions
-    .filter((row) => {
-      if (filter === "needs_review") return needsReview(row);
-      if (filter === "graded") return row.status === "GRADED";
-      return true;
-    })
-    .filter(
-      (row) =>
-        !term ||
-        (row.student.displayName ?? "").toLowerCase().includes(term) ||
-        (row.student.githubUsername ?? "").toLowerCase().includes(term) ||
-        (row.student.email ?? "").toLowerCase().includes(term),
-    );
+  const filtered = submissions.filter((row) => {
+    if (filter === "needs_review") return needsReview(row);
+    if (filter === "graded") return row.status === "GRADED";
+    return true;
+  });
 
   /*
     The selection survives a filter that no longer contains it, so switching tabs does not
@@ -247,16 +235,9 @@ export function GradingQueue({
     Fellows on the roster with no submission row at all. Empty for every kind but a task — see
     `notStarted` in `submissions.listForAssignment` for why only a task has them.
 
-    Searched by the same term as the rows above, so one search box narrows one list. They are not
-    counted in the tabs: the tabs count submissions, and these are the absence of one.
+    Not counted in the tabs: the tabs count submissions, and these are the absence of one.
   */
-  const notStarted = data.notStarted.filter(
-    (student) =>
-      !term ||
-      (student.displayName ?? "").toLowerCase().includes(term) ||
-      (student.githubUsername ?? "").toLowerCase().includes(term) ||
-      (student.email ?? "").toLowerCase().includes(term),
-  );
+  const notStarted = data.notStarted;
 
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -310,8 +291,8 @@ export function GradingQueue({
         One aside element in every layout, and only its presentation changes: docked as the left
         column while the wide two-pane layout is on (`lg:static` overrides every sheet class), and
         a fixed sheet slid in from the left everywhere else — below `lg`, and in grading mode at
-        any width. The same element rather than two, so the search text, the tab and the scroll
-        survive entering the mode or narrowing the window; and off-screen rather than unmounted,
+        any width. The same element rather than two, so the tab and the scroll survive entering
+        the mode or narrowing the window; and off-screen rather than unmounted,
         for the same reason.
       */}
       <div
@@ -334,20 +315,16 @@ export function GradingQueue({
         >
           <div className="flex flex-col gap-3 border-b border-border p-3">
             {/*
-              Above the search box and the tabs, because it decides what those two are searching
-              and counting. The three tabs beneath it count the cohort, not the roster — which is
-              why it cannot sit somewhere a reader might not have noticed it.
+              Above the assignment picker and the tabs, because it decides what those two are
+              counting. The three tabs beneath it count the cohort, not the roster — which is why
+              it cannot sit somewhere a reader might not have noticed it.
             */}
             <CohortPicker choice={cohorts} className="w-full" />
-            <div className="relative">
-              <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search students…"
-                className="pl-8"
-              />
-            </div>
+            <AssignmentPicker
+              courseId={data.assignment.courseId}
+              assignmentId={data.assignment.id}
+              assignmentTitle={data.assignment.title}
+            />
             {/*
               The three tabs are three answers to "what is left to grade", which a task does not
               ask: `To do` is permanently zero because a task never enters a triage bucket, and
@@ -386,10 +363,9 @@ export function GradingQueue({
 
             {/*
               Scoped to what the list is currently showing rather than to the whole assignment,
-              because that is what the instructor is looking at: a search narrowed to one student
-              offers to generate that student's report, and the Graded tab offers nothing. A
-              button above a list of twelve that quietly acted on forty would be worse than one
-              that acted on nothing.
+              because that is what the instructor is looking at: the Graded tab offers nothing to
+              generate. A button above a list of twelve that quietly acted on forty would be worse
+              than one that acted on nothing.
             */}
             {/*
               Absent for a task rather than disabled, the same rule the authoring form applies to

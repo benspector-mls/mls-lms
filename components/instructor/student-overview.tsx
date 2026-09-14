@@ -6,6 +6,7 @@ import * as React from "react";
 import { ArrowLeft, GitBranch, Inbox, Mail, MessageSquare, UserMinus } from "lucide-react";
 
 import { BatchGenerate } from "@/components/instructor/batch-generate";
+import { StudentPicker } from "@/components/instructor/student-picker";
 import {
   GradingModeBar,
   GradingModeButton,
@@ -195,6 +196,17 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
           )}
         >
           <div className="border-b border-border p-3">
+            {/*
+              Above the tabs, because it names what they count. This aside otherwise carries no
+              cohort filter of its own — one fellow's whole record is the unit this screen reads,
+              and the picker is the way to a different one without a trip back to the roster.
+            */}
+            <StudentPicker
+              courseId={data.course.id}
+              studentId={data.student.id}
+              studentName={name}
+              className="mb-3"
+            />
             <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(
                 [

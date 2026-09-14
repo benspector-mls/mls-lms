@@ -15,12 +15,13 @@ import { inTransaction } from "@/lib/prisma";
 
 import {
   type AuthedCtx,
+  courseProcedure,
   createTRPCRouter,
   instructorProcedure,
   profileProcedure,
   programProcedure,
 } from "../init";
-import { displayNameOf, personNameSelect } from "../selects";
+import { displayNameOf, personNameSelect, personSelect } from "../selects";
 
 /**
  * Getting fellows onto a program's roster, and off it.
@@ -362,6 +363,36 @@ export const enrollmentsRouter = createTRPCRouter({
         return { programId: program.id, name: program.name, joined: true };
       });
     }),
+
+  /**
+   * Every actively enrolled student of a course, name and id only.
+   *
+   * The list a switcher offers when a screen is already open on one of them — a student's own
+   * record, reached by a link that could name anybody, needs a way to move to a neighbor without
+   * a trip back to the roster. Enrollment lives on the program rather than the course, so the
+   * course's own program is read first.
+   *
+   * **Active only**, the same restriction every other roster count in this application applies. A
+   * removed student's record is still reachable by the link that already names them — this is
+   * only the list a picker offers, not a gate on who can be read.
+   */
+  listForCourse: courseProcedure.query(async ({ ctx, input }) => {
+    const course = await ctx.db.course.findUnique({
+      where: { id: input.courseId },
+      select: { programId: true },
+    });
+    if (!course) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+    }
+
+    const enrollments = await ctx.db.enrollment.findMany({
+      where: { programId: course.programId, status: "ACTIVE" },
+      select: { student: { select: personSelect } },
+      orderBy: { student: { displayName: "asc" } },
+    });
+
+    return enrollments.map((enrollment) => enrollment.student);
+  }),
 
   /**
    * Who is expected on this roster, claimed or not.
