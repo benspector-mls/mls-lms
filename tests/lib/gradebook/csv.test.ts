@@ -167,19 +167,7 @@ describe("column order follows the course, not the alphabet", () => {
   });
 });
 
-describe("a gap is blank and never a zero", () => {
-  it("leaves a cell empty when the student never accepted the assignment", () => {
-    const csv = toCsv(gradebook({ cells: [] }));
-    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
-  });
-
-  it("leaves a cell empty when the submission exists but is not graded", () => {
-    const csv = toCsv(
-      gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null })] }),
-    );
-    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
-  });
-
+describe("a gap is a word and never a zero", () => {
   it("writes a score as a bare number a spreadsheet can sum", () => {
     const csv = toCsv(
       gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: 8.5 })] }),
@@ -467,8 +455,12 @@ describe("the missing column", () => {
     expect(missingCount(csv)).toBe("2");
   });
 
-  // Handed in but ungraded stays blank even past the deadline: that gap is unknown, not a verdict.
-  it("leaves a past-due but handed-in cell blank until it is graded", () => {
+  /*
+    Handed in past the deadline is "Submitted" and never "Missing": the work arrived, so the gap
+    is an ungraded one rather than a verdict. The late count is where a deadline missed by work
+    that did arrive is recorded.
+  */
+  it("writes Submitted rather than Missing for a past-due cell that was handed in", () => {
     const csv = toCsv(
       gradebook({
         assignments: [assignment({ dueAt: PAST_DUE })],
@@ -476,10 +468,11 @@ describe("the missing column", () => {
       }),
     );
 
-    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Submitted"]);
+    expect(missingCount(csv)).toBe("0");
   });
 
-  it("leaves a not-yet-due cell blank rather than marking it", () => {
+  it("writes Not submitted for a cell that is not yet due", () => {
     const csv = toCsv(
       gradebook({
         assignments: [assignment({ dueAt: "2026-10-01T00:00:00.000Z" })],
@@ -487,7 +480,83 @@ describe("the missing column", () => {
       }),
     );
 
-    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([""]);
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Not submitted"]);
+  });
+});
+
+/*
+  The three words that stand where a score would, and the rule that none of them may become a
+  zero. They are exhaustive: every cell of the file is a number or one of these.
+*/
+describe("the words a cell without a score carries", () => {
+  /** A deadline behind `AT`, so a cell with nothing in it is missing rather than merely absent. */
+  const PAST_DUE = "2026-09-01T00:00:00.000Z";
+
+  it("writes Not submitted where the student never took the work up", () => {
+    const csv = toCsv(gradebook({ cells: [] }));
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Not submitted"]);
+  });
+
+  it("writes Not submitted where the student accepted but handed nothing in", () => {
+    const csv = toCsv(
+      gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", status: "ACCEPTED" })] }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Not submitted"]);
+  });
+
+  it("writes Submitted where the work is in and has no score yet", () => {
+    const csv = toCsv(
+      gradebook({ cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null })] }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Submitted"]);
+  });
+
+  /*
+    A resubmission keeps the score its earlier hand-in was given — `finalScore` stays on the row
+    until the work is graded again — so the cell reads the number rather than forgetting it and
+    reading "Submitted".
+  */
+  it("keeps the existing score on a resubmitted cell rather than writing Submitted", () => {
+    const csv = toCsv(
+      gradebook({
+        cells: [
+          cell({ assignmentId: "a1", studentId: "s1", status: "RESUBMITTED", finalScore: 9 }),
+        ],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["9"]);
+  });
+
+  // The rule the words must not break: a gap is never a zero, whatever word stands in it.
+  it("writes no zero for any of them", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [
+          assignment({ id: "a1", title: "Loops", dueAt: PAST_DUE }),
+          assignment({
+            id: "a2",
+            title: "Recursion",
+            courseUnit: { id: "u2", position: 1, name: "Module 2", category: "MODULE" },
+          }),
+          assignment({
+            id: "a3",
+            title: "Async",
+            courseUnit: { id: "u3", position: 2, name: "Module 3", category: "MODULE" },
+          }),
+        ],
+        cells: [cell({ assignmentId: "a3", studentId: "s1", finalScore: null })],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual([
+      "Missing",
+      "Not submitted",
+      "Submitted",
+    ]);
   });
 });
 

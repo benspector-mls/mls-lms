@@ -19,12 +19,7 @@ import {
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { WorkFilter } from "@/components/instructor/work-filter";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
-import {
-  cellsFor,
-  published,
-  type UnitVerdict,
-  type UnitWithWork,
-} from "@/lib/gradebook/categories";
+import { cellsFor, type UnitVerdict, type UnitWithWork } from "@/lib/gradebook/categories";
 import {
   filterAssignments,
   type ColumnFilter,
@@ -427,10 +422,11 @@ function Band({
    * judgment and a lesser judgment. A count says what is actually known: how many of the unit's
    * assignments this student has finished, out of how many there are.
    *
-   * **Published work only, on both halves of the fraction.** A student cannot finish what has not
-   * been handed out, so counting drafts would mean an instructor writing next week's assignment
-   * turning "5/5" into "5/6" for everyone who had finished the unit. It is the same rule the
-   * course roll-up and the student's own course page use, so all three agree.
+   * **Published work only, on both halves of the fraction**, which needs no filtering here: the
+   * gradebook payload holds released work only. A student cannot finish what has not been handed
+   * out, so counting drafts would mean an instructor writing next week's assignment turning "5/5"
+   * into "5/6" for everyone who had finished the unit. It is the same rule the course roll-up and
+   * the student's own course page use, so all three agree.
    *
    * Computed from every assignment in the unit — from `allUnits`, never from the filtered columns.
    * Otherwise ticking one deliverable off in the filter menu would change how much of the project
@@ -440,8 +436,7 @@ function Band({
     const map = new Map<string, Map<string, Completion>>();
 
     for (const entry of allUnits) {
-      const live = published(entry.work);
-      map.set(entry.unit.id, completionByStudent(cellsFor(cells, live), live.length));
+      map.set(entry.unit.id, completionByStudent(cellsFor(cells, entry.work), entry.work.length));
     }
 
     return map;
@@ -775,7 +770,7 @@ function Band({
                   >
                     {completionLabel(
                       unitProgress.get(entry.unit.id)?.get(student.id),
-                      published(entry.work).length,
+                      entry.work.length,
                     )}
                   </TableCell>
                   {entry.work.map((assignment) => {

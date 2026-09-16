@@ -19,6 +19,7 @@ import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/c
 import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
 import {
   allUnits,
+  countedUnits,
   courseVerdictByStudent,
   groupByUnit,
   unitCompletionByStudent,
@@ -169,9 +170,9 @@ export function Gradebook({
     means reading four columns or ninety. Counting units also made the Assignments tab and the
     Projects tab measure different-sized things while looking like one scale.
 
-    Every assignment in the category, including the drafts, because the grid draws a column for
-    each. Units with nothing in them contribute nothing here, which is the same reason the grid
-    omits their bands.
+    Every assignment in the category, which is every released one — the gradebook payload holds no
+    drafts — because the grid draws a column for each. Units with nothing in them contribute
+    nothing here, which is the same reason the grid omits their bands.
   */
   const counts: Record<GradebookTab, number | null> = {
     overview: null,
@@ -375,10 +376,21 @@ function OverviewTable({
     ASSESSMENT: unitCompletionByStudent(cells, grouped.ASSESSMENT),
   };
 
+  /*
+    **Units that hold released work, not every unit of the category.** A project whose deliverables
+    are all still drafts cannot be finished by anybody, so counting it turns "2 of 2 projects" into
+    "2 of 3" for a whole cohort the moment an instructor starts writing the next one — a figure that
+    falls the day work is *authored* rather than the day anything changes about the fellow.
+
+    `unitHasVerdict` rather than a count written here, because it is the rule the numerator beside
+    this already uses: `unitCompletionByStudent` measures against the units that have a verdict, and
+    the two halves of one fraction reading different sets of units is how "3 of 2" appears. It is
+    also what the course roll-up counts, so the three figures in a row agree.
+  */
   const possible: Record<CourseUnitCategory, number> = {
-    MODULE: grouped.MODULE.length,
-    PROJECT: grouped.PROJECT.length,
-    ASSESSMENT: grouped.ASSESSMENT.length,
+    MODULE: countedUnits(grouped.MODULE),
+    PROJECT: countedUnits(grouped.PROJECT),
+    ASSESSMENT: countedUnits(grouped.ASSESSMENT),
   };
 
   /*
