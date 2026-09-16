@@ -14,6 +14,8 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
+  stickyHeader,
+  stickyHeaderContainer,
 } from "@/components/ui/table";
 import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/course-units";
 import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
@@ -420,10 +422,14 @@ function OverviewTable({
     }
   }
 
+  /*
+    The border's `overflow-hidden` is not a scroller: the container inside `Table` scrolls both
+    axes now, and this div's overflow only clips the opaque sticky cells to the rounded corner.
+  */
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <Table>
-        <TableHeader>
+    <div className="overflow-hidden rounded-lg border border-border">
+      <Table containerClassName={stickyHeaderContainer}>
+        <TableHeader className={stickyHeader}>
           <TableRow>
             <TableHead className={stickyColumn}>Student</TableHead>
             {UNIT_CATEGORIES.map((category) => (

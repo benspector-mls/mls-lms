@@ -15,6 +15,8 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
+  stickyHeader,
+  stickyHeaderContainer,
 } from "@/components/ui/table";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { WorkFilter } from "@/components/instructor/work-filter";
@@ -472,10 +474,14 @@ function Band({
     );
   }
 
+  /*
+    The border's `overflow-hidden` is not a scroller: the container inside `Table` scrolls both
+    axes now, and this div's overflow only clips the opaque sticky cells to the rounded corner.
+  */
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <Table>
-        <TableHeader>
+    <div className="overflow-hidden rounded-lg border border-border">
+      <Table containerClassName={stickyHeaderContainer}>
+        <TableHeader className={stickyHeader}>
           {/*
             The bands: one heading over each group of columns beneath it.
 

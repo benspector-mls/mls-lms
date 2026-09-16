@@ -24,6 +24,8 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
+  stickyHeader,
+  stickyHeaderContainer,
 } from "@/components/ui/table";
 import {
   formatTakenOn,
@@ -282,10 +284,14 @@ function StandingsTable({
 
   if (rows.length === 0) return null;
 
+  /*
+    The border's `overflow-hidden` is not a scroller: the container inside `Table` scrolls both
+    axes now, and this div's overflow only clips the opaque sticky cells to the rounded corner.
+  */
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <Table>
-        <TableHeader>
+    <div className="overflow-hidden rounded-lg border border-border">
+      <Table containerClassName={stickyHeaderContainer}>
+        <TableHeader className={stickyHeader}>
           <TableRow className="hover:bg-transparent">
             <TableHead className={stickyColumn} />
             {GCF_KINDS.map((kind) => (
