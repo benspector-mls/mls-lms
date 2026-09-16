@@ -1258,27 +1258,19 @@ model Submission {
 
   prNumber     Int?    @map("pr_number")
   prUrl        String? @map("pr_url")
-  /// Where the student's work is, when they handed it in as a link: their own copy of a
-  /// Google Drive file, or whatever they made elsewhere. Null when they handed in a file
-  /// instead — a path in a private bucket and a link to a document are not the same thing,
-  /// and the review screen opens them differently, so the four columns below hold the stored
-  /// file instead of this one pretending to.
+  /// **Frozen. Read by nothing, written by nothing.** These five held the one link or the one
+  /// file a submission was allowed, back when handing in one way nulled the other. What a
+  /// student hands in is now any number of `SubmissionArtifact` rows, and every screen reads
+  /// those.
   ///
-  /// **Nulled when the same submission is handed in as a file**, because an assignment may
-  /// accept both and a row carrying a link and a file is a row with two answers. Whichever
-  /// method was used last is the one standing, and it is the only one recorded.
-  submittedUrl String? @map("submitted_url")
-
-  /// The uploaded file, when the work was handed in as one. All four are written
-  /// together by the upload route or all four are null; there is no state where
-  /// some of them mean anything on their own. Nulled when the same submission is
-  /// later handed in as a link, for the reason `submittedUrl` above gives.
+  /// They are still here so that the release before the switch can still run, which is what
+  /// keeps rolling the code back possible. They are dropped in their own release once this one
+  /// has soaked — schema first, then `DROP COLUMN`, because Prisma writes without an explicit
+  /// select ask for every column the generated client knows about.
   ///
-  /// `uploadPath` is the object's key inside the private bucket, and it is
-  /// composed of this row's id and a generated name — never the filename the
-  /// student chose, which is not something to build a path out of.
-  /// `uploadFilename` keeps that name anyway, because it is what the instructor
-  /// should see and what their browser should call the download.
+  /// Their values are whatever stood at the moment of the switch, and they do not move. Do not
+  /// read them for anything: a submission handed in since is not described here at all.
+  submittedUrl      String?   @map("submitted_url")
   uploadPath        String?   @map("upload_path")
   uploadFilename    String?   @map("upload_filename")
   uploadSizeBytes   Int?      @map("upload_size_bytes")
@@ -1389,10 +1381,8 @@ model Submission {
 /// every reader reaches them through the `teamSubmission` relation, the way `repoUrl` and grading
 /// drafts are already reached.
 ///
-/// **Not yet read or written by application code.** This release creates the table and backfills
-/// it from `submittedUrl` and the four `upload*` columns on `Submission`; those columns remain
-/// the ones the application reads and writes until the code switches over, and they leave the
-/// schema in a later release once nothing names them.
+/// **This is where a submission's work lives.** The five columns on `Submission` that used to
+/// hold it are frozen — see them below — and leave the schema once this has soaked.
 model SubmissionArtifact {
   id           String @id @default(uuid()) @db.Uuid
   submissionId String @map("submission_id") @db.Uuid
