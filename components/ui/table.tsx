@@ -110,10 +110,14 @@ const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
  * The frozen header of a scrolling table: goes on the `<TableHeader>`, with `stickyHeaderContainer`
  * on the `Table` around it.
  *
- * **On the `<thead>` as one unit, not on rows or cells.** The gradebook's header is three rows —
- * unit bands, sortable column names, per-column completed counts — and sticking each row would
- * mean a `top` offset equal to the heights of the rows above it, which vary because assignment
- * titles wrap. One sticky row group needs no offsets and keeps the three rows travelling together.
+ * **On the `<thead>` as one unit, not on rows or cells.** The gradebook's header is two rows — the
+ * unit bands and the sortable column names — and sticking each row would mean a `top` offset equal
+ * to the heights of the rows above it, which vary because assignment titles wrap. One sticky row
+ * group needs no offsets and keeps the rows travelling together.
+ *
+ * It follows that everything in the `<thead>` is frozen and nothing outside it is, which is the
+ * line to draw a row against: a heading that names a column belongs here, and a figure summarising
+ * the rows below does not — see the counts row at the top of the gradebook grid's body.
  *
  * `z-20`: one step above the frozen column's `z-10`, so student-name cells scroll *under* the
  * header — while inside the thead's own stacking context the corner cells' `z-10` still raises

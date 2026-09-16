@@ -637,13 +637,22 @@ function Band({
               </React.Fragment>
             ))}
           </TableRow>
+        </TableHeader>
 
+        <TableBody>
           {/*
             How many finished each column, directly under its name and above the students.
 
-            A second header row rather than the first row of the body, because it describes the
-            columns rather than belonging to anybody — a summary sitting among the students reads
-            as a student, and on a cohort of five that matters.
+            **Cells that describe their columns, at the top of the body.** They stay `<th>`s, so
+            each one still says what its column is about rather than naming a student, and the row
+            takes no hover — a summary sitting among the students would otherwise read as one, and
+            on a cohort of five that matters.
+
+            **It scrolls away with the students rather than staying under the frozen headings.**
+            What is held at the top of the table is what each column *is*, which is true however
+            the table is narrowed. These figures are not: they count whoever the search box and the
+            column filter have left in the table, so they are a reading of the rows beneath them
+            and they belong with those rows.
           */}
           <TableRow className="hover:bg-transparent">
             <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
@@ -683,9 +692,7 @@ function Band({
               );
             })}
           </TableRow>
-        </TableHeader>
 
-        <TableBody>
           {rows.map((student) => (
             <TableRow key={student.id}>
               <TableCell className={cn(stickyColumn, "font-medium")}>
