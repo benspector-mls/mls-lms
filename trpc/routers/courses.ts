@@ -1006,7 +1006,7 @@ export const coursesRouter = createTRPCRouter({
           select: {
             finalScore: true,
             repoFullName: true,
-            uploadPath: true,
+            artifacts: { where: { uploadPath: { not: null } }, select: { uploadPath: true } },
             _count: { select: { gradingDrafts: true, testRuns: true } },
           },
         }),
@@ -1042,7 +1042,7 @@ export const coursesRouter = createTRPCRouter({
          * which is the row about to go, so leaving it is not preservation — it is a file
          * nobody can ever reach again, paid for forever.
          */
-        uploadedFiles: submissions.filter((row) => row.uploadPath !== null).length,
+        uploadedFiles: submissions.reduce((total, row) => total + row.artifacts.length, 0),
         /**
          * Left alone, and reported so they can be dealt with deliberately. Losing a cohort's
          * work on GitHub because somebody tidied a course list is the worse failure.
@@ -1101,7 +1101,8 @@ export const coursesRouter = createTRPCRouter({
         where: { assignment: { courseId: course.id } },
         select: {
           repoFullName: true,
-          uploadPath: true,
+          // Only the attachments with bytes behind them: a link has nothing stored to remove.
+          artifacts: { where: { uploadPath: { not: null } }, select: { uploadPath: true } },
           _count: { select: { gradingDrafts: true, testRuns: true } },
         },
       });
@@ -1119,7 +1120,7 @@ export const coursesRouter = createTRPCRouter({
         thrown as a failure of an operation that has already succeeded.
       */
       const uploadPaths = submissions
-        .map((row) => row.uploadPath)
+        .flatMap((row) => row.artifacts.map((artifact) => artifact.uploadPath))
         .filter((path): path is string => path !== null);
 
       let uploadsRemoved = 0;

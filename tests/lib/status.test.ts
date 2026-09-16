@@ -415,8 +415,8 @@ describe("handInMode", () => {
   });
 
   /*
-    The rule that makes overwriting safe. `submittedUrl` and the upload columns are single-valued,
-    so handing in again destroys what an instructor is part-way through reading.
+    The rule that makes the attachment list safe to edit. Taking something off mid-review destroys
+    what an instructor is part-way through reading, and adding one changes what they are grading.
   */
   it("locks every mode where an instructor has the work open", () => {
     expect(handInMode("SUBMITTED", true)).toBe("locked");
@@ -594,7 +594,7 @@ describe("formatDueDateShort", () => {
 /**
  * The site a submitted link goes to, and whether it may be turned into an anchor at all.
  *
- * The refusals are the reason this is tested rather than inlined. `submittedUrl` is a string a
+ * The refusals are the reason this is tested rather than inlined. An attached link is a string a
  * student typed and an instructor later clicks from a signed-in page, so the scheme check is a
  * security boundary and not formatting.
  */

@@ -200,45 +200,50 @@ export function GradingReview({
     ) : null;
 
   /*
-    The student's uploaded file, built once and placed in whichever column it belongs to.
+    Everything the student attached, in the order they attached it.
 
     Reading it is what an instructor came to this screen to do, and every card below is about it —
-    so on a graded submission the document is above, or beside, the grade it was given.
+    so on a graded submission the work is above, or beside, the grade it was given.
 
     Outside the grading form rather than inside it, because the form is replaced by the editor the
-    moment a round is opened and the file is most needed while the feedback is being written.
-  */
-  const uploadedFile = submission.uploadFilename ? (
-    <UploadedFileRow
-      submissionId={submission.id}
-      filename={submission.uploadFilename}
-      sizeBytes={submission.uploadSizeBytes}
-      isLate={submission.isLate ?? false}
-      label="What the student uploaded"
-      // Open on arrival. Reading the work is why the instructor is on this screen, and a cohort of
-      // resumes graded by downloading each one in turn is most of the work of grading them.
-      previewByDefault
-    />
-  ) : null;
+    moment a round is opened and the work is most needed while the feedback is being written.
 
-  /*
-    The link a student handed in, which is the document itself where it turns out to be one.
+    **Only the first opens by itself.** Ten auto-opened previews would mint ten signed URLs for
+    documents nobody has scrolled to; the rest carry their own "Show" trigger. With one attachment
+    — which is most submissions — this is exactly what a single file rendered before.
 
-    One element for both, because `SubmittedDocumentRow` asks the parser and draws whichever card
-    the answer calls for. The address is shown either way rather than hidden behind the button:
-    the commonest mistake on a Drive assignment is handing in the instructor's template instead of
-    your own copy, and the two differ only in the tail of the URL.
+    One element for a link whether or not it is a document: `SubmittedDocumentRow` asks the parser
+    and draws whichever card the answer calls for. The address is shown either way rather than
+    hidden behind the button, because the commonest mistake on a Drive assignment is handing in
+    the instructor's template instead of your own copy, and the two differ only in the tail of the
+    URL.
   */
-  const submittedLink = submission.submittedUrl ? (
-    <SubmittedDocumentRow
-      url={submission.submittedUrl}
-      label="What the student submitted"
-      isLate={submission.isLate ?? false}
-      // Open on arrival, for the reason the uploaded file above is: reading the work is why the
-      // instructor is on this screen.
-      previewByDefault
-    />
-  ) : null;
+  const attachments = submission.artifacts.map((artifact, index) => {
+    const label =
+      submission.artifacts.length === 1
+        ? "What the student handed in"
+        : `Attachment ${index + 1} of ${submission.artifacts.length}`;
+
+    return artifact.kind === "FILE" ? (
+      <UploadedFileRow
+        key={artifact.id}
+        artifactId={artifact.id}
+        filename={artifact.uploadFilename ?? "Attachment"}
+        sizeBytes={artifact.uploadSizeBytes}
+        isLate={submission.isLate ?? false}
+        label={label}
+        previewByDefault={index === 0}
+      />
+    ) : (
+      <SubmittedDocumentRow
+        key={artifact.id}
+        url={artifact.url ?? ""}
+        label={label}
+        isLate={submission.isLate ?? false}
+        previewByDefault={index === 0}
+      />
+    );
+  });
 
   /*
     The score's working: one card per section, and never anything the student sees.
@@ -251,17 +256,17 @@ export function GradingReview({
     : [];
 
   /*
-    **What the student handed in.** One of four, and there is always one: an uploaded file, the
-    address they submitted, the diff of their pull request, or a card saying there is nothing yet.
+    **What the student handed in.** One of three, and there is always one: what they attached, the
+    diff of their pull request, or a card saying there is nothing yet.
 
     An upload goes here whether or not it can be previewed. A `.pdf` gets a viewer and a `.docx`
     gets a download button, but both are the work, and the instructor should not have to look in a
     different place depending on the file type they asked for.
   */
   const work =
-    uploadedFile ??
-    submittedLink ??
-    (diffAside ? (
+    attachments.length > 0 ? (
+      <div className="flex flex-col gap-3">{attachments}</div>
+    ) : diffAside ? (
       <DiffPanel
         diff={diff.data}
         loading={diff.isPending}
@@ -297,7 +302,7 @@ export function GradingReview({
           </a>
         )}
       </StateCard>
-    ));
+    );
 
   /*
     **The column beside the grade: the work, and the working beneath it.**

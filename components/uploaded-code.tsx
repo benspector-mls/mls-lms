@@ -37,10 +37,10 @@ import { useTRPC } from "@/trpc/client";
 const MAX_RENDERED_LINES = 2000;
 
 export function UploadedCode({
-  submissionId,
+  artifactId,
   filename,
 }: {
-  submissionId: string;
+  artifactId: string;
   filename: string;
 }) {
   const trpc = useTRPC();
@@ -50,7 +50,7 @@ export function UploadedCode({
     That is the whole difference from `uploadUrl`, which has to be a mutation because a signed URL
     expires; text does not.
   */
-  const file = useQuery(trpc.submissions.uploadText.queryOptions({ submissionId }));
+  const file = useQuery(trpc.submissions.uploadText.queryOptions({ artifactId }));
 
   /*
     The lines as they will be drawn, and the same text handed to the grammar.

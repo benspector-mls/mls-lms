@@ -15,7 +15,7 @@ import {
   teamSubmissionFor,
   type ResolvedTeam,
 } from "../submissions/team";
-import { checkUpload, extensionOf } from "./file-types";
+import { MAX_SUBMISSION_ARTIFACTS, checkUpload, extensionOf } from "./file-types";
 import {
   removeSubmissionUpload,
   signedUploadUrl,
@@ -28,9 +28,10 @@ import {
  *
  * **This module exists so the rule about who may submit has one implementation.** Work arrives
  * three ways — a link a student pastes, a file they upload, a task they mark done — and each is
- * its own procedure with its own columns to write. The question they all have to ask first is the
+ * its own procedure with its own rows to write. The question they all have to ask first is the
  * same one, and an authorization rule written out three times is an authorization rule with three
- * versions that drift. So it is written here, as `assertCanHandIn`, and each of them calls it.
+ * versions that drift. So it is written here, as `assertCanHandIn`, and each of them calls it —
+ * including taking an attachment back off, which is the same question about the same list.
  *
  * **A file is handed in with two calls rather than one**, because the bytes no longer travel
  * through this application at all: `beginUpload` authorizes and returns an address, the browser
@@ -212,14 +213,15 @@ export async function assertCanHandIn(
   }
 
   /*
-    Work an instructor is part-way through reading is not work a student may replace.
+    Work an instructor is part-way through reading is not work a student may change.
 
-    **This is the whole of the rule that makes updating a submission safe.** Handing in again is
-    otherwise an overwrite — `submittedUrl` and the four upload columns are single-valued, so the
-    previous link or file is gone — and doing that while somebody is writing feedback about it
-    leaves a grade describing a document nobody can open. The repository kinds are protected from
-    the same thing by `draftIsStale`, which compares the draft's commit against the submission's;
-    a link or a file has no commit to compare, so the protection has to be this instead.
+    **This is the whole of the rule that makes the attachment list safe to edit.** Adding to it is
+    harmless on its own, but taking something off it while somebody is writing feedback about that
+    very document leaves a grade describing work nobody can open — and a list that grew a third
+    file halfway through a reading is a grade written about a different submission than the one
+    that was handed in. The repository kinds are protected from the same thing by `draftIsStale`,
+    which compares the draft's commit against the submission's; an attachment has no commit to
+    compare, so the protection has to be this instead.
 
     Deliberately narrow. `SUPERSEDED` is a draft that has already been replaced and `FAILED` is a
     run that produced nothing, so neither is anybody's work in progress, and blocking on them
@@ -230,7 +232,7 @@ export async function assertCanHandIn(
     On a team assignment it asks about **the team's** drafts, not the caller's. Drafts hang off
     the one row holding the work, so a lock scoped to whoever is pressing the button would never
     fire for a team at all — and the failure it exists to prevent is exactly the one a team makes
-    easiest: one member replacing the file while an instructor writes feedback about it.
+    easiest: one member taking the file off while an instructor writes feedback about it.
 
     Before anybody has handed in there is no row and therefore no draft, which is why a null
     `teamSubmissionId` is not a special case.
@@ -271,39 +273,37 @@ export async function assertCanHandIn(
 }
 
 /**
- * Removes the object a submission used to point at, once it has stopped pointing at it — unless
- * a grade describes it.
+ * Removes the stored object behind an attachment a student has taken off their submission —
+ * unless a grade describes it.
  *
- * **Two acts make an unreferenced object, and this clears up after both.** Uploading a second file
- * writes a *new* object rather than overwriting the first, because the path carries a generated
- * segment — so the moment `uploadPath` is rewritten, the previous object is unreachable. Handing
- * the same work in as a link instead does the same thing by nulling the column outright. Left
- * alone, both leak bytes into a private bucket that nothing can ever name again.
+ * Left alone, a removed attachment leaks bytes into a private bucket that nothing can ever name
+ * again: the row that named the object is gone, and the path carries a generated segment no
+ * later upload will reuse.
  *
- * **A submission that has been graded keeps every file it replaces, and that is the whole of the
+ * **A submission that has been graded keeps every file taken off it, and that is the whole of the
  * rule.** Feedback is written *about* a file — a score, a paragraph naming what was on page two —
  * and a released grade whose subject has been deleted is a judgment nobody can check. So once
- * `gradedAt` is set, replaced objects stay: the cost is bytes in a bucket, and the cost of the
+ * `gradedAt` is set, removed objects stay: the cost is bytes in a bucket, and the cost of the
  * other choice is a fellow disputing a grade on work neither of them can open. Before a grade,
- * nothing describes the file, replacing it is a correction rather than a revision, and there is
+ * nothing describes the file, taking it off is a correction rather than a revision, and there is
  * nothing to keep it for.
  *
  * It reads `gradedAt` rather than the status, because the status moves on: a graded submission
  * handed in again reads `RESUBMITTED`, and asking about the status would start deleting the very
  * files a grade describes the moment a fellow revised. `gradedAt` is set once and stays set.
  *
- * **Best-effort, and deliberately so.** A bucket that refuses must not fail a student's hand-in
+ * **Best-effort, and deliberately so.** A bucket that refuses must not fail a student's removal
  * on the due date, and the worst outcome of giving up here is one unreferenced object — which is
- * exactly the state every replacement left behind before this existed. So it is logged rather
- * than thrown, which keeps the failure findable without making it the student's problem.
+ * what `reconcile:uploads` exists to sweep. So it is logged rather than thrown, which keeps the
+ * failure findable without making it the student's problem.
  *
- * **Called after the columns are written, never before.** A failure here leaves bytes nothing
- * points at, which is harmless; deleting first and then failing to write would leave a submission
- * pointing at bytes that no longer exist, which reads to an instructor as a corrupt file with
- * nothing on the screen explaining why.
+ * **Called after the artifact row is deleted, never before.** A failure here leaves bytes nothing
+ * points at, which is harmless; deleting the object first and then failing to delete the row would
+ * leave a submission naming bytes that no longer exist, which reads to an instructor as a corrupt
+ * file with nothing on the screen explaining why.
  */
-export async function discardReplacedUpload(previous: {
-  /** The object the row pointed at before this hand-in, or null when there was none. */
+export async function discardRemovedUpload(removed: {
+  /** The object the artifact named, or null when the artifact was a link. */
   uploadPath: string | null;
   /**
    * When this submission was last graded, or null if it never has been.
@@ -313,13 +313,33 @@ export async function discardReplacedUpload(previous: {
    */
   gradedAt: Date | null;
 }): Promise<void> {
-  if (!previous.uploadPath) return;
-  if (previous.gradedAt !== null) return;
+  if (!removed.uploadPath) return;
+  if (removed.gradedAt !== null) return;
 
   try {
-    await removeSubmissionUpload(previous.uploadPath);
+    await removeSubmissionUpload(removed.uploadPath);
   } catch (err) {
-    console.error(`Could not remove the replaced upload at ${previous.uploadPath}`, err);
+    console.error(`Could not remove the discarded upload at ${removed.uploadPath}`, err);
+  }
+}
+
+/**
+ * Refuses a submission that is already holding as much as it may.
+ *
+ * Asked before an upload is authorized and again before the artifact row is written, because a
+ * student with two tabs open can pass the first check twice — and asked by the link path too, so
+ * the limit is on the list rather than on either way of adding to it.
+ */
+export async function assertRoomForArtifact(db: Db, submissionId: string): Promise<void> {
+  const held = await db.submissionArtifact.count({ where: { submissionId } });
+
+  if (held >= MAX_SUBMISSION_ARTIFACTS) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `This submission already holds ${MAX_SUBMISSION_ARTIFACTS} attachments, which is the ` +
+        `most it can. Remove one to add another.`,
+    });
   }
 }
 
@@ -335,14 +355,19 @@ export async function discardReplacedUpload(previous: {
  * Both halves of an upload resolve the row this way, and they have to agree: `beginUpload` builds
  * the path from the id and `recordUpload` refuses a path that is not under it, so a second way of
  * choosing the row would be a second answer to "whose file is this".
+ *
+ * Exported because attaching a link and taking an attachment off resolve the same row for the
+ * same reason, and a second way of choosing it is the one thing this must not have.
  */
-async function rowHoldingWork(db: Db, params: { profileId: string; assignment: HandInAssignment }) {
+export async function rowHoldingWork(
+  db: Db,
+  params: { profileId: string; assignment: HandInAssignment },
+) {
   const select = {
     id: true,
     status: true,
     submittedAt: true,
     isLate: true,
-    uploadPath: true,
     gradedAt: true,
   } as const;
 
@@ -421,6 +446,11 @@ export async function beginUpload(
   }
 
   const submission = await rowHoldingWork(db, params);
+
+  // Before the address is minted rather than after the file arrives, so a student who is at the
+  // limit is told now instead of after spending an upload on a file that cannot be recorded.
+  await assertRoomForArtifact(db, submission.id);
+
   const path = submissionUploadPath({ submissionId: submission.id, extension: check.extension });
   const { url } = await signedUploadUrl({ path });
 
@@ -447,10 +477,9 @@ export async function beginUpload(
  * transfer. It is not silent — the student's screen still asks for a file, and uploading again
  * works — and `reconcile:uploads` is what clears up after it.
  *
- * The order is otherwise what it always was, and for the same reason: write the columns, then
- * discard what they used to point at. The reverse would leave a submission naming an object that
- * is gone, which reads to an instructor as a corrupt file with nothing on the screen explaining
- * why.
+ * **The file is added to what the submission holds rather than put in place of it.** A student
+ * handing in a photograph after a document has two attachments, and the instructor sees both;
+ * taking one back off is its own act, which they do from the list on their own page.
  *
  * **Nothing the browser says about the file is taken on trust.** The path must be under the row
  * this caller hands in on; the object must be there; its true size and content type are read from
@@ -536,6 +565,13 @@ export async function recordUpload(
   const now = new Date();
 
   /*
+    Asked again now that the bytes are there. The first ask was before the address was minted, and
+    a student with two tabs open can pass that one twice — this is the one that decides whether
+    the row is written.
+  */
+  await assertRoomForArtifact(db, submission.id);
+
+  /*
     Status, submission time, and lateness together, by the same rule the link form and the pull
     request webhook use: a file uploaded on top of a released grade is a revision, and it does
     not move the time the work was first handed in.
@@ -543,13 +579,26 @@ export async function recordUpload(
   const state = handInState({ current: submission, dueAt: params.assignment.dueAt, now });
 
   /*
-    Written through `recordHandIn`, which is what puts the state on every member's row and keeps
-    the path on the one holding the file. **`uploadPath` is deliberately not copied**: the bytes
-    are stored once, under this row's id, and re-uploading writes a *new* object rather than
-    overwriting the one an instructor may be reading — so four copies of a path would be three
-    members downloading a superseded file with nothing saying so. Every member's own page reads
-    the path through the relation instead. What they do carry is the filename and the size, which
-    is what their own screen shows.
+    The attachment itself, on the row holding the work. **On that row only**, for a team: the bytes
+    are stored once, and four copies of a path would be three members downloading through a row
+    that may later name something else. Every member's own page reads the list through the
+    relation, which is also how it shows a file a teammate attached.
+  */
+  await db.submissionArtifact.create({
+    data: {
+      submissionId: submission.id,
+      kind: HandInMethod.FILE,
+      uploadPath: params.path,
+      uploadFilename: params.filename,
+      uploadSizeBytes: stored.sizeBytes,
+      uploadContentType: check.contentType,
+    },
+  });
+
+  /*
+    And the state of the work, which every member of a team carries alike. Written after the
+    artifact rather than before: a failure between them leaves a submission that says it was handed
+    in with nothing on it, which is the one order that reads as a lie.
   */
   await recordHandIn(db, {
     submissionId: submission.id,
@@ -559,19 +608,6 @@ export async function recordUpload(
       // time inside `state` is the first hand-in and does not answer that.
       lastActivityAt: now,
       handedInById: params.profileId,
-      /*
-        `submittedUrl` nulled alongside the new path, because an assignment may accept both ways
-        in and a row holding a link *and* a file is a row with two answers to one question. The
-        review screen resolves that pair by preferring the file, so the link would not be shown
-        and would not be gone either — a stale address sitting under a grade that ignored it.
-        Whichever way the work came in last is the way it came in.
-      */
-      location: { uploadPath: params.path, submittedUrl: null },
-      describe: {
-        uploadFilename: params.filename,
-        uploadSizeBytes: stored.sizeBytes,
-        uploadContentType: check.contentType,
-      },
     },
   });
 
@@ -580,14 +616,9 @@ export async function recordUpload(
   }
 
   /*
-    The object the row pointed at a moment ago, now that it points at this one instead — kept
-    rather than removed once this submission has a grade, because that grade was written about it.
-  */
-  await discardReplacedUpload(submission);
-
-  /*
     The caller's own row, which is what their screen re-renders from. On a team assignment that is
-    a mirror of the row just written, carrying the same status and the same filename.
+    a mirror of the row just written, carrying the same status — the attachments themselves reach
+    the panel through `listForCourse`, which resolves them to whichever row holds the work.
   */
   return db.submission.findUniqueOrThrow({
     where: {
@@ -596,13 +627,6 @@ export async function recordUpload(
         studentId: params.profileId,
       },
     },
-    select: {
-      id: true,
-      status: true,
-      submittedAt: true,
-      isLate: true,
-      uploadFilename: true,
-      uploadSizeBytes: true,
-    },
+    select: { id: true, status: true, submittedAt: true, isLate: true },
   });
 }

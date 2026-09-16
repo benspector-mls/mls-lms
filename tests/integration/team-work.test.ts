@@ -123,7 +123,7 @@ async function rowsFor(tx: Tx, assignmentId: string) {
       submittedAt: true,
       isLate: true,
       teamSubmissionId: true,
-      submittedUrl: true,
+      artifacts: { orderBy: { createdAt: "asc" as const }, select: { id: true, url: true } },
       handedInById: true,
       finalScore: true,
     },
@@ -192,9 +192,9 @@ describe("one hand-in, and what every member's row then says", () => {
       title: `Individual Deliverable ${suffix}`,
       dueAt: dueAt(),
     });
-    await createCaller(tx(), cara.studentId).submissions.submitWork({
+    await createCaller(tx(), cara.studentId).submissions.addLink({
       assignmentId: separate.id,
-      submittedUrl: "https://example.com/cara",
+      url: "https://example.com/cara",
     });
   });
 
@@ -202,9 +202,9 @@ describe("one hand-in, and what every member's row then says", () => {
     let rows: Row[];
 
     beforeAll(async () => {
-      await createCaller(tx(), alice.studentId).submissions.submitWork({
+      await createCaller(tx(), alice.studentId).submissions.addLink({
         assignmentId,
-        submittedUrl: "https://example.com/alice",
+        url: "https://example.com/alice",
       });
       rows = await rowsFor(tx(), assignmentId);
       work = rows.find((row) => row.teamSubmissionId === null)!;
@@ -224,7 +224,10 @@ describe("one hand-in, and what every member's row then says", () => {
     });
 
     it("the link is on the row holding the work and nowhere else", () => {
-      expect([work.submittedUrl, mirror.submittedUrl]).toEqual(["https://example.com/alice", null]);
+      expect([
+        work.artifacts.map((artifact) => artifact.url),
+        mirror.artifacts.map((artifact) => artifact.url),
+      ]).toEqual([["https://example.com/alice"], []]);
     });
 
     it("every member reads as having handed in, at the same moment", () => {
@@ -245,9 +248,9 @@ describe("one hand-in, and what every member's row then says", () => {
   */
   describe("a second member handing in", () => {
     beforeAll(async () => {
-      await createCaller(tx(), bob.studentId).submissions.submitWork({
+      await createCaller(tx(), bob.studentId).submissions.addLink({
         assignmentId,
-        submittedUrl: "https://example.com/bob",
+        url: "https://example.com/bob",
       });
       afterSecond = await rowsFor(tx(), assignmentId);
     });
@@ -258,10 +261,15 @@ describe("one hand-in, and what every member's row then says", () => {
       ).toEqual([work.id]);
     });
 
-    it("their link replaces what was there", () => {
-      expect(afterSecond.find((row) => row.id === work.id)!.submittedUrl).toBe(
-        "https://example.com/bob",
-      );
+    /*
+      Added rather than substituted, which on a team is the point: two members working on different
+      halves both attach, and the instructor opens both. The list is the team's, and any member may
+      take something off it.
+    */
+    it("their link is added beside the one already there", () => {
+      expect(
+        afterSecond.find((row) => row.id === work.id)!.artifacts.map((artifact) => artifact.url),
+      ).toEqual(["https://example.com/alice", "https://example.com/bob"]);
     });
 
     it("who handed it in moves to them, on every member's row", () => {
@@ -390,9 +398,9 @@ describe("one hand-in, and what every member's row then says", () => {
       await tx().teamMembership.create({
         data: { teamId, teamSetId: setId, programId: world.programId, enrollmentId: cara.id },
       });
-      await createCaller(tx(), bob.studentId).submissions.submitWork({
+      await createCaller(tx(), bob.studentId).submissions.addLink({
         assignmentId,
-        submittedUrl: "https://example.com/again",
+        url: "https://example.com/again",
       });
       afterLate = await rowsFor(tx(), assignmentId);
       late = afterLate.find((row) => row.studentId === cara.studentId);
@@ -486,9 +494,9 @@ describe("releasing a grade", () => {
     [alice, bob, cara] = world.students as [Fellow, Fellow, Fellow];
     assignmentId = (await teamWork(tx(), world, world.students)).assignmentId;
 
-    await createCaller(tx(), alice.studentId).submissions.submitWork({
+    await createCaller(tx(), alice.studentId).submissions.addLink({
       assignmentId,
-      submittedUrl: "https://example.com/a",
+      url: "https://example.com/a",
     });
 
     work = await tx().submission.findFirstOrThrow({
@@ -601,10 +609,12 @@ describe("releasing a grade", () => {
     });
 
     // Where the work is stays on the one row, which is what makes the copies safe.
-    it("no mirror gained a link to the work", () => {
+    it("no mirror gained an attachment of its own", () => {
       expect(
-        afterRelease.filter((row) => row.teamSubmissionId !== null).map((row) => row.submittedUrl),
-      ).toEqual([null, null]);
+        afterRelease
+          .filter((row) => row.teamSubmissionId !== null)
+          .map((row) => row.artifacts.length),
+      ).toEqual([0, 0]);
     });
 
     /*
@@ -660,10 +670,10 @@ describe("releasing a grade", () => {
     });
 
     it("and the same link to the work, whichever of them holds the row", () => {
-      expect([alicePage?.submittedUrl, bobPage?.submittedUrl]).toEqual([
-        "https://example.com/a",
-        "https://example.com/a",
-      ]);
+      expect([
+        alicePage?.artifacts.map((artifact) => artifact.url),
+        bobPage?.artifacts.map((artifact) => artifact.url),
+      ]).toEqual([["https://example.com/a"], ["https://example.com/a"]]);
     });
 
     it("and the same team, with everybody on it", () => {
@@ -755,9 +765,9 @@ describe("who may hand in", () => {
     const { assignmentId } = await teamWork(tx(), world, [alice, bob]);
 
     const code = await refusal(() =>
-      createCaller(tx(), cara.studentId).submissions.submitWork({
+      createCaller(tx(), cara.studentId).submissions.addLink({
         assignmentId,
-        submittedUrl: "https://example.com/c",
+        url: "https://example.com/c",
       }),
     );
     expect(code).toBe("PRECONDITION_FAILED");
@@ -772,9 +782,9 @@ describe("work an instructor is reading is not work a member may replace", () =>
     const [alice, bob] = world.students as [Fellow, Fellow, Fellow];
     const { assignmentId } = await teamWork(tx(), world, [alice, bob]);
 
-    await createCaller(tx(), alice.studentId).submissions.submitWork({
+    await createCaller(tx(), alice.studentId).submissions.addLink({
       assignmentId,
-      submittedUrl: "https://example.com/a",
+      url: "https://example.com/a",
     });
 
     const work = await tx().submission.findFirstOrThrow({
@@ -791,9 +801,9 @@ describe("work an instructor is reading is not work a member may replace", () =>
     });
 
     const code = await refusal(() =>
-      createCaller(tx(), bob.studentId).submissions.submitWork({
+      createCaller(tx(), bob.studentId).submissions.addLink({
         assignmentId,
-        submittedUrl: "https://example.com/b",
+        url: "https://example.com/b",
       }),
     );
     expect(code).toBe("CONFLICT");

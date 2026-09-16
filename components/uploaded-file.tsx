@@ -33,14 +33,15 @@ import { cn } from "@/lib/utils";
  * download button is the same button either way.
  */
 export function UploadedFileRow({
-  submissionId,
+  artifactId,
   filename,
   sizeBytes,
   isLate = false,
   label = "The file you submitted",
   previewByDefault = false,
 }: {
-  submissionId: string;
+  /** The attachment these bytes belong to, which is what both procedures below authorize. */
+  artifactId: string;
   filename: string;
   sizeBytes: number | null;
   isLate?: boolean;
@@ -103,11 +104,11 @@ export function UploadedFileRow({
   React.useEffect(() => {
     if (!open || !framed) return;
     if (previewUrl !== null || preview.isPending) return;
-    preview.mutate({ submissionId, disposition: "inline" });
+    preview.mutate({ artifactId, disposition: "inline" });
     // Deliberately keyed on what decides whether a fetch is owed, not on the mutation object,
     // which is a new reference on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, framed, previewUrl, submissionId]);
+  }, [open, framed, previewUrl, artifactId]);
 
   const heading = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -129,7 +130,7 @@ export function UploadedFileRow({
         variant="outline"
         size="sm"
         disabled={download.isPending}
-        onClick={() => download.mutate({ submissionId, disposition: "attachment" })}
+        onClick={() => download.mutate({ artifactId, disposition: "attachment" })}
       >
         {download.isPending ? (
           <Loader2 data-icon="inline-start" className="animate-spin" />
@@ -169,7 +170,7 @@ export function UploadedFileRow({
           <CollapsibleContent>
             <div className="mt-2">
               {previewKind === "code" ? (
-                <UploadedCode submissionId={submissionId} filename={filename} />
+                <UploadedCode artifactId={artifactId} filename={filename} />
               ) : previewUrl === null ? (
                 <div className="flex h-24 items-center justify-center rounded-md border border-border text-sm text-muted-foreground">
                   <Loader2 className="mr-2 size-4 animate-spin" />

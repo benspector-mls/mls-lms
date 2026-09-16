@@ -822,7 +822,7 @@ export function formatRelative(d: Date | null | undefined, now: Date): string {
  *
  * `http` and `https` only. A URL is not the same thing as a web address: `javascript:alert(1)`
  * parses perfectly and is a script that runs in whoever clicks it, on a page that is already
- * signed in as an instructor with access to every student's work — and `submittedUrl` is a string
+ * signed in as an instructor with access to every student's work — and an attached link is a string
  * a student typed, rendered later on somebody else's screen, which is the exact shape of a stored
  * cross-site scripting hole. `data:` and `file:` are refused for the same reason. So this is the
  * one place that decides, and both the schema that accepts a submission and the row that draws

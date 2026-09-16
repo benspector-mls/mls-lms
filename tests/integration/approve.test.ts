@@ -264,7 +264,7 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
 
   describe("authored, published, accepted, handed in", () => {
     let accepted: Awaited<ReturnType<ReturnType<typeof asStudent>["assignments"]["accept"]>>;
-    let submitted: Awaited<ReturnType<ReturnType<typeof asStudent>["submissions"]["submitWork"]>>;
+    let submitted: Awaited<ReturnType<ReturnType<typeof asStudent>["submissions"]["addLink"]>>;
 
     beforeAll(async () => {
       const created = await asInstructor().assignments.create({
@@ -285,17 +285,17 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
       await asInstructor().assignments.publish({ assignmentId });
 
       accepted = await asStudent().assignments.accept({ assignmentId });
-      submitted = await asStudent().submissions.submitWork({
+      submitted = await asStudent().submissions.addLink({
         assignmentId,
-        submittedUrl: "https://docs.google.com/document/d/student-copy-1/edit",
+        url: "https://docs.google.com/document/d/student-copy-1/edit",
       });
       submissionId = submitted.id;
 
       const other = createCaller(tx(), world.students[1]!.studentId);
       await other.assignments.accept({ assignmentId });
-      const otherSubmitted = await other.submissions.submitWork({
+      const otherSubmitted = await other.submissions.addLink({
         assignmentId,
-        submittedUrl: "https://docs.google.com/document/d/student-copy-2/edit",
+        url: "https://docs.google.com/document/d/student-copy-2/edit",
       });
       ungradedSubmissionId = otherSubmitted.id;
     });

@@ -378,16 +378,17 @@ Accepting needs your GitHub account to be connected. If it is not, the course pa
 
 **Handing in a code assignment.** Work on the **`draft`** branch, then open a pull request into **`main`** and add your instructor as a reviewer. **That pull request is the hand-in — there is no submit button.** Pushing more commits to an open pull request does not hand in again; it just updates what your instructor will read.
 
-**Working as a team.** Some assignments are handed in by a team, and the panel says so at the top: your team's name and who else is on it. There is **one piece of work between you and one grade shared by all of you**, so the panel shows who handed in what is standing — and **anybody on the team can replace it**, which is worth agreeing on before two of you do. A code assignment gives the team one repository, named after the team, that every member can push to.
+**Working as a team.** Some assignments are handed in by a team, and the panel says so at the top: your team's name and who else is on it. There is **one piece of work between you and one grade shared by all of you**, so the panel shows who handed in what is standing — and **anybody on the team can add to it or take something off it**, which is worth agreeing on before two of you do. A code assignment gives the team one repository, named after the team, that every member can push to.
 
-The grade and the feedback arrive on everybody's own page at the same moment, and reading it is still your own: marking your feedback read does not mark it read for your teammates. If your instructor is part-way through reading your team's work, nobody can replace it until they are done — the panel says so rather than letting somebody try.
+The grade and the feedback arrive on everybody's own page at the same moment, and reading it is still your own: marking your feedback read does not mark it read for your teammates. If your instructor is part-way through reading your team's work, nobody can change what is attached until they are done — the panel says so rather than letting somebody try.
 
-**Handing in everything else.** A Drive assignment takes a link. A link or file assignment takes whichever your instructor allowed — and where they allowed both, you choose between **Paste a link** and **Upload a file** above the form. Only the most recent one counts: handing in one way replaces what you handed in the other way. The form tells you which of four things you are doing:
+**Handing in everything else.** A Drive assignment takes a link. A link or file assignment takes whichever your instructor allowed — and where they allowed both, you get both forms: **Add a link** and **Add a file**, one above the other.
 
-- **Submitting** — you have not handed anything in yet.
-- **Changing what you handed in** — your work is waiting and nobody has started reading it. This replaces what is there and keeps your place in your instructor's queue. Use it if you pasted the wrong link or uploaded the wrong file.
-- **Handing in again** — you have been graded and are submitting revised work.
-- **Locked** — your instructor is reading it right now. The panel says so where the box was. This is not an error, and when their feedback arrives you can hand in revised work.
+**Everything you attach is part of what you handed in.** A submission can hold several things at once — a write-up as a Google Doc link and a photograph of your whiteboard as a file, say — and your instructor sees all of them, in the order you attached them. A submission holds up to ten attachments.
+
+Adding something never replaces anything. What is already attached is listed above the forms, each with a **Remove** button, and removing is how you take something off: if you pasted the wrong link, add the right one and remove the wrong one. Your place in your instructor's queue is kept either way — correcting your work does not put you at the back.
+
+While your instructor is reading your work, the list is fixed: the forms and the Remove buttons go away and the panel says why. This is not an error, and when their feedback arrives you can attach revised work and ask for another look.
 
 **What the status means.** There are five words an assignment can carry, and between them they say whose move it is:
 
@@ -419,7 +420,7 @@ For a **code** assignment, push your improved work to the same pull request. The
 
 Before you have pushed anything, the panel on work that came back incomplete says so and tells you that pushing is the next step. The button appears once there is a commit to review.
 
-For every other kind, hand in again. Where your assignment accepts both a link and a file, you can switch between them: whichever you hand in last is the one your instructor sees. Correcting work that has not been graded yet replaces what was there. Once you have been graded, the file that feedback was written about is kept, so you can still read the feedback against the work it describes.
+For every other kind, attach your revised work. Adding or removing anything asks your instructor to look at the new set — what they review is everything on the list, not only the thing you added last. Once you have been graded, a file you remove is kept behind the scenes even though it leaves your list, so you can still read the feedback against the work it describes.
 
 ### If you leave a program, or it finishes
 

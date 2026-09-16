@@ -7,18 +7,17 @@
  *
  * **Why unreferenced objects happen at all.** Handing in a file is two calls with the browser's
  * upload between them: `beginUpload` signs an address, the browser sends the file straight to the
- * bucket, `recordUpload` writes the path onto the submission. A connection that drops in the
- * middle leaves bytes stored and no row naming them. Replacing a file leaves one too — the path
- * carries a generated segment, so a second upload writes a *new* object rather than overwriting
- * the one an instructor may be part-way through reading. Neither is a failure anybody sees; both
+ * bucket, `recordUpload` writes down the attachment. A connection that drops in the middle leaves
+ * bytes stored and no row naming them. A file a student takes back off their submission after it
+ * has been graded leaves one too, deliberately. Neither is a failure anybody sees; both
  * accumulate.
  *
- * **The rule is not "delete what no column names", and getting that wrong would destroy evidence.**
- * A submission that has been graded deliberately keeps every file it replaces, because the feedback
- * was written *about* a file and a released grade whose subject has been deleted is a judgment
- * nobody can check — see `discardReplacedUpload`, which is where that rule is stated. Those kept
- * files are named by no column, and a sweep that deleted everything unreferenced would delete
- * exactly them. So this leaves the folder of a graded submission alone entirely.
+ * **The rule is not "delete what no row names", and getting that wrong would destroy evidence.**
+ * A submission that has been graded deliberately keeps every file taken off it, because the
+ * feedback was written *about* a file and a released grade whose subject has been deleted is a
+ * judgment nobody can check — see `discardRemovedUpload`, which is where that rule is stated.
+ * Those kept files are named by no row, and a sweep that deleted everything unreferenced would
+ * delete exactly them. So this leaves the folder of a graded submission alone entirely.
  *
  * The cost of that caution is the honest one: on a graded submission, an object left behind by a
  * dropped connection cannot be told apart from a file a grade describes, so it stays. That is a
@@ -68,9 +67,18 @@ async function main() {
   const folders = [...new Set(objects.map((object) => object.path.split("/")[0]))];
   const rows = await db.submission.findMany({
     where: { id: { in: folders.filter((folder) => UUID.test(folder)) } },
-    select: { id: true, uploadPath: true, gradedAt: true },
+    select: {
+      id: true,
+      gradedAt: true,
+      // Every path this submission still names. A submission holds any number of attachments, so
+      // "the file it points at" is a set rather than a column.
+      artifacts: { where: { uploadPath: { not: null } }, select: { uploadPath: true } },
+    },
   });
   const bySubmission = new Map(rows.map((row) => [row.id, row]));
+  const attached = new Set(
+    rows.flatMap((row) => row.artifacts.map((artifact) => artifact.uploadPath)),
+  );
 
   /** Why one object is being kept or removed, in the words the summary prints. */
   const verdictFor = (object: (typeof objects)[number]) => {
@@ -82,7 +90,7 @@ async function main() {
       any age — but asking about the age first would report every file handed in today as "less
       than a day old", which tells nobody whether the rule is working.
     */
-    if (row?.uploadPath === object.path) return { keep: true, reason: "handed in" };
+    if (attached.has(object.path)) return { keep: true, reason: "handed in" };
     if (row?.gradedAt) return { keep: true, reason: "a grade was written on this work" };
 
     // Not knowing how old something is, is not the same as it being old. An object the API
@@ -97,7 +105,7 @@ async function main() {
 
     if (!row) return { keep: false, reason: "no submission row" };
 
-    return { keep: false, reason: "replaced or never recorded" };
+    return { keep: false, reason: "taken off the submission or never recorded" };
   };
 
   const judged = objects.map((object) => ({ ...object, ...verdictFor(object) }));

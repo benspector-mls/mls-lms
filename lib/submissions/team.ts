@@ -8,7 +8,7 @@ import type { HandInAfter } from "./hand-in";
  * What a team hands in, and which of its rows carries what.
  *
  * A team's submission is one row per member. **One row holds the work** — the repository, the
- * pull request, the pasted link, the uploaded file, and every grading draft and test run — and
+ * pull request, every attachment the team put on it, and every grading draft and test run — and
  * the rest are **mirrors** pointing at it through `teamSubmissionId`, carrying status and
  * outcome and nothing about where the work is. Every member keeping a row is what lets the
  * gradebook, the CSV export, a student's own feedback page and the Salesforce columns go on
@@ -17,8 +17,8 @@ import type { HandInAfter } from "./hand-in";
  * This module is the one place that knows the split. It exists for the reason `hand-in.ts`
  * exists: the rule would otherwise be written at four call sites — two hand-in procedures, the
  * upload route, and the webhook — and a rule written four times is four rules. In particular
- * **no call site chooses what a mirror receives.** A caller says where the work is and what the
- * work is called; which of those two reaches a mirror is decided here, once.
+ * **no call site chooses what a mirror receives.** A caller says what happened to the work;
+ * which rows hear about it is decided here, once.
  *
  * Nothing here imports anything that runs. Every function takes the client to write through,
  * which is what lets a check script drive a whole hand-in inside a transaction it then rolls
@@ -60,13 +60,17 @@ export function isMirror(submission: RoleShape): boolean {
 // ===========================================================================
 
 /**
- * One hand-in, in two halves that are deliberately named for who sees them.
+ * One hand-in: the state of the work, which every member of a team carries alike, and where the
+ * work is, which belongs to the one row holding it.
  *
- * The split is the whole point of this type. `location` is where the work is, and it belongs to
- * the one row that holds it: on five rows, `repoUrl` is five chances to be stale, and
- * `headSha != gradedHeadSha` would read as "pushed since graded" forever on a row that has
- * neither. `describe` is what the work is *called*, which every member's own page shows, so it
- * is copied — reading it through the relation for one filename would be a join for nothing.
+ * The split is the whole point of this type. `location` is the repository and the pull request —
+ * on five rows, `repoUrl` is five chances to be stale, and `headSha != gradedHeadSha` would read
+ * as "pushed since graded" forever on a row that has neither.
+ *
+ * **Nothing describing an attachment is copied to a mirror.** Attachments are rows of
+ * `submission_artifacts` hanging off the row that holds the work, so a member's own page reaches
+ * them through the relation — which is also what shows them a file a teammate attached, and what
+ * keeps a removed attachment from lingering on three teammates' screens.
  */
 export type HandIn = {
   /** From `handInState`. Status, when it was first handed in, and whether that was late. */
@@ -78,14 +82,14 @@ export type HandIn = {
    * that predates the column, or a pull request opened by an account matching no member.
    */
   handedInById: string | null;
-  /** Where the work is. Written only to the row that holds it. */
+  /**
+   * Where the work is. Written only to the row that holds it.
+   *
+   * One caller: the pull request webhook, which records the repository, the branch and the commit
+   * as part of the same act that hands the work in. The two kinds that hand in without a
+   * repository write nothing here — what they attach is a row of its own.
+   */
   location?: Prisma.SubmissionUncheckedUpdateInput;
-  /** What the work is called. Written to every member's row. */
-  describe?: {
-    uploadFilename?: string | null;
-    uploadSizeBytes?: number | null;
-    uploadContentType?: string | null;
-  };
 };
 
 /**
@@ -105,9 +109,6 @@ export const MIRRORED_COLUMNS = {
   isLate: true,
   lastActivityAt: true,
   handedInById: true,
-  uploadFilename: true,
-  uploadSizeBytes: true,
-  uploadContentType: true,
   finalScore: true,
   finalScorePossible: true,
   isComplete: true,
@@ -137,7 +138,6 @@ export function sharedAfterHandIn(handIn: HandIn): Prisma.SubmissionUncheckedUpd
     isLate: handIn.state.isLate,
     lastActivityAt: handIn.lastActivityAt,
     handedInById: handIn.handedInById,
-    ...handIn.describe,
   };
 }
 
@@ -149,6 +149,32 @@ export async function recordHandIn(
   params: { submissionId: string; handIn: HandIn },
 ): Promise<void> {
   await write(db, params.submissionId, sharedAfterHandIn(params.handIn), params.handIn.location);
+}
+
+/**
+ * Records that the last thing attached to a submission has been taken off it.
+ *
+ * **The reverse of a hand-in, and its own act for the same reason `recordActivity` is.** A
+ * student who removes every attachment before their work has been graded has handed nothing in,
+ * and the row has to say so: left as `SUBMITTED`, it would sit in an instructor's queue offering
+ * nothing to open. So the status goes back to `NOT_STARTED` and the submission time and lateness
+ * go with it — re-attaching something later records a fresh `submittedAt`, which may then be
+ * late, because the work was not in.
+ *
+ * **Only for work that has never been graded**, which the caller decides rather than this: a
+ * grade describes work that *was* handed in, and emptying the list afterwards does not unhappen
+ * it. There the removal is ordinary activity and `recordActivity` is what records it.
+ */
+export async function recordEmptiedHandIn(
+  db: Tx,
+  params: { submissionId: string; at: Date },
+): Promise<void> {
+  await write(db, params.submissionId, {
+    status: "NOT_STARTED",
+    submittedAt: null,
+    isLate: null,
+    lastActivityAt: params.at,
+  });
 }
 
 /**

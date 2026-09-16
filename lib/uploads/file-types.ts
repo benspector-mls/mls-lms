@@ -19,6 +19,19 @@
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /**
+ * The most links and files one submission may hold together.
+ *
+ * A limit on the list rather than on anything the list is for. Ten is far more than the work
+ * itself needs — a document and a photograph of a whiteboard is the case this exists for — and
+ * it is what stops one submission from becoming an unbounded folder, which is the shape a
+ * student's page cannot draw and an instructor cannot read through while grading.
+ *
+ * Enforced on the server, where handing something in is decided, and read by the student's page
+ * so the forms go away at the limit rather than offering an act that will be refused.
+ */
+export const MAX_SUBMISSION_ARTIFACTS = 10;
+
+/**
  * The most text this application will read into a page, which is a far smaller number.
  *
  * 25MB is a sensible limit on what a student may store and a terrible amount of text to put in

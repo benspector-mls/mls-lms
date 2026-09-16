@@ -55,20 +55,6 @@ describe("sharedAfterHandIn", () => {
     });
   });
 
-  it("carries what the work is called, which every member's own page shows", () => {
-    const shared = sharedAfterHandIn(
-      handIn({
-        describe: {
-          uploadFilename: "wireframes.pdf",
-          uploadSizeBytes: 20_000,
-          uploadContentType: "application/pdf",
-        },
-      }),
-    );
-    expect(shared.uploadFilename).toBe("wireframes.pdf");
-    expect(shared.uploadSizeBytes).toBe(20_000);
-  });
-
   it("carries nothing about where the work is", () => {
     // The test this file exists for. Every one of these belongs to the single row holding the
     // work: on five rows each is five chances to be stale, and a mirror with a `headSha` and no
@@ -82,8 +68,6 @@ describe("sharedAfterHandIn", () => {
           prUrl: "https://github.com/marcy/fs-oct-2026-project-team-3/pull/4",
           headBranch: "draft",
           headSha: "abc1234",
-          submittedUrl: "https://docs.google.com/document/d/xyz",
-          uploadPath: "sub-1/abcd.pdf",
         },
       }),
     );
@@ -95,8 +79,24 @@ describe("sharedAfterHandIn", () => {
       "prUrl",
       "headBranch",
       "headSha",
+    ]) {
+      expect(shared).not.toHaveProperty(column);
+    }
+  });
+
+  it("carries nothing describing an attachment", () => {
+    // Attachments are rows of their own hanging off the row that holds the work, so nothing about
+    // them is copied onto a mirror. A filename copied here would go on naming a file after the
+    // teammate who attached it had taken it off — and it would be the name every other member's
+    // page showed.
+    const shared = sharedAfterHandIn(handIn());
+
+    for (const column of [
       "submittedUrl",
       "uploadPath",
+      "uploadFilename",
+      "uploadSizeBytes",
+      "uploadContentType",
     ]) {
       expect(shared).not.toHaveProperty(column);
     }

@@ -15,6 +15,7 @@ import {
   MessageSquare,
   RotateCcw,
   Users,
+  X,
 } from "lucide-react";
 
 import { AcceptAssignmentButton } from "@/components/accept-assignment-button";
@@ -47,6 +48,7 @@ import {
   checkUpload,
   describeAcceptedTypes,
   formatBytes,
+  MAX_SUBMISSION_ARTIFACTS,
   MAX_UPLOAD_BYTES,
 } from "@/lib/uploads/file-types";
 import { useTRPC } from "@/trpc/client";
@@ -709,66 +711,53 @@ function SubmissionTab({
       )}
 
       {/*
-        What they handed in, before the box that changes it.
-
-        The order is the point: a student opening a row wants to know what is in first, and the
-        form to replace it second. It used to be the other way round, which was harmless while
-        the form only ever appeared on work that had not been submitted — and became wrong the
-        moment the form started appearing under work that had.
-
-        The address is shown rather than hidden behind the button, so a student can see whether
-        the link they pasted is the one they meant. That catches the mistake this whole feature
-        exists for at the point it can still be fixed silently.
-      */}
-      {/*
         Which member handed in what is standing.
 
         Phrased as "handed in by" rather than naming the reader in the second person, because the
         panel does not know which member is reading it — and the sentence is true and useful either
-        way. It sits above the work rather than beside the Update box, because what it explains is
-        the work: a member who did not hand this in needs to know that before they consider
-        replacing it.
+        way. It sits above the work rather than beside the forms, because what it explains is the
+        work: a member who did not hand this in needs to know that before they consider taking
+        something off it.
       */}
       {submission?.team &&
         submission.handedInBy &&
-        (submission.submittedUrl || submission.uploadFilename || submission.prUrl) && (
+        (submission.artifacts.length > 0 || submission.prUrl) && (
           <p className="text-sm text-muted-foreground">
             Handed in by{" "}
             <span className="font-medium text-foreground">
               {submission.handedInBy.displayName ?? "a teammate"}
             </span>
-            . Anybody on the team can replace it.
+            . Anybody on the team can add to this or take something off it.
           </p>
         )}
 
-      {submission?.submittedUrl && (
-        <SubmittedDocumentRow
-          url={submission.submittedUrl}
-          label={
-            assignment.kind === "GOOGLE_DRIVE" ? "The file you submitted" : "The work you submitted"
-          }
-          isLate={submission.isLate ?? false}
-          /*
-            Closed on arrival, unlike the review screen. A student knows what they handed in and
-            came here to check that it arrived, which the address answers on its own — and the
-            document is one click away for the times they want to look.
-          */
-        />
-      )}
-
       {/*
-        What they handed in, so a student can tell that the right file went. No link: the
-        bucket is private and a download is a signed URL minted per request, which is
-        `UploadedFileRow`'s job.
+        Everything attached, in the order it was attached, each with a way to take it off.
+
+        A list rather than whichever hand-in was most recent, which is the whole of this feature: a
+        student handing in a document and a photograph of their whiteboard has handed in both, and
+        what their instructor opens is both. The forms below add to this list and never replace it.
+
+        Above the forms rather than below them, because a student opening a row wants to know what
+        is in first and how to change it second.
+
+        Each is closed on arrival, unlike the review screen. A student knows what they handed in
+        and came here to check that it arrived, which the name and the address answer on their own
+        — and each one is a click away for the times they want to look. The address is shown rather
+        than hidden behind the button, so a student can see whether the link they pasted is the one
+        they meant, which catches the commonest mistake while it can still be fixed quietly.
       */}
-      {submission?.uploadFilename && (
-        <UploadedFileRow
-          submissionId={submission.id}
-          filename={submission.uploadFilename}
-          sizeBytes={submission.uploadSizeBytes}
+      {submission?.artifacts.map((artifact) => (
+        <AttachmentRow
+          key={artifact.id}
+          artifact={artifact}
           isLate={submission.isLate ?? false}
+          driveKind={assignment.kind === "GOOGLE_DRIVE"}
+          // Removable on exactly the terms the forms are offered on. While an instructor is
+          // reading, the server refuses both, and the notice below says why.
+          removable={mode !== "locked"}
         />
-      )}
+      ))}
 
       {/*
         An assignment with no pull request to observe is handed in as an act rather than as
@@ -1070,6 +1059,86 @@ function TaskCompletion({
   );
 }
 
+/**
+ * One thing the student attached, with the button that takes it back off.
+ *
+ * The row itself is the same element the instructor's review screen draws — `UploadedFileRow` for
+ * a file, `SubmittedDocumentRow` for a link — so a student sees their work exactly as it will be
+ * read. What is added here is Remove, which is the half of the list a student manages.
+ *
+ * **No confirmation dialog.** It is one item of a visible list, re-attaching is the form directly
+ * below, and a dialog on every removal would be four presses to fix a photograph uploaded upside
+ * down. What is worth saying is said by the server instead: once an instructor has started
+ * reading, removal is refused and the notice explains why.
+ */
+function AttachmentRow({
+  artifact,
+  isLate,
+  driveKind,
+  removable,
+}: {
+  artifact: Submission["artifacts"][number];
+  isLate: boolean;
+  /** A Drive assignment handed out a template, so its links are "the file you submitted". */
+  driveKind: boolean;
+  removable: boolean;
+}) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const remove = useMutation(
+    trpc.submissions.removeArtifact.mutationOptions(settled({ onError: shownInPlace })),
+  );
+
+  return (
+    <div className="flex flex-col gap-1">
+      {artifact.kind === "FILE" ? (
+        <UploadedFileRow
+          artifactId={artifact.id}
+          filename={artifact.uploadFilename ?? "Attachment"}
+          sizeBytes={artifact.uploadSizeBytes}
+          isLate={isLate}
+        />
+      ) : (
+        <SubmittedDocumentRow
+          url={artifact.url ?? ""}
+          label={driveKind ? "The file you submitted" : "The work you submitted"}
+          isLate={isLate}
+        />
+      )}
+
+      {removable && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={remove.isPending}
+            onClick={() => remove.mutate({ artifactId: artifact.id })}
+          >
+            <X data-icon="inline-start" />
+            {remove.isPending ? "Removing…" : "Remove"}
+          </Button>
+          {remove.error && (
+            <p className="text-sm text-destructive" role="alert">
+              {remove.error.message}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The forms that add to what a submission holds.
+ *
+ * Both are offered at once where the assignment accepts both, stacked rather than behind a
+ * chooser: they are two ways of adding to one list rather than two answers to one question, and a
+ * student attaching a document *and* a photograph needs both without pressing anything first.
+ *
+ * Which are offered comes from the assignment rather than from its kind, because one kind answers
+ * this three ways — see `handInMethodsFor`.
+ */
 function HandInForms({
   assignment,
   submission,
@@ -1082,81 +1151,52 @@ function HandInForms({
   const methods = handInMethodsFor(assignment);
   const takesLink = methods.includes("LINK");
   const takesFile = methods.includes("FILE");
+  const held = submission?.artifacts.length ?? 0;
 
   /*
-    What is on screen, not what was handed in — those differ the moment a fellow presses the other
-    tab. Seeded from the work standing so returning to the panel shows the form that matches it,
-    and left alone afterwards: re-seeding on every render would drag a fellow back to the link form
-    the instant their upload landed.
+    At the limit the forms go away and the sentence says why. An act that is offered and then
+    refused is worse than one that is visibly unavailable, and the way out — remove something — is
+    the list directly above.
   */
-  const [showing, setShowing] = React.useState<"LINK" | "FILE">(() =>
-    submission?.uploadFilename ? "FILE" : "LINK",
-  );
-
-  const choosing = takesLink && takesFile;
-  const method = choosing ? showing : takesFile ? "FILE" : "LINK";
+  if (held >= MAX_SUBMISSION_ARTIFACTS) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        This submission holds {MAX_SUBMISSION_ARTIFACTS} attachments, which is the most it can.
+        Remove one to add another.
+      </p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
-      {choosing && (
-        <div
-          className="flex gap-1 rounded-lg bg-muted p-1"
-          role="group"
-          aria-label="How to hand in this work"
-        >
-          {(
-            [
-              { key: "LINK", label: "Paste a link" },
-              { key: "FILE", label: "Upload a file" },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              aria-pressed={method === option.key}
-              onClick={() => setShowing(option.key)}
-              className={cn(
-                "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                method === option.key
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {method === "LINK" ? (
-        <SubmitWorkForm
-          assignmentId={assignment.id}
-          kind={assignment.kind}
-          currentUrl={submission?.submittedUrl ?? null}
-          mode={mode}
-        />
-      ) : (
+      {takesLink && <AddLinkForm assignmentId={assignment.id} kind={assignment.kind} />}
+      {takesFile && (
         <UploadWorkForm
           assignmentId={assignment.id}
           acceptedFileTypes={assignment.acceptedFileTypes}
-          mode={mode}
         />
       )}
 
       {/*
-        Said once, above both forms, because it is the one thing about handing in two ways that is
-        not obvious: the work is what was handed in last, not everything ever handed in. A fellow
-        who uploads a file after pasting a link has replaced the link.
-
-        It deliberately does not say what becomes of the file underneath. Whether a replaced
-        object is kept depends on whether a grade was written about it — see
-        `discardReplacedUpload` — and that is a rule about the storage bucket rather than
-        anything a fellow acts on. What they need to know is which hand-in counts.
+        The one thing about a list of attachments that is not obvious: adding does not replace, so
+        a wrong link stays wrong until it is taken off. Said once, below both forms, and only where
+        something is already attached — before that there is nothing for a student to act on.
       */}
-      {choosing && (
+      {held > 0 && (
         <p className="text-xs text-muted-foreground">
-          Hand in whichever suits your work. Only the most recent one counts — handing in one way
-          replaces what you handed in the other way.
+          Your instructor sees everything on this list. Adding something does not replace what is
+          already here — use Remove for that.
+        </p>
+      )}
+
+      {/*
+        What another hand-in means once a grade exists. `handInMode` already labels the panel a
+        resubmission, so this says only the part the list makes newly true: what is reviewed again
+        is everything attached, not the one thing just added.
+      */}
+      {mode === "resubmit" && (
+        <p className="text-xs text-muted-foreground">
+          Adding or removing anything asks your instructor to look at the new set.
         </p>
       )}
     </div>
@@ -1164,104 +1204,47 @@ function HandInForms({
 }
 
 /**
- * What the link form is called, per act and per kind.
- *
- * A table rather than nested conditionals, which is what this was: two ternaries deep by two
- * kinds wide, and a third act would have made it three. Laid out flat, the six sentences can be
- * read against each other, which is the only way to notice that "Submit your file" and "Update
- * your file" have to differ by more than a verb — the second one is about a link that is already
- * there.
- */
-const LINK_FORM_HEADING: Record<Exclude<HandInMode, "locked">, { drive: string; url: string }> = {
-  submit: { drive: "Submit your file", url: "Submit the link to your work" },
-  update: { drive: "Change the file you submitted", url: "Change the link you submitted" },
-  resubmit: {
-    drive: "Submit your revised file",
-    url: "Submit the link to your revised work",
-  },
-};
-
-/**
- * What the button says.
- *
- * "Update" rather than "Submit" on a correction, because the two are different promises: one
- * hands work in and the other swaps what was handed in, and a student pressing "Submit" on work
- * already submitted would reasonably expect a second attempt to be recorded.
- */
-const LINK_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
-  submit: "Submit",
-  update: "Update",
-  resubmit: "Submit again",
-};
-
-/**
- * Handing in work that has no pull request.
+ * Attaching a link.
  *
  * The whole of the submission signal for a Drive assignment. A repository assignment is observed —
- * the webhook sees the pull request open and records it — and there is nothing to observe
- * here, so pressing this is what puts the work in front of the instructor. Without it,
- * finished work would read as never started.
+ * the webhook sees the pull request open and records it — and there is nothing to observe here, so
+ * pressing this is what puts the work in front of the instructor. Without it, finished work would
+ * read as never started.
  *
  * The link is asked for rather than derived, because the student's copy is theirs and this
  * application never saw it created: Google made the copy in their Drive on their request.
  *
- * **Also where a wrong link is corrected**, which is the same form doing a different job and is
- * why `mode` exists rather than a `resubmitting` boolean. A student who pasted the instructor's
- * template instead of their own copy previously had no way back: the form was hidden the moment
- * the work entered the queue, so the only route to a correct submission was to wait for a grade
- * on work they knew was wrong and then resubmit.
+ * **A wrong link is fixed by attaching the right one and removing the wrong one**, which is why
+ * this form has no notion of what is already there: it adds, and the list above is what edits.
  */
-function SubmitWorkForm({
-  assignmentId,
-  kind,
-  currentUrl,
-  mode,
-}: {
-  assignmentId: string;
-  /**
-   * Both link-submitted kinds use this form, and only the words differ. A Drive assignment
-   * assignment handed out a template, so the link wanted is "your own copy"; an external-url
-   * assignment handed out nothing, so the link wanted is wherever the student made the work.
-   * Asking for "your copy" of a Loom recording would be asking for something that does not
-   * exist.
-   */
-  kind: AssignmentKind;
-  currentUrl: string | null;
-  /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
-  mode: Exclude<HandInMode, "locked">;
-}) {
+function AddLinkForm({ assignmentId, kind }: { assignmentId: string; kind: AssignmentKind }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
-  const [url, setUrl] = React.useState(currentUrl ?? "");
+  const [url, setUrl] = React.useState("");
 
-  const submit = useMutation(
-    trpc.submissions.submitWork.mutationOptions(settled({ onError: shownInPlace })),
+  const add = useMutation(
+    trpc.submissions.addLink.mutationOptions(
+      settled({
+        onError: shownInPlace,
+        // Cleared only once the server has it, so a refusal leaves the address in the box to be
+        // corrected rather than making the student paste it again.
+        onSuccess: () => setUrl(""),
+      }),
+    ),
   );
-
-  const changed = url.trim() !== (currentUrl ?? "");
 
   return (
     <form
       className={cn(panelSurface, "flex flex-col gap-2 p-4")}
       onSubmit={(event) => {
         event.preventDefault();
-        submit.mutate({ assignmentId, submittedUrl: url.trim() });
+        add.mutate({ assignmentId, url: url.trim() });
       }}
     >
       <label className="text-sm font-medium" htmlFor={`submit-url-${assignmentId}`}>
-        {LINK_FORM_HEADING[mode][kind === "GOOGLE_DRIVE" ? "drive" : "url"]}
+        {kind === "GOOGLE_DRIVE" ? "Add a link to your file" : "Add a link to your work"}
       </label>
 
-      {/*
-        What replacing it does, and it is only worth saying in this one mode. A correction
-        overwrites — there is one `submittedUrl` column — and a student who assumes both links go
-        to their instructor would leave the wrong one thinking it had been added to rather than
-        swapped. Nothing about the queue changes, which is the reassuring half and the reason
-        this is not phrased as a warning.
-      */}
-      {mode === "update" && (
-        <p className="text-sm text-muted-foreground">This replaces the link above.</p>
-      )}
       <p className="text-sm text-muted-foreground">
         {kind === "GOOGLE_DRIVE" ? (
           <>
@@ -1290,40 +1273,18 @@ function SubmitWorkForm({
           }
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
-        <Button
-          size="sm"
-          type="submit"
-          /*
-            Nothing to send when the box still holds the link that is already stored. Without
-            this, Update is a button that appears to work and changes nothing — the mutation
-            would run, rewrite the same URL, and move `submittedAt` for no reason.
-          */
-          disabled={submit.isPending || url.trim() === "" || (mode === "update" && !changed)}
-        >
-          {submit.isPending ? "Submitting…" : LINK_FORM_BUTTON[mode]}
+        <Button size="sm" type="submit" disabled={add.isPending || url.trim() === ""}>
+          {add.isPending ? "Adding…" : "Add link"}
         </Button>
       </div>
-      {submit.error && (
+      {add.error && (
         <p className="text-sm text-destructive" role="alert">
-          {submit.error.message}
+          {add.error.message}
         </p>
       )}
     </form>
   );
 }
-
-/** The upload form's three headings, for the reason `LINK_FORM_HEADING` is a table. */
-const UPLOAD_FORM_HEADING: Record<Exclude<HandInMode, "locked">, string> = {
-  submit: "Upload your file",
-  update: "Replace the file you uploaded",
-  resubmit: "Upload your revised file",
-};
-
-const UPLOAD_FORM_BUTTON: Record<Exclude<HandInMode, "locked">, string> = {
-  submit: "Upload",
-  update: "Replace",
-  resubmit: "Upload again",
-};
 
 /**
  * Sends one file to the address the server signed, reporting how far it has got.
@@ -1391,7 +1352,7 @@ function sendFile(params: {
 }
 
 /**
- * Handing in a file.
+ * Attaching a file.
  *
  * **Three steps, because the bytes do not come through this application.** `beginUpload` asks
  * whether this file may be handed in and returns an address in the bucket; the browser sends the
@@ -1402,8 +1363,8 @@ function sendFile(params: {
  * their screen could explain.
  *
  * The consequence to know is the middle step. A connection that drops after the file is stored
- * and before it is recorded leaves the work unsubmitted with the bytes already in the bucket. The
- * student sees this form still asking for a file, which is true, and uploading again works;
+ * and before it is recorded leaves the file off the submission with the bytes already in the
+ * bucket. The student sees it missing from the list, which is true, and uploading again works;
  * `reconcile:uploads` removes what was left behind.
  *
  * The size and type are checked here as well as on the server. Not as the guarantee, which is the
@@ -1413,12 +1374,9 @@ function sendFile(params: {
 function UploadWorkForm({
   assignmentId,
   acceptedFileTypes,
-  mode,
 }: {
   assignmentId: string;
   acceptedFileTypes: string[];
-  /** Which of the three acts this is. `locked` never reaches here — the caller renders a notice. */
-  mode: Exclude<HandInMode, "locked">;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -1489,23 +1447,12 @@ function UploadWorkForm({
   return (
     <form className={cn(panelSurface, "flex flex-col gap-2 p-4")} onSubmit={upload}>
       <label className="text-sm font-medium" htmlFor={inputId}>
-        {UPLOAD_FORM_HEADING[mode]}
+        Add a file
       </label>
       <p className="text-sm text-muted-foreground">
         {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)}. Your
         instructor is the only person who can open it.
       </p>
-      {/*
-        The same sentence the link form carries, and it matters more here: an uploaded file
-        replaces the stored one outright, so a student who uploads a second file is not adding a
-        page to their submission.
-      */}
-      {mode === "update" && (
-        <p className="text-sm text-muted-foreground">
-          This replaces the file above. Your work stays where it is in your instructor&apos;s queue
-          — correcting it does not put you at the back.
-        </p>
-      )}
       <div className="flex flex-wrap items-center gap-2">
         <input
           id={inputId}
@@ -1517,7 +1464,7 @@ function UploadWorkForm({
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
         />
         <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
-          {busy ? "Uploading…" : UPLOAD_FORM_BUTTON[mode]}
+          {busy ? "Uploading…" : "Upload"}
         </Button>
       </div>
       {/*

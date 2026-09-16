@@ -34,7 +34,7 @@ export const RESOURCE_KIND_BLURB: Record<ResourceKind, string> = {
 const title = z.string().trim().min(1, "A resource needs a title.").max(200);
 
 /*
-  2000 characters, which is the same ceiling `submittedUrl` uses. Long enough for anything real
+  2000 characters, which is the same ceiling an attached link uses. Long enough for anything real
   and short enough that a pasted page of text is refused as what it is rather than stored as a
   URL nobody can open.
 */

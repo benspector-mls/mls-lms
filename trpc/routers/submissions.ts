@@ -23,6 +23,8 @@ import { handInState, taskReset, taskVerdict } from "@/lib/submissions/hand-in";
 import {
   claimTeamWork,
   syncTeamRows,
+  recordActivity,
+  recordEmptiedHandIn,
   recordHandIn,
   recordResubmissionDeclared,
   recordTaskVerdict,
@@ -32,9 +34,11 @@ import { MAX_INLINE_TEXT_BYTES, formatBytes } from "@/lib/uploads/file-types";
 import { readSubmissionUpload, signedDownloadUrl } from "@/lib/uploads/storage";
 import {
   assertCanHandIn,
+  assertRoomForArtifact,
   beginUpload,
-  discardReplacedUpload,
+  discardRemovedUpload,
   recordUpload,
+  rowHoldingWork,
 } from "@/lib/uploads/submit";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
@@ -105,6 +109,22 @@ async function resolveTaskWork(
 }
 
 /**
+ * One attachment, as every screen that draws one is handed it.
+ *
+ * **`uploadPath` is deliberately absent.** A download is a signed URL from `uploadUrl`, minted per
+ * request against the artifact's id, and sending the path to a browser would suggest there is
+ * another way to the bytes. There is not: the bucket is private and carries no policies.
+ */
+const artifactSelect = {
+  id: true,
+  kind: true,
+  url: true,
+  uploadFilename: true,
+  uploadSizeBytes: true,
+  createdAt: true,
+} satisfies Prisma.SubmissionArtifactSelect;
+
+/**
  * Everything the review surface needs from a submission, in one place.
  *
  * Shared by the two procedures that feed it — `listForAssignment` reads one assignment across
@@ -120,14 +140,9 @@ const reviewableSubmissionSelect = {
   prUrl: true,
   prNumber: true,
   headSha: true,
-  // What the instructor opens when there is no pull request: the document the student
-  // submitted, or the file they uploaded. Hand grading needs somewhere to read the
-  // work from. The path is deliberately not selected — a download is a signed URL from
-  // `uploadUrl`, minted per request, and sending the path to the browser would suggest
-  // otherwise.
-  submittedUrl: true,
-  uploadFilename: true,
-  uploadSizeBytes: true,
+  // Everything the student attached, oldest first, which is what the instructor opens when there
+  // is no pull request. Hand grading needs somewhere to read the work from.
+  artifacts: { orderBy: { createdAt: "asc" as const }, select: artifactSelect },
   submittedAt: true,
   isLate: true,
   lastActivityAt: true,
@@ -173,6 +188,12 @@ const reviewableSubmissionSelect = {
         orderBy: { createdAt: "asc" as const },
         select: { authorId: true, authorRole: true, createdAt: true, deletedAt: true },
       },
+      /*
+        And the team's attachments, for the same reason: they hang off the row holding the work,
+        so a mirror opened from the aside list would otherwise show a graded submission with
+        nothing to read.
+      */
+      artifacts: { orderBy: { createdAt: "asc" as const }, select: artifactSelect },
     },
   },
   /*
@@ -241,6 +262,7 @@ function decorateSubmission<T extends ReviewableSubmission>(
     comments,
     commentsResolvedAt,
     teamSubmission,
+    artifacts,
     ...rest
   } = submission;
 
@@ -251,6 +273,12 @@ function decorateSubmission<T extends ReviewableSubmission>(
 
   return {
     ...rest,
+    /*
+      What the student attached, resolved to whichever row holds the work — the same resolution
+      the thread above gets, and for the same reason: a member who does not hold their team's row
+      would otherwise be a graded submission with nothing on it.
+    */
+    artifacts: teamSubmission?.artifacts ?? artifacts,
     /*
       The team as one object, flattened here so no screen assembles it twice.
 
@@ -343,26 +371,29 @@ export const submissionsRouter = createTRPCRouter({
     }),
 
   /**
-   * A student declaring that work with no pull request is finished.
+   * A student attaching a link to their work.
    *
-   * For a repository assignment, opening the pull request is that declaration and the
-   * webhook records it — status, `submittedAt`, and `isLate` all follow from the event. The
-   * other two kinds have no webhook and nothing to observe, so this procedure does the same
-   * job: without it, hand-graded work would never enter triage and would read as never
-   * started rather than as waiting, which is the difference between an instructor seeing it
+   * For a repository assignment, opening the pull request is the declaration that work is
+   * finished and the webhook records it — status, `submittedAt`, and `isLate` all follow from the
+   * event. The other two kinds have no webhook and nothing to observe, so attaching something is
+   * that declaration: without it, hand-graded work would never enter triage and would read as
+   * never started rather than as waiting, which is the difference between an instructor seeing it
    * and not.
    *
+   * **It adds to what the submission holds rather than replacing it.** A student may attach a
+   * document and a photograph of their whiteboard, and their instructor sees both. Taking one back
+   * off is `removeArtifact`, which the student does from the list on their own page.
+   *
    * The URL is where the student's own copy of the document is. An assignment handed in as a file
-   * is refused here and goes through `beginUpload` and `recordUpload` instead: the file arriving
-   * *is* the act of submitting, so letting this procedure mark one submitted would put work in
-   * the instructor's queue with nothing to open, and would make two things authorities on the
-   * same columns. All three share one authorization rule rather than writing it out three times.
+   * is refused here and goes through `beginUpload` and `recordUpload` instead: bytes into a
+   * private bucket and a URL in a column are different machinery. All of them share one
+   * authorization rule rather than writing it out three times.
    */
-  submitWork: profileProcedure
+  addLink: profileProcedure
     .input(
       z.object({
         // The assignment rather than the submission, because a submission row may not exist
-        // yet: for a kind with no Accept, submitting is the first thing that happens to it.
+        // yet: for a kind with no Accept, attaching is the first thing that happens to it.
         assignmentId: z.string().uuid(),
         /**
          * Where the student's work is: their copy of a Drive file, or whatever they made
@@ -374,15 +405,14 @@ export const submissionsRouter = createTRPCRouter({
          * The same function the row draws with decides here, so nothing can be stored that the
          * screen would then refuse to open.
          */
-        submittedUrl: z
+        url: z
           .string()
+          .min(1)
           .max(2000)
           .refine(
             (url) => linkHost(url) !== null,
             "That is not a web address. Paste a link beginning with https://",
-          )
-          .nullable()
-          .default(null),
+          ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -392,81 +422,39 @@ export const submissionsRouter = createTRPCRouter({
         expect: HandInMethod.LINK,
       });
 
-      if (!input.submittedUrl) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Paste the link to your copy of the document before submitting, so your " +
-            "instructor can open the right one.",
-        });
-      }
-
       const now = new Date();
-
-      /*
-        Read before written, because what this hand-in means depends on the state the
-        submission is already in. Work handed in on top of a released grade is a revision and
-        has to enter the queue as one, and the time the work was first handed in is not
-        something a later hand-in may move. `handInState` is that rule, shared with the upload
-        route and the pull request webhook so the three ways work arrives cannot disagree
-        about it.
-
-        The row may not exist yet. A student can reach this without having pressed Accept, so
-        an upsert is what keeps a missing row from being an error the student cannot act on,
-        and a null `current` is what tells the rule this is a first submission.
-      */
-      const team = assignment.team;
 
       /*
         Which row the link goes on. For a team it is the team's, claimed if nobody holds it yet —
         and `NOT_STARTED` on the create branch because a link assignment has no Accept, so a row
-        that exists only to receive one has had nothing happen to it.
+        that exists only to receive one has had nothing happen to it. The same function both
+        halves of an upload resolve the row with, so there is one answer to "whose work is this".
       */
-      const target = team
-        ? await claimTeamWork(ctx.db, {
-            assignmentId: assignment.id,
-            studentId: ctx.profile.id,
-            team,
-            statusIfNew: "NOT_STARTED",
-          }).then(({ submissionId }) =>
-            ctx.db.submission.findUniqueOrThrow({
-              where: { id: submissionId },
-              select: {
-                id: true,
-                status: true,
-                submittedAt: true,
-                isLate: true,
-                uploadPath: true,
-                gradedAt: true,
-              },
-            }),
-          )
-        : await ctx.db.submission.upsert({
-            where: {
-              assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
-            },
-            create: {
-              assignmentId: assignment.id,
-              studentId: ctx.profile.id,
-              status: "NOT_STARTED",
-            },
-            update: {},
-            select: {
-              id: true,
-              status: true,
-              submittedAt: true,
-              isLate: true,
-              uploadPath: true,
-              gradedAt: true,
-            },
-          });
+      const target = await rowHoldingWork(ctx.db, { profileId: ctx.profile.id, assignment });
 
+      await assertRoomForArtifact(ctx.db, target.id);
+
+      /*
+        Read before written, because what this hand-in means depends on the state the submission
+        is already in. Work handed in on top of a released grade is a revision and has to enter
+        the queue as one, and the time the work was first handed in is not something a later
+        hand-in may move. `handInState` is that rule, shared with the upload path and the pull
+        request webhook so the three ways work arrives cannot disagree about it.
+      */
       const state = handInState({ current: target, dueAt: assignment.dueAt, now });
 
       /*
-        One rule writes both the row holding the work and every member's copy of it. The link
-        itself stays on the one row: it is where the work is, and five copies of it are five
-        chances to point at the wrong document.
+        The link itself, on the row holding the work and on that row only: it is where the work is,
+        and five copies of it are five chances to point at the wrong document. Every member's own
+        page reads the list through the relation, which is also how a teammate's link reaches them.
+      */
+      await ctx.db.submissionArtifact.create({
+        data: { submissionId: target.id, kind: HandInMethod.LINK, url: input.url },
+      });
+
+      /*
+        And the state of the work, which one rule writes to the row holding it and to every
+        member's copy alike.
       */
       await recordHandIn(ctx.db, {
         submissionId: target.id,
@@ -477,40 +465,116 @@ export const submissionsRouter = createTRPCRouter({
           // would sit at the bottom of the pile it had just been added to.
           lastActivityAt: now,
           handedInById: ctx.profile.id,
-          /*
-            The four upload columns nulled alongside the link, because an assignment may accept
-            both ways in and a row holding a file *and* a link is a row with two answers to one
-            question. The review screen resolves that pair by preferring the file, so pasting a
-            link over an uploaded file would change nothing an instructor could see.
-          */
-          location: { submittedUrl: input.submittedUrl, uploadPath: null },
-          /*
-            And the same three on every member's row. These are the columns a mirror carries —
-            what the work is *called* — so leaving them would show each teammate the filename of
-            a file this submission no longer has.
-          */
-          describe: { uploadFilename: null, uploadSizeBytes: null, uploadContentType: null },
         },
       });
 
-      if (team) {
+      if (assignment.team) {
         await syncTeamRows(ctx.db, { submissionId: target.id });
       }
 
-      // The file this work used to be, if it was one. Nothing points at the object now — but a
-      // grade already written about it is reason to keep it, which is this function's own rule.
-      await discardReplacedUpload(target);
-
       /*
-        The caller's own row. On a team assignment `submittedUrl` is null on it, because the link
-        lives on the row holding the work — the student's own page reads it through the relation,
-        which is also how it shows a link a teammate pasted.
+        The caller's own row, which is what their screen re-renders from. The attachments reach the
+        panel through `listForCourse`, which resolves them to whichever row holds the work.
       */
       return ctx.db.submission.findUniqueOrThrow({
         where: {
           assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
         },
-        select: { id: true, status: true, submittedUrl: true, submittedAt: true, isLate: true },
+        select: { id: true, status: true, submittedAt: true, isLate: true },
+      });
+    }),
+
+  /**
+   * A student taking one attachment back off their submission.
+   *
+   * **The other half of a list a student manages themselves.** Nothing is replaced automatically,
+   * so this is the only way something stops being part of the work — and it is the reason the
+   * student's page can show what was handed in as a list rather than as whatever arrived last.
+   *
+   * Authorized by `assertCanHandIn` with no method named: taking something off is not a link act
+   * or a file act, and every other question it asks is exactly the right one — published,
+   * enrolled, on the team, and not while an instructor is part-way through reading. What that
+   * function cannot answer is whether *this* attachment belongs to the row this caller hands in
+   * on, which is the check below it.
+   *
+   * **Emptying the list on ungraded work puts the row back to not started**, because nothing is
+   * handed in and an instructor's queue must not offer a submission with nothing to open. On
+   * graded work the status stands: a grade describes work that was handed in, and taking the file
+   * off afterwards does not unhappen it — nor does it delete the stored object, for the reason
+   * `discardRemovedUpload` gives.
+   */
+  removeArtifact: profileProcedure
+    .input(z.object({ artifactId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const artifact = await ctx.db.submissionArtifact.findUnique({
+        where: { id: input.artifactId },
+        select: {
+          id: true,
+          uploadPath: true,
+          submissionId: true,
+          submission: {
+            select: { id: true, assignmentId: true, studentId: true, gradedAt: true },
+          },
+        },
+      });
+
+      if (!artifact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That attachment is no longer there." });
+      }
+
+      const assignment = await assertCanHandIn(ctx.db, {
+        profileId: ctx.profile.id,
+        assignmentId: artifact.submission.assignmentId,
+      });
+
+      /*
+        That this attachment is on the work this caller hands in on. For a team that is the team's
+        one row, resolved from the caller's own membership rather than from anything they sent; for
+        a fellow working alone it is their own row. Without it, an artifact id would be enough to
+        take a stranger's file off their submission.
+      */
+      const holder = assignment.team
+        ? assignment.teamSubmissionId
+        : artifact.submission.studentId === ctx.profile.id
+          ? artifact.submission.id
+          : null;
+
+      if (holder === null || holder !== artifact.submissionId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "That is not your attachment." });
+      }
+
+      await ctx.db.submissionArtifact.delete({ where: { id: artifact.id } });
+
+      /*
+        The bytes, once the row naming them is gone — kept rather than removed when a grade was
+        written about them. The order matters: bytes nothing points at are harmless, and a row
+        pointing at bytes that are gone reads to an instructor as a corrupt file.
+      */
+      await discardRemovedUpload({
+        uploadPath: artifact.uploadPath,
+        gradedAt: artifact.submission.gradedAt,
+      });
+
+      const now = new Date();
+      const left = await ctx.db.submissionArtifact.count({
+        where: { submissionId: artifact.submissionId },
+      });
+
+      if (left === 0 && artifact.submission.gradedAt === null) {
+        await recordEmptiedHandIn(ctx.db, { submissionId: artifact.submissionId, at: now });
+      } else {
+        await recordActivity(ctx.db, { submissionId: artifact.submissionId, at: now });
+      }
+
+      if (assignment.team) {
+        await syncTeamRows(ctx.db, { submissionId: artifact.submissionId });
+      }
+
+      return ctx.db.submission.findUniqueOrThrow({
+        where: {
+          assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
+        },
+        select: { id: true, status: true, submittedAt: true, isLate: true },
       });
     }),
 
@@ -618,14 +682,15 @@ export const submissionsRouter = createTRPCRouter({
    * second press. This way the link is minted when the button is pressed, and a list of forty
    * students does not mint forty URLs nobody clicked.
    *
-   * Reachable by the student who owns the submission and by an instructor who teaches the
-   * course, and nobody else. That check is the *whole* of the access control on stored files:
-   * the bucket is private with no policies, so there is no other route to the bytes.
+   * Reachable by the student whose submission holds the attachment, by their teammates where a
+   * team handed it in, and by an instructor who teaches the course. Nobody else. That check is the
+   * *whole* of the access control on stored files: the bucket is private with no policies, so
+   * there is no other route to the bytes.
    */
   uploadUrl: profileProcedure
     .input(
       z.object({
-        submissionId: z.string().uuid(),
+        artifactId: z.string().uuid(),
         /**
          * `inline` is for an embedded preview and `attachment` saves the file. Both go through
          * the same authorization, because they are the same bytes — the disposition decides
@@ -635,43 +700,52 @@ export const submissionsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const submission = await ctx.db.submission.findUnique({
-        where: { id: input.submissionId },
+      const artifact = await ctx.db.submissionArtifact.findUnique({
+        where: { id: input.artifactId },
         select: {
-          id: true,
-          studentId: true,
           uploadPath: true,
           uploadFilename: true,
-          assignment: { select: { courseId: true } },
+          submission: {
+            select: {
+              studentId: true,
+              teamId: true,
+              teamSetId: true,
+              assignment: { select: { courseId: true } },
+            },
+          },
         },
       });
 
-      if (!submission) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
+      if (!artifact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That attachment is no longer there." });
       }
 
       /*
-        The student who owns this, or an instructor of its course. Holding the INSTRUCTOR role
-        is not enough, for the reason every authoring procedure checks the same thing: it says
-        nothing about *which* programs, so without this one term's instructor could read
-        another cohort's submissions.
+        The student who handed this in, one of their teammates, or an instructor of its course.
+        Holding the INSTRUCTOR role is not enough, for the reason every authoring procedure checks
+        the same thing: it says nothing about *which* programs, so without this one term's
+        instructor could read another cohort's submissions.
       */
       await assertOwnsOrTeaches(ctx, {
-        studentId: submission.studentId,
-        courseId: submission.assignment.courseId,
+        studentId: artifact.submission.studentId,
+        courseId: artifact.submission.assignment.courseId,
+        team: {
+          teamId: artifact.submission.teamId,
+          teamSetId: artifact.submission.teamSetId,
+        },
       });
 
-      if (!submission.uploadPath) {
+      if (!artifact.uploadPath) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "There is no uploaded file on this submission.",
+          message: "That attachment is a link rather than a file.",
         });
       }
 
       return {
         url: await signedDownloadUrl({
-          path: submission.uploadPath,
-          filename: submission.uploadFilename,
+          path: artifact.uploadPath,
+          filename: artifact.uploadFilename,
           disposition: input.disposition,
         }),
       };
@@ -681,9 +755,9 @@ export const submissionsRouter = createTRPCRouter({
    * The text of one uploaded file, for the screen that colours it rather than downloading it.
    *
    * Authorized by the same `assertOwnsOrTeaches` call `uploadUrl` makes, because it hands back the
-   * same bytes in a different shape: the student who owns the submission, or an instructor who
-   * teaches its course, and nobody else. The bucket is private with no policies, so these two
-   * procedures are the whole of the access control on stored files.
+   * same bytes in a different shape: the student whose submission holds it, their teammates, or an
+   * instructor who teaches its course, and nobody else. The bucket is private with no policies, so
+   * these two procedures are the whole of the access control on stored files.
    *
    * **A query where `uploadUrl` is a mutation, and the difference is what expires.** A signed URL
    * dies in minutes, so caching one would hand back a dead link on the second press. Text does not
@@ -698,32 +772,41 @@ export const submissionsRouter = createTRPCRouter({
    * decision to take deliberately, with that in view, and not one to arrive at by reusing this.
    */
   uploadText: profileProcedure
-    .input(z.object({ submissionId: z.string().uuid() }))
+    .input(z.object({ artifactId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const submission = await ctx.db.submission.findUnique({
-        where: { id: input.submissionId },
+      const artifact = await ctx.db.submissionArtifact.findUnique({
+        where: { id: input.artifactId },
         select: {
-          id: true,
-          studentId: true,
           uploadPath: true,
           uploadSizeBytes: true,
-          assignment: { select: { courseId: true } },
+          submission: {
+            select: {
+              studentId: true,
+              teamId: true,
+              teamSetId: true,
+              assignment: { select: { courseId: true } },
+            },
+          },
         },
       });
 
-      if (!submission) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Submission not found." });
+      if (!artifact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That attachment is no longer there." });
       }
 
       await assertOwnsOrTeaches(ctx, {
-        studentId: submission.studentId,
-        courseId: submission.assignment.courseId,
+        studentId: artifact.submission.studentId,
+        courseId: artifact.submission.assignment.courseId,
+        team: {
+          teamId: artifact.submission.teamId,
+          teamSetId: artifact.submission.teamSetId,
+        },
       });
 
-      if (!submission.uploadPath) {
+      if (!artifact.uploadPath) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "There is no uploaded file on this submission.",
+          message: "That attachment is a link rather than a file.",
         });
       }
 
@@ -736,16 +819,16 @@ export const submissionsRouter = createTRPCRouter({
         A sentence about the file rather than an error tone: the file is fine, it is just too long
         to put on a screen, and the download beside this is what to do with it.
       */
-      if ((submission.uploadSizeBytes ?? 0) > MAX_INLINE_TEXT_BYTES) {
+      if ((artifact.uploadSizeBytes ?? 0) > MAX_INLINE_TEXT_BYTES) {
         throw new TRPCError({
           code: "PAYLOAD_TOO_LARGE",
           message:
-            `That file is ${formatBytes(submission.uploadSizeBytes!)}, which is more than this ` +
+            `That file is ${formatBytes(artifact.uploadSizeBytes!)}, which is more than this ` +
             `screen will show. Download it to read it.`,
         });
       }
 
-      const bytes = await readSubmissionUpload(submission.uploadPath);
+      const bytes = await readSubmissionUpload(artifact.uploadPath);
 
       /*
         Decoded without `fatal`, which is the default, so a file holding one Latin-1 accented

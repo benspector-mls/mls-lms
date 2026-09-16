@@ -295,7 +295,8 @@ export async function assertActiveInProgram(ctx: AuthedCtx, programId: string): 
 }
 
 /**
- * Refuses unless the caller is **the fellow this work belongs to, or an instructor of its course**.
+ * Refuses unless the caller is **the fellow this work belongs to, a member of the team that handed
+ * it in, or an instructor of its course**.
  *
  * Its own named question rather than a special case of the others, because it is the only place
  * where owning something and teaching it grant the same thing. It governs one act: minting a signed
@@ -304,12 +305,37 @@ export async function assertActiveInProgram(ctx: AuthedCtx, programId: string): 
  *
  * The student check comes first and costs nothing, which matters: the common caller is the fellow
  * looking at their own work, and they are not an instructor of anything.
+ *
+ * **The team clause is what makes a team's attachments openable by the team.** An attachment hangs
+ * off the one row holding the work, whose `studentId` is whichever member claimed it — so without
+ * this, every other member would be refused their own team's file, and the screen offering them a
+ * download would be a screen that cannot produce one. Active membership only, read from the
+ * caller's own enrollment, which is the same rule `assertCanHandIn` resolves a team by.
  */
 export async function assertOwnsOrTeaches(
   ctx: AuthedCtx,
-  work: { studentId: string; courseId: string },
+  work: {
+    studentId: string;
+    courseId: string;
+    /** The team that handed the work in, when one did. Null for work a fellow did alone. */
+    team?: { teamId: string | null; teamSetId: string | null } | null;
+  },
 ): Promise<void> {
   if (work.studentId === ctx.profile.id) return;
+
+  if (work.team?.teamId && work.team.teamSetId) {
+    const membership = await ctx.db.teamMembership.findFirst({
+      where: {
+        teamId: work.team.teamId,
+        teamSetId: work.team.teamSetId,
+        enrollment: { studentId: ctx.profile.id, status: "ACTIVE" },
+      },
+      select: { id: true },
+    });
+
+    if (membership) return;
+  }
+
   await assertTeaches(ctx, work.courseId);
 }
 

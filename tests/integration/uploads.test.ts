@@ -42,8 +42,12 @@
  */
 import { HandInMethod } from "@/lib/generated/prisma/enums";
 import { db } from "@/lib/prisma";
-import { MAX_INLINE_TEXT_BYTES, MAX_UPLOAD_BYTES } from "@/lib/uploads/file-types";
-import { assertCanHandIn, discardReplacedUpload } from "@/lib/uploads/submit";
+import {
+  MAX_INLINE_TEXT_BYTES,
+  MAX_SUBMISSION_ARTIFACTS,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/uploads/file-types";
+import { assertCanHandIn } from "@/lib/uploads/submit";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
@@ -138,6 +142,7 @@ const suffix = crypto.randomUUID().slice(0, 8);
 const resumeTitle = `Integration Resume ${suffix}`;
 const linkTitle = `Integration Personal Site ${suffix}`;
 const pythonTitle = `Integration Converter ${suffix}`;
+const bothTitle = `Integration Write-up and Board ${suffix}`;
 
 /** The bytes every PDF hand-in below stores. Short, because nothing here measures throughput. */
 const body = Buffer.from("%PDF-1.4 integration round trip\n");
@@ -184,14 +189,22 @@ describe("handing in a file", () => {
     });
   };
 
-  /** Where the submission's file is now, read from the row rather than remembered from the call. */
-  const storedPathOf = async (submissionId: string) =>
-    (
-      await tx().submission.findUniqueOrThrow({
-        where: { id: submissionId },
-        select: { uploadPath: true },
-      })
-    ).uploadPath;
+  /**
+   * What the submission holds now, oldest first, read from the rows rather than remembered from
+   * the calls that made them.
+   */
+  const artifactsOf = async (submissionId: string) =>
+    tx().submissionArtifact.findMany({
+      where: { submissionId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, kind: true, url: true, uploadPath: true, uploadFilename: true },
+    });
+
+  /** The path of the one file a submission holds, where a group has arranged for there to be one. */
+  const onlyPathOf = async (submissionId: string) => {
+    const held = await artifactsOf(submissionId);
+    return held.find((artifact) => artifact.uploadPath !== null)?.uploadPath ?? null;
+  };
 
   /** The submission the fellow's first hand-in made, and what the procedure said about it. */
   let submission: Awaited<ReturnType<typeof handInFile>>;
@@ -258,11 +271,11 @@ describe("handing in a file", () => {
         it. Without this refusal a student could mark work handed in with nothing behind it, and two
         things would be authorities on the same columns.
       */
-      it("submitWork refuses an assignment handed in only as a file", async () => {
+      it("addLink refuses an assignment handed in only as a file", async () => {
         const code = await refusal(() =>
-          asStudent().submissions.submitWork({
+          asStudent().submissions.addLink({
             assignmentId: assignment.id,
-            submittedUrl: "https://example.com/not-a-file",
+            url: "https://example.com/not-a-file",
           }),
         );
         expect(code).toBe("BAD_REQUEST");
@@ -298,7 +311,7 @@ describe("handing in a file", () => {
   describe("the hand-in itself", () => {
     beforeAll(async () => {
       submission = await handInFile("Ben Spector resume.pdf", body);
-      firstPath = (await storedPathOf(submission.id))!;
+      firstPath = (await onlyPathOf(submission.id))!;
     });
 
     it("uploading is what enters the queue", () => {
@@ -309,20 +322,20 @@ describe("handing in a file", () => {
       ]);
     });
 
-    it("the filename the student chose is kept", async () => {
-      const row = await tx().submission.findUniqueOrThrow({
-        where: { id: submission.id },
-        select: { uploadFilename: true },
-      });
-      expect(row.uploadFilename).toBe("Ben Spector resume.pdf");
+    it("the file is one attachment on the submission", async () => {
+      const held = await artifactsOf(submission.id);
+      expect(held.map((artifact) => artifact.kind)).toEqual(["FILE"]);
     });
 
-    it("and the size with it", async () => {
-      const row = await tx().submission.findUniqueOrThrow({
-        where: { id: submission.id },
-        select: { uploadSizeBytes: true },
+    it("the filename the student chose is kept, and the size with it", async () => {
+      const [artifact] = await tx().submissionArtifact.findMany({
+        where: { submissionId: submission.id },
+        select: { uploadFilename: true, uploadSizeBytes: true },
       });
-      expect(row.uploadSizeBytes).toBe(body.byteLength);
+      expect([artifact!.uploadFilename, artifact!.uploadSizeBytes]).toEqual([
+        "Ben Spector resume.pdf",
+        body.byteLength,
+      ]);
     });
 
     // The path is built from the submission id, which is what makes a stored file traceable back to
@@ -446,8 +459,9 @@ describe("handing in a file", () => {
     });
 
     // None of the four changed the submission, which is the point of refusing them.
-    it("and none of those refusals moved the work", async () => {
-      expect(await storedPathOf(submission.id)).toBe(firstPath);
+    it("and none of those refusals attached anything", async () => {
+      const held = await artifactsOf(submission.id);
+      expect(held.map((artifact) => artifact.uploadPath)).toEqual([firstPath]);
     });
   });
 
@@ -465,7 +479,9 @@ describe("handing in a file", () => {
     });
 
     it("the queue carries the filename so it can be offered for download", async () => {
-      expect((await queueRow())?.uploadFilename).toBe("Ben Spector resume.pdf");
+      expect((await queueRow())?.artifacts.map((artifact) => artifact.uploadFilename)).toEqual([
+        "Ben Spector resume.pdf",
+      ]);
     });
   });
 
@@ -476,13 +492,21 @@ describe("handing in a file", () => {
     checks are wrong there is nothing behind them.
   */
   describe("who may read the bytes", () => {
+    /** The attachment those bytes belong to, which is what the two read procedures authorize. */
+    let artifactId: string;
+
+    beforeAll(async () => {
+      const held = await artifactsOf(submission.id);
+      artifactId = held[0]!.id;
+    });
+
     it("the student who uploaded it can fetch their own", async () => {
-      const link = await asStudent().submissions.uploadUrl({ submissionId: submission.id });
+      const link = await asStudent().submissions.uploadUrl({ artifactId });
       expect(link.url.includes("token=")).toBe(true);
     });
 
     it("the instructor who teaches the course can fetch it", async () => {
-      const link = await asInstructor().submissions.uploadUrl({ submissionId: submission.id });
+      const link = await asInstructor().submissions.uploadUrl({ artifactId });
       expect(link.url.includes("token=")).toBe(true);
     });
 
@@ -492,10 +516,17 @@ describe("handing in a file", () => {
       nothing about owning a submission.
     */
     it("another fellow cannot", async () => {
-      const code = await refusal(() =>
-        asOtherStudent().submissions.uploadUrl({ submissionId: submission.id }),
-      );
+      const code = await refusal(() => asOtherStudent().submissions.uploadUrl({ artifactId }));
       expect(code).toBe("FORBIDDEN");
+    });
+
+    // An attachment that has been taken off is gone rather than forbidden, and the difference is
+    // what a student's stale tab should be told.
+    it("an attachment that is no longer there is not found", async () => {
+      const code = await refusal(() =>
+        asStudent().submissions.uploadUrl({ artifactId: crypto.randomUUID() }),
+      );
+      expect(code).toBe("NOT_FOUND");
     });
   });
 
@@ -507,7 +538,7 @@ describe("handing in a file", () => {
   */
   describe("work made somewhere else", () => {
     let linkAssignmentId: string;
-    let linkSubmitted: { id: string; status: string; submittedUrl: string | null };
+    let linkSubmitted: { id: string; status: string };
 
     beforeAll(async () => {
       const created = await asInstructor().assignments.create({
@@ -547,19 +578,19 @@ describe("handing in a file", () => {
       expect(code).toBe("BAD_REQUEST");
     });
 
-    describe("submitting the link", () => {
+    describe("attaching the link", () => {
       beforeAll(async () => {
-        linkSubmitted = await asStudent().submissions.submitWork({
+        linkSubmitted = await asStudent().submissions.addLink({
           assignmentId: linkAssignmentId,
-          submittedUrl: "https://www.canva.com/design/DAF123/view",
+          url: "https://www.canva.com/design/DAF123/view",
         });
       });
 
-      it("submitting the link is what enters the queue", () => {
-        expect([linkSubmitted.status, linkSubmitted.submittedUrl]).toEqual([
-          "SUBMITTED",
-          "https://www.canva.com/design/DAF123/view",
-        ]);
+      it("attaching the link is what enters the queue", async () => {
+        const held = await artifactsOf(linkSubmitted.id);
+        expect([linkSubmitted.status, held.map((artifact) => [artifact.kind, artifact.url])]).toEqual(
+          ["SUBMITTED", [["LINK", "https://www.canva.com/design/DAF123/view"]]],
+        );
       });
 
       it("and it waits on a person, like every hand-graded kind", async () => {
@@ -571,11 +602,11 @@ describe("handing in a file", () => {
         );
       });
 
-      // A submission that was handed in as a link has no bytes at all, which is a different answer
-      // from being refused them.
-      it("a submission with no file has no text", async () => {
+      // A link has no bytes at all, which is a different answer from being refused them.
+      it("a link attachment has no text", async () => {
+        const [link] = await artifactsOf(linkSubmitted.id);
         const code = await refusal(() =>
-          asStudent().submissions.uploadText({ submissionId: linkSubmitted.id }),
+          asStudent().submissions.uploadText({ artifactId: link!.id }),
         );
         expect(code).toBe("NOT_FOUND");
       });
@@ -595,6 +626,8 @@ describe("handing in a file", () => {
     let pyAssignmentId: string;
     let pyHandIn: Awaited<ReturnType<typeof assertCanHandIn>>;
     let pySubmissionId: string;
+    /** The attachment holding the script, which is what both read procedures are asked about. */
+    let pyArtifactId: string;
 
     beforeAll(async () => {
       const created = await asInstructor().assignments.create({
@@ -631,6 +664,7 @@ describe("handing in a file", () => {
         filename: "converter.py",
       });
       pySubmissionId = recorded.id;
+      pyArtifactId = (await artifactsOf(pySubmissionId))[0]!.id;
     });
 
     it("an assignment can ask for Python", () => {
@@ -649,18 +683,18 @@ describe("handing in a file", () => {
     });
 
     it("the student who uploaded it can read their own text", async () => {
-      const read = await asStudent().submissions.uploadText({ submissionId: pySubmissionId });
+      const read = await asStudent().submissions.uploadText({ artifactId: pyArtifactId });
       expect(read.text).toBe(pySource);
     });
 
     it("the instructor who teaches the course can read it", async () => {
-      const read = await asInstructor().submissions.uploadText({ submissionId: pySubmissionId });
+      const read = await asInstructor().submissions.uploadText({ artifactId: pyArtifactId });
       expect(read.text).toBe(pySource);
     });
 
     it("another fellow cannot read it", async () => {
       const code = await refusal(() =>
-        asOtherStudent().submissions.uploadText({ submissionId: pySubmissionId }),
+        asOtherStudent().submissions.uploadText({ artifactId: pyArtifactId }),
       );
       expect(code).toBe("FORBIDDEN");
     });
@@ -673,70 +707,146 @@ describe("handing in a file", () => {
       Last in this group, because it leaves the row describing a file far larger than the one stored.
     */
     it("a file too long to show is refused before it is read", async () => {
-      await tx().submission.update({
-        where: { id: pySubmissionId },
+      await tx().submissionArtifact.update({
+        where: { id: pyArtifactId },
         data: { uploadSizeBytes: MAX_INLINE_TEXT_BYTES + 1 },
       });
 
       const code = await refusal(() =>
-        asStudent().submissions.uploadText({ submissionId: pySubmissionId }),
+        asStudent().submissions.uploadText({ artifactId: pyArtifactId }),
       );
       expect(code).toBe("PAYLOAD_TOO_LARGE");
     });
   });
 
   /*
-    ---- Replacing the work, and what happens to what it replaced --------------
+    ---- A list rather than a replacement --------------------------------------
 
-    Before a grade, a replacement is a correction: nothing describes the old file, so it goes. The
-    graded case is the opposite and is the group after this one.
+    The heart of what a submission is: a second file is attached *beside* the first rather than
+    over it, and a link and a file sit on one submission together. What stops something being part
+    of the work is the student taking it off, which is the group after this.
 
-    Placed after every group that reads the submission, because both of these rewrite which object it
-    points at and one of them removes the file altogether.
+    Placed after every group that reads the first hand-in, because these add to what it holds.
   */
-  describe("replacing the work", () => {
+  describe("a second file is added rather than substituted", () => {
     let secondPath: string;
 
     beforeAll(async () => {
       const second = await handInFile("Ben Spector resume v2.pdf", body);
-      secondPath = (await storedPathOf(second.id))!;
+      const held = await artifactsOf(second.id);
+      secondPath = held[held.length - 1]!.uploadPath!;
     });
 
-    it("a second upload is stored beside the first rather than over it", () => {
+    it("both files are on the submission", async () => {
+      const held = await artifactsOf(submission.id);
+      expect(held.map((artifact) => artifact.uploadFilename)).toEqual([
+        "Ben Spector resume.pdf",
+        "Ben Spector resume v2.pdf",
+      ]);
+    });
+
+    it("the second is stored beside the first rather than over it", () => {
       expect(secondPath).not.toBe(firstPath);
     });
 
-    it("and the object the first one left behind is gone", () => {
-      expect(bucket.has(firstPath)).toBe(false);
-    });
-
-    it("while the one now standing is there", () => {
+    // The failure this whole change exists to prevent: the first upload's bytes used to be deleted
+    // the moment a second arrived, so a student adding a page lost the page they had.
+    it("and the first one's bytes are still there", () => {
+      expect(bucket.has(firstPath)).toBe(true);
       expect(bucket.has(secondPath)).toBe(true);
     });
 
     /*
-      Handing the same work in the other way. This assignment takes only a file, so the link form
-      would be refused on it — the check that matters here is what happens to the stored object when
-      the columns that named it are cleared, which is the same act either way.
+      The limit on the list, exercised by filling it rather than by asserting the constant. Two
+      files are already attached, so eight more reach the ceiling and the ninth is refused —
+      before the address is minted, which is what keeps a student from spending an upload on a
+      file that cannot be recorded.
     */
-    it("clearing the columns takes the object with it", async () => {
-      await tx().submission.update({
-        where: { id: submission.id },
-        data: { uploadPath: null, uploadFilename: null, uploadSizeBytes: null },
-      });
-      await discardReplacedUpload({ uploadPath: secondPath, gradedAt: null });
+    it("the list refuses an eleventh attachment", async () => {
+      for (let n = 0; n < MAX_SUBMISSION_ARTIFACTS - 2; n += 1) {
+        await handInFile(`filler ${n}.pdf`, body);
+      }
 
-      expect(bucket.has(secondPath)).toBe(false);
+      const code = await refusal(() =>
+        asStudent().submissions.beginUpload({
+          assignmentId: assignment.id,
+          filename: "one too many.pdf",
+          sizeBytes: body.byteLength,
+        }),
+      );
+      expect(code).toBe("BAD_REQUEST");
+    });
+
+    it("and the submission is holding exactly the limit", async () => {
+      expect((await artifactsOf(submission.id)).length).toBe(MAX_SUBMISSION_ARTIFACTS);
+    });
+  });
+
+  /*
+    ---- Taking something back off ---------------------------------------------
+
+    The other half of a list a student manages. What is checked is the rule that decides what
+    happens to the bytes, and the rule that decides what happens to the row.
+  */
+  describe("taking an attachment off", () => {
+    it("a fellow may not remove somebody else's attachment", async () => {
+      const [first] = await artifactsOf(submission.id);
+      const code = await refusal(() =>
+        asOtherStudent().submissions.removeArtifact({ artifactId: first!.id }),
+      );
+      // Refused by `assertCanHandIn` before ownership is ever reached: the other fellow has no
+      // submission on this assignment, so the artifact is not on a row they hand in on.
+      expect(code).toBe("FORBIDDEN");
+    });
+
+    it("removing one takes its bytes with it", async () => {
+      const held = await artifactsOf(submission.id);
+      const last = held[held.length - 1]!;
+
+      await asStudent().submissions.removeArtifact({ artifactId: last.id });
+
+      expect(bucket.has(last.uploadPath!)).toBe(false);
+      expect((await artifactsOf(submission.id)).map((artifact) => artifact.id)).not.toContain(
+        last.id,
+      );
+    });
+
+    it("and the work is still handed in while anything is left", async () => {
+      const row = await tx().submission.findUniqueOrThrow({
+        where: { id: submission.id },
+        select: { status: true, submittedAt: true },
+      });
+      expect([row.status, row.submittedAt !== null]).toEqual(["SUBMITTED", true]);
+    });
+
+    /*
+      Emptying the list on work nobody has graded. Nothing is handed in, so the row has to say so —
+      left as SUBMITTED it would sit in an instructor's queue offering nothing to open.
+    */
+    it("removing the last one puts the row back to not started", async () => {
+      for (const artifact of await artifactsOf(submission.id)) {
+        await asStudent().submissions.removeArtifact({ artifactId: artifact.id });
+      }
+
+      const row = await tx().submission.findUniqueOrThrow({
+        where: { id: submission.id },
+        select: { status: true, submittedAt: true, isLate: true },
+      });
+      expect([row.status, row.submittedAt, row.isLate]).toEqual(["NOT_STARTED", null, null]);
+    });
+
+    it("and attaching again hands it in afresh", async () => {
+      const again = await handInFile("Ben Spector resume.pdf", body);
+      expect([again.status, again.submittedAt !== null]).toEqual(["SUBMITTED", true]);
     });
   });
 
   /*
     ---- And what a released grade protects ------------------------------------
 
-    The other half of the rule, and the one worth having a check for: feedback is written about a
-    file, so once a grade exists the file it describes has to survive the next hand-in. Otherwise a
-    fellow disputing a score and the instructor defending it are arguing about a document neither can
-    open.
+    Feedback is written about a file, so once a grade exists the file it describes has to survive
+    being taken off. Otherwise a fellow disputing a score and the instructor defending it are
+    arguing about a document neither can open.
 
     `gradedAt` is written directly here rather than by driving an approval, because what is under
     test is the removal rule and not the grading pipeline — and the rule reads exactly this one
@@ -745,41 +855,103 @@ describe("handing in a file", () => {
   describe("what a released grade protects", () => {
     /** The file the grade is written about. */
     let gradedPath: string;
-    /** The file handed in after it. */
-    let revisedPath: string;
-    let revisedGradedAt: Date | null;
+    let gradedArtifactId: string;
 
     beforeAll(async () => {
-      const restored = await handInFile("Ben Spector resume.pdf", body);
-      gradedPath = (await storedPathOf(restored.id))!;
+      gradedPath = (await onlyPathOf(submission.id))!;
+      gradedArtifactId = (await artifactsOf(submission.id))[0]!.id;
 
       await tx().submission.update({
-        where: { id: restored.id },
+        where: { id: submission.id },
         data: { gradedAt: new Date("2026-02-01T12:00:00Z"), status: "GRADED" },
       });
 
-      const revised = await handInFile("Ben Spector resume, revised.pdf", body);
-      const row = await tx().submission.findUniqueOrThrow({
-        where: { id: revised.id },
-        select: { uploadPath: true, gradedAt: true },
-      });
-      revisedPath = row.uploadPath!;
-      revisedGradedAt = row.gradedAt;
+      await asStudent().submissions.removeArtifact({ artifactId: gradedArtifactId });
     });
 
-    it("a resubmission keeps the file the grade was written about", () => {
+    it("taking the file off graded work keeps the bytes the grade describes", () => {
       expect(bucket.has(gradedPath)).toBe(true);
     });
 
-    it("and the revised file is the one the submission now points at", () => {
-      expect(revisedPath).not.toBe(gradedPath);
-      expect(bucket.has(revisedPath)).toBe(true);
+    it("though the attachment itself is off the submission", async () => {
+      expect(await artifactsOf(submission.id)).toEqual([]);
     });
 
-    it("a graded submission is what the rule reads, not its status", () => {
-      expect(revisedGradedAt).not.toBeNull();
+    // The other half of the same rule: emptying a graded submission does not unhappen the grade.
+    it("and the grade still stands on a submission with nothing on it", async () => {
+      const row = await tx().submission.findUniqueOrThrow({
+        where: { id: submission.id },
+        select: { status: true, submittedAt: true },
+      });
+      expect([row.status, row.submittedAt !== null]).toEqual(["GRADED", true]);
     });
   });
+
+  /*
+    ---- A link and a file on one submission -----------------------------------
+
+    The case this whole change exists for: a student hands in a document *and* a photograph of
+    their whiteboard, and their instructor opens both.
+  */
+  describe("a link and a file together", () => {
+    let bothAssignmentId: string;
+    let bothSubmissionId: string;
+
+    beforeAll(async () => {
+      const created = await asInstructor().assignments.create({
+        courseId: world.courseId,
+        draft: {
+          kind: "SELF_DIRECTED",
+          handInMethods: ["LINK", "FILE"],
+          title: bothTitle,
+          courseUnitId: world.unitId,
+          dueAt: null,
+          acceptedFileTypes: ["pdf"],
+          submissionInstructions: "A write-up and a photograph of the board.",
+          sections: [{ grading: "manual", label: "Total", pointValue: 10 }],
+        },
+      });
+      bothAssignmentId = created.assignment.id;
+      await asInstructor().assignments.publish({ assignmentId: bothAssignmentId });
+
+      const linked = await asStudent().submissions.addLink({
+        assignmentId: bothAssignmentId,
+        url: "https://docs.google.com/document/d/write-up/edit",
+      });
+      bothSubmissionId = linked.id;
+
+      const destination = await asStudent().submissions.beginUpload({
+        assignmentId: bothAssignmentId,
+        filename: "whiteboard.pdf",
+        sizeBytes: body.byteLength,
+      });
+      sendToBucket(destination.path, destination.contentType, body);
+      await asStudent().submissions.recordUpload({
+        assignmentId: bothAssignmentId,
+        path: destination.path,
+        filename: "whiteboard.pdf",
+      });
+    });
+
+    it("both are on the one submission, in the order they were attached", async () => {
+      const held = await artifactsOf(bothSubmissionId);
+      expect(held.map((artifact) => [artifact.kind, artifact.url ?? artifact.uploadFilename])).toEqual(
+        [
+          ["LINK", "https://docs.google.com/document/d/write-up/edit"],
+          ["FILE", "whiteboard.pdf"],
+        ],
+      );
+    });
+
+    it("and the instructor's review screen is handed both", async () => {
+      const queue = await asInstructor().submissions.listForAssignment({
+        assignmentId: bothAssignmentId,
+      });
+      const row = queue.submissions.find((entry) => entry.id === bothSubmissionId);
+      expect(row?.artifacts.map((artifact) => artifact.kind)).toEqual(["LINK", "FILE"]);
+    });
+  });
+
 });
 
 /*
@@ -790,7 +962,7 @@ describe("handing in a file", () => {
 describe("the rollback really rolled back", () => {
   it("none of the assignments this run created survived", async () => {
     const left = await db.assignment.count({
-      where: { title: { in: [resumeTitle, linkTitle, pythonTitle] } },
+      where: { title: { in: [resumeTitle, linkTitle, pythonTitle, bothTitle] } },
     });
     expect(left).toBe(0);
   });

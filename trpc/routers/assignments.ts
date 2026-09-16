@@ -96,12 +96,25 @@ const assignmentFields = {
 const studentWorkSelect = {
   repoUrl: true,
   prUrl: true,
-  // Where the work is when there is no repository: the student's own copy of a document, or the
-  // name and size of the file they uploaded. A student should be able to see what they handed in,
-  // which is also how they notice they sent the wrong file.
-  submittedUrl: true,
-  uploadFilename: true,
-  uploadSizeBytes: true,
+  /*
+    What the student attached, oldest first. A student should be able to see everything they
+    handed in, which is also how they notice they sent the wrong file.
+
+    `uploadPath` is deliberately absent: a download is a signed URL minted per request by
+    `submissions.uploadUrl`, and sending the path to a browser would suggest another route to the
+    bytes. There is not one — the bucket is private and carries no policies.
+  */
+  artifacts: {
+    orderBy: { createdAt: "asc" as const },
+    select: {
+      id: true,
+      kind: true,
+      url: true,
+      uploadFilename: true,
+      uploadSizeBytes: true,
+      createdAt: true,
+    },
+  },
   headSha: true,
   gradedHeadSha: true,
   /*
@@ -608,9 +621,7 @@ export const assignmentsRouter = createTRPCRouter({
           const work = teamSubmission ?? {
             repoUrl: own.repoUrl,
             prUrl: own.prUrl,
-            submittedUrl: own.submittedUrl,
-            uploadFilename: own.uploadFilename,
-            uploadSizeBytes: own.uploadSizeBytes,
+            artifacts: own.artifacts,
             headSha: own.headSha,
             gradedHeadSha: own.gradedHeadSha,
             gradingDrafts,
@@ -621,9 +632,7 @@ export const assignmentsRouter = createTRPCRouter({
             ...own,
             repoUrl: work.repoUrl,
             prUrl: work.prUrl,
-            submittedUrl: work.submittedUrl,
-            uploadFilename: work.uploadFilename,
-            uploadSizeBytes: work.uploadSizeBytes,
+            artifacts: work.artifacts,
             headSha: work.headSha,
             gradedHeadSha: work.gradedHeadSha,
             /*
