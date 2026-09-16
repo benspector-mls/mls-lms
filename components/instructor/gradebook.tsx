@@ -169,9 +169,9 @@ export function Gradebook({
     means reading four columns or ninety. Counting units also made the Assignments tab and the
     Projects tab measure different-sized things while looking like one scale.
 
-    Every assignment in the category, including the drafts, because the grid draws a column for
-    each. Units with nothing in them contribute nothing here, which is the same reason the grid
-    omits their bands.
+    Every assignment in the category, which is every released one — the gradebook payload holds no
+    drafts — because the grid draws a column for each. Units with nothing in them contribute
+    nothing here, which is the same reason the grid omits their bands.
   */
   const counts: Record<GradebookTab, number | null> = {
     overview: null,

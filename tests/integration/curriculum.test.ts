@@ -265,6 +265,19 @@ describe("projects and assessments alongside modules", () => {
           !workOf(grouped.MODULE).some((row) => row.id === published.assignment.id),
       ).toBe(true);
     });
+
+    /*
+      **A draft has no column**, which is the same rule the student's own list follows two describes
+      above — an instructor writing next week's work does not add a column of empty cells to the
+      grid, and does not move every student's completion fraction by growing its denominator.
+
+      Asserted on the payload rather than on the screen because that is where the rule lives: one
+      `where` decides the grid's columns, the export's columns, and every denominator drawn from
+      them.
+    */
+    it("a draft has no column in the gradebook", () => {
+      expect(placedIds.has(draft.assignment.id)).toBe(false);
+    });
   });
 
   describe("removal, while it holds work and after", () => {

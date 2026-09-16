@@ -7,20 +7,31 @@
  * its own read of the database can disagree with the page it was downloaded from, and there is no
  * way for a reader holding the file to notice.
  *
- * **A score is a number, a missing assignment is the word "Missing", and every other gap is
- * blank.** The grid draws more states than a spreadsheet can keep, so the question is which
- * distinctions survive. The number survives because a column of raw points sums and averages, and
- * `9/10` in a cell does neither. "Missing" survives because it is the one gap with a verdict in it
- * — past the deadline, nothing handed in — and as text it drops out of a SUM or AVERAGE the way a
- * blank does, where a zero would turn work nobody has looked at yet into a score of nothing. That
- * is the one error this file must not make, and it is why the remaining gaps — not due yet, or
- * handed in but not graded — stay blank.
+ * **A score is a number, and every cell without one says which kind of gap it is.** There are three
+ * words, and they are exhaustive:
+ *
+ * - `Missing` — past the deadline with nothing handed in. The one gap with a verdict in it.
+ * - `Submitted` — handed in, not yet graded. The work arrived; the number has not.
+ * - `Not submitted` — nothing handed in, and not yet past the deadline (or never given one).
+ *
+ * **No cell is left blank**, because a blank cell in a spreadsheet is a question its reader cannot
+ * answer: a gap that means "arrived, ungraded" looks exactly like one that means "never started",
+ * and the two call for opposite responses from an instructor. A word costs a column of text where
+ * a blank cost nothing, and it buys a file that can be read without the screen it came from.
+ *
+ * **The one error this file must not make is turning a gap into a zero**, and that rule is
+ * untouched by the words above: text drops out of a SUM or AVERAGE exactly the way a blank does,
+ * where a zero would turn work nobody has looked at yet into a score of nothing.
+ *
+ * Drafts have no column here at all — the gradebook payload holds released work only, so there is
+ * nothing to filter and no column of empty cells for an assignment nobody has been given.
  */
 
 import { slugifyCourse } from "@/lib/courses/course-slug";
 import { csvLine, csvPersonName } from "@/lib/csv";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { isMissing, lateByStudent, missingByStudent } from "@/lib/gradebook/summary";
+import { handedIn } from "@/lib/status";
 import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 
 /**
@@ -195,15 +206,25 @@ export function gradebookCsv(data: GradebookCsvData, at: Date): string {
       late.get(student.id) ?? 0,
       missing.get(student.id) ?? 0,
       /*
-        "Missing" where the screen draws the red ring — `isMissing`, the same predicate the count
-        column left of here is built from, so the word appears exactly as many times in a row as
-        that column claims. Everything else that has no score is blank: not due yet, or handed in
-        but not graded — see the note at the top of this file on why no gap may become a zero.
+        The three words and the number, in the order the questions are asked. "Missing" comes
+        first and is `isMissing` — the same predicate the count column left of here is built from,
+        and the same one the screen draws its red ring from, so the word appears exactly as many
+        times in a row as that column claims.
+
+        Then the score, which is what a graded cell holds. A resubmission keeps the score it was
+        already given, so revising work does not blank out the grade it has: `finalScore` is only
+        null while nothing has been graded yet.
+
+        `handedIn` from `lib/status.ts` separates the last two, and it is the same predicate
+        `isMissing` uses to decide the opposite question — so a cell cannot read "Missing" and
+        "Submitted" by two rules that disagree. An absent cell is "Not submitted" for the reason
+        `isMissing` gives: the row exists only once a student has taken the work up.
       */
       ...assignments.map((assignment) => {
         const cell = cellByKey.get(`${assignment.id}:${student.id}`);
         if (isMissing(assignment, cell?.status, at)) return "Missing";
-        return cell?.finalScore ?? null;
+        if (cell?.finalScore != null) return cell.finalScore;
+        return handedIn(cell?.status) ? "Submitted" : "Not submitted";
       }),
     ]);
   }

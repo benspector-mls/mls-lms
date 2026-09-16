@@ -65,10 +65,12 @@ export function completionByAssignment(
 /**
  * Per student: how many assignments they have completed.
  *
- * The denominator is every assignment in the table, which is every assignment in the course —
- * including ones not yet handed out. A student is measured against the course rather than against
- * what has been released so far, so the figure does not move when an instructor publishes
- * something nobody has seen.
+ * The denominator is every assignment in the table, and the gradebook's table holds released work
+ * only — see the `where` in the `gradebook` procedure. So a student is measured against what has
+ * been handed out, and their figure moves when an instructor publishes something: the denominator
+ * grows by one that day. That is deliberate, and the alternative is worse — counting unreleased
+ * work would measure everybody against assignments nobody can see, and no reader of the screen
+ * could check the figure against the cells beside it.
  */
 export function completionByStudent(
   cells: readonly SummaryCell[],

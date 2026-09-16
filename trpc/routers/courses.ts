@@ -505,7 +505,20 @@ export const coursesRouter = createTRPCRouter({
 
       const [assignments, courseUnits, enrollments] = await Promise.all([
         ctx.db.assignment.findMany({
-          where: { courseId: course.id },
+          /*
+            **Released work only.** A draft has no column in the grid, no column in the export, and
+            no seat in any denominator: a student cannot finish what has not been handed out, so
+            counting one would turn "5/5" into "5/6" for everybody who had finished the unit the
+            moment an instructor started writing next week's assignment. Filtering here rather than
+            in each reader is what makes that one rule instead of four — the grid's columns, the
+            completion fractions, the missing count, and the CSV all draw from this list.
+
+            It is also the rule the unit fractions, the course roll-up, and the student's own course
+            page already used, so all of them now agree. The cost is that every student's completion
+            percentage moves when a draft is published, which is the honest reading: the work became
+            real that day.
+          */
+          where: { courseId: course.id, distributedAt: { not: null } },
           orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
           select: {
             id: true,
@@ -524,8 +537,11 @@ export const coursesRouter = createTRPCRouter({
             // on whether the pipeline can grade this assignment at all, and asking the
             // assignment once is cheaper than carrying the answer on every cell.
             sections: true,
-            // So the grid can mark an unpublished assignment as a draft. A student
-            // cannot see it at all; an instructor needs to know why.
+            /*
+              Never null, by the `where` above — and selected anyway, because `isMissing` reads it
+              and that function is shared with callers whose lists do hold drafts. Where an
+              instructor sees which work is still a draft is the curriculum view, which badges them.
+            */
             distributedAt: true,
           },
         }),
