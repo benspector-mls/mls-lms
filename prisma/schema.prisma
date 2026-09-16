@@ -1367,6 +1367,7 @@ model Submission {
   testRuns           TestRun[]
   comments           SubmissionComment[]
   commentReads       SubmissionCommentRead[]
+  artifacts          SubmissionArtifact[]
 
   @@unique([assignmentId, studentId])
   /// Redundant against the primary key, and bought so a mirror points at `(id, assignmentId)`
@@ -1376,6 +1377,57 @@ model Submission {
   @@index([teamSubmissionId])
   @@index([teamId])
   @@map("submissions")
+  @@schema("public")
+}
+
+/// One thing a student attached to a submission: a link, or a file in the private bucket. A
+/// submission holds any number of these, and the student's page shows them as a list the
+/// student adds to and removes from — nothing replaces anything.
+///
+/// Rows hang off the row that holds the work. On a team assignment that is the one row per team
+/// with `teamSubmissionId` null; mirrors carry no artifacts and no copies of artifact facts, and
+/// every reader reaches them through the `teamSubmission` relation, the way `repoUrl` and grading
+/// drafts are already reached.
+///
+/// **Not yet read or written by application code.** This release creates the table and backfills
+/// it from `submittedUrl` and the four `upload*` columns on `Submission`; those columns remain
+/// the ones the application reads and writes until the code switches over, and they leave the
+/// schema in a later release once nothing names them.
+model SubmissionArtifact {
+  id           String @id @default(uuid()) @db.Uuid
+  submissionId String @map("submission_id") @db.Uuid
+
+  /// LINK or FILE — the same vocabulary the assignment's `handInMethods` is written in, so what
+  /// an artifact is and what the assignment accepts are compared directly, with no second
+  /// spelling to keep in step.
+  kind HandInMethod
+
+  /// Where the work is, for LINK: the student's own copy of a Google Drive file, or whatever
+  /// they made elsewhere. Null for FILE. Validated by `linkHost` at the procedure, as
+  /// `Submission.submittedUrl` is.
+  url String?
+
+  /// The stored object, for FILE. All four are written together or all four are null; there is
+  /// no state where some of them mean anything on their own.
+  ///
+  /// `uploadPath` is the object's key inside the private bucket, composed of the submission's id
+  /// and a generated name — never the filename the student chose, which is not something to
+  /// build a path out of, and never sent to a browser. `uploadFilename` keeps that name anyway,
+  /// because it is what the instructor should see and what their browser should call the
+  /// download.
+  uploadPath        String? @map("upload_path")
+  uploadFilename    String? @map("upload_filename")
+  uploadSizeBytes   Int?    @map("upload_size_bytes")
+  uploadContentType String? @map("upload_content_type")
+
+  /// When the artifact was attached, which is also the display order: "in the order you attached
+  /// them" needs no position column to reorder, because nothing reorders.
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId, createdAt])
+  @@map("submission_artifacts")
   @@schema("public")
 }
 
