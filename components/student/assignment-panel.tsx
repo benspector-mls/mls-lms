@@ -1174,6 +1174,9 @@ function HandInForms({
         <UploadWorkForm
           assignmentId={assignment.id}
           acceptedFileTypes={assignment.acceptedFileTypes}
+          // How many more this submission will take, so choosing eleven files is refused at the
+          // picker rather than after ten of them have climbed a home connection.
+          remaining={MAX_SUBMISSION_ARTIFACTS - held}
         />
       )}
 
@@ -1352,127 +1355,198 @@ function sendFile(params: {
 }
 
 /**
- * Attaching a file.
+ * Attaching files.
  *
- * **Three steps, because the bytes do not come through this application.** `beginUpload` asks
- * whether this file may be handed in and returns an address in the bucket; the browser sends the
- * file straight there; `recordUpload` writes down what arrived and puts the work in the
- * instructor's queue. The reason is a limit rather than a preference: a Vercel function may not
- * receive a request body over 4.5MB, so a 6MB scan sent through one is refused by the platform
- * before any code here runs — which is what a student saw before this, as an error nothing on
- * their screen could explain.
+ * **Three steps per file, because the bytes do not come through this application.** `beginUpload`
+ * asks whether the file may be handed in and returns an address in the bucket; the browser sends
+ * it straight there; `recordUpload` writes down what arrived and puts the work in the instructor's
+ * queue. The reason is a limit rather than a preference: a Vercel function may not receive a
+ * request body over 4.5MB, so a 6MB scan sent through one is refused by the platform before any
+ * code here runs — which is what a student saw before this, as an error nothing on their screen
+ * could explain.
  *
- * The consequence to know is the middle step. A connection that drops after the file is stored
- * and before it is recorded leaves the file off the submission with the bytes already in the
- * bucket. The student sees it missing from the list, which is true, and uploading again works;
+ * **Several files at once, sent one after another rather than together.** Choosing three
+ * photographs of a whiteboard and pressing Upload once is the ordinary case, and three presses
+ * for it would be a worse form. They go in sequence because each one's `recordUpload` is what
+ * makes room for the next to be counted against the limit — sending them at the same time would
+ * let a browser start more uploads than the submission can hold and have the last of them refused
+ * after the bytes had been sent. Sequence also means one progress bar that is telling the truth.
+ *
+ * **What succeeded stays.** A failure partway leaves the files already attached on the submission
+ * and names the one that stopped, because the alternative — unpicking work that is safely stored —
+ * would lose a student their upload to fix a message.
+ *
+ * The consequence to know is the middle step of each file. A connection that drops after the bytes
+ * are stored and before they are recorded leaves that file off the list with the bytes already in
+ * the bucket. The student sees it missing, which is true, and uploading again works;
  * `reconcile:uploads` removes what was left behind.
  *
  * The size and type are checked here as well as on the server. Not as the guarantee, which is the
- * server's and the bucket's: as the difference between being told immediately and being told
- * after spending a minute uploading 40MB on a phone tether.
+ * server's and the bucket's: as the difference between being told immediately and being told after
+ * spending a minute uploading 40MB on a phone tether.
  */
 function UploadWorkForm({
   assignmentId,
   acceptedFileTypes,
+  remaining,
 }: {
   assignmentId: string;
   acceptedFileTypes: string[];
+  /** How many more attachments this submission will take. Always one or more: at the limit the
+   * caller shows a sentence instead of this form. */
+  remaining: number;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const inputId = `upload-${assignmentId}`;
-  const [file, setFile] = React.useState<File | null>(null);
+  const [files, setFiles] = React.useState<File[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-  /** How much of the file has been sent, or null when nothing is in flight. */
+  /** How much of the file in flight has been sent, or null when nothing is. */
   const [percent, setPercent] = React.useState<number | null>(null);
+  /** Which of the chosen files is in flight, one-based, for the label beside the bar. */
+  const [sending, setSending] = React.useState(0);
 
   /*
-    Only the second mutation refreshes the screen. `beginUpload` records nothing a student can
-    see — it hands back an address — and refreshing on it would re-render the page in the middle
-    of an upload, for no change.
+    The input is uncontrolled — a file input's value cannot be set by script — so clearing the
+    chosen files after an upload has to clear the element too, or its label goes on naming files
+    that are already attached.
+  */
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const choose = (chosen: File[]) => {
+    setFiles(chosen);
+    if (chosen.length === 0) return setError(null);
+
+    if (chosen.length > remaining) {
+      return setError(
+        remaining === 1
+          ? `This submission has room for one more attachment, and you chose ${chosen.length}.`
+          : `This submission has room for ${remaining} more attachments, and you chose ` +
+            `${chosen.length}.`,
+      );
+    }
+
+    /*
+      Every file checked, and the first refusal reported. Named, because "one of these is the wrong
+      kind" about a selection of six is not something a student can act on.
+    */
+    for (const file of chosen) {
+      const check = checkUpload({
+        filename: file.name,
+        sizeBytes: file.size,
+        acceptedTypes: acceptedFileTypes,
+      });
+
+      if (!check.ok) {
+        return setError(chosen.length === 1 ? check.reason : `${file.name}: ${check.reason}`);
+      }
+    }
+
+    setError(null);
+  };
+
+  /*
+    Only the recording mutation refreshes the screen. `beginUpload` records nothing a student can
+    see — it hands back an address — and refreshing on it would re-render the page in the middle of
+    an upload, for no change.
   */
   const begin = useMutation(trpc.submissions.beginUpload.mutationOptions());
   const record = useMutation(
     trpc.submissions.recordUpload.mutationOptions(settled({ onError: shownInPlace })),
   );
 
-  const choose = (chosen: File | null) => {
-    setFile(chosen);
-    if (!chosen) return setError(null);
-
-    const check = checkUpload({
-      filename: chosen.name,
-      sizeBytes: chosen.size,
-      acceptedTypes: acceptedFileTypes,
-    });
-    setError(check.ok ? null : check.reason);
-  };
-
   async function upload(event: React.FormEvent) {
     event.preventDefault();
-    if (!file || error) return;
+    if (files.length === 0 || error) return;
 
     setBusy(true);
     setError(null);
-    setPercent(0);
 
-    try {
-      const destination = await begin.mutateAsync({
-        assignmentId,
-        filename: file.name,
-        sizeBytes: file.size,
-      });
+    for (const [index, file] of files.entries()) {
+      setSending(index + 1);
+      setPercent(0);
 
-      await sendFile({
-        url: destination.uploadUrl,
-        contentType: destination.contentType,
-        file,
-        onProgress: setPercent,
-      });
+      try {
+        const destination = await begin.mutateAsync({
+          assignmentId,
+          filename: file.name,
+          sizeBytes: file.size,
+        });
 
-      await record.mutateAsync({ assignmentId, path: destination.path, filename: file.name });
-      setFile(null);
-    } catch (err) {
-      // Every refusal on this path is written for a student — by the two procedures, by the
-      // bucket through `sendFile`, or by `checkUpload` before any of them — so the message is
-      // shown rather than replaced with one about a status code.
-      setError(err instanceof Error ? err.message : "That upload did not go through. Try again.");
-    } finally {
-      setBusy(false);
-      setPercent(null);
+        await sendFile({
+          url: destination.uploadUrl,
+          contentType: destination.contentType,
+          file,
+          onProgress: setPercent,
+        });
+
+        await record.mutateAsync({ assignmentId, path: destination.path, filename: file.name });
+      } catch (err) {
+        /*
+          Every refusal on this path is written for a student — by the two procedures, by the
+          bucket through `sendFile`, or by `checkUpload` before any of them — so the message is
+          shown rather than replaced with one about a status code. The filename is added where
+          several were chosen, because otherwise the sentence does not say which one stopped.
+        */
+        const said =
+          err instanceof Error ? err.message : "That upload did not go through. Try again.";
+        setError(files.length === 1 ? said : `${file.name}: ${said}`);
+        setBusy(false);
+        setPercent(null);
+        setSending(0);
+        /*
+          The files already attached stay attached, and the ones not yet sent are left in the box
+          so pressing Upload again retries them along with the one that failed. Re-attaching a file
+          that is already on the list is what the student sees and can undo; losing the rest of a
+          selection is not.
+        */
+        return;
+      }
     }
+
+    setFiles([]);
+    setBusy(false);
+    setPercent(null);
+    setSending(0);
+    if (inputRef.current) inputRef.current.value = "";
   }
+
+  const total = files.reduce((bytes, file) => bytes + file.size, 0);
 
   return (
     <form className={cn(panelSurface, "flex flex-col gap-2 p-4")} onSubmit={upload}>
       <label className="text-sm font-medium" htmlFor={inputId}>
-        Add a file
+        Add files
       </label>
       <p className="text-sm text-muted-foreground">
-        {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)}. Your
-        instructor is the only person who can open it.
+        {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)} each. You
+        can choose more than one. Your instructor is the only person who can open them.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input
           id={inputId}
+          ref={inputRef}
           type="file"
+          multiple
           required
           disabled={busy}
           accept={acceptAttributeFor(acceptedFileTypes)}
-          onChange={(event) => choose(event.target.files?.[0] ?? null)}
+          onChange={(event) => choose(Array.from(event.target.files ?? []))}
           className="min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs outline-none file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-sm focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
         />
-        <Button size="sm" type="submit" disabled={busy || file === null || error !== null}>
-          {busy ? "Uploading…" : "Upload"}
+        <Button size="sm" type="submit" disabled={busy || files.length === 0 || error !== null}>
+          {busy ? "Uploading…" : files.length > 1 ? `Upload ${files.length} files` : "Upload"}
         </Button>
       </div>
       {/*
-        A bar while the file is in flight, and a percentage beside it.
+        A bar while a file is in flight, and what is happening beside it.
 
         `percent === 100` is not "done" — it is every byte handed to the network, with
         `recordUpload` still to come — so the label says what is actually happening rather than
-        sitting on "100%" for a beat and looking stuck.
+        sitting on "100%" for a beat and looking stuck. Where several were chosen it also says
+        which one, because a bar that returns to zero four times with no explanation reads as a
+        failure and a retry.
       */}
       {percent !== null && (
         <div className="flex flex-col gap-1" aria-live="polite">
@@ -1483,13 +1557,16 @@ function UploadWorkForm({
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            {percent < 100 ? `Uploading — ${percent}%` : "Finishing up…"}
+            {files.length > 1 ? `File ${sending} of ${files.length} — ` : ""}
+            {percent < 100 ? `uploading ${percent}%` : "finishing up…"}
           </p>
         </div>
       )}
-      {file && !error && percent === null && (
+      {files.length > 0 && !error && percent === null && (
         <p className="text-xs text-muted-foreground">
-          {file.name} — {formatBytes(file.size)}
+          {files.length === 1
+            ? `${files[0]!.name} — ${formatBytes(files[0]!.size)}`
+            : `${files.length} files — ${formatBytes(total)} in total`}
         </p>
       )}
       {error && (
@@ -1500,6 +1577,7 @@ function UploadWorkForm({
     </form>
   );
 }
+
 /**
  * Asks for another review.
  *
