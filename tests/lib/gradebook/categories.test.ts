@@ -4,6 +4,7 @@ import {
   courseVerdictByStudent,
   groupByUnit,
   published,
+  countedUnits,
   unitCompletionByStudent,
   unitHasVerdict,
   verdictsByStudent,
@@ -273,6 +274,60 @@ describe("unitCompletionByStudent", () => {
 
     const completion = unitCompletionByStudent([cell("a1", "s1", true)], grouped.PROJECT);
     expect(completion.get("s1")).toEqual({ complete: 1, possible: 2 });
+  });
+});
+
+/**
+ * The denominator the overview prints, on its own.
+ *
+ * It is asked for separately there — a student who has finished nothing is absent from
+ * `unitCompletionByStudent`'s map and so has no `Completion` to read a total off — which is exactly
+ * why it is one function rather than a count written beside the map. The overview printed "2 of 3
+ * projects" for a course with two projects and a third holding nothing but drafts, because the two
+ * halves of that fraction were asking different questions.
+ */
+describe("countedUnits", () => {
+  it("counts a unit that holds released work", () => {
+    const grouped = groupByUnit([assignment("a1", "p1")], [unit("p1", "PROJECT", 0)]);
+    expect(countedUnits(grouped.PROJECT)).toBe(1);
+  });
+
+  /*
+    The case this exists for: a project or an assessment whose deliverables are all still being
+    written. Nobody can finish it, so counting it drops every fellow's figure on the day an
+    instructor authored work — a day nothing changed about any fellow.
+  */
+  it("does not count a unit whose work is all drafts", () => {
+    const grouped = groupByUnit(
+      [assignment("a1", "p1"), assignment("a2", "p2", { distributedAt: null })],
+      [unit("p1", "PROJECT", 0), unit("p2", "PROJECT", 1)],
+    );
+
+    expect(countedUnits(grouped.PROJECT)).toBe(1);
+  });
+
+  it("does not count a unit holding nothing at all", () => {
+    const grouped = groupByUnit(
+      [assignment("a1", "p1")],
+      [unit("p1", "PROJECT", 0), unit("p2", "PROJECT", 1)],
+    );
+
+    expect(countedUnits(grouped.PROJECT)).toBe(1);
+  });
+
+  /*
+    The property the bug was: the total the screen prints and the total inside a student's own
+    `Completion` have to be the same number, or a fellow who finished everything reads "2 of 3"
+    beside a fellow who finished nothing reading "0 of 2".
+  */
+  it("agrees with the denominator inside unitCompletionByStudent", () => {
+    const grouped = groupByUnit(
+      [assignment("a1", "p1"), assignment("a2", "p2", { distributedAt: null })],
+      [unit("p1", "PROJECT", 0), unit("p2", "PROJECT", 1), unit("p3", "PROJECT", 2)],
+    );
+
+    const completion = unitCompletionByStudent([cell("a1", "s1", true)], grouped.PROJECT);
+    expect(completion.get("s1")?.possible).toBe(countedUnits(grouped.PROJECT));
   });
 });
 

@@ -219,6 +219,26 @@ export function unitHasVerdict<A extends CategorizedAssignment>(entry: UnitWithW
 }
 
 /**
+ * How many of these units can be finished at all: the denominator of "2 of 3 projects".
+ *
+ * **One definition because it is both halves of one fraction.** `unitCompletionByStudent` below
+ * counts a student's completions against this, and the overview draws the figure from the two
+ * together — a student absent from that map has no `Completion` to read a denominator off, so the
+ * screen has to ask for the total separately. Asking a different question there is exactly how the
+ * overview came to print "2 of 3 projects" for a course with two projects and a third holding
+ * nothing but drafts.
+ *
+ * A unit with nothing released is not a unit a fellow is behind on. Counting one would drop every
+ * student's figure on the day an instructor *authored* next term's work, which is a day nothing
+ * changed about any fellow.
+ */
+export function countedUnits<A extends CategorizedAssignment>(
+  units: readonly UnitWithWork<A>[],
+): number {
+  return units.filter(unitHasVerdict).length;
+}
+
+/**
  * Every student's verdict on the whole course.
  *
  * Complete when every unit that has a verdict is complete, and there is at least one such unit.
@@ -261,15 +281,17 @@ export function courseVerdictByStudent<A extends CategorizedAssignment>(
 /**
  * Per student: how many of these units they have completed.
  *
- * The denominator is every unit that has a verdict, which is what makes the figure honest when a
- * course holds an empty unit: "2 of 3 projects" should not become "2 of 4" because somebody
- * created a fourth and has not filled it.
+ * The denominator is `countedUnits` above — every unit that can be finished at all — which is what
+ * makes the figure honest when a course holds an empty unit or one whose work is still being
+ * written: "2 of 3 projects" should not become "2 of 4" because somebody created a fourth and has
+ * not filled it.
  */
 export function unitCompletionByStudent<A extends CategorizedAssignment>(
   cells: readonly WorkCell[],
   units: readonly UnitWithWork<A>[],
 ): Map<string, Completion> {
   const counted = units.filter(unitHasVerdict);
+  const possible = countedUnits(units);
   const counts = new Map<string, number>();
 
   for (const entry of counted) {
@@ -279,9 +301,7 @@ export function unitCompletionByStudent<A extends CategorizedAssignment>(
     }
   }
 
-  return new Map(
-    [...counts].map(([studentId, complete]) => [studentId, { complete, possible: counted.length }]),
-  );
+  return new Map([...counts].map(([studentId, complete]) => [studentId, { complete, possible }]));
 }
 
 /**
