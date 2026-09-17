@@ -107,6 +107,18 @@ export const MIRRORED_COLUMNS = {
   status: true,
   submittedAt: true,
   isLate: true,
+  /*
+    A deadline agreed with the team, and who agreed to it. **Mirrored because a team has one
+    deadline**, exactly as it has one `isLate`: the work is handed in once, so a date agreed about
+    it belongs to everybody it was agreed for, and a member reading their own row has to find the
+    same answer their teammates find.
+
+    All three travel together or none does. The table's CHECK holds them null together or set
+    together, so mirroring the date alone would make every mirror refuse to be written.
+  */
+  extendedDueAt: true,
+  extensionGrantedById: true,
+  extensionGrantedAt: true,
   lastActivityAt: true,
   handedInById: true,
   finalScore: true,

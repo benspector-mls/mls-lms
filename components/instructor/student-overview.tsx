@@ -407,26 +407,28 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             pane — and it has to be reachable while a fellow has handed in nothing, which is when
             a renegotiated deadline is most often agreed.
 
-            Drawn only for work with its own deadline, never for team work, and never for a draft.
-            `ExtensionControl` returns nothing without a due date; the two checks here keep it away
-            from an assignment whose one hand-in carries one verdict for every member, and from one
-            nobody has been given — a fellow cannot be late for work that was never handed out, so
+            Drawn for team work too, where the agreement is the team's and reaches every member.
+            `ExtensionControl` says so before anything is pressed, because an instructor reading one
+            fellow's record is a keystroke away from believing they are changing one fellow's date.
+
+            Still never for a draft, and never without a deadline: `ExtensionControl` returns nothing
+            without a due date, and a fellow cannot be late for work that was never handed out, so
             there is no deadline of theirs to renegotiate.
           */}
-          {selected &&
-            selected.assignment.teamSetId === null &&
-            selected.assignment.distributedAt && (
-              <ExtensionControl
-                key={selected.assignment.id}
-                assignmentId={selected.assignment.id}
-                studentId={data.student.id}
-                studentName={name}
-                dueAt={selected.assignment.dueAt}
-                extendedDueAt={selected.submission?.extendedDueAt ?? null}
-                grantedBy={selected.submission?.extensionGrantedBy ?? null}
-                grantedAt={selected.submission?.extensionGrantedAt ?? null}
-              />
-            )}
+          {selected && selected.assignment.distributedAt && (
+            <ExtensionControl
+              key={selected.assignment.id}
+              assignmentId={selected.assignment.id}
+              studentId={data.student.id}
+              studentName={name}
+              teamName={selected.submission?.team?.name ?? null}
+              isTeamWork={selected.assignment.teamSetId !== null}
+              dueAt={selected.assignment.dueAt}
+              extendedDueAt={selected.submission?.extendedDueAt ?? null}
+              grantedBy={selected.submission?.extensionGrantedBy ?? null}
+              grantedAt={selected.submission?.extensionGrantedAt ?? null}
+            />
+          )}
 
           <div className="min-h-0 flex-1">
             {/*

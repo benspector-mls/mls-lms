@@ -1219,12 +1219,16 @@ export const submissionsRouter = createTRPCRouter({
    * which is also what puts the new date in front of the fellow on their own dashboard — the point
    * of agreeing one in advance being that the days in between are not a period of being in trouble.
    *
-   * **Refused on team work.** A team hands in once and every member's row carries the one verdict,
-   * so a deadline agreed with one member would show their teammates' shared hand-in as extended for
-   * them and late for everybody else. The same reasoning refuses a per-cohort due date on team
-   * work: one piece of work, one deadline. Refusing also keeps this procedure away from the
-   * mirror machinery — a row created here for a fellow with none would be neither reconciled nor
-   * mirrored by `syncTeamRows`, which would strand them on their own team's assignment.
+   * **On team work the agreement is the team's**, and every member gets it. One piece of work is
+   * handed in once, at one moment, so a deadline agreed about it cannot belong to one member —
+   * that would read the same shared hand-in as extended for them and late for the rest. So the
+   * write lands on the row holding the team's work and fans out through `syncTeamRows`, which is
+   * how `isLate` already reaches every member, and a member added to the team afterwards inherits
+   * it from the same fan-out.
+   *
+   * The caller still names a fellow rather than a team, because the screen this is reached from is
+   * one fellow's record. Which team that means is read from their own membership, the way every
+   * other caller reads it.
    *
    * Null revokes, clearing all three columns together — the state the CHECK constraint on the table
    * admits, and the one an instructor reaches by taking back an agreement that was never used.
@@ -1247,15 +1251,6 @@ export const submissionsRouter = createTRPCRouter({
         teamSetId: true,
         course: { select: { programId: true } },
       });
-
-      if (assignment.teamSetId !== null) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "This work is handed in by teams, which share one deadline. Move the assignment's " +
-            "due date instead, or ask the team to hand in what they have.",
-        });
-      }
 
       /*
         Nothing to extend. An assignment with no deadline can never be late, so an agreement about
@@ -1336,27 +1331,74 @@ export const submissionsRouter = createTRPCRouter({
               extensionGrantedAt: new Date(),
             };
 
-      const work = await ctx.db.submission.upsert({
-        where: {
-          assignmentId_studentId: {
+      /*
+        Which team the fellow hands in with, read from their own membership the way every other
+        caller reads it. A fellow on no team of the set is refused rather than given a row of their
+        own: the work is one piece per team, and a team of one nobody meant to create is worse than
+        being told to fix the roster. The same refusal `setTaskCompletion` gives.
+      */
+      const team = assignment.teamSetId
+        ? await teamForStudent(ctx.db, {
+            teamSetId: assignment.teamSetId,
+            studentId: input.studentId,
+          })
+        : null;
+
+      if (assignment.teamSetId && !team) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This work is handed in by teams, and that fellow is not on one. Put them on a team " +
+            "first.",
+        });
+      }
+
+      /*
+        The row the agreement lands on: the team's, where there is a team, and the fellow's own
+        otherwise. `claimTeamWork` finds or creates the row holding the team's work, so a team that
+        has begun nothing can still be given a deadline — the same reason the individual branch
+        below upserts rather than requiring a row to exist.
+
+        `NOT_STARTED` for a row brought into being here, which is what every other path that creates
+        one writes. It holds the agreement and nothing else; accepting or handing in afterwards
+        moves it on exactly as it would have.
+      */
+      const work = team
+        ? await claimTeamWork(ctx.db, {
             assignmentId: assignment.id,
             studentId: input.studentId,
-          },
-        },
-        /*
-          `NOT_STARTED` for a fellow who has taken nothing up, which is what every other path that
-          brings a row into being writes. The row holds the agreement and nothing else; pressing
-          Accept afterwards moves it on exactly as it would have.
-        */
-        create: {
-          assignmentId: assignment.id,
-          studentId: input.studentId,
-          status: "NOT_STARTED",
-          ...granted,
-        },
-        update: granted,
-        select: { id: true, extendedDueAt: true },
-      });
+            team,
+            statusIfNew: "NOT_STARTED",
+          }).then(({ submissionId }) =>
+            ctx.db.submission.update({
+              where: { id: submissionId },
+              data: granted,
+              select: { id: true, extendedDueAt: true },
+            }),
+          )
+        : await ctx.db.submission.upsert({
+            where: {
+              assignmentId_studentId: {
+                assignmentId: assignment.id,
+                studentId: input.studentId,
+              },
+            },
+            create: {
+              assignmentId: assignment.id,
+              studentId: input.studentId,
+              status: "NOT_STARTED",
+              ...granted,
+            },
+            update: granted,
+            select: { id: true, extendedDueAt: true },
+          });
+
+      /*
+        Every member's row, brought into agreement with the one holding the work — which is what
+        makes this the team's deadline rather than one member's. A no-op for individual work, so it
+        is called without asking whether there is a team.
+      */
+      await syncTeamRows(ctx.db, { submissionId: work.id });
 
       return work;
     }),

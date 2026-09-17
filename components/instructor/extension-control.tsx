@@ -53,9 +53,13 @@ export function ExtensionControl({
   assignmentId,
   studentId,
   studentName,
+  /** Whether this work is handed in by teams, which decides who an agreement reaches. */
+  isTeamWork,
+  /** The team's name, for saying whose deadline is being moved. Null before they are on one. */
+  teamName,
   /** The assignment's own deadline. Null means there is nothing to extend, and nothing is drawn. */
   dueAt,
-  /** The deadline agreed with this fellow, or null where none was. */
+  /** The deadline agreed for this work, or null where none was. */
   extendedDueAt,
   /** Who agreed to it and when, for the line that says so. Null alongside a null extension. */
   grantedBy,
@@ -64,6 +68,8 @@ export function ExtensionControl({
   assignmentId: string;
   studentId: string;
   studentName: string;
+  isTeamWork: boolean;
+  teamName: string | null;
   dueAt: Date | null;
   extendedDueAt: Date | null;
   grantedBy: Person | null;
@@ -74,6 +80,13 @@ export function ExtensionControl({
 
   const [open, setOpen] = React.useState(false);
 
+  /*
+    Who the agreement is with. On team work it is the team, because the work is handed in once and
+    the new date reaches every member — an instructor reading one fellow's record is otherwise a
+    keystroke away from believing they are moving one fellow's deadline.
+  */
+  const subject = isTeamWork ? (teamName ? `Team ${teamName}` : "the whole team") : studentName;
+
   const grant = useMutation(
     trpc.submissions.grantExtension.mutationOptions(
       settled({
@@ -81,8 +94,8 @@ export function ExtensionControl({
           setOpen(false);
           toast.success(
             result.extendedDueAt
-              ? `${studentName} now has until ${formatDueDate(result.extendedDueAt)}.`
-              : `Extension removed for ${studentName}.`,
+              ? `${subject} now has until ${formatDueDate(result.extendedDueAt)}.`
+              : `Extension removed for ${subject}.`,
           );
         },
       }),
@@ -104,7 +117,13 @@ export function ExtensionControl({
 
       {extendedDueAt ? (
         <span className="text-sky-700 dark:text-sky-300">
+          {/*
+            Whose agreement it is, said on the strip and not only in the dialog. An instructor
+            arriving at a fellow's record and finding an extension already in place has not seen the
+            dialog, and on team work the date they are reading was agreed with the team.
+          */}
           Extended to {formatDueDate(extendedDueAt)}
+          {isTeamWork ? ` for ${subject}` : ""}
           {grantedBy ? ` by ${displayNameOf(grantedBy, "somebody")}` : ""}
           {grantedAt ? ` on ${formatDueDate(grantedAt)}` : ""}
         </span>
@@ -136,7 +155,8 @@ export function ExtensionControl({
       <ExtensionDialog
         open={open}
         onOpenChange={setOpen}
-        studentName={studentName}
+        subject={subject}
+        isTeamWork={isTeamWork}
         dueAt={dueAt}
         extendedDueAt={extendedDueAt}
         pending={grant.isPending}
@@ -157,7 +177,8 @@ export function ExtensionControl({
 function ExtensionDialog({
   open,
   onOpenChange,
-  studentName,
+  subject,
+  isTeamWork,
   dueAt,
   extendedDueAt,
   pending,
@@ -166,7 +187,9 @@ function ExtensionDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  studentName: string;
+  /** Whose deadline is being moved: the fellow, or their team. */
+  subject: string;
+  isTeamWork: boolean;
   dueAt: Date;
   extendedDueAt: Date | null;
   pending: boolean;
@@ -189,8 +212,14 @@ function ExtensionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Extension for {studentName}</DialogTitle>
+          <DialogTitle>Extension for {subject}</DialogTitle>
           <DialogDescription>
+            {isTeamWork && (
+              <>
+                This work is handed in once by the team, so the new deadline applies to every member
+                of it.{" "}
+              </>
+            )}
             The assignment stays due {formatDueDate(dueAt)} for everybody else. This work will still
             be recorded as having missed that deadline — handing in by the new one is what reads as
             extended rather than late.

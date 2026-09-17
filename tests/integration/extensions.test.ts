@@ -1,5 +1,9 @@
 /**
- * Extensions: a deadline agreed with one fellow, and what the rest of the application then says.
+ * Extensions: a renegotiated deadline, and what the rest of the application then says.
+ *
+ * Agreed with one fellow on work they hand in alone, and with a whole team on work they hand in
+ * together — one piece of work has one deadline, so on team work the agreement reaches every
+ * member through the same fan-out that carries `isLate`.
  *
  * Run with `npm run test:integration`, or `npm run test:integration:supabase` against the
  * development Supabase project.
@@ -21,6 +25,8 @@
  */
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
+
+import { syncTeamRows } from "@/lib/submissions/team";
 
 import { makeAssignment, makeSubmission, makeWorld, type World } from "./fixtures";
 import { withRollback, type Tx } from "./transaction";
@@ -320,6 +326,184 @@ describe("what the fellow sees", () => {
     const row = rows.find((entry) => entry.id === assignmentId);
 
     expect(row?.dueAt?.toISOString()).toBe(DUE.toISOString());
+  });
+});
+
+/**
+ * A deadline agreed about work a team hands in once.
+ *
+ * **The agreement is the team's**, because the work is: one hand-in, at one moment, so a date
+ * agreed about it cannot belong to one member without reading the same submission as extended for
+ * them and late for everybody else. What these check is the fan-out — that the write lands on the
+ * row holding the work and reaches every member's own row, which is the only thing that makes the
+ * verdict one verdict.
+ */
+describe("a deadline agreed about team work", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let assignmentId: string;
+  let teamId: string;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 3 });
+
+    const set = await tx().teamSet.create({
+      data: {
+        courseId: world.courseId,
+        programId: world.programId,
+        name: "Integration Extension Teams",
+        teams: { create: [{ name: "Team 1", position: 0 }] },
+      },
+      select: { id: true, teams: { select: { id: true } } },
+    });
+    teamId = set.teams[0]!.id;
+
+    // Two of the three fellows on the team, so the third is the control: an extension agreed with
+    // the team must not reach somebody who is not on it.
+    await tx().teamMembership.createMany({
+      data: [world.students[0]!, world.students[1]!].map((member) => ({
+        teamId,
+        teamSetId: set.id,
+        programId: world.programId,
+        enrollmentId: member.id,
+      })),
+    });
+
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Integration Extension Team Work",
+      dueAt: DUE,
+      teamSetId: set.id,
+    });
+    assignmentId = assignment.id;
+
+    await createCaller(tx(), world.instructorId).submissions.grantExtension({
+      assignmentId,
+      studentId: world.students[0]!.studentId,
+      extendedDueAt: EXTENDED,
+    });
+  });
+
+  /** Every row for this assignment, by student, with what the agreement wrote on it. */
+  async function rows() {
+    return tx().submission.findMany({
+      where: { assignmentId },
+      select: {
+        studentId: true,
+        teamSubmissionId: true,
+        extendedDueAt: true,
+        extensionGrantedById: true,
+        extensionGrantedAt: true,
+      },
+    });
+  }
+
+  it("reaches every member of the team, not only the one named", async () => {
+    const held = await rows();
+    const members = [world.students[0]!.studentId, world.students[1]!.studentId];
+
+    for (const studentId of members) {
+      const row = held.find((entry) => entry.studentId === studentId);
+      expect(row?.extendedDueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    }
+  });
+
+  // All three columns travel together, or a mirror would refuse to be written: the table's CHECK
+  // holds them null together or set together.
+  it("carries who agreed to it onto every member's row", async () => {
+    const held = await rows();
+
+    for (const row of held) {
+      expect(row.extensionGrantedById).toBe(world.instructorId);
+      expect(row.extensionGrantedAt).not.toBeNull();
+    }
+  });
+
+  it("says nothing about a fellow who is not on the team", async () => {
+    const held = await rows();
+    const outsider = held.find((entry) => entry.studentId === world.students[2]!.studentId);
+
+    expect(outsider).toBeUndefined();
+  });
+
+  /*
+    A member added after the agreement was made. `syncTeamRows` builds their mirror from the row
+    holding the work, so the extension arrives with everything else the team's row says — which is
+    what stops a fellow joining a project mid-way from being the only one counted late.
+  */
+  it("reaches a member who joins the team afterwards", async () => {
+    await tx().teamMembership.create({
+      data: {
+        teamId,
+        teamSetId: (
+          await tx().team.findUniqueOrThrow({
+            where: { id: teamId },
+            select: { teamSetId: true },
+          })
+        ).teamSetId,
+        programId: world.programId,
+        enrollmentId: world.students[2]!.id,
+      },
+    });
+
+    const work = await tx().submission.findFirstOrThrow({
+      where: { assignmentId, teamSubmissionId: null },
+      select: { id: true },
+    });
+    await syncTeamRows(tx(), { submissionId: work.id });
+
+    const held = await rows();
+    const joined = held.find((entry) => entry.studentId === world.students[2]!.studentId);
+
+    expect(joined?.extendedDueAt?.toISOString()).toBe(EXTENDED.toISOString());
+  });
+
+  it("taking it back clears every member's row too", async () => {
+    await createCaller(tx(), world.instructorId).submissions.grantExtension({
+      assignmentId,
+      studentId: world.students[1]!.studentId,
+      extendedDueAt: null,
+    });
+
+    const held = await rows();
+
+    for (const row of held) {
+      expect(row.extendedDueAt).toBeNull();
+      expect(row.extensionGrantedById).toBeNull();
+      expect(row.extensionGrantedAt).toBeNull();
+    }
+  });
+
+  it("refuses a fellow who is on no team of the set", async () => {
+    const set = await tx().teamSet.create({
+      data: {
+        courseId: world.courseId,
+        programId: world.programId,
+        name: "Integration Extension Empty Teams",
+        teams: { create: [{ name: "Team 1", position: 0 }] },
+      },
+      select: { id: true },
+    });
+
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Integration Extension No Team",
+      dueAt: DUE,
+      teamSetId: set.id,
+    });
+
+    expect(
+      await refusal(() =>
+        createCaller(tx(), world.instructorId).submissions.grantExtension({
+          assignmentId: assignment.id,
+          studentId: world.students[0]!.studentId,
+          extendedDueAt: EXTENDED,
+        }),
+      ),
+    ).toBe("PRECONDITION_FAILED");
   });
 });
 
