@@ -7,6 +7,7 @@ import {
   Copy,
   ExternalLink,
   Flag,
+  KeyRound,
   MessageSquarePlus,
   MonitorPlay,
   Play,
@@ -94,6 +95,10 @@ export function AttendanceDay({ data }: { data: Grid }) {
     initialData: data,
     refetchInterval: (query) => {
       const session = query.state.data?.session;
+
+      // Slowly while a code exists and check-in has not opened, because the thing worth noticing
+      // then is a co-teacher pressing start — which changes every control on this screen.
+      if (session?.state === "pending") return POLL_SLOW_MS;
       if (session?.state !== "open") return false;
 
       const arrivalEndsAt = session.startedAt.getTime() + ARRIVAL_MINUTES * 60 * 1000;
@@ -111,6 +116,27 @@ export function AttendanceDay({ data }: { data: Grid }) {
         onSuccess: (result) => {
           toast.success(
             result.started ? "Check-in is open." : "Check-in was already open for today.",
+          );
+          if (result.swept.length > 0) {
+            toast.info(
+              `Closed ${result.swept.length} earlier ${
+                result.swept.length === 1 ? "session" : "sessions"
+              } nobody had ended.`,
+            );
+          }
+        },
+      }),
+    ),
+  );
+
+  const prepare = useMutation(
+    trpc.attendance.prepare.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          toast.success(
+            result.prepared
+              ? "The code is ready. Fellows cannot check in until you start check-in."
+              : "Today already has a code.",
           );
           if (result.swept.length > 0) {
             toast.info(
@@ -164,7 +190,12 @@ export function AttendanceDay({ data }: { data: Grid }) {
   );
 
   const busy =
-    start.isPending || end.isPending || extend.isPending || reopen.isPending || remove.isPending;
+    start.isPending ||
+    prepare.isPending ||
+    end.isPending ||
+    extend.isPending ||
+    reopen.isPending ||
+    remove.isPending;
 
   const { unresolved, recorded } = splitForCorrection(view.rows);
 
@@ -176,6 +207,7 @@ export function AttendanceDay({ data }: { data: Grid }) {
           archived={view.program.archived}
           busy={busy}
           programId={programId}
+          onStart={() => start.mutate({ programId, day: view.day })}
           onEnd={() => end.mutate({ sessionId: session.id })}
           onExtend={() => extend.mutate({ sessionId: session.id })}
           onReopen={() => reopen.mutate({ sessionId: session.id })}
@@ -188,10 +220,16 @@ export function AttendanceDay({ data }: { data: Grid }) {
           archived={view.program.archived}
           busy={busy}
           onStart={() => start.mutate({ programId, day: view.day })}
+          onPrepare={() => prepare.mutate({ programId })}
         />
       )}
 
-      {session && (
+      {/*
+        No roster while the session is only prepared. Nobody can have checked in, so every row
+        would read "not yet" — and the status buttons beside them are refused by the server until
+        check-in opens, so drawing them would be offering an act that does not work yet.
+      */}
+      {session && session.state !== "pending" && (
         <>
           <Counts counts={view.counts} total={view.rows.length} />
 
@@ -234,10 +272,18 @@ export function AttendanceDay({ data }: { data: Grid }) {
 /**
  * Before anybody has started today.
  *
- * One button and nothing to configure. Every setting that could have gone here — how long on time
- * lasts, how long the session runs — has a working default and a place to change it afterwards,
- * and a form standing between an instructor and the code at 9:00 is the thing this feature most
- * needs not to be.
+ * Nothing to configure. Every setting that could have gone here — how long on time lasts, how long
+ * the session runs — has a working default and a place to change it afterwards, and a form standing
+ * between an instructor and the code at 9:00 is the thing this feature most needs not to be.
+ *
+ * **Two buttons, and the quiet one is the reason this card changed.** Making the code and opening
+ * check-in used to be one press, which meant a code could not go on a whiteboard before class
+ * without the lateness clock running while the room was still filling. Start stays the primary
+ * button because it is what happens every morning; making the code early is the deliberate act of
+ * somebody who is already thinking about the board behind them.
+ *
+ * Only today gets the choice. A code prepared for a day that has already happened is useless, and
+ * `prepare` on the server takes no date for the same reason.
  */
 function StartCard({
   day,
@@ -245,12 +291,14 @@ function StartCard({
   archived,
   busy,
   onStart,
+  onPrepare,
 }: {
   day: string;
   isToday: boolean;
   archived: boolean;
   busy: boolean;
   onStart: () => void;
+  onPrepare: () => void;
 }) {
   if (archived) {
     return (
@@ -268,14 +316,22 @@ function StartCard({
         <span className="text-sm font-medium">No check-in yet for {formatSchoolDay(day)}</span>
         <span className="text-xs text-muted-foreground">
           {isToday
-            ? "Starting it puts a code on the screen. Fellows check in with it until you end check-in, or for eight hours."
+            ? "Starting it puts a code on the screen. Fellows check in with it until you end check-in, or for eight hours. Make the code first if you want to write it up before class — nobody can check in until you start."
             : "Starting it lets you record this day by hand. No code will be useful this long after the fact."}
         </span>
       </div>
-      <Button size="sm" disabled={busy} onClick={onStart}>
-        <Play data-icon="inline-start" />
-        Start check-in
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {isToday && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={onPrepare}>
+            <KeyRound data-icon="inline-start" />
+            Make the code
+          </Button>
+        )}
+        <Button size="sm" disabled={busy} onClick={onStart}>
+          <Play data-icon="inline-start" />
+          Start check-in
+        </Button>
+      </div>
     </div>
   );
 }
@@ -288,12 +344,18 @@ function StartCard({
  * — so the time is on screen the whole session and Extend is beside it. Once it has lapsed the
  * wording changes and the button becomes Reopen, because those are different acts: one says class
  * is running long, the other says it was closed too soon.
+ *
+ * **A prepared session says what it cannot do yet.** The code is there to be copied or projected,
+ * and the caption names the two facts an instructor is relying on: fellows cannot check in, and
+ * lateness will be measured from the moment they press start rather than from now. Nothing else is
+ * offered, because every other control here acts on a clock that has not begun.
  */
 function SessionHeader({
   session,
   archived,
   busy,
   programId,
+  onStart,
   onEnd,
   onExtend,
   onReopen,
@@ -303,6 +365,7 @@ function SessionHeader({
   archived: boolean;
   busy: boolean;
   programId: string;
+  onStart: () => void;
   onEnd: () => void;
   onExtend: () => void;
   onReopen: () => void;
@@ -310,6 +373,7 @@ function SessionHeader({
 }) {
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const open = session.state === "open";
+  const pending = session.state === "pending";
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
@@ -317,7 +381,12 @@ function SessionHeader({
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-sm font-medium">{formatSchoolDay(session.day)}</span>
           <span className="text-xs text-muted-foreground">
-            {open ? (
+            {pending ? (
+              <>
+                The code is ready and check-in has not started. Fellows cannot check in yet, and
+                being on time is measured from when you start it.
+              </>
+            ) : open ? (
               <>
                 Open since {formatDateTime(session.startedAt)} · on time until{" "}
                 {onTimeUntil(session)} · closes on its own at {formatSchoolTime(session.endsAt)}
@@ -331,6 +400,26 @@ function SessionHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {pending && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                render={
+                  <a href={attendancePresentHref(programId)} target="_blank" rel="noreferrer" />
+                }
+              >
+                <MonitorPlay data-icon="inline-start" />
+                Project the code
+                <ExternalLink className="ml-1 size-3" />
+              </Button>
+              <Button size="sm" disabled={busy} onClick={onStart}>
+                <Play data-icon="inline-start" />
+                Start check-in
+              </Button>
+            </>
+          )}
+
           {open && (
             <>
               {/*
@@ -359,7 +448,7 @@ function SessionHeader({
             </>
           )}
 
-          {!open && !archived && (
+          {!open && !pending && !archived && (
             <Button size="sm" variant="outline" disabled={busy} onClick={onReopen}>
               <RotateCcw data-icon="inline-start" />
               Reopen
@@ -368,7 +457,7 @@ function SessionHeader({
         </div>
       </div>
 
-      {open && <CodeCard sessionId={session.id} endsAt={session.endsAt} />}
+      {(open || pending) && <CodeCard sessionId={session.id} endsAt={session.endsAt} />}
 
       {/*
         Inline rather than a dialog, in the manner of the join link's replace confirmation, and it
@@ -378,7 +467,8 @@ function SessionHeader({
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
             Deleting this session removes it from every fellow&apos;s record and from the export, as
-            though the program never met. Use this for a session started on the wrong day.
+            though the program never met. Use this for a session started on the wrong day, or for a
+            code made for a class that then did not happen.
           </span>
           <div className="flex gap-2">
             <Button
@@ -404,7 +494,7 @@ function SessionHeader({
           onClick={() => setConfirmingDelete(true)}
         >
           <Trash2 className="mr-1 inline size-3" />
-          Started this by mistake?
+          {pending ? "Made this by mistake?" : "Started this by mistake?"}
         </button>
       )}
     </div>
@@ -430,7 +520,7 @@ function SessionHeader({
  * stays inside the one procedure that already derives from it and `verify:attendance` keeps having
  * one payload to walk.
  */
-function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date }) {
+function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date | null }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [confirmingReplace, setConfirmingReplace] = React.useState(false);
@@ -467,7 +557,9 @@ function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date }) {
             {digits ?? "————"}
           </span>
           <span className="text-xs text-muted-foreground">
-            Give this out once — it works until {formatSchoolTime(endsAt)}
+            {endsAt
+              ? `Give this out once — it works until ${formatSchoolTime(endsAt)}`
+              : "Write it up now. It will not work until you start check-in, and it will not change when you do."}
           </span>
         </div>
 
@@ -530,7 +622,8 @@ function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date }) {
   );
 }
 
-function onTimeUntil(session: NonNullable<Grid["session"]>): string {
+/** Only asked of a session whose check-in has opened, which is what `startedAt` being a date says. */
+function onTimeUntil(session: { startedAt: Date; lateAfterMinutes: number }): string {
   return formatSchoolTime(
     new Date(session.startedAt.getTime() + session.lateAfterMinutes * 60 * 1000),
   );
@@ -620,28 +713,45 @@ function Row({
 
   return (
     <div className="flex flex-col gap-2 px-3 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Avatar className="size-8">
+      {/*
+        **The marks keep their width and the name gives way**, which is the opposite of what a
+        wrapping row does. A long name used to push the five buttons onto a second line, so the row
+        an instructor was aiming at grew to twice the height of its neighbours and every button
+        below it moved — while they were working down a list pressing them. Stacked below the name
+        only on a narrow screen, where side by side does not fit at all.
+      */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+          <Avatar className="size-8 shrink-0">
             <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
               {initials(row.student.displayName)}
             </AvatarFallback>
           </Avatar>
           <div className="flex min-w-0 flex-col">
-            <div className="flex min-w-0 items-center gap-2">
+            {/*
+              Scrolls rather than ending in an ellipsis, with the bar hidden — the pattern
+              `no-scrollbar` exists for, and for its stated reason: a bar drawn inside every name
+              adds height to every row and draws a line down the column. The whole name stays
+              readable with a swipe, where a truncated one is simply gone.
+
+              The badge is first and inside the scroller, so it is what a reader meets before the
+              name rather than something found at the end of one — and the roster's width is spent
+              on the same two things in every row.
+            */}
+            <div className="no-scrollbar flex items-center gap-2 overflow-x-auto">
+              {row.student.testStudentNumber !== null && <TestStudentBadge />}
               <a
                 href={studentHref(programId, row.student.id)}
-                className="truncate text-sm font-medium hover:underline"
+                className="text-sm font-medium whitespace-nowrap hover:underline"
               >
                 {name}
               </a>
-              {row.student.testStudentNumber !== null && <TestStudentBadge />}
             </div>
             <Provenance row={row} />
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1 sm:shrink-0 sm:flex-nowrap">
           <StatusButtons
             row={row}
             programId={programId}

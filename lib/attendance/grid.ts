@@ -10,12 +10,12 @@ import { sessionStateOf, type SessionState, type WindowSession } from "./window"
  * did not check in has no row, and a grid built from rows would silently omit exactly the people
  * an instructor opened the screen to deal with.
  *
- * **What a missing row means depends on the session, not on the row.** While check-in is open it
- * means "not yet", which is a live count nobody should read as an absence. Once the session has
- * ended or lapsed it means absent — and it goes on meaning that until the absences are written
- * down, at which point every fellow has a row and this branch stops being reachable. Deriving it
- * here is what lets the writing happen whenever somebody next passes through, instead of at a
- * moment no scheduler exists to notice.
+ * **What a missing row means depends on the session, not on the row.** While check-in is open — or
+ * prepared and not yet open — it means "not yet", which is a live count nobody should read as an
+ * absence. Once the session has ended or lapsed it means absent — and it goes on meaning that until
+ * the absences are written down, at which point every fellow has a row and this branch stops being
+ * reachable. Deriving it here is what lets the writing happen whenever somebody next passes
+ * through, instead of at a moment no scheduler exists to notice.
  */
 
 export type GridEnrollment = {
@@ -72,7 +72,10 @@ export function gridRows(
 ): GridRow[] {
   const byEnrollment = new Map(records.map((record) => [record.enrollmentId, record]));
   const state: SessionState | null = session ? sessionStateOf(session, now) : null;
-  const pending: PendingReason = state === "open" ? "not-yet" : "no-check-in";
+  // A prepared session reads as "not yet" for the same reason an open one does: nobody has missed
+  // anything. It is the stronger case, in fact — no fellow could have checked in even if they tried.
+  const pending: PendingReason =
+    state === "open" || state === "pending" ? "not-yet" : "no-check-in";
 
   return enrollments.map((enrollment) => {
     const record = byEnrollment.get(enrollment.enrollmentId) ?? null;

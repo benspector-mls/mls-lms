@@ -351,11 +351,20 @@ export const programsRouter = createTRPCRouter({
         }),
       ]);
 
-      const summarySessions = sessions.map((session) => ({
-        id: session.id,
-        day: schoolDayFromColumn(session.date),
-        open: sessionStateOf(session, now) === "open",
-      }));
+      /*
+        A session whose check-in has not opened counts as open here, as it does in
+        `attendance.history` and for the same arithmetic. `summarize` leaves an open session out of
+        the denominator for anybody with no record in it — so without this, an instructor making
+        today's code at 8:30 would drop this fellow's rate until somebody pressed start.
+      */
+      const summarySessions = sessions.map((session) => {
+        const state = sessionStateOf(session, now);
+        return {
+          id: session.id,
+          day: schoolDayFromColumn(session.date),
+          open: state === "open" || state === "pending",
+        };
+      });
 
       const enrolledFrom = schoolDayOf(enrollment.createdAt);
 

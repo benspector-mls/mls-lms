@@ -1815,6 +1815,11 @@ enum AuditAction {
   /// Attendance, which is the second thing in this log — after a released grade — that somebody
   /// outside the school is eventually shown. A stipend is defended on these rows, so the question
   /// they have to answer is not "who was here" but "who said so, and when".
+  ///
+  /// Making the code and opening check-in are two acts and two values. A session prepared at 8:30
+  /// and started at 9:05 has both rows, and the gap between them is the answer to "why does this
+  /// session exist an hour before anybody could check into it".
+  ATTENDANCE_SESSION_PREPARED
   ATTENDANCE_SESSION_STARTED
   ATTENDANCE_SESSION_UPDATED
   /// Its own value rather than an UPDATED carrying a flag. Putting a closed session back into
@@ -2034,29 +2039,38 @@ model AttendanceSession {
 
   /// When check-in opened. Also what lateness is measured from, which is why editing it after the
   /// fact recomputes every self check-in's status.
-  startedAt   DateTime @map("started_at") @db.Timestamptz(6)
-  startedById String?  @map("started_by_id") @db.Uuid
+  ///
+  /// **Null means the session is prepared but not started**, which is the phase that exists so an
+  /// instructor can write the code on a whiteboard before class. The row already holds a secret and
+  /// therefore a code, but no fellow can check in against it: every rule that admits one reads this
+  /// column, and a null start is not an open session. Both window columns are null together — see
+  /// the `_pending_is_paired` constraint.
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
+  startedById String?   @map("started_by_id") @db.Uuid
 
-  /// When the code stops working on its own. `startedAt + 90 minutes` at first, pushed forward half
-  /// an hour at a time by Extend.
+  /// When the code stops working on its own. `startedAt + 480 minutes` when check-in opens, pushed
+  /// forward half an hour at a time by Extend. Null exactly while `startedAt` is null.
   ///
   /// **Two columns for ending, because they answer different questions.** This one is when the code
   /// dies; `endedAt` is when a person said the day was over. A session is open while `endedAt` is
-  /// null *and* now is before this — so the backstop needs nothing to run at the ninety-minute mark,
+  /// null *and* now is before this — so the backstop needs nothing to run at the eight-hour mark,
   /// which matters because there is no scheduler in this project and no prospect of one. It is a
   /// comparison, like every other time rule here.
   ///
   /// Without it, a session nobody ended keeps a working code alive until the next day, and a fellow
   /// could mark themselves present at eight in the evening for a nine o'clock morning. The sweep in
   /// `start` closes the books eventually; this is what stops the code before it does.
-  endsAt DateTime @map("ends_at") @db.Timestamptz(6)
+  endsAt DateTime? @map("ends_at") @db.Timestamptz(6)
 
   /// Set when a person ended the session. Null until then, including after the backstop has lapsed —
   /// collapsing the two would mean either the backstop overwrote a person's decision or a person's
   /// decision looked like a timeout, and the log could no longer tell them apart.
+  ///
+  /// A session that never started cannot have been ended, which `_pending_never_ended` asserts.
+  /// Ending one would write the whole roster absent for a morning no fellow could check into.
   endedAt DateTime? @map("ended_at") @db.Timestamptz(6)
 
-  /// Copied from `Program.attendanceLateAfterMinutes` when the session starts.
+  /// Copied from `Program.attendanceLateAfterMinutes` when check-in opens.
   ///
   /// **Copied rather than read through**, and that is the point of the column existing twice. A
   /// stored status decided against a live setting would let somebody loosen the rule in November and

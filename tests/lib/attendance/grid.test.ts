@@ -106,6 +106,17 @@ describe("gridRows", () => {
     const rows = gridRows(ROSTER, [], null, new Date());
     expect(rows.every((row) => row.pending === "no-check-in")).toBe(true);
   });
+
+  /*
+    A prepared session — a code made before class, check-in not open — reads as "not yet" rather
+    than as an absence. It is the stronger form of the open case: no fellow could have checked in
+    even if they had tried, so nobody has missed anything.
+  */
+  it("says not-yet for a session whose check-in has not opened", () => {
+    const prepared = { startedAt: null, endsAt: null, endedAt: null, lateAfterMinutes: 5 };
+    const rows = gridRows(ROSTER, [], prepared, new Date("2026-09-14T12:40:00Z"));
+    expect(rows.every((row) => row.pending === "not-yet")).toBe(true);
+  });
 });
 
 describe("gridCounts", () => {

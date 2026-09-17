@@ -26,6 +26,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * check-in does. What the screen says instead is when check-in closes, which is the only deadline
  * left and the one an instructor has to be able to see coming.
  *
+ * **It also shows a code whose check-in has not opened yet**, which is what makes this window
+ * usable while the room is filling. The digits are the ones check-in will accept, and saying so is
+ * the whole job of the line beneath them — a closing time printed there would be a deadline the
+ * session does not have yet.
+ *
  * The address is built from `window.location.origin` in an effect, as `JoinLinkCard` does, because
  * the server rendering this has no reliable idea which host the instructor is looking at.
  */
@@ -52,7 +57,15 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
   const [origin, setOrigin] = React.useState("");
   React.useEffect(() => setOrigin(window.location.origin), []);
 
-  if (view.session.state !== "open") {
+  /*
+    A prepared session is handled before the closed branch, and the difference matters on a
+    projector: the code is on screen and correct, but typing it would be refused. So the line under
+    it says what the room needs to know rather than printing a closing time the session does not
+    have yet. This is the state a screen is likely to sit in while the room fills up.
+  */
+  const pending = view.session.state === "pending";
+
+  if (!pending && view.session.state !== "open") {
     return (
       <Shell courseName={view.courseName} day={view.session.day}>
         <p className="text-[6vw] font-semibold text-muted-foreground">Check-in is closed</p>
@@ -79,7 +92,9 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
             is hours away and a projector is not the place to watch it drain.
           */}
           <p className="text-[1.6vw] text-muted-foreground">
-            This code works until {formatSchoolTime(view.session.endsAt)}
+            {view.session.endsAt
+              ? `This code works until ${formatSchoolTime(view.session.endsAt)}`
+              : "Check-in has not started yet — this is the code it will use"}
           </p>
         </>
       ) : (

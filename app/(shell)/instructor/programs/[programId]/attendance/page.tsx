@@ -50,10 +50,17 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
     queryClient.fetchQuery(trpc.attendance.history.queryOptions({ programId })),
   ]);
 
+  /*
+    A session whose check-in has not opened is reported the same way an open one is — nothing about
+    it is settled. It is the stronger case, in fact: an open morning might yet be missed, while a
+    prepared one could not have been attended by anybody. Collapsing the two here is what stops the
+    export printing ABSENT against every fellow for a day whose code was made and never used, which
+    would be a wrong number in the file a funder reads.
+  */
   const sessions = history.sessions.map((session) => ({
     id: session.id,
     day: session.day,
-    open: session.state === "open",
+    open: session.state === "open" || session.state === "pending",
   }));
 
   /*

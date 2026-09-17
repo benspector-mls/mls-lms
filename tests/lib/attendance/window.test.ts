@@ -7,7 +7,7 @@ import {
   lateFrom,
   sessionStateOf,
   statusForCheckIn,
-  type WindowSession,
+  type StartedSession,
 } from "@/lib/attendance/window";
 
 /**
@@ -19,7 +19,7 @@ import {
 
 const STARTED = new Date("2026-09-14T13:00:00Z");
 
-function session(overrides: Partial<WindowSession> = {}): WindowSession {
+function session(overrides: Partial<StartedSession> = {}): StartedSession {
   return {
     startedAt: STARTED,
     endsAt: defaultEndsAt(STARTED),
@@ -27,6 +27,11 @@ function session(overrides: Partial<WindowSession> = {}): WindowSession {
     lateAfterMinutes: 5,
     ...overrides,
   };
+}
+
+/** A session whose code exists and whose check-in has not opened. Both window columns are null. */
+function prepared() {
+  return { startedAt: null, endsAt: null, endedAt: null, lateAfterMinutes: 5 };
 }
 
 /** `n` minutes after the session started. */
@@ -59,6 +64,16 @@ describe("sessionStateOf", () => {
   it("reports ended even before the backstop, which is the ordinary case", () => {
     expect(sessionStateOf(session({ endedAt: at(40) }), at(41))).toBe("ended");
   });
+
+  /*
+    The phase that lets a code go on a whiteboard before class. Read from the columns rather than
+    from the clock, so it is the same answer at 8:40 and at midnight.
+  */
+  it("reports pending when check-in has not opened, whatever the time", () => {
+    expect(sessionStateOf(prepared(), at(-30))).toBe("pending");
+    expect(sessionStateOf(prepared(), at(0))).toBe("pending");
+    expect(sessionStateOf(prepared(), at(DEFAULT_SESSION_MINUTES + 600))).toBe("pending");
+  });
 });
 
 describe("isAcceptingCheckIns", () => {
@@ -66,6 +81,15 @@ describe("isAcceptingCheckIns", () => {
     expect(isAcceptingCheckIns(session(), at(10))).toBe(true);
     expect(isAcceptingCheckIns(session(), at(DEFAULT_SESSION_MINUTES))).toBe(false);
     expect(isAcceptingCheckIns(session({ endedAt: at(20) }), at(25))).toBe(false);
+  });
+
+  /*
+    The line that makes the prepared phase cheap. Every caller refusing a closed session already
+    refuses a prepared one, so holding the code never amounted to being able to use it.
+  */
+  it("is false for a prepared session, which is what keeps the code inert", () => {
+    expect(isAcceptingCheckIns(prepared(), at(-10))).toBe(false);
+    expect(isAcceptingCheckIns(prepared(), at(10))).toBe(false);
   });
 });
 

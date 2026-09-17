@@ -102,8 +102,9 @@ type SessionRow = {
   id: string;
   programId: string;
   date: Date;
-  startedAt: Date;
-  endsAt: Date;
+  /** Null while the session is prepared and check-in has not opened. */
+  startedAt: Date | null;
+  endsAt: Date | null;
   endedAt: Date | null;
   lateAfterMinutes: number;
   note: string | null;
@@ -121,19 +122,70 @@ type SessionRow = {
  * UTC midnight, which a browser in Brooklyn renders as the previous day — so the conversion
  * happens once, at the boundary, and no payload carries the dangerous shape. See
  * `lib/school-time.ts`.
+ *
+ * **Discriminated on `state`, so a prepared session cannot be read for times it does not have.** A
+ * screen printing "on time until" narrows on the state it is drawing and gets non-null timestamps
+ * from doing so; without the union every caller would carry a non-null assertion, and the one that
+ * forgot would render `Invalid Date` in front of a room.
  */
 function publicSession(session: SessionRow, now: Date) {
-  return {
+  const common = {
     id: session.id,
     day: schoolDayFromColumn(session.date),
-    startedAt: session.startedAt,
-    endsAt: session.endsAt,
     endedAt: session.endedAt,
     lateAfterMinutes: session.lateAfterMinutes,
     note: session.note,
     startedByName: session.startedBy ? displayNameOf(session.startedBy, "an instructor") : null,
-    state: sessionStateOf(session, now),
   };
+
+  const state = sessionStateOf(session, now);
+
+  if (state === "pending") {
+    return { ...common, state, startedAt: null, endsAt: null };
+  }
+
+  // The `_pending_is_paired` CHECK is what makes these safe: any state but `pending` has both.
+  return { ...common, state, startedAt: session.startedAt!, endsAt: session.endsAt! };
+}
+
+/**
+ * Close the books on any earlier session of this program, and say which days that was.
+ *
+ * Called by `prepare` and by `start`, because either is the next time anybody comes through and
+ * there is no scheduler to do it on a timer. Idempotent in both, through `finalize`.
+ *
+ * **A prepared session from an earlier day is deleted rather than finalized**, and that difference
+ * is the point of separating the two lists. Finalizing writes an ABSENT row for every fellow on the
+ * roster, which is the correct record of a morning that was open and missed. A morning whose
+ * check-in never opened is not that: nobody could have checked in, so nobody failed to. Deleting it
+ * leaves the day exactly as it would have been had the code never been made — which is what an
+ * instructor who prepared a code and then had class cancelled actually means. Safe because a
+ * prepared session can hold no records: every procedure that writes one refuses that phase.
+ */
+async function sweepStale(tx: Tx, programId: string, day: SchoolDay) {
+  const stale = await tx.attendanceSession.findMany({
+    where: { programId, endedAt: null, date: { lt: dateColumnFor(day) } },
+    select: { id: true, programId: true, date: true, startedAt: true, endsAt: true },
+  });
+
+  const finalized: SchoolDay[] = [];
+  const deletedPending: SchoolDay[] = [];
+
+  for (const session of stale) {
+    if (session.startedAt === null || session.endsAt === null) {
+      await tx.attendanceSession.delete({ where: { id: session.id }, select: { id: true } });
+      deletedPending.push(schoolDayFromColumn(session.date));
+      continue;
+    }
+
+    // Ended at its own backstop rather than at this moment: that is when it actually stopped
+    // accepting anybody, and dating it now would put an evening timestamp on a morning nobody
+    // attended after 10:30.
+    await finalize(tx, session, session.endsAt);
+    finalized.push(schoolDayFromColumn(session.date));
+  }
+
+  return { finalized, deletedPending, swept: [...finalized, ...deletedPending] };
 }
 
 /**
@@ -173,6 +225,33 @@ async function finalize(tx: Tx, session: { id: string; programId: string }, ende
   return written.count;
 }
 
+/**
+ * Narrow a session to one whose check-in has opened, or refuse in words.
+ *
+ * **Every instructor act on a session's clock or its roster goes through this**, because all of
+ * them are meaningless before check-in opens: there is no closing time to extend, no start to
+ * correct, no day to end, and no arrival anybody could have recorded. Returning the narrowed type
+ * is what lets each caller's body read `startedAt` without an assertion afterwards.
+ *
+ * Statuses are refused here as well, and that is the one choice worth defending. An instructor
+ * could reasonably want to mark somebody excused before class begins. Allowing it would put a
+ * record on a prepared session, and a prepared session holding no records is exactly what makes
+ * deleting one — by hand, or by tomorrow's sweep — safe to do without asking. An excusal quietly
+ * destroyed by a sweep is a worse outcome than being asked to press start first.
+ */
+function requireStarted<T extends WindowSession>(
+  session: T,
+  message: string,
+): T & { startedAt: Date; endsAt: Date } {
+  // Read off the columns rather than through `sessionStateOf`, because this asks whether the
+  // window exists at all — which is not a question about what time it is now.
+  if (session.startedAt !== null && session.endsAt !== null) {
+    return session as T & { startedAt: Date; endsAt: Date };
+  }
+
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message });
+}
+
 /** The refusal a fellow meets when check-in is not open, worded by which of the two it is. */
 function refuseClosed(session: WindowSession, courseName: string, now: Date): never {
   const state = sessionStateOf(session, now);
@@ -192,6 +271,93 @@ export const attendanceRouter = createTRPCRouter({
   // =====================================================================================
 
   /**
+   * Make today's code without opening check-in.
+   *
+   * **This exists so the code can go on a whiteboard before class.** Writing it up is a thing that
+   * happens while the room is still filling, and it used to require pressing start — which began
+   * the lateness clock, so every fellow who walked in during the ten minutes before class was
+   * marked late for a session that had not begun. Now the code and the clock are two acts.
+   *
+   * The session it creates is the same row `start` would have created, minus its window: same
+   * secret, same derivation, therefore **the same code before and after start**. That matters more
+   * than it looks — a code written on a board at 8:40 has to still be the code at 9:05, or the
+   * feature is worse than having no feature.
+   *
+   * Always today, with no `day` input. A code prepared for a day that has already happened is
+   * useless, and `start` is already the way to write up a past session.
+   *
+   * Idempotent the same way `start` is, and for the same race: `prepared: false` comes back when
+   * somebody had already prepared or started today.
+   */
+  prepare: programProcedure.mutation(async ({ ctx, input }) => {
+    const now = new Date();
+    const day = schoolDayOf(now);
+
+    const program = await ctx.db.program.findUniqueOrThrow({
+      where: { id: input.programId },
+      select: { id: true, name: true, archivedAt: true, attendanceLateAfterMinutes: true },
+    });
+
+    if (program.archivedAt !== null) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: `${program.name} has finished, so attendance cannot be taken in it.`,
+      });
+    }
+
+    return inTransaction(ctx.db, async (tx) => {
+      const { swept, finalized, deletedPending } = await sweepStale(tx, program.id, day);
+
+      // `createMany` with `skipDuplicates` for the reason `start` explains at length: it compiles
+      // to `ON CONFLICT DO NOTHING`, so the unique index settles the race without a failed
+      // statement aborting the transaction. The count is who won.
+      const inserted = await tx.attendanceSession.createMany({
+        data: [
+          {
+            programId: program.id,
+            date: dateColumnFor(day),
+            startedAt: null,
+            endsAt: null,
+            lateAfterMinutes: program.attendanceLateAfterMinutes,
+            codeSecret: newSessionSecret(),
+            // Nobody has started it. The column means who opened check-in, and answering it with
+            // whoever made the code would put a name against an act they have not performed yet.
+            startedById: null,
+            note: null,
+          },
+        ],
+        skipDuplicates: true,
+      });
+
+      const prepared = inserted.count === 1;
+
+      const session: SessionRow = await tx.attendanceSession.findUniqueOrThrow({
+        where: { programId_date: { programId: program.id, date: dateColumnFor(day) } },
+        select: sessionSelect,
+      });
+
+      if (prepared) {
+        await recordEvent(tx, {
+          action: "ATTENDANCE_SESSION_PREPARED",
+          actor: auditActor(ctx),
+          subject: { id: session.id, label: day },
+          program: { id: program.id, label: program.name },
+          // Never the code and never the secret, as `rotateCode` says: the log outlives the
+          // session and is readable by anyone who can read the table.
+          detail: {
+            day,
+            lateAfterMinutes: session.lateAfterMinutes,
+            sweptOpenSessions: finalized,
+            deletedPreparedSessions: deletedPending,
+          },
+        });
+      }
+
+      return { ...publicSession(session, now), prepared, swept };
+    });
+  }),
+
+  /**
    * Open check-in for today, or hand back the one that is already open.
    *
    * **Idempotent by catching the constraint rather than by looking first.** Two instructors
@@ -200,6 +366,11 @@ export const attendanceRouter = createTRPCRouter({
    * and the loser would get a second session with a different code — which is the failure mode
    * that matters, because the room would then be reading one code while the server accepted
    * another. `started: false` is the same shape `enrollments.join` returns for the same reason.
+   *
+   * **Two ways in, one outcome.** A session `prepare` already made is claimed by writing its
+   * window; a day with no session at all gets one created whole. Either way the code is untouched,
+   * because the derivation reads the secret and the id and neither moves — so an instructor who
+   * wrote four digits on the board before class is not made a liar by pressing this.
    *
    * It also sweeps: any older session of this course that nobody ended is ended and finalized in
    * this transaction. Tomorrow's attendance closes yesterday's books, so nobody has to remember —
@@ -238,23 +409,7 @@ export const attendanceRouter = createTRPCRouter({
       }
 
       return inTransaction(ctx.db, async (tx) => {
-        const stale = await tx.attendanceSession.findMany({
-          where: { programId: program.id, endedAt: null, date: { lt: dateColumnFor(day) } },
-          select: { id: true, programId: true, date: true },
-        });
-
-        const swept: SchoolDay[] = [];
-        for (const session of stale) {
-          // Ended at its own backstop rather than at this moment: that is when it actually
-          // stopped accepting anybody, and dating it now would put an evening timestamp on a
-          // morning nobody attended after 10:30.
-          const row = await tx.attendanceSession.findUniqueOrThrow({
-            where: { id: session.id },
-            select: { endsAt: true },
-          });
-          await finalize(tx, session, row.endsAt);
-          swept.push(schoolDayFromColumn(session.date));
-        }
+        const { swept, finalized, deletedPending } = await sweepStale(tx, program.id, day);
 
         /*
           `createMany` with `skipDuplicates` rather than `create` in a try/catch, and the
@@ -265,7 +420,8 @@ export const attendanceRouter = createTRPCRouter({
           unique index and the transaction survives it.
 
           The returned count is what says who won: one row inserted means this call created the
-          session, zero means somebody else already had.
+          session started, zero means a session for this day already existed — which is either one
+          somebody else started, or one `prepare` made and the claim below opens.
         */
         const inserted = await tx.attendanceSession.createMany({
           data: [
@@ -283,7 +439,41 @@ export const attendanceRouter = createTRPCRouter({
           skipDuplicates: true,
         });
 
-        const started = inserted.count === 1;
+        /*
+          Claim a prepared session by writing the window it does not have yet.
+
+          `updateMany` with `startedAt: null` in the where-clause rather than a read followed by an
+          update, so the null itself is the lock: two instructors pressing start on the same
+          prepared session both reach here, and exactly one matches a row. The loser matches
+          nothing and is told check-in was already open, which by then is true.
+
+          **After the insert rather than before it, which is what makes the insert's wait useful.**
+          A `prepare` still committing holds the unique index entry, so the insert above blocks on
+          it and then does nothing — and by the time this runs the prepared row is visible and gets
+          claimed. Asking first would have found no row, inserted nothing, and reported check-in
+          already open on a session that was in fact still waiting to be started.
+        */
+        const claimed =
+          inserted.count === 1
+            ? { count: 0 }
+            : await tx.attendanceSession.updateMany({
+                where: { programId: program.id, date: dateColumnFor(day), startedAt: null },
+                data: {
+                  startedAt: now,
+                  endsAt: defaultEndsAt(now),
+                  startedById: ctx.profile.id,
+                  // Re-copied rather than left as prepared: the column means the threshold this
+                  // session ran under, and the program's setting may have moved in between.
+                  lateAfterMinutes: program.attendanceLateAfterMinutes,
+                  // `undefined` rather than null when no note was given, or starting a prepared
+                  // session would silently wipe a note somebody left on it.
+                  note: input.note ?? undefined,
+                },
+              });
+
+        // Either way check-in was opened by this call, and the audit event marks that act rather
+        // than the row appearing — a session prepared at 8:30 and started at 9:05 has both rows.
+        const started = inserted.count === 1 || claimed.count === 1;
 
         const session: SessionRow = await tx.attendanceSession.findUniqueOrThrow({
           where: { programId_date: { programId: program.id, date: dateColumnFor(day) } },
@@ -299,9 +489,12 @@ export const attendanceRouter = createTRPCRouter({
             detail: {
               day,
               startedAt: now.toISOString(),
-              endsAt: session.endsAt.toISOString(),
+              endsAt: session.endsAt?.toISOString() ?? null,
               lateAfterMinutes: session.lateAfterMinutes,
-              sweptOpenSessions: swept,
+              /** Whether a code was already on a whiteboard when this opened check-in. */
+              fromPrepared: claimed.count === 1,
+              sweptOpenSessions: finalized,
+              deletedPreparedSessions: deletedPending,
             },
           });
         }
@@ -324,6 +517,11 @@ export const attendanceRouter = createTRPCRouter({
    *
    * Null while the session is closed rather than absent from the payload, so both callers can say
    * "check-in is closed" from the same shape.
+   *
+   * **Returned for a prepared session too, which is the whole point of that phase.** The code has
+   * to be readable before check-in opens or it cannot be written on a board before class. Nothing
+   * is given away by that: possessing the code has never been enough to check in, because
+   * `checkIn` asks whether the session is open and a prepared one is not.
    */
   sessionCode: instructorProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
@@ -334,7 +532,8 @@ export const attendanceRouter = createTRPCRouter({
         program: { select: { id: true, name: true } },
       });
 
-      const open = sessionStateOf(session, now) === "open";
+      const state = sessionStateOf(session, now);
+      const live = state === "open" || state === "pending";
 
       const [checkedIn, expected] = await Promise.all([
         ctx.db.attendanceRecord.count({
@@ -346,7 +545,7 @@ export const attendanceRouter = createTRPCRouter({
       return {
         session: publicSession(session, now),
         courseName: session.program.name,
-        code: open ? codeFor(session as CodeSession) : null,
+        code: live ? codeFor(session as CodeSession) : null,
         checkedIn,
         expected,
       };
@@ -453,8 +652,17 @@ export const attendanceRouter = createTRPCRouter({
         id: true,
         programId: true,
         date: true,
+        startedAt: true,
+        endsAt: true,
+        endedAt: true,
+        lateAfterMinutes: true,
         program: { select: { name: true } },
       });
+
+      requireStarted(
+        session,
+        "Check-in has not started for this day, so there is nobody to mark yet. Start it first.",
+      );
 
       const enrollment = await ctx.db.enrollment.findFirst({
         where: { id: input.enrollmentId, programId: session.programId },
@@ -541,10 +749,15 @@ export const attendanceRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const session = await teachableAttendanceSession(ctx, input.sessionId, {
+      const loaded = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
         program: { select: { name: true } },
       });
+
+      const session = requireStarted(
+        loaded,
+        "Check-in has not started for this day, so there is no start time to correct yet.",
+      );
 
       const startedAt = input.startedAt ?? session.startedAt;
       const lateAfterMinutes = input.lateAfterMinutes ?? session.lateAfterMinutes;
@@ -572,13 +785,17 @@ export const attendanceRouter = createTRPCRouter({
           select: { id: true, status: true, checkedInAt: true },
         });
 
+        // The update above wrote a non-null `startedAt`, and `endsAt` was already non-null on a
+        // started session — so the recomputation below has the window it needs.
+        const after = { ...updated, startedAt, endsAt: session.endsAt };
+
         let recomputed = 0;
         for (const record of selfRecorded) {
           // The CHECK constraint guarantees a self check-in has a time; the guard is for the
           // type, not for the data.
           if (!record.checkedInAt) continue;
 
-          const status = statusForCheckIn(updated, record.checkedInAt);
+          const status = statusForCheckIn(after, record.checkedInAt);
           if (status === record.status) continue;
 
           await tx.attendanceRecord.update({
@@ -622,10 +839,15 @@ export const attendanceRouter = createTRPCRouter({
     .input(z.object({ sessionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
-      const session = await teachableAttendanceSession(ctx, input.sessionId, {
+      const loaded = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
         program: { select: { name: true } },
       });
+
+      const session = requireStarted(
+        loaded,
+        "Check-in has not started for this day, so there is no closing time to extend.",
+      );
 
       if (session.endedAt !== null) {
         throw new TRPCError({
@@ -634,10 +856,12 @@ export const attendanceRouter = createTRPCRouter({
         });
       }
 
+      const endsAt = extendedEndsAt(session, now);
+
       return inTransaction(ctx.db, async (tx) => {
         const updated = await tx.attendanceSession.update({
           where: { id: session.id },
-          data: { endsAt: extendedEndsAt(session, now) },
+          data: { endsAt },
           select: sessionSelect,
         });
 
@@ -649,7 +873,7 @@ export const attendanceRouter = createTRPCRouter({
           detail: {
             day: schoolDayFromColumn(session.date),
             extended: true,
-            endsAt: [session.endsAt.toISOString(), updated.endsAt.toISOString()],
+            endsAt: [session.endsAt.toISOString(), endsAt.toISOString()],
           },
         });
 
@@ -668,10 +892,22 @@ export const attendanceRouter = createTRPCRouter({
     .input(z.object({ sessionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
-      const session = await teachableAttendanceSession(ctx, input.sessionId, {
+      const loaded = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
         program: { select: { name: true } },
       });
+
+      /*
+        Refused rather than treated as an early end, and the database refuses it too. Ending a
+        session writes an ABSENT row for every fellow on the roster — which would record a morning
+        no fellow could check into as a morning every one of them missed. Deleting it is the act
+        that means what an instructor wants here, so the refusal says so.
+      */
+      const session = requireStarted(
+        loaded,
+        "Check-in never started for this day, so there is nothing to end. Delete the session if " +
+          "you made its code by mistake.",
+      );
 
       if (session.endedAt !== null) {
         return { session: publicSession(session, now), absent: 0, alreadyEnded: true };
@@ -726,17 +962,26 @@ export const attendanceRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
-      const session = await teachableAttendanceSession(ctx, input.sessionId, {
+      const loaded = await teachableAttendanceSession(ctx, input.sessionId, {
         ...sessionSelect,
         program: { select: { name: true, archivedAt: true } },
       });
 
-      if (session.program.archivedAt !== null) {
+      if (loaded.program.archivedAt !== null) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `${session.program.name} has finished, so its attendance cannot be reopened.`,
+          message: `${loaded.program.name} has finished, so its attendance cannot be reopened.`,
         });
       }
+
+      // Reopening a session that never opened would write a backstop with no start, which the
+      // `_pending_is_paired` CHECK refuses anyway. Start is the way in.
+      const session = requireStarted(
+        loaded,
+        "Check-in has not started for this day, so there is nothing to reopen. Start it instead.",
+      );
+
+      const endsAt = new Date(now.getTime() + input.minutes * 60 * 1000);
 
       return inTransaction(ctx.db, async (tx) => {
         const removed = await tx.attendanceRecord.deleteMany({
@@ -745,10 +990,7 @@ export const attendanceRouter = createTRPCRouter({
 
         const updated = await tx.attendanceSession.update({
           where: { id: session.id },
-          data: {
-            endedAt: null,
-            endsAt: new Date(now.getTime() + input.minutes * 60 * 1000),
-          },
+          data: { endedAt: null, endsAt },
           select: sessionSelect,
         });
 
@@ -760,7 +1002,7 @@ export const attendanceRouter = createTRPCRouter({
           detail: {
             day: schoolDayFromColumn(session.date),
             absencesRemoved: removed.count,
-            endsAt: updated.endsAt.toISOString(),
+            endsAt: endsAt.toISOString(),
           },
         });
 
@@ -790,7 +1032,14 @@ export const attendanceRouter = createTRPCRouter({
         program: { select: { name: true } },
       });
 
-      if (!isAcceptingCheckIns(session, now)) {
+      /*
+        Allowed on a prepared session as well as an open one, because the remedy has to exist
+        wherever the code does. A code written on the board at 8:40 can be wrong by 8:45 — copied
+        down incorrectly, photographed by somebody who is not in the room, read out over a call —
+        and the answer at that hour is the same button as the answer at ten.
+      */
+      const state = sessionStateOf(session, now);
+      if (state !== "open" && state !== "pending") {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Check-in is not open, so there is no code to replace.",
@@ -825,6 +1074,10 @@ export const attendanceRouter = createTRPCRouter({
    * were never expected, and once that is written it is a wrong number in a report nobody thinks
    * to question. Refused once anybody has checked themselves in, because deleting then would
    * destroy a record a fellow created — `reopen` and per-fellow corrections are the tools for that.
+   *
+   * **Also the only exit from a prepared session**, and the cheap one: a code made for a morning
+   * that then got cancelled has no records by construction, so the guard below is satisfied
+   * without asking and the day goes back to looking as though nobody ever made a code for it.
    */
   deleteSession: instructorProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
@@ -905,11 +1158,23 @@ export const attendanceRouter = createTRPCRouter({
       },
     });
 
-    const summarySessions = sessions.map((session) => ({
-      id: session.id,
-      day: schoolDayFromColumn(session.date),
-      open: sessionStateOf(session, now) === "open",
-    }));
+    /*
+      A prepared session counts as open here, and the reason is arithmetic rather than tidiness.
+      `summarize` skips an open session for anybody with no record in it, which is what stops a
+      morning still in progress from reading as a morning everybody missed. A prepared session is
+      that case in its strongest form — nobody could have checked in at all — so preparing a code
+      at 8:30 would otherwise drop every fellow's rate until somebody pressed start.
+    */
+    const summarySessions = sessions.map((session) => {
+      const state = sessionStateOf(session, now);
+      return {
+        id: session.id,
+        day: schoolDayFromColumn(session.date),
+        open: state === "open" || state === "pending",
+        /** Strictly open. The list of days an instructor can still be told to close. */
+        live: state === "open",
+      };
+    });
 
     const toFellow = (enrollment: (typeof enrollments)[number]): SummaryFellow => ({
       enrollmentId: enrollment.id,
@@ -966,7 +1231,7 @@ export const attendanceRouter = createTRPCRouter({
         archived: program.archivedAt !== null,
       },
       sessions: sessions.map((session) => publicSession(session, now)),
-      openSessions: summarySessions.filter((session) => session.open).map((session) => session.day),
+      openSessions: summarySessions.filter((session) => session.live).map((session) => session.day),
       active: summarize(summarySessions, active.map(toFellow), summaryRecords),
       removed: summarize(summarySessions, removed.map(toFellow), summaryRecords),
       /**
@@ -1015,6 +1280,11 @@ export const attendanceRouter = createTRPCRouter({
       where: {
         programId: { in: enrollments.map((enrollment) => enrollment.program.id) },
         date: dateColumnFor(day),
+        // A prepared session is not a session as far as a fellow is concerned. Excluded in the
+        // query rather than filtered afterwards, so every rule below this line goes on reading a
+        // session that has a start — and so the card renders the same silence it renders on a
+        // Saturday, rather than a form that would refuse whatever was typed into it.
+        startedAt: { not: null },
       },
       select: sessionSelect,
     });
@@ -1087,10 +1357,27 @@ export const attendanceRouter = createTRPCRouter({
         }),
       ]);
 
-      const session = await ctx.db.attendanceSession.findUnique({
+      const found = await ctx.db.attendanceSession.findUnique({
         where: { programId_date: { programId: input.programId, date: dateColumnFor(day) } },
         select: sessionWithSecretSelect,
       });
+
+      /*
+        **A prepared session is refused here, on the same branch as no session at all**, and the
+        wording was already right for it: check-in has not been opened, and the instructor opens it
+        at the beginning of class. That is exactly what a fellow reading the code off the board
+        before nine needs to hear.
+
+        Refused *before* the attempt ceilings and without writing a failure event, which is the
+        reason this branch is here rather than folded into `refuseClosed` below. A room full of
+        fellows typing a correct code off the whiteboard three minutes early are not guessing, and
+        counting them against the twenty-per-session limit would lock out the very people who were
+        paying attention.
+      */
+      const session =
+        found === null || found.startedAt === null || found.endsAt === null
+          ? null
+          : { ...found, startedAt: found.startedAt, endsAt: found.endsAt };
 
       if (!session) {
         throw new TRPCError({
@@ -1262,7 +1549,9 @@ export const attendanceRouter = createTRPCRouter({
 
     const [sessions, records] = await Promise.all([
       ctx.db.attendanceSession.findMany({
-        where: { programId: { in: programIds } },
+        // Prepared sessions excluded, as in `today`: a square for a morning nobody has opened
+        // would be telling a fellow to check into something that would refuse them.
+        where: { programId: { in: programIds }, startedAt: { not: null } },
         orderBy: { date: "asc" },
         select: sessionSelect,
       }),
@@ -1390,7 +1679,9 @@ export const attendanceRouter = createTRPCRouter({
 
       const [sessions, records] = await Promise.all([
         ctx.db.attendanceSession.findMany({
-          where: { programId: input.programId },
+          // Prepared sessions excluded, as in `today` and `myWeek`. A row for a morning whose
+          // check-in never opened would read as a day this fellow has something to answer for.
+          where: { programId: input.programId, startedAt: { not: null } },
           orderBy: { date: "desc" },
           select: sessionSelect,
         }),

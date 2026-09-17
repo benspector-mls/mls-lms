@@ -13,6 +13,12 @@ import { Badge } from "@/components/ui/badge";
  * Amber, matching the banner an admin sees while looking through one, so the two states are legible
  * as the same fact from either side. Not red: nothing is wrong, and a warning colour on a roster
  * would say a student was in trouble.
+ *
+ * **It goes before the name, not after it.** This is the fact that decides whether to read a row at
+ * all, and a name is the thing on a roster most likely to be truncated or scrolled — so a badge
+ * placed after one is a badge that can be missed entirely on exactly the rows that are longest. The
+ * one exception is `program-student.tsx`, where the name is a page heading with status chips
+ * trailing it rather than a name in a list.
  */
 export function TestStudentBadge() {
   return (

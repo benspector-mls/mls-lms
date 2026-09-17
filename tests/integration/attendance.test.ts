@@ -137,7 +137,7 @@ describe("a day of attendance, from starting it to reading the averages", () => 
         where: { id: sessionId },
         select: { startedAt: true },
       });
-      originalStartedAt = row.startedAt;
+      originalStartedAt = row.startedAt!;
     });
 
     it("an instructor starts today's session", () => {
@@ -1070,5 +1070,458 @@ describe("what a record may claim", () => {
       }),
     );
     expect(selfWithoutTime).not.toBe("accepted");
+  });
+});
+
+/**
+ * Making the code before check-in opens, so it can go on a whiteboard before class.
+ *
+ * **The check that matters is that the code does not move.** An instructor who writes four digits
+ * on a board at 8:40 and presses start at 9:05 has to still be looking at the same code, or the
+ * feature is worse than not having it — so the code is derived directly, before and after, rather
+ * than trusted to a procedure to report about itself.
+ *
+ * Its own world and its own transaction, because the day this fills is today and the block above
+ * has already started today's session in its own.
+ */
+describe("making the code before starting check-in", () => {
+  const tx = withRollback(120_000);
+
+  let world: World;
+  const today = schoolDayOf(new Date());
+
+  let prepared: Awaited<ReturnType<ReturnType<typeof asInstructor>["attendance"]["prepare"]>>;
+  let sessionId: string;
+  let preparedCode: string;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+  const asStudent = () => createCaller(tx(), world.student.studentId);
+
+  /** The code as the database would derive it right now, read past every procedure. */
+  async function codeFromRow(): Promise<string> {
+    const row = await tx().attendanceSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { id: true, codeSecret: true },
+    });
+    return codeFor(row);
+  }
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    prepared = await asInstructor().attendance.prepare({ programId: world.programId });
+    sessionId = prepared.id;
+    preparedCode = await codeFromRow();
+  });
+
+  describe("what preparing makes", () => {
+    it("an instructor makes today's code without opening check-in", () => {
+      expect(prepared.prepared).toBe(true);
+      expect(prepared.day).toBe(today);
+    });
+
+    it("the session reports itself as pending rather than open", () => {
+      expect(prepared.state).toBe("pending");
+    });
+
+    /*
+      Both null, together. The `_pending_is_paired` CHECK is what makes every screen able to read
+      one and narrow on the other, so a row holding a start without a backstop is worth asserting
+      does not exist.
+    */
+    it("it has neither a start nor a closing time", async () => {
+      const row = await tx().attendanceSession.findUniqueOrThrow({
+        where: { id: sessionId },
+        select: { startedAt: true, endsAt: true, endedAt: true, startedById: true },
+      });
+      expect(row.startedAt).toBeNull();
+      expect(row.endsAt).toBeNull();
+      expect(row.endedAt).toBeNull();
+      // Nobody has opened check-in, so the column naming who did is answered by nobody.
+      expect(row.startedById).toBeNull();
+    });
+
+    it("its code is four digits and readable by the instructor", async () => {
+      const view = await asInstructor().attendance.sessionCode({ sessionId });
+      expect(view.code).toMatch(new RegExp(`^\\d{${CODE_DIGITS}}$`));
+      expect(view.code).toBe(preparedCode);
+    });
+
+    it("and the payload carrying it still never carries the secret", async () => {
+      const view = await asInstructor().attendance.sessionCode({ sessionId });
+      expect(containsKey(view, "codeSecret")).toBe(false);
+    });
+
+    it("nobody has checked in, and the count says so rather than being absent", async () => {
+      const view = await asInstructor().attendance.sessionCode({ sessionId });
+      expect(view.checkedIn).toBe(0);
+      expect(view.expected).toBeGreaterThan(0);
+    });
+
+    it("preparing again makes no second session", async () => {
+      const again = await asInstructor().attendance.prepare({ programId: world.programId });
+      expect(again.prepared).toBe(false);
+      expect(again.id).toBe(sessionId);
+    });
+  });
+
+  /*
+    The whole point of the phase: the code exists and is inert. Written as a pair — the correct code
+    refused now, the same code accepted after start — because refusing everything would pass the
+    first half on its own.
+  */
+  describe("while check-in has not started", () => {
+    it("a fellow typing the correct code is refused", async () => {
+      const refused = await refusal(() =>
+        asStudent().attendance.checkIn({ programId: world.programId, code: preparedCode }),
+      );
+      expect(refused).toBe("NOT_FOUND");
+    });
+
+    /*
+      Refused on the not-opened branch rather than as a wrong code, which is what keeps a room full
+      of fellows typing the board's code three minutes early from spending the twenty-per-session
+      attempt ceiling.
+    */
+    it("and that refusal writes no failed-attempt event", async () => {
+      const failures = await tx().auditEvent.count({
+        where: { action: "ATTENDANCE_CHECK_IN_FAILED", programId: world.programId },
+      });
+      expect(failures).toBe(0);
+    });
+
+    it("no record was written for anybody", async () => {
+      const records = await tx().attendanceRecord.count({ where: { sessionId } });
+      expect(records).toBe(0);
+    });
+
+    it("the fellow's own screens show nothing for today", async () => {
+      const today_ = await asStudent().attendance.today();
+      expect(today_).toHaveLength(0);
+
+      const history = await asStudent().attendance.myHistory({ programId: world.programId });
+      expect(history.days).toHaveLength(0);
+    });
+
+    it("and their week has no square for it", async () => {
+      const week = await asStudent().attendance.myWeek();
+      const mine = week.programs.find((row) => row.program.id === world.programId);
+      expect(mine?.open).toBeNull();
+      expect(mine?.days.every((day) => day.session === undefined)).toBe(true);
+    });
+
+    it("the instructor's grid shows everybody as not-yet rather than absent", async () => {
+      const grid = await asInstructor().attendance.grid({ programId: world.programId });
+      expect(grid.session?.state).toBe("pending");
+      expect(grid.rows.every((row) => row.pending === "not-yet")).toBe(true);
+      expect(grid.counts.absent).toBe(0);
+    });
+
+    /*
+      A prepared session is left out of the rate denominator, because `summarize` skips an open
+      session for anybody with no record. Preparing a code at 8:30 must not drop a term's figure
+      until somebody presses start.
+    */
+    it("and it does not count against anybody's attendance rate", async () => {
+      const history = await asInstructor().attendance.history({ programId: world.programId });
+      const [fellow] = history.active;
+      expect(fellow!.eligible).toBe(0);
+      expect(history.openSessions).toHaveLength(0);
+    });
+  });
+
+  /*
+    Every instructor act on a clock that has not started. Each is refused in words rather than
+    half-performed, and the pair for each is the same call succeeding after start, below.
+  */
+  describe("what cannot be done to it yet", () => {
+    it("a status cannot be set, which is what keeps it record-free and deletable", async () => {
+      const refused = await refusal(() =>
+        asInstructor().attendance.setStatus({
+          sessionId,
+          enrollmentId: world.student.id,
+          status: "EXCUSED",
+        }),
+      );
+      expect(refused).toBe("PRECONDITION_FAILED");
+    });
+
+    it("its start time cannot be corrected, because it has none", async () => {
+      const refused = await refusal(() =>
+        asInstructor().attendance.updateSession({ sessionId, lateAfterMinutes: 20 }),
+      );
+      expect(refused).toBe("PRECONDITION_FAILED");
+    });
+
+    it("it cannot be extended", async () => {
+      expect(await refusal(() => asInstructor().attendance.extend({ sessionId }))).toBe(
+        "PRECONDITION_FAILED",
+      );
+    });
+
+    it("it cannot be ended, which would mark the whole roster absent", async () => {
+      expect(await refusal(() => asInstructor().attendance.endSession({ sessionId }))).toBe(
+        "PRECONDITION_FAILED",
+      );
+    });
+
+    it("and it cannot be reopened", async () => {
+      expect(await refusal(() => asInstructor().attendance.reopen({ sessionId }))).toBe(
+        "PRECONDITION_FAILED",
+      );
+    });
+
+    it("none of those refusals wrote a record", async () => {
+      const records = await tx().attendanceRecord.count({ where: { sessionId } });
+      expect(records).toBe(0);
+    });
+  });
+
+  /*
+    Replacing the code is allowed, and it is the one act that must be: a code copied down wrongly or
+    photographed by somebody outside the room is wrong at 8:45, and the remedy cannot wait for nine.
+  */
+  describe("replacing the code before class", () => {
+    it("rotating is allowed and changes the code", async () => {
+      const before = await codeFromRow();
+      await asInstructor().attendance.rotateCode({ sessionId });
+      const after = await codeFromRow();
+      expect(after).not.toBe(before);
+
+      // The session is the same one; only its secret moved.
+      const view = await asInstructor().attendance.sessionCode({ sessionId });
+      expect(view.session.id).toBe(sessionId);
+      expect(view.code).toBe(after);
+      preparedCode = after;
+    });
+  });
+
+  /**
+   * Starting it, which is the check the whole feature rests on.
+   */
+  describe("starting the prepared session", () => {
+    let startedResult: Awaited<ReturnType<ReturnType<typeof asInstructor>["attendance"]["start"]>>;
+    let codeBefore: string;
+
+    beforeAll(async () => {
+      codeBefore = await codeFromRow();
+      startedResult = await asInstructor().attendance.start({ programId: world.programId });
+    });
+
+    it("it is the same session rather than a second one", async () => {
+      expect(startedResult.started).toBe(true);
+      expect(startedResult.id).toBe(sessionId);
+
+      const count = await tx().attendanceSession.count({
+        where: { programId: world.programId, date: dateColumnFor(today) },
+      });
+      expect(count).toBe(1);
+    });
+
+    /*
+      **The line the board depends on.** The derivation reads the session id and the secret, and
+      start touches neither — so the four digits an instructor wrote up before class are the four
+      digits the server now accepts.
+    */
+    it("and the code is unchanged by starting it", async () => {
+      expect(await codeFromRow()).toBe(codeBefore);
+    });
+
+    it("it now reports itself open, with a window", async () => {
+      expect(startedResult.state).toBe("open");
+      expect(startedResult.startedAt).not.toBeNull();
+
+      const row = await tx().attendanceSession.findUniqueOrThrow({
+        where: { id: sessionId },
+        select: { startedAt: true, endsAt: true, startedById: true },
+      });
+      expect(row.startedAt).not.toBeNull();
+      expect(row.endsAt!.getTime() - row.startedAt!.getTime()).toBe(
+        DEFAULT_SESSION_MINUTES * 60 * 1000,
+      );
+      // Whoever opened check-in, which is the act this column names.
+      expect(row.startedById).toBe(world.instructorId);
+    });
+
+    it("the audit log carries both acts, and says the second followed a prepared code", async () => {
+      const prepareEvents = await tx().auditEvent.count({
+        where: { action: "ATTENDANCE_SESSION_PREPARED", subjectId: sessionId },
+      });
+      expect(prepareEvents).toBe(1);
+
+      const startEvent = await tx().auditEvent.findFirstOrThrow({
+        where: { action: "ATTENDANCE_SESSION_STARTED", subjectId: sessionId },
+        select: { detail: true },
+      });
+      expect((startEvent.detail as { fromPrepared?: boolean }).fromPrepared).toBe(true);
+    });
+
+    /*
+      Lateness runs from the press, not from when the code was made. This is the reason the two acts
+      were separated at all: preparing a code at 8:40 used to mean marking the room late.
+    */
+    it("a fellow checking in a moment later is present, not late", async () => {
+      const result = await asStudent().attendance.checkIn({
+        programId: world.programId,
+        code: codeBefore,
+      });
+      expect(result.status).toBe("PRESENT");
+    });
+
+    it("starting it again does not start a second one", async () => {
+      const again = await asInstructor().attendance.start({ programId: world.programId });
+      expect(again.started).toBe(false);
+      expect(again.id).toBe(sessionId);
+    });
+  });
+});
+
+/**
+ * What tomorrow does with a code nobody used.
+ *
+ * **A prepared session from an earlier day is deleted, not finalized**, and that is the difference
+ * worth a test of its own. Finalizing writes an ABSENT row for every fellow on the roster, which is
+ * the right record of a morning that was open and missed. A morning whose check-in never opened is
+ * not that — nobody could have checked in, so nobody failed to — and marking a cohort absent for a
+ * class that did not happen is a wrong number in a report nobody thinks to question.
+ */
+describe("sweeping a prepared session nobody started", () => {
+  const tx = withRollback(120_000);
+
+  let world: World;
+  let staleId: string;
+  let openId: string;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+
+    // Two days ago: a code made and never used. One day ago: a session opened and never ended.
+    const prepared = await tx().attendanceSession.create({
+      data: {
+        programId: world.programId,
+        date: dateColumnFor(daysAgo(2)),
+        startedAt: null,
+        endsAt: null,
+        lateAfterMinutes: 5,
+        codeSecret: "a".repeat(64),
+      },
+      select: { id: true },
+    });
+    staleId = prepared.id;
+
+    const opened = await tx().attendanceSession.create({
+      data: {
+        programId: world.programId,
+        date: dateColumnFor(daysAgo(1)),
+        startedAt: schoolInstant(daysAgo(1), 9, 0),
+        endsAt: schoolInstant(daysAgo(1), 17, 0),
+        lateAfterMinutes: 5,
+        codeSecret: "b".repeat(64),
+      },
+      select: { id: true },
+    });
+    openId = opened.id;
+
+    await asInstructor().attendance.start({ programId: world.programId });
+  });
+
+  it("the prepared day is gone, as though its code had never been made", async () => {
+    const row = await tx().attendanceSession.findUnique({ where: { id: staleId } });
+    expect(row).toBeNull();
+  });
+
+  it("and it left no absences behind", async () => {
+    const records = await tx().attendanceRecord.count({ where: { sessionId: staleId } });
+    expect(records).toBe(0);
+  });
+
+  /*
+    The pair. A session that genuinely was open is still finalized at its own backstop — so the
+    deletion above is about the prepared phase and not about the sweep having stopped working.
+  */
+  it("while the day that really was open is finalized at its own backstop", async () => {
+    const row = await tx().attendanceSession.findUniqueOrThrow({
+      where: { id: openId },
+      select: { endedAt: true, endsAt: true },
+    });
+    expect(row.endedAt).not.toBeNull();
+    expect(row.endedAt!.getTime()).toBe(row.endsAt!.getTime());
+
+    const absences = await tx().attendanceRecord.count({
+      where: { sessionId: openId, status: "ABSENT", source: "FINALIZED" },
+    });
+    expect(absences).toBeGreaterThan(0);
+  });
+});
+
+/** `n` school days before today, as a school day string. */
+function daysAgo(n: number): string {
+  return schoolDayOf(new Date(Date.now() - n * 24 * 60 * 60 * 1000));
+}
+
+/**
+ * What a session's window may claim.
+ *
+ * The two constraints that keep "prepared" one phase rather than a set of half-states. Asserted at
+ * the database rather than only through the procedures, because both failures are silent: a start
+ * with no backstop would accept check-ins forever, and an ended row with no start would read as
+ * pending to every screen while its ABSENT rows sat in the export.
+ */
+describe("what a session's window may claim", () => {
+  const tx = withRollback();
+  let world: World;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+  });
+
+  it("the database refuses a start with no closing time", async () => {
+    const halfWindow = await refusal(() =>
+      tx().attendanceSession.create({
+        data: {
+          programId: world.programId,
+          date: dateColumnFor("2099-12-28"),
+          startedAt: new Date(),
+          endsAt: null,
+          lateAfterMinutes: 5,
+          codeSecret: "c".repeat(64),
+        },
+      }),
+    );
+    expect(halfWindow).not.toBe("accepted");
+  });
+
+  it("and a closing time with no start", async () => {
+    const halfWindow = await refusal(() =>
+      tx().attendanceSession.create({
+        data: {
+          programId: world.programId,
+          date: dateColumnFor("2099-12-27"),
+          startedAt: null,
+          endsAt: new Date(),
+          lateAfterMinutes: 5,
+          codeSecret: "d".repeat(64),
+        },
+      }),
+    );
+    expect(halfWindow).not.toBe("accepted");
+  });
+
+  it("and a session ended without ever having started", async () => {
+    const endedWithoutStart = await refusal(() =>
+      tx().attendanceSession.create({
+        data: {
+          programId: world.programId,
+          date: dateColumnFor("2099-12-26"),
+          startedAt: null,
+          endsAt: null,
+          endedAt: new Date(),
+          lateAfterMinutes: 5,
+          codeSecret: "e".repeat(64),
+        },
+      }),
+    );
+    expect(endedWithoutStart).not.toBe("accepted");
   });
 });

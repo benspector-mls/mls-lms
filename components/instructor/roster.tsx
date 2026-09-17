@@ -388,17 +388,22 @@ function RosterTable({
                           times, their cohort, their GCF history, and a row per course into what
                           they did in it. The work itself is per course and lives a click further
                           in — this page is about the person. */}
+                      {/* Before the name rather than after it, as every other screen that draws
+                          this badge now does: it is the fact that decides whether to read the row
+                          at all, so it should not be something found at the end of a name that
+                          may have been truncated before reaching it.
+
+                          Beside the name rather than in the Enrollment column, which answers a
+                          different question — a test student can also be removed, and both facts
+                          have to be readable at once. */}
                       <div className="flex min-w-0 items-center gap-2">
+                        {isTestStudent && <TestStudentBadge />}
                         <Link
                           href={programStudentHref(programId, enrollment.student.id)}
                           className="truncate font-medium hover:underline"
                         >
                           {name}
                         </Link>
-                        {/* Beside the name rather than in the Enrollment column, which answers a
-                            different question — a test student can also be removed, and both
-                            facts have to be readable at once. */}
-                        {isTestStudent && <TestStudentBadge />}
                       </div>
                       <span className="truncate text-xs text-muted-foreground">
                         {enrollment.student.email ?? "—"}
