@@ -400,6 +400,39 @@ describe("a deadline agreed about team work", () => {
     });
   }
 
+  /*
+    The team is on the assignment before anything has happened to the work, which is the whole
+    point of reading it from membership: `hasAcceptStep` is false for self-directed work, so no
+    submission row exists until somebody hands something in, and until this was fixed a fellow
+    could not see who they were working with for the entire time they were working.
+
+    Placed in this suite because granting an extension is what first made the gap visible — the
+    grant created the rows, and the team appeared as a side effect.
+  */
+  it("names the team on the assignment before anything is handed in", async () => {
+    const fresh = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Integration Extension Team Untouched",
+      dueAt: DUE,
+      teamSetId: (
+        await tx().team.findUniqueOrThrow({
+          where: { id: teamId },
+          select: { teamSetId: true },
+        })
+      ).teamSetId,
+    });
+
+    const rows = await createCaller(tx(), world.students[0]!.studentId).assignments.listForCourse({
+      courseId: world.courseId,
+    });
+    const row = rows.find((entry) => entry.id === fresh.id);
+
+    expect(row?.submissions).toHaveLength(0);
+    expect(row?.team?.name).toBe("Team 1");
+    expect(row?.team?.members.length).toBe(2);
+  });
+
   it("reaches every member of the team, not only the one named", async () => {
     const held = await rows();
     const members = [world.students[0]!.studentId, world.students[1]!.studentId];

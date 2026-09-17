@@ -497,17 +497,28 @@ function PanelHeader({
         the score is the team's, the feedback is the team's, and the Update box replaces something
         a teammate may have handed in.
 
-        `team` is null on individual work and on a team assignment nobody has accepted yet, so this
-        is absent rather than saying "no team", which would read as something being wrong.
+        **Read from the assignment, not from the submission.** A fellow belongs to their team from
+        the moment they are put on it, and on self-directed team work there is no Accept — so no
+        submission row exists until somebody hands something in, and this said nothing for the whole
+        time the team was working.
+
+        `team` is null on individual work, and null too for a fellow on none of the set's teams. In
+        both cases this is absent rather than saying "no team", which would read as something being
+        wrong.
+
+        A team of one states the fact and promises nothing. Reading the team from membership means
+        this is now shown to a fellow placed alone on a team before anything has happened, possibly
+        for the whole project — so a phrasing implying somebody is still to join would be a promise
+        the application has no basis for.
       */}
-      {submission?.team && (
+      {assignment.team && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
           <Users className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="font-medium">{submission.team.name}</span>
+          <span className="font-medium">{assignment.team.name}</span>
           <span className="text-muted-foreground">
-            {submission.team.members.length === 1
-              ? "— just you, for now"
-              : `— ${submission.team.members
+            {assignment.team.members.length === 1
+              ? "— You are the only member of this team"
+              : `— ${assignment.team.members
                   .map((member) => member.displayName ?? "a teammate")
                   .join(", ")}`}
           </span>
@@ -746,8 +757,8 @@ function SubmissionTab({
         work: a member who did not hand this in needs to know that before they consider taking
         something off it.
       */}
-      {submission?.team &&
-        submission.handedInBy &&
+      {assignment.teamSetId !== null &&
+        submission?.handedInBy &&
         (submission.artifacts.length > 0 || submission.prUrl) && (
           <p className="text-sm text-muted-foreground">
             Handed in by{" "}
@@ -1036,7 +1047,7 @@ function TaskCompletion({
               which member is reading. `handedInBy` is the member who marked it and is null for a
               task somebody does alone, which is the case the second sentence covers.
             */}
-            {submission?.team && submission.handedInBy ? (
+            {assignment.teamSetId !== null && submission?.handedInBy ? (
               <>
                 Marked done by{" "}
                 <span className="font-medium text-foreground">

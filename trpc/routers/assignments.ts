@@ -548,36 +548,12 @@ export const assignmentsRouter = createTRPCRouter({
               // keeps a read receipt each member's own answer.
               feedbackReviewedAt: true,
               /*
-                The team, who is on it, and which of them handed in the version now standing.
-
-                **This is the first read in this application that shows one student anything about
-                another**, so what travels is deliberately narrow: a display name and an id, for
-                the members of the caller's *own* team in the set this assignment names. Not their
-                email, not their GitHub handle, not their scores, not their read receipts, and
-                nobody on any other team. `personSelect` carries the first two and is deliberately
-                not reused here.
-
-                Resolved from the caller's own row rather than from anything they could pass in, so
-                there is no id to substitute. Active memberships only, as every other read of a
-                cohort is: somebody who has left is no longer on the team.
+                Which member handed in the version now standing. The team itself is resolved from
+                membership below rather than from this row, because a fellow belongs to their team
+                before anybody has handed anything in.
               */
               handedInBy: { select: { id: true, displayName: true } },
               teamSubmissionId: true,
-              team: {
-                select: {
-                  id: true,
-                  name: true,
-                  teamSet: { select: { name: true } },
-                  memberships: {
-                    where: { enrollment: { status: "ACTIVE" } },
-                    select: {
-                      enrollment: {
-                        select: { student: { select: { id: true, displayName: true } } },
-                      },
-                    },
-                  },
-                },
-              },
               // The work, on this row when the student did it alone.
               ...studentWorkSelect,
               // And on their team's row when they did not. Flattened below, so the panel never
@@ -622,6 +598,73 @@ export const assignmentsRouter = createTRPCRouter({
         student-facing question it answers.
       */
       /*
+        The caller's own team in each of this course's team sets.
+
+        **Read from membership rather than from a submission**, which is the whole point: a fellow
+        belongs to their team from the moment they are put on it, and on self-directed team work
+        there is no Accept — so no row exists until somebody hands something in, and the panel used
+        to be unable to say who a fellow was working with for the whole time they were working.
+
+        **This is the first read in this application that shows one student anything about
+        another**, so what travels is deliberately narrow: a display name and an id, for the members
+        of the caller's *own* team in the sets this course's assignments name. Not their email, not
+        their GitHub handle, not their scores, not their read receipts, and nobody on any other
+        team. `personSelect` carries the first two and is deliberately not reused here.
+
+        Resolved from the caller's own membership rather than from anything they could pass in, so
+        there is no id to substitute. The members listed are the active ones, as every other read of
+        a cohort is — somebody who has left is no longer on the team — while the caller's own
+        membership is not filtered that way, so a fellow who has left the program still sees who
+        they worked with when they read back their own record.
+
+        One query for the page rather than one per assignment, and skipped entirely for a course
+        with no team work at all.
+      */
+      const teamSetIds = [
+        ...new Set(assignments.flatMap((row) => (row.teamSetId ? [row.teamSetId] : []))),
+      ];
+
+      const memberships =
+        teamSetIds.length === 0
+          ? []
+          : await ctx.db.teamMembership.findMany({
+              where: {
+                teamSetId: { in: teamSetIds },
+                enrollment: { studentId: ctx.profile.id },
+              },
+              select: {
+                teamSetId: true,
+                team: {
+                  select: {
+                    id: true,
+                    name: true,
+                    teamSet: { select: { name: true } },
+                    memberships: {
+                      where: { enrollment: { status: "ACTIVE" } },
+                      select: {
+                        enrollment: {
+                          select: { student: { select: { id: true, displayName: true } } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            });
+
+      const teamBySet = new Map(
+        memberships.map((membership) => [
+          membership.teamSetId,
+          {
+            id: membership.team.id,
+            name: membership.team.name,
+            setName: membership.team.teamSet.name,
+            members: membership.team.memberships.map((member) => member.enrollment.student),
+          },
+        ]),
+      );
+
+      /*
         Unread comments, for the badge on the panel's Comments tab. One query for the page rather
         than one per row, and resolved through the mirror so a team's members all see the count.
       */
@@ -643,8 +686,17 @@ export const assignmentsRouter = createTRPCRouter({
           assignment's own deadline, which is the one they authored.
         */
         dueAt: effectiveDueAt({ dueAt: assignment.dueAt, submission: assignment.submissions[0] }),
+        /*
+          The team the caller hands this in with, or null on work they do alone — and null too for a
+          fellow on none of the set's teams, which is a real state an instructor has to fix rather
+          than one to invent a team of one for.
+
+          On the assignment rather than on the submission, because it is true of the caller and this
+          assignment whether or not anything has happened to the work yet.
+        */
+        team: assignment.teamSetId ? (teamBySet.get(assignment.teamSetId) ?? null) : null,
         submissions: assignment.submissions.map((submission) => {
-          const { _count, teamSubmission, team, gradingDrafts, ...own } = submission;
+          const { _count, teamSubmission, gradingDrafts, ...own } = submission;
 
           /*
             Where the work is: this row when the student did it alone, their team's row when they
@@ -682,18 +734,6 @@ export const assignmentsRouter = createTRPCRouter({
               ...draft,
               sections: draft.sections.map(effectiveSection),
             })),
-            /*
-              The team as one object, with the members' names already pulled off their enrollments
-              so the browser is handed people rather than a shape it has to walk.
-            */
-            team: team
-              ? {
-                  id: team.id,
-                  name: team.name,
-                  setName: team.teamSet.name,
-                  members: team.memberships.map((membership) => membership.enrollment.student),
-                }
-              : null,
           };
         }),
       }));

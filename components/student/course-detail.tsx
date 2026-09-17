@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import {
   AssignmentKindIcon,
   SubmissionStatusBadge,
+  TeamWorkIcon,
   UnitCategoryIcon,
 } from "@/components/status-badge";
 import { Card, CardContent, panelSurface } from "@/components/ui/card";
@@ -558,6 +559,15 @@ function RowSummary({
           keeps the one thing the wide row was telling it.
         */}
         <AssignmentKindIcon assignment={assignment} />
+        {/*
+          That this one is handed in by a team, and nothing at all for work a fellow does alone —
+          which is nearly every row, so a marker on those would be the default repeated forty times
+          for a reader who is scanning for the two group projects.
+
+          Beside the kind marker rather than after the title, so the row's fixed-width left edge
+          carries both facts and the title keeps the space it has.
+        */}
+        {assignment.teamSetId !== null && <TeamWorkIcon teamName={assignment.team?.name} />}
         <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
       </span>
 

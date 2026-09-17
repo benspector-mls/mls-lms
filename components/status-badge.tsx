@@ -16,6 +16,7 @@ import {
   NotebookText,
   PlayCircle,
   Upload,
+  Users,
 } from "lucide-react";
 import type * as React from "react";
 
@@ -317,6 +318,46 @@ const UNIT_CATEGORY_ICON: Record<CourseUnitCategory, React.ElementType> = {
   PROJECT: Blocks,
   ASSESSMENT: ClipboardCheck,
 };
+
+/**
+ * That this piece of work is handed in by a team rather than by each fellow.
+ *
+ * **Drawn only for team work, with nothing in its place for the rest**, because work a fellow does
+ * alone is what almost every row is: a marker on every solo row would be forty repetitions of the
+ * default, and a reader scanning a course page for the two group projects would have to read past
+ * all of them.
+ *
+ * Through `KindIcon` like the kind marker beside it, so it is the same size, the same colour, and
+ * expands the same way — a tooltip for a pointer and an `sr-only` name for a screen reader, adding
+ * no tab stop. That matters more here than for the kind, because this one changes what a fellow is
+ * supposed to do: one hand-in exists for the whole team, and somebody who misreads it starts their
+ * own copy of work that is already being done.
+ *
+ * The team's name is in the tooltip when the reader is on one. A fellow on none of the set's teams
+ * still sees the marker, because the assignment is still team work and that is the fact worth
+ * knowing — who they are with is a question for their instructor.
+ */
+export function TeamWorkIcon({
+  teamName,
+  className,
+}: {
+  /** The reader's own team, where they are on one. */
+  teamName?: string | null;
+  className?: string;
+}) {
+  return (
+    <KindIcon
+      icon={Users}
+      label="Team work"
+      description={
+        teamName
+          ? `Team work — handed in once by ${teamName}, for all of you.`
+          : "Team work — handed in once by your team, for all of you."
+      }
+      className={className}
+    />
+  );
+}
 
 export function UnitCategoryIcon({
   category,

@@ -647,12 +647,14 @@ describe("releasing a grade", () => {
     screen saying why.
   */
   describe("what each member's own page shows", () => {
-    const pageFor = async (studentId: string) => {
+    const rowFor = async (studentId: string) => {
       const assignments = await createCaller(tx(), studentId).assignments.listForCourse({
         courseId: world.courseId,
       });
-      return assignments.find((row) => row.id === assignmentId)?.submissions[0] ?? null;
+      return assignments.find((row) => row.id === assignmentId) ?? null;
     };
+
+    const pageFor = async (studentId: string) => (await rowFor(studentId))?.submissions[0] ?? null;
 
     let alicePage: Awaited<ReturnType<typeof pageFor>>;
     let bobPage: Awaited<ReturnType<typeof pageFor>>;
@@ -676,12 +678,22 @@ describe("releasing a grade", () => {
       ]).toEqual([["https://example.com/a"], ["https://example.com/a"]]);
     });
 
-    it("and the same team, with everybody on it", () => {
+    /*
+      The team hangs off the assignment rather than off the submission, because a fellow belongs to
+      it before anything has been handed in — read from membership, so it is the same answer for a
+      member who holds the row and one who holds a mirror.
+    */
+    it("and the same team, with everybody on it", async () => {
+      const [aliceRow, bobRow] = await Promise.all([
+        rowFor(alice.studentId),
+        rowFor(bob.studentId),
+      ]);
+
       expect([
-        alicePage?.team?.name,
-        alicePage?.team?.members.length,
-        bobPage?.team?.name,
-        bobPage?.team?.members.length,
+        aliceRow?.team?.name,
+        aliceRow?.team?.members.length,
+        bobRow?.team?.name,
+        bobRow?.team?.members.length,
       ]).toEqual(["Team 1", 3, "Team 1", 3]);
     });
 
