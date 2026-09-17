@@ -210,3 +210,23 @@
     }
   }
 }
+
+/*
+  An element that still scrolls, with no scrollbar drawn on it.
+
+  For the scrollers that are small, or repeated once per row: the name inside every cell of a
+  frozen column, the gradebook's tab strip, the sidebar. Where a scrollbar takes real space rather
+  than floating over the content, as it does on Windows, one bar inside every name adds height to
+  every row of a table and draws a line down the column; on the tab strip it does the same to a
+  single row of pills.
+
+  The content stays reachable with the bar hidden: these take a swipe or a shift-wheel, and tabbing
+  to a link inside scrolls it into view.
+*/
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
