@@ -186,8 +186,6 @@ export function GradebookGrid({
         totalColumns={filled.reduce((sum, entry) => sum + entry.work.length, 0)}
       />
 
-      <CellLegend />
-
       {work.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
           Nothing matches that filter. Clear it to see every {meta.partNoun} again.
@@ -240,6 +238,8 @@ export function GradebookGrid({
           )}
         </>
       )}
+
+      <CellLegend />
     </div>
   );
 }
