@@ -16,6 +16,7 @@
  */
 
 import { handedIn } from "@/lib/status";
+import { lateness } from "@/lib/submissions/hand-in";
 import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
 
 /** The parts of a cell these read. Structural, so a test can build a cohort in a few lines. */
@@ -127,6 +128,10 @@ export type LateCell = {
   studentId: string;
   /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
   isLate: boolean | null;
+  /** When it was handed in, which is what an extension is compared against. */
+  submittedAt: Date | string | null;
+  /** A deadline renegotiated with this fellow, or null where none was. */
+  extendedDueAt: Date | string | null;
 };
 
 /**
@@ -148,14 +153,27 @@ export type LateCell = {
  * on-time submission into a late one. That is what makes this a count of missed deadlines rather
  * than a count of students who kept working.
  *
- * Null is "nothing handed in yet", which is not the same as on time, so the test is `=== true` —
- * the same convention `isComplete` follows above.
+ * **Work handed in by a renegotiated deadline is not counted here**, which is `lateness` in
+ * lib/submissions/hand-in.ts rather than `isLate` alone. The figure this column is for is whether a
+ * fellow meets deadlines *or* renegotiates them and meets the new one; a fellow who came to their
+ * instructor, agreed a date, and met it has done the thing the school asks for, and a count that
+ * read them the same as somebody who said nothing would discourage the asking.
+ *
+ * **Settled deliberately, against the other reading.** Counting every missed original deadline,
+ * extensions included, would make this a record of what happened rather than a measure of
+ * accountability — defensible, and not what the school wants the column for. The figure instructors
+ * act on is whether a fellow is managing their commitments, and a fellow who renegotiated and
+ * delivered is managing theirs. Recorded here because the alternative reads as the obvious
+ * behaviour to anybody meeting this function cold, and it is not an oversight.
+ *
+ * Null `isLate` is "nothing handed in yet", which is not the same as on time; `lateness` reads it
+ * as neither, following the `=== true` convention `isComplete` uses above.
  */
 export function lateByStudent(cells: readonly LateCell[]): Map<string, number> {
   const counts = new Map<string, number>();
 
   for (const cell of cells) {
-    if (cell.isLate !== true) continue;
+    if (lateness(cell) !== "late") continue;
     counts.set(cell.studentId, (counts.get(cell.studentId) ?? 0) + 1);
   }
 
@@ -175,16 +193,26 @@ export type MissingCell = {
   assignmentId: string;
   studentId: string;
   status: SubmissionStatus;
+  /** A deadline renegotiated with this fellow, which is the one they are judged against. */
+  extendedDueAt: Date | string | null;
 };
 
+/** What `isMissing` reads from the student's own row. Null or undefined for a row that does not exist. */
+export type MissingAgainst = Pick<MissingCell, "status" | "extendedDueAt"> | null | undefined;
+
 /**
- * Whether this assignment is missing for a student: past its deadline with nothing handed in.
+ * Whether this assignment is missing for a student: past their deadline with nothing handed in.
  *
  * **"Handed in" is `handedIn` from `lib/status.ts`, which is the rule behind the student's own
  * overdue list** — so the instructor's "missing" and the student's "overdue" name one fact, and a
  * second implementation cannot come to disagree with the screen the student is looking at. An
  * absent cell passes the same test as `NOT_STARTED`, because it is the same fact: the row exists
  * only once a student has taken the work up.
+ *
+ * **Their deadline, which an extension moves.** A fellow who agreed a new date is not missing the
+ * work until that date passes — the whole point of agreeing one in advance is that the days in
+ * between are not a period of being in trouble. This is the one reader of an extension that acts on
+ * work which has *not* arrived, which is why it takes the cell rather than only its status.
  *
  * A draft is never missing, and neither is an assignment with no deadline. Strictly before `at`,
  * which is the comparison the student dashboard makes — due *at* this instant is not yet missed.
@@ -196,11 +224,13 @@ export type MissingCell = {
  */
 export function isMissing(
   assignment: { dueAt: Date | string | null; distributedAt: Date | string | null },
-  status: SubmissionStatus | null | undefined,
+  against: MissingAgainst,
   at: Date,
 ): boolean {
   if (assignment.dueAt == null || assignment.distributedAt == null) return false;
-  return new Date(assignment.dueAt).getTime() < at.getTime() && !handedIn(status);
+
+  const due = against?.extendedDueAt ?? assignment.dueAt;
+  return new Date(due).getTime() < at.getTime() && !handedIn(against?.status);
 }
 
 /**
@@ -220,16 +250,14 @@ export function missingByStudent(
   cells: readonly MissingCell[],
   at: Date,
 ): Map<string, number> {
-  const statusByKey = new Map(
-    cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell.status]),
-  );
+  const cellByKey = new Map(cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell]));
 
   const counts = new Map<string, number>();
 
   for (const assignment of work) {
     for (const studentId of studentIds) {
-      const status = statusByKey.get(`${assignment.id}:${studentId}`);
-      if (!isMissing(assignment, status, at)) continue;
+      const cell = cellByKey.get(`${assignment.id}:${studentId}`);
+      if (!isMissing(assignment, cell, at)) continue;
       counts.set(studentId, (counts.get(studentId) ?? 0) + 1);
     }
   }

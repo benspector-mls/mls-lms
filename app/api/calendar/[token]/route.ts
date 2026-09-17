@@ -2,6 +2,7 @@ import { db } from "@/lib/prisma";
 import { distributedToStudent } from "@/lib/assignments/scope";
 import { dueDateEvent } from "@/lib/calendar/due-dates";
 import { buildDueDateCalendar } from "@/lib/calendar/ics";
+import { effectiveDueAt } from "@/lib/submissions/hand-in";
 
 /**
  * A student's due dates, as a calendar feed.
@@ -71,6 +72,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       courseId: true,
       updatedAt: true,
       course: { select: { name: true } },
+      /*
+        The caller's own row, for a deadline agreed with them. Scoped to them, like every other
+        read of a submission through a relation — Prisma is not restricted by row level security,
+        so the `where` is the whole of what keeps one fellow's extension out of another's calendar.
+
+        `updatedAt` travels with it because the event's `LAST-MODIFIED` has to move when the
+        agreement does: granting one writes this row and leaves the assignment alone, so a feed
+        built from the assignment's timestamp would offer a new time under a stamp that had not
+        changed, and a calendar is entitled to keep showing the old event.
+      */
+      submissions: {
+        where: { studentId: profile.id },
+        select: { extendedDueAt: true, updatedAt: true },
+      },
     },
     // Only so the document reads sensibly to a person opening the raw file. A calendar sorts by
     // date itself and does not care what order the events arrive in.
@@ -88,14 +103,35 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const now = new Date();
 
   const body = buildDueDateCalendar({
-    events: assignments.map((assignment) =>
-      dueDateEvent({
-        // `dueAt` is non-null by the query above; the column is nullable, so this is where the
-        // narrowing happens rather than inside the pure module, which should not have to know.
-        assignment: { ...assignment, dueAt: assignment.dueAt! },
+    events: assignments.map(({ submissions, ...assignment }) => {
+      const own = submissions[0] ?? null;
+
+      return dueDateEvent({
+        assignment: {
+          ...assignment,
+          /*
+            The deadline this fellow is working to, through the same function the dashboard and the
+            course page call. `verify:calendar` asserts that this feed holds exactly the dated work
+            the dashboard shows, and a second spelling of this rule is how that check would begin
+            failing for a reason nobody could see.
+
+            Non-null: the query above admits only dated work, and an extension is a date. The column
+            is nullable, so this is where the narrowing happens rather than inside the pure module,
+            which should not have to know.
+          */
+          dueAt: effectiveDueAt({ dueAt: assignment.dueAt, submission: own })!,
+          /*
+            The later of the two, so a moved deadline is a changed event. See the select above for
+            why the agreement's own timestamp has to be in this.
+          */
+          updatedAt:
+            own?.updatedAt != null && own.updatedAt > assignment.updatedAt
+              ? own.updatedAt
+              : assignment.updatedAt,
+        },
         origin,
-      }),
-    ),
+      });
+    }),
     now,
   });
 

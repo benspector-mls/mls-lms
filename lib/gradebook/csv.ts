@@ -69,6 +69,10 @@ export type GradebookCsvCell = {
   finalScore: number | null;
   /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
   isLate: boolean | null;
+  /** When it was handed in, which is what a renegotiated deadline is compared against. */
+  submittedAt: Date | string | null;
+  /** A deadline renegotiated with this fellow, or null where none was. */
+  extendedDueAt: Date | string | null;
 };
 
 export type GradebookCsvData = {
@@ -219,10 +223,15 @@ export function gradebookCsv(data: GradebookCsvData, at: Date): string {
         `isMissing` uses to decide the opposite question — so a cell cannot read "Missing" and
         "Submitted" by two rules that disagree. An absent cell is "Not submitted" for the reason
         `isMissing` gives: the row exists only once a student has taken the work up.
+
+        `isMissing` takes the whole cell rather than its status, because the deadline it judges
+        against is the fellow's own: one who agreed a new date is not missing the work until that
+        date passes. So a cell can read "Not submitted" here while the same work would have read
+        "Missing" without the extension, which is the point of agreeing one in advance.
       */
       ...assignments.map((assignment) => {
         const cell = cellByKey.get(`${assignment.id}:${student.id}`);
-        if (isMissing(assignment, cell?.status, at)) return "Missing";
+        if (isMissing(assignment, cell, at)) return "Missing";
         if (cell?.finalScore != null) return cell.finalScore;
         return handedIn(cell?.status) ? "Submitted" : "Not submitted";
       }),

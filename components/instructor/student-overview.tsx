@@ -17,7 +17,8 @@ import { SubmissionRow } from "@/components/instructor/submission-row";
 import { TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { Badge } from "@/components/ui/badge";
-import { SubmissionStatusBadge } from "@/components/status-badge";
+import { LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { ExtensionControl } from "@/components/instructor/extension-control";
 import {
   Select,
   SelectContent,
@@ -114,23 +115,25 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
 
     **A second selection parameter rather than a second meaning for the first** — the decision the
     queue's `?fellow=` records, met from the other side: there the fixed thing is the assignment
-    and the rowless thing is a fellow, here the fellow is fixed and the rowless thing is a task
-    they have not started. `?submission=` names a row, and these have none.
+    and the rowless thing is a fellow, here the fellow is fixed and the rowless thing is an
+    assignment they have not started. `?submission=` names a row, and these have none.
 
-    Resolved against any row by assignment id rather than only the rowless ones, because marking
-    the task done creates its row and the refresh that follows should land back on the same
-    assignment — now through its submission — rather than on the fallback.
+    Resolved against any row by assignment id rather than only the rowless ones, because an act
+    performed here creates the row — marking a task done, or agreeing an extension — and the
+    refresh that follows should land back on the same assignment, now through its submission,
+    rather than on the fallback.
 
-    Only a row the pane can draw: a task opens with or without a submission, anything else needs
-    one, so a hand-typed address naming an unstarted repository falls through to the fallback
-    instead of opening a pane with nothing to show.
+    **Any assignment opens, whatever its kind and whether or not it has been started.** It used to
+    be tasks only, on the grounds that nothing else had anything a pane could show until work
+    existed. That stopped being true when a deadline became something an instructor agrees here: a
+    fellow who needs one has most often handed in nothing, and for self-directed work they cannot
+    have — there is no Accept, so submitting is the only way to start, and the row does not exist
+    until they do. An unstarted assignment that could not be opened was one nobody could be given
+    an extension on.
   */
   const selectedAssignmentId = searchParams.get("assignment");
-  const byAssignment = data.rows.find((row) => row.assignment.id === selectedAssignmentId);
   const selectedByAssignment =
-    byAssignment && (byAssignment.assignment.kind === "TASK" || byAssignment.submission !== null)
-      ? byAssignment
-      : null;
+    data.rows.find((row) => row.assignment.id === selectedAssignmentId) ?? null;
 
   /*
     The selection survives a filter that no longer contains it, and falls back to the first row that
@@ -153,7 +156,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
     setListOpen(false);
   }
 
-  /** Opens a task the fellow has not started. The mirror of `select` above. */
+  /** Opens an assignment the fellow has no row for. The mirror of `select` above. */
   function selectAssignment(assignmentId: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("assignment", assignmentId);
@@ -312,15 +315,12 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       row={row}
                       active={selected?.assignment.id === row.assignment.id}
                       /*
-                        Openable only as a task, where "nobody has touched this" is exactly the row
-                        an instructor wants: the one to chase, or to mark done on their behalf.
-                        Every other kind has nothing a pane could show until work exists.
+                        Every kind opens, not only tasks. "Nobody has touched this" is exactly the
+                        row an instructor wants when the thing to do about it is to chase it, to
+                        mark it done on the fellow's behalf, or to agree a new deadline for it —
+                        and the last of those is why the other kinds had to become openable.
                       */
-                      onSelect={
-                        row.assignment.kind === "TASK"
-                          ? () => selectAssignment(row.assignment.id)
-                          : undefined
-                      }
+                      onSelect={() => selectAssignment(row.assignment.id)}
                     />
                   ),
                 )}
@@ -352,11 +352,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               selected?.submission ? (
                 <span className="flex items-center gap-2">
                   <SubmissionStatusBadge status={selected.submission.status} />
-                  {selected.submission.isLate && (
-                    <Badge variant="outline" className="font-normal">
-                      Late
-                    </Badge>
-                  )}
+                  <LatenessBadge submission={selected.submission} />
                   {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the
@@ -404,6 +400,34 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             `min-h-0 flex-1` because the review pane sizes itself with `h-full` and scrolls inside.
             Without it the header above would push the approve button off the screen.
           */}
+          {/*
+            **Above the pane rather than inside either of the two that fill it**, and outside the
+            grading-mode bar, which is hidden at `lg` unless grading mode is on. An extension is
+            agreed about the assignment rather than about the report, so it belongs to the whole
+            pane — and it has to be reachable while a fellow has handed in nothing, which is when
+            a renegotiated deadline is most often agreed.
+
+            Drawn only for work with its own deadline, never for team work, and never for a draft.
+            `ExtensionControl` returns nothing without a due date; the two checks here keep it away
+            from an assignment whose one hand-in carries one verdict for every member, and from one
+            nobody has been given — a fellow cannot be late for work that was never handed out, so
+            there is no deadline of theirs to renegotiate.
+          */}
+          {selected &&
+            selected.assignment.teamSetId === null &&
+            selected.assignment.distributedAt && (
+              <ExtensionControl
+                key={selected.assignment.id}
+                assignmentId={selected.assignment.id}
+                studentId={data.student.id}
+                studentName={name}
+                dueAt={selected.assignment.dueAt}
+                extendedDueAt={selected.submission?.extendedDueAt ?? null}
+                grantedBy={selected.submission?.extensionGrantedBy ?? null}
+                grantedAt={selected.submission?.extensionGrantedAt ?? null}
+              />
+            )}
+
           <div className="min-h-0 flex-1">
             {/*
               A task takes the pane built for one, exactly as the grading queue decides it: a task
@@ -424,9 +448,18 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 selfMarked={taskIsSelfMarked(selected.assignment)}
                 now={now}
               />
-            ) : selected?.submission ? (
-              // Keyed on the submission so moving between assignments resets the editor rather
-              // than carrying unsaved edits from one report onto another.
+            ) : selected?.submission && selected.submission.status !== "NOT_STARTED" ? (
+              /*
+                Keyed on the submission so moving between assignments resets the editor rather
+                than carrying unsaved edits from one report onto another.
+
+                **A row that says `NOT_STARTED` is not work to review**, and the pane says so
+                below instead. Such a row exists because something *else* created it — a question
+                asked in the comments, or an extension agreed before the fellow began — and
+                reviewing it would offer to generate a report about nothing. `ACCEPTED` is
+                deliberately on this side of the line: a repository has been generated, and the
+                link to it is exactly what an instructor opens the pane for.
+              */
               <GradingReview
                 key={selected.submission.id}
                 submission={selected.submission}
@@ -441,12 +474,36 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 releasing={releasing.inFlight.has(selected.submission.id)}
               />
             ) : (
+              /*
+                Two situations, and they used to share one sentence. With every assignment now
+                openable, "nothing here" can mean the fellow has started nothing in the whole
+                course *or* that this one assignment is untouched — and the second is a row an
+                instructor deliberately opened, so a message about the course would read as the
+                screen having lost their selection.
+
+                The strip above is the rest of the answer: an extension can be agreed from here,
+                which is the reason an unstarted assignment opens at all.
+              */
               <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
                 <Inbox className="size-10 text-muted-foreground" />
                 <p className="text-base font-medium">Nothing handed in yet</p>
                 <p className="max-w-sm text-sm text-muted-foreground">
-                  {name} has not started any of this course&apos;s assignments. Their work opens
-                  here once there is some.
+                  {selected === null ? (
+                    <>
+                      {name} has not started any of this course&apos;s assignments. Their work opens
+                      here once there is some.
+                    </>
+                  ) : selected.assignment.distributedAt === null ? (
+                    <>
+                      {selected.assignment.title} has not been published, so {name} cannot have
+                      started it.
+                    </>
+                  ) : (
+                    <>
+                      {name} has handed nothing in for {selected.assignment.title}. Their work opens
+                      here once there is some.
+                    </>
+                  )}
                 </p>
               </div>
             )}

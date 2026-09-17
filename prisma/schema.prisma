@@ -116,6 +116,7 @@ model Profile {
   handedIn             Submission[]            @relation("HandedInBy")
   commentsWritten      SubmissionComment[]     @relation("CommentsWritten")
   commentsResolved     Submission[]            @relation("CommentsResolved")
+  extensionsGranted    Submission[]            @relation("ExtensionGrantedBy")
   commentReads         SubmissionCommentRead[] @relation("CommentReads")
 
   @@map("profiles")
@@ -930,7 +931,7 @@ model Resource {
   /// rewrites a whole sequence in one statement, and a unique constraint would refuse any
   /// intermediate state where two resources briefly share a position. Ties only affect
   /// tie-breaking, which every ordering here settles with the title.
-  position     Int
+  position Int
 
   /// Where it points, for LINK and VIDEO. Validated as a URL by the schema rather than by the
   /// column, because "required for one kind" is not something a column can express.
@@ -1281,6 +1282,38 @@ model Submission {
   isLate            Boolean?  @map("is_late")
   lastActivityAt    DateTime? @map("last_activity_at") @db.Timestamptz(6)
 
+  /// A deadline renegotiated with this fellow, for this piece of work.
+  ///
+  /// **`isLate` above is not touched by this, and that is the whole design.** It records whether
+  /// the original deadline was missed, judged once at hand-in, and it goes on saying so. This
+  /// column records what was agreed instead. Keeping both is what lets the school ask the question
+  /// it actually cares about — did this fellow meet a deadline, or renegotiate one and meet the new
+  /// one — which a column that simply moved the deadline could not answer, because the fact that
+  /// anything was renegotiated would be written down nowhere.
+  ///
+  /// **The verdict is derived from the two, never stored.** `lateness` in lib/submissions/hand-in.ts
+  /// compares `submittedAt` against this: missed the original and met this one reads "Extended",
+  /// missed both reads "Late". Safe to derive because neither timestamp moves once written —
+  /// `submittedAt` records the first hand-in and is never rewritten, and this changes only when an
+  /// instructor grants or revokes.
+  ///
+  /// **Retroactive excusal is the same column**, not a second mechanism: an extension dated at or
+  /// after a hand-in that already happened makes it read as extended. That is what granting one
+  /// after the fact means.
+  ///
+  /// **Per fellow, and deliberately absent from `MIRRORED_COLUMNS`.** A team hands in once and every
+  /// member's row carries the same verdict, but an extension is agreed with one person — so it stays
+  /// on their row, survives the fan-out that copies a hand-in across a team, and never reaches a
+  /// teammate who did not ask for it.
+  ///
+  /// All three of these are null together or set together, which a CHECK constraint in the migration
+  /// holds: an extension nobody granted, or one granted at no time, is not a state worth admitting.
+  extendedDueAt        DateTime? @map("extended_due_at") @db.Timestamptz(6)
+  /// Who agreed to it. `SetNull` like `gradedById`: an instructor leaving does not unmake the
+  /// agreement, and the date is the part that matters to the fellow.
+  extensionGrantedById String?   @map("extension_granted_by") @db.Uuid
+  extensionGrantedAt   DateTime? @map("extension_granted_at") @db.Timestamptz(6)
+
   finalScore         Float?    @map("final_score")
   finalScorePossible Float?    @map("final_score_possible")
   isComplete         Boolean?  @map("is_complete")
@@ -1340,6 +1373,7 @@ model Submission {
   gradedBy           Profile?                @relation("GradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
   commentsResolvedBy Profile?                @relation("CommentsResolved", fields: [commentsResolvedById], references: [id], onDelete: SetNull)
   handedInBy         Profile?                @relation("HandedInBy", fields: [handedInById], references: [id], onDelete: SetNull)
+  extensionGrantedBy Profile?                @relation("ExtensionGrantedBy", fields: [extensionGrantedById], references: [id], onDelete: SetNull)
   team               Team?                   @relation(fields: [teamId, teamSetId], references: [id, teamSetId], onDelete: Restrict)
   /// `NoAction` rather than `Restrict`, and the difference matters: deleting an assignment
   /// cascades its submissions, and `RESTRICT` is checked per row rather than at the end of the

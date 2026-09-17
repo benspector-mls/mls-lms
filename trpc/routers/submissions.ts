@@ -145,6 +145,12 @@ const reviewableSubmissionSelect = {
   artifacts: { orderBy: { createdAt: "asc" as const }, select: artifactSelect },
   submittedAt: true,
   isLate: true,
+  // Read with the two above by `lateness`, so a badge says "Extended" where one was agreed.
+  extendedDueAt: true,
+  // Who agreed to it and when, which is what the extension strip on a fellow's record says beside
+  // the date. Null together with `extendedDueAt`, which the table's CHECK constraint holds.
+  extensionGrantedAt: true,
+  extensionGrantedBy: { select: personNameSelect },
   lastActivityAt: true,
   // The grade, and the commit it describes. `headSha !== gradedHeadSha` is how
   // the queue shows that a student has pushed since being graded — two columns,
@@ -1198,6 +1204,164 @@ export const submissionsRouter = createTRPCRouter({
     }),
 
   /**
+   * Agreeing a new deadline with one fellow, on one piece of work.
+   *
+   * **This moves no deadline and rewrites no verdict.** `Assignment.dueAt` is untouched, and so is
+   * `isLate` — which goes on saying that the original deadline was missed, because it was. What
+   * this records is what was agreed instead, and `lateness` reads the two together: missed the
+   * original and met this one is "Extended", missed both is "Late". Keeping both facts is the whole
+   * point, and it is what lets the school ask whether a fellow meets deadlines *or* renegotiates
+   * them and meets the new one.
+   *
+   * **Keyed on the fellow rather than on a submission id**, like `setTaskCompletion` above and for
+   * its reason: an extension agreed in advance is agreed with somebody who has handed in nothing,
+   * and a submission id is a thing they do not have yet. The row is created to hold the agreement,
+   * which is also what puts the new date in front of the fellow on their own dashboard — the point
+   * of agreeing one in advance being that the days in between are not a period of being in trouble.
+   *
+   * **Refused on team work.** A team hands in once and every member's row carries the one verdict,
+   * so a deadline agreed with one member would show their teammates' shared hand-in as extended for
+   * them and late for everybody else. The same reasoning refuses a per-cohort due date on team
+   * work: one piece of work, one deadline. Refusing also keeps this procedure away from the
+   * mirror machinery — a row created here for a fellow with none would be neither reconciled nor
+   * mirrored by `syncTeamRows`, which would strand them on their own team's assignment.
+   *
+   * Null revokes, clearing all three columns together — the state the CHECK constraint on the table
+   * admits, and the one an instructor reaches by taking back an agreement that was never used.
+   */
+  grantExtension: instructorProcedure
+    .input(
+      z.object({
+        assignmentId: z.string().uuid(),
+        studentId: z.string().uuid(),
+        /** The new deadline, or null to take the agreement back. */
+        extendedDueAt: z.date().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        title: true,
+        dueAt: true,
+        distributedAt: true,
+        teamSetId: true,
+        course: { select: { programId: true } },
+      });
+
+      if (assignment.teamSetId !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This work is handed in by teams, which share one deadline. Move the assignment's " +
+            "due date instead, or ask the team to hand in what they have.",
+        });
+      }
+
+      /*
+        Nothing to extend. An assignment with no deadline can never be late, so an agreement about
+        it would sit on the row saying nothing — and the fellow would be shown a date for work that
+        has none.
+      */
+      if (assignment.dueAt === null && input.extendedDueAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This assignment has no due date, so there is no deadline to extend. Give it one " +
+            "first if you want to track it.",
+        });
+      }
+
+      /*
+        A draft, which is a deadline nobody has been given. `isMissing` already refuses to call a
+        fellow late for work that was never handed out, so an agreement about one would sit on the
+        row meaning nothing until the day it was published. Refused rather than accepted-and-inert
+        so that this procedure and the strip that calls it hold the same rule — the strip is not
+        drawn for a draft, and a rule kept in only one of the two places is one that drifts.
+      */
+      if (assignment.distributedAt === null && input.extendedDueAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This assignment has not been published, so nobody has been given its deadline yet. " +
+            "Publish it first.",
+        });
+      }
+
+      /*
+        **Later than the deadline it replaces.** An earlier one would be consulted by neither
+        reader in the way anybody intends: `lateness` only asks about it for work already past the
+        original deadline, so an earlier date always reads "Late", while `isMissing` would start
+        drawing a red ring *before* the rest of the cohort's deadline had even passed. A new
+        deadline that makes somebody late sooner is not an extension.
+      */
+      if (
+        input.extendedDueAt !== null &&
+        assignment.dueAt !== null &&
+        input.extendedDueAt <= assignment.dueAt
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "An extension has to be later than the assignment's own due date.",
+        });
+      }
+
+      /*
+        On the roster, and active. The same clause `setTaskCompletion` applies, and not redundant
+        for the same reason: without it an instructor could write an agreement onto somebody from
+        another program by naming their id, and the upsert below would create the row to hold it.
+      */
+      const enrollment = await ctx.db.enrollment.findFirst({
+        where: {
+          programId: assignment.course.programId,
+          studentId: input.studentId,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      });
+
+      if (!enrollment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That fellow is not on this course's roster.",
+        });
+      }
+
+      // All three together or all three null, which is what the table's CHECK constraint holds.
+      const granted =
+        input.extendedDueAt === null
+          ? { extendedDueAt: null, extensionGrantedById: null, extensionGrantedAt: null }
+          : {
+              extendedDueAt: input.extendedDueAt,
+              extensionGrantedById: ctx.profile.id,
+              extensionGrantedAt: new Date(),
+            };
+
+      const work = await ctx.db.submission.upsert({
+        where: {
+          assignmentId_studentId: {
+            assignmentId: assignment.id,
+            studentId: input.studentId,
+          },
+        },
+        /*
+          `NOT_STARTED` for a fellow who has taken nothing up, which is what every other path that
+          brings a row into being writes. The row holds the agreement and nothing else; pressing
+          Accept afterwards moves it on exactly as it would have.
+        */
+        create: {
+          assignmentId: assignment.id,
+          studentId: input.studentId,
+          status: "NOT_STARTED",
+          ...granted,
+        },
+        update: granted,
+        select: { id: true, extendedDueAt: true },
+      });
+
+      return work;
+    }),
+
+  /**
    * Everything in one course that is waiting on the caller. Instructors only.
    *
    * The landing screen for an instructor, so it answers "what do I do next" rather than
@@ -1313,6 +1477,9 @@ export const submissionsRouter = createTRPCRouter({
           id: true,
           status: true,
           isLate: true,
+          // With `submittedAt` below, what `lateness` reads to tell an agreed deadline from a
+          // missed one — so a pile of work does not report a fellow who renegotiated as late.
+          extendedDueAt: true,
           headSha: true,
           gradedHeadSha: true,
           submittedAt: true,
@@ -1783,6 +1950,9 @@ export const submissionsRouter = createTRPCRouter({
           pointValue: true,
           completionThreshold: true,
           distributedAt: true,
+          // Whether this is handed in by teams, which is what decides that no extension may be
+          // agreed on it: one hand-in carries one verdict for every member. See `grantExtension`.
+          teamSetId: true,
           // So the task pane can say whether the fellow could have marked this themselves —
           // `taskIsSelfMarked` reads it beside `kind`.
           studentMayMarkDone: true,

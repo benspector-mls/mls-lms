@@ -59,14 +59,29 @@ import {
   formatDueDate,
   formatPercent,
   handInMode,
+  LATENESS_META,
   scorePercent,
   sectionLabel,
   shortSha,
   type HandInMode,
 } from "@/lib/status";
+import { lateness, type Lateness, type LatenessFacts } from "@/lib/submissions/hand-in";
 import { cn } from "@/lib/utils";
 
 import type { Assignment, Submission } from "./types";
+
+/**
+ * What a fellow's own copy of a piece of work says about when it arrived: nothing when it was on
+ * time, and the word in brackets otherwise.
+ *
+ * Beside the work rather than as a badge, because this is a sentence a fellow reads — "Your pull
+ * request (extended)" — and the pill vocabulary belongs to the screens that list many submissions
+ * at once.
+ */
+function latenessNote(submission: LatenessFacts): string {
+  const verdict = lateness(submission);
+  return verdict === "onTime" ? "" : ` (${LATENESS_META[verdict].label.toLowerCase()})`;
+}
 
 /**
  * One assignment, in a panel over the course list.
@@ -458,7 +473,19 @@ function PanelHeader({
         <span aria-hidden="true" className="hidden sm:inline">
           ·
         </span>
+        {/*
+          **The deadline this fellow is working to.** `assignment.dueAt` already holds theirs —
+          the procedure substituted an agreed extension before the payload left the server — so
+          this line needs no branch to show the right date.
+
+          The note beside it is the part the date alone cannot say: that this one was agreed rather
+          than the deadline everybody else has, so a fellow reading their own page can tell an
+          extension they were granted from a class deadline they misremembered.
+        */}
         <span>{assignment.dueAt ? `Due ${formatDueDate(assignment.dueAt)}` : "No due date"}</span>
+        {submission?.extendedDueAt != null && (
+          <span className="text-sky-700 dark:text-sky-300">Extended for you</span>
+        )}
       </SheetDescription>
 
       {/*
@@ -751,7 +778,7 @@ function SubmissionTab({
         <AttachmentRow
           key={artifact.id}
           artifact={artifact}
-          isLate={submission.isLate ?? false}
+          lateness={lateness(submission)}
           driveKind={assignment.kind === "GOOGLE_DRIVE"}
           // Removable on exactly the terms the forms are offered on. While an instructor is
           // reading, the server refuses both, and the notice below says why.
@@ -1073,12 +1100,13 @@ function TaskCompletion({
  */
 function AttachmentRow({
   artifact,
-  isLate,
+  lateness,
   driveKind,
   removable,
 }: {
   artifact: Submission["artifacts"][number];
-  isLate: boolean;
+  /** On time, extended, or late — decided once by the panel and passed down. */
+  lateness: Lateness;
   /** A Drive assignment handed out a template, so its links are "the file you submitted". */
   driveKind: boolean;
   removable: boolean;
@@ -1097,13 +1125,13 @@ function AttachmentRow({
           artifactId={artifact.id}
           filename={artifact.uploadFilename ?? "Attachment"}
           sizeBytes={artifact.uploadSizeBytes}
-          isLate={isLate}
+          lateness={lateness}
         />
       ) : (
         <SubmittedDocumentRow
           url={artifact.url ?? ""}
           label={driveKind ? "The file you submitted" : "The work you submitted"}
-          isLate={isLate}
+          lateness={lateness}
         />
       )}
 
@@ -1423,7 +1451,7 @@ function UploadWorkForm({
         remaining === 1
           ? `This submission has room for one more attachment, and you chose ${chosen.length}.`
           : `This submission has room for ${remaining} more attachments, and you chose ` +
-            `${chosen.length}.`,
+              `${chosen.length}.`,
       );
     }
 
@@ -1638,7 +1666,7 @@ function RepoLinks({ submission }: { submission: Submission }) {
           className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
         >
           <GitPullRequest data-icon="inline-start" />
-          Your pull request{submission.isLate ? " (late)" : ""}
+          Your pull request{latenessNote(submission)}
           <ExternalLink data-icon="inline-end" />
         </a>
       )}

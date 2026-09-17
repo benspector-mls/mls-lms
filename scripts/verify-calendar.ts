@@ -150,6 +150,8 @@ async function main() {
 
   /** Set once the row exists, so the `finally` knows whether there is anything to delete. */
   let createdAssignmentId: string | null = null;
+  /** The fixture assignment a submission row was made against, so the row can be removed with it. */
+  let createdSubmissionAssignmentId: string | null = null;
 
   console.log(`Base     ${BASE}`);
   console.log(`Student  ${enrollment.student.email ?? enrollment.studentId}`);
@@ -324,6 +326,67 @@ async function main() {
         withPublished.text.includes("DTSTART:20991231T233000Z") &&
           withPublished.text.includes("DTEND:21000101T000000Z"),
       );
+
+      /*
+        A deadline agreed with this fellow moves their own event, on the same row rather than as a
+        second one. The block above is what it moves *from*, which is what makes this a measurement
+        rather than an assertion that some block exists: the extension is a day later, so the event
+        has to leave 20991231 and arrive at 21000101, and the UID has to be the one it already had.
+
+        It is checked here rather than in a Jest suite because it is the one thing about an
+        extension that no unit test can reach — the feed, the dashboard, and the grant are three
+        different entry points into one rule, and this file is where the three are compared.
+      */
+      const extended = new Date("2100-01-01T23:59:00Z");
+      await db.submission.upsert({
+        where: {
+          assignmentId_studentId: {
+            assignmentId: fixture.id,
+            studentId: enrollment.studentId,
+          },
+        },
+        create: {
+          assignmentId: fixture.id,
+          studentId: enrollment.studentId,
+          status: "NOT_STARTED",
+          extendedDueAt: extended,
+          extensionGrantedById: enrollment.studentId,
+          extensionGrantedAt: new Date(),
+        },
+        update: {
+          extendedDueAt: extended,
+          extensionGrantedById: enrollment.studentId,
+          extensionGrantedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      createdSubmissionAssignmentId = fixture.id;
+
+      const withExtension = await fetchFeed(token);
+
+      checkThat(
+        "a deadline agreed with this fellow moves their own event",
+        withExtension.text.includes("DTSTART:21000101T233000Z") &&
+          withExtension.text.includes("DTEND:21000102T000000Z"),
+      );
+      checkThat(
+        "...on the same event rather than as a second one",
+        withExtension.text.includes(`UID:${fixture.id}@${UID_DOMAIN}`) &&
+          !withExtension.text.includes("DTSTART:20991231T233000Z"),
+      );
+
+      /*
+        And the dashboard says the same date, which is the property this whole file exists to hold.
+        Three readers substitute an extension — the feed, `listMine`, and `listForCourse` — and they
+        do it through one function precisely so this comparison can be made.
+      */
+      const withExtensionOnDashboard = await student.assignments.listMine();
+      const extendedRow = withExtensionOnDashboard.find((row) => row.id === fixture.id);
+      checkThat(
+        "...and the dashboard shows the fellow the same deadline the feed does",
+        extendedRow?.dueAt?.toISOString() === extended.toISOString(),
+        extendedRow?.dueAt?.toISOString() ?? "the row is not on the dashboard",
+      );
     }
 
     /*
@@ -395,6 +458,14 @@ async function main() {
       leave a real student holding an address they never asked for, or a cohort holding an
       assignment nobody authored.
     */
+    /*
+      The submission first, and by assignment rather than by id, because deleting the assignment
+      cascades it anyway — this is what makes the cleanup correct if the assignment delete below is
+      ever made conditional.
+    */
+    if (createdSubmissionAssignmentId) {
+      await db.submission.deleteMany({ where: { assignmentId: createdSubmissionAssignmentId } });
+    }
     if (createdAssignmentId) {
       await db.assignment.delete({ where: { id: createdAssignmentId } });
     }

@@ -464,6 +464,43 @@ export function handedIn(status: SubmissionStatus | null | undefined): boolean {
 }
 
 /**
+ * What a submission's timeliness is called, and nothing about how it is worked out.
+ *
+ * **Deliberately not in `SUBMISSION_STATUS_META`.** That map is the grading pipeline — accepted,
+ * submitted, graded, revised — and timeliness is not a position in it: a submission is graded *and*
+ * late, so one column cannot hold both. `ATTENDANCE_STATUS_META.LATE` beside it is a third thing
+ * again, about mornings rather than deadlines, and the two have never meant the same.
+ *
+ * **"Extended" says what happened rather than excusing it.** A fellow reading it has missed the
+ * class deadline and met one they agreed instead, which is the outcome the school asks for when
+ * something goes wrong — so it is drawn in an ordinary colour rather than a warning one, and the
+ * word is theirs to show a parent or an employer without explanation.
+ *
+ * `onTime` has no entry because it has nothing to say: work that arrived when it was supposed to
+ * gets no badge at all, and a reader seeing nothing is reading the common case correctly.
+ * `latenessMeta` returns null for it, which is the one question a caller has to ask.
+ */
+export const LATENESS_META: Record<"extended" | "late", StatusMeta> = {
+  extended: {
+    label: "Extended",
+    tone: "info",
+    description: "Handed in by a deadline agreed with an instructor.",
+  },
+  late: { label: "Late", tone: "danger", description: "Handed in after the deadline." },
+};
+
+/**
+ * The badge a submission's timeliness earns, or null where it earns none.
+ *
+ * The one thing every screen drawing lateness should call, so that a fellow's work is not
+ * "Extended" on their own page and "Late" in the gradebook. What the verdict *is* comes from
+ * `lateness` in lib/submissions/hand-in.ts; this only names it.
+ */
+export function latenessMeta(verdict: "onTime" | "extended" | "late"): StatusMeta | null {
+  return verdict === "onTime" ? null : LATENESS_META[verdict];
+}
+
+/**
  * Whether there is a report the student has not said they read.
  *
  * **`feedbackReviewedAt` is compared against `gradedAt`, never merely checked for null**, and

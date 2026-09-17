@@ -16,7 +16,7 @@ import { TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
-import { SubmissionStatusBadge } from "@/components/status-badge";
+import { LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { useReleaseGrade } from "@/hooks/use-release-grade";
@@ -509,11 +509,7 @@ export function GradingQueue({
               selected && !isTask ? (
                 <span className="flex items-center gap-2">
                   <SubmissionStatusBadge status={selected.status} />
-                  {selected.isLate && (
-                    <Badge variant="outline" className="font-normal">
-                      Late
-                    </Badge>
-                  )}
+                  <LatenessBadge submission={selected} />
                   {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the

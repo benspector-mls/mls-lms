@@ -7,6 +7,7 @@ import { SubmittedLinkHeading, SubmittedLinkRow } from "@/components/submitted-l
 import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DRIVE_DOC_KIND_LABEL, driveEmbedUrl, parseDriveDocUrl } from "@/lib/drive/embed";
+import type { Lateness } from "@/lib/submissions/hand-in";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,14 +35,15 @@ import { cn } from "@/lib/utils";
 export function SubmittedDocumentRow({
   url,
   label,
-  isLate = false,
+  lateness = "onTime",
   previewByDefault = false,
   className,
 }: {
   url: string;
   /** What this document is to the reader — the student's own work, or a student's. */
   label: string;
-  isLate?: boolean;
+  /** On time, extended, or late — see `lateness` in lib/submissions/hand-in.ts. */
+  lateness?: Lateness;
   /**
    * Open the document without being asked. True on the review screen, where reading the work is
    * the whole reason the instructor is there, and false on the student's own page, where they
@@ -63,7 +65,7 @@ export function SubmittedDocumentRow({
     to show it, which is the one failure with nothing on screen to explain it.
   */
   if (!ref) {
-    return <SubmittedLinkRow url={url} label={label} isLate={isLate} className={className} />;
+    return <SubmittedLinkRow url={url} label={label} lateness={lateness} className={className} />;
   }
 
   return (
@@ -74,7 +76,7 @@ export function SubmittedDocumentRow({
           heading holds the **Open** anchor, and an anchor inside a button is invalid markup and
           unreachable by keyboard.
         */}
-        <SubmittedLinkHeading url={url} label={label} isLate={isLate} icon={FileText} />
+        <SubmittedLinkHeading url={url} label={label} lateness={lateness} icon={FileText} />
 
         {/*
           **"Hide the document", in those words.** It is the documented way an instructor takes the

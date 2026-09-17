@@ -1,4 +1,10 @@
-import { handInState, handInStatus, taskReset, taskVerdict } from "@/lib/submissions/hand-in";
+import {
+  handInState,
+  handInStatus,
+  lateness,
+  taskReset,
+  taskVerdict,
+} from "@/lib/submissions/hand-in";
 
 /**
  * What handing work in does to a submission.
@@ -134,6 +140,86 @@ describe("handInState", () => {
  * hand-in: which columns a *not done* verdict may move, whether a second mark rewrites when the
  * work was done, and the one column written for a reason no other kind has.
  */
+/**
+ * What a submission's timeliness reads as once a renegotiated deadline is taken into account.
+ *
+ * The distinction these cases are about: a fellow who missed a deadline and said nothing, and a
+ * fellow who came to their instructor, agreed a new date, and met it. `isLate` cannot tell them
+ * apart — it is true of both — and the second is the behaviour the school wants to encourage.
+ */
+describe("lateness", () => {
+  /** An extension agreed two days after the original deadline. */
+  const EXTENDED = new Date("2026-03-12T23:59:00Z");
+  /** Handed in inside the extension, which is after `DUE` and before `EXTENDED`. */
+  const WITHIN = new Date("2026-03-11T10:00:00Z");
+
+  it("reads work that met its original deadline as on time", () => {
+    expect(lateness({ isLate: false, submittedAt: ON_TIME, extendedDueAt: null })).toBe("onTime");
+  });
+
+  it("reads work that missed its deadline with nothing agreed as late", () => {
+    expect(lateness({ isLate: true, submittedAt: AFTER, extendedDueAt: null })).toBe("late");
+  });
+
+  it("reads work handed in by a renegotiated deadline as extended", () => {
+    expect(lateness({ isLate: true, submittedAt: WITHIN, extendedDueAt: EXTENDED })).toBe(
+      "extended",
+    );
+  });
+
+  // The case an extension must not excuse, or agreeing one would be a way of never being late.
+  it("reads work that missed the renegotiated deadline too as late", () => {
+    expect(lateness({ isLate: true, submittedAt: AFTER, extendedDueAt: EXTENDED })).toBe("late");
+  });
+
+  // Handed in at the extended deadline exactly, which is inside it — the same inclusive reading
+  // `handInState` gives the original deadline.
+  it("reads work handed in at the renegotiated deadline itself as extended", () => {
+    expect(lateness({ isLate: true, submittedAt: EXTENDED, extendedDueAt: EXTENDED })).toBe(
+      "extended",
+    );
+  });
+
+  /*
+    Granting an extension dated at or after a hand-in that already happened is how an instructor
+    excuses one after the fact. It needs no separate mechanism: the comparison is satisfied.
+  */
+  it("reads a retroactive extension as extended", () => {
+    expect(lateness({ isLate: true, submittedAt: AFTER, extendedDueAt: AFTER })).toBe("extended");
+  });
+
+  /*
+    An extension on work that was never late says nothing — there was no missed deadline for it to
+    excuse. That is the right answer for one granted in advance and then not needed.
+  */
+  it("says on time for an extension nobody ended up needing", () => {
+    expect(lateness({ isLate: false, submittedAt: ON_TIME, extendedDueAt: EXTENDED })).toBe(
+      "onTime",
+    );
+  });
+
+  /*
+    Nothing handed in: `isLate` is null, because it is only ever written of work that arrived.
+    Whether that fellow is *missing* the work is `isMissing`'s question, and it consults the
+    extension itself.
+  */
+  it("says on time where nothing has been handed in", () => {
+    expect(lateness({ isLate: null, submittedAt: null, extendedDueAt: null })).toBe("onTime");
+    expect(lateness({ isLate: null, submittedAt: null, extendedDueAt: EXTENDED })).toBe("onTime");
+  });
+
+  // ISO strings, because the browser receives the payload serialized and reads it with this.
+  it("reads timestamps that arrived as strings", () => {
+    expect(
+      lateness({
+        isLate: true,
+        submittedAt: WITHIN.toISOString(),
+        extendedDueAt: EXTENDED.toISOString(),
+      }),
+    ).toBe("extended");
+  });
+});
+
 describe("taskVerdict", () => {
   const MARKER = "11111111-1111-4111-8111-111111111111";
 

@@ -1222,6 +1222,14 @@ async function courseCells(
       studentId: true,
       status: true,
       isLate: true,
+      /*
+        The two an extension is read against. `isLate` alone no longer answers the question the
+        Handed in late column asks — see `lateness` in lib/submissions/hand-in.ts — and
+        `extendedDueAt` is also what stops a fellow with an unexpired extension drawing a red ring
+        for work that is not late yet.
+      */
+      submittedAt: true,
+      extendedDueAt: true,
       headSha: true,
       gradedHeadSha: true,
       finalScore: true,

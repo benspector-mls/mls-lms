@@ -78,6 +78,81 @@ export function handInState(params: {
 }
 
 // ===========================================================================
+// Extensions
+// ===========================================================================
+
+/**
+ * What a submission's timeliness reads as, once a renegotiated deadline is taken into account.
+ *
+ * Three answers rather than the two `isLate` holds, because "late" had been carrying two
+ * situations a school treats very differently: a fellow who missed a deadline and said nothing,
+ * and a fellow who came to their instructor, agreed a new date, and met it. The second is the
+ * behaviour the school wants to reinforce, and a column that called it late could not.
+ */
+export type Lateness = "onTime" | "extended" | "late";
+
+/**
+ * The deadline one fellow is working to: their own, where something was agreed with them.
+ *
+ * **A sentence rather than a lookup, and named anyway.** It is `extendedDueAt ?? dueAt` and could
+ * be written at each call site in less space than reaching this function takes — but the call sites
+ * are the dashboard, the course page, and the calendar feed, and those three agreeing is a property
+ * the application is checked on rather than one it merely hopes for. `verify:calendar` asserts that
+ * the feed holds exactly the dated work the dashboard shows; three spellings of this rule is how
+ * that check would start failing for a reason nobody could see.
+ *
+ * **Display only.** Nothing about a verdict reads this: `isLate` is judged against the assignment's
+ * own deadline at hand-in, and `lateness` above compares the two afterwards. A fellow's extension
+ * changes what they are shown and when they are called missing, never the record of what happened.
+ */
+export function effectiveDueAt(params: {
+  /** The assignment's own deadline, which is every fellow's until one of them agrees otherwise. */
+  dueAt: Date | null;
+  /** The fellow's own row, or null where they have none. */
+  submission: { extendedDueAt: Date | null } | null | undefined;
+}): Date | null {
+  return params.submission?.extendedDueAt ?? params.dueAt;
+}
+
+/** The columns the verdict reads. Structural, so a test can state a case in one line. */
+export interface LatenessFacts {
+  /** Whether the *original* deadline was missed, judged once at hand-in and never rewritten. */
+  isLate: boolean | null;
+  submittedAt: Date | string | null;
+  /** The renegotiated deadline, or null where none was agreed. */
+  extendedDueAt: Date | string | null;
+}
+
+/**
+ * Whether work was on time, extended, or late.
+ *
+ * **Derived from two recorded timestamps rather than stored**, which is what keeps it honest: both
+ * of them are written once and never moved, so there is no state for a stored verdict to drift
+ * away from. `submittedAt` records the first hand-in; `extendedDueAt` changes only when an
+ * instructor grants or revokes, and a grant is an act somebody performed rather than something a
+ * clock does.
+ *
+ * **`isLate` is the gate, and it is read rather than recomputed.** An extension on work that was
+ * on time anyway says nothing — there was no deadline missed for it to excuse — so it reads
+ * `onTime` and the grant sits on the row unused. That is the right outcome for an extension
+ * granted in advance and then not needed.
+ *
+ * **Not yet handed in reads `late` once the original deadline has passed**, because `isLate` is
+ * only ever true of work that arrived. A row with nothing handed in has `isLate` null and reads
+ * `onTime` here; whether that fellow is *missing* the work is `isMissing`'s question, and it is
+ * the one that consults an extension for work that has not arrived.
+ *
+ * Retroactive excusal needs no separate path: an extension dated at or after a hand-in that
+ * already happened satisfies the comparison, which is what granting one after the fact means.
+ */
+export function lateness(facts: LatenessFacts): Lateness {
+  if (facts.isLate !== true) return "onTime";
+  if (facts.extendedDueAt == null || facts.submittedAt == null) return "late";
+
+  return new Date(facts.submittedAt) <= new Date(facts.extendedDueAt) ? "extended" : "late";
+}
+
+// ===========================================================================
 // Tasks
 // ===========================================================================
 

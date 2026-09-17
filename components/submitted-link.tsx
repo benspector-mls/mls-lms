@@ -2,7 +2,8 @@ import { ExternalLink, Link2 } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { panelSurface } from "@/components/ui/card";
-import { linkHost } from "@/lib/status";
+import { LATENESS_META, linkHost } from "@/lib/status";
+import type { Lateness } from "@/lib/submissions/hand-in";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,13 +34,20 @@ import { cn } from "@/lib/utils";
 export function SubmittedLinkHeading({
   url,
   label,
-  isLate = false,
+  lateness = "onTime",
   icon: Icon = Link2,
 }: {
   url: string;
   /** What this link is to the reader — the student's own work, or a student's. */
   label: string;
-  isLate?: boolean;
+  /**
+   * Whether this arrived on time, by a deadline agreed with an instructor, or late.
+   *
+   * A verdict rather than the `isLate` boolean it replaces, because those are not the same
+   * question: work handed in by an agreed deadline is late by the column and not by the word a
+   * fellow should be shown for it. `lateness` in lib/submissions/hand-in.ts is what decides.
+   */
+  lateness?: Lateness;
   /** Overridden where the link turns out to be a document, so the row is headed like one. */
   icon?: React.ElementType;
 }) {
@@ -52,7 +60,7 @@ export function SubmittedLinkHeading({
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-sm font-medium">
             {label}
-            {isLate ? " (late)" : ""}
+            {lateness === "onTime" ? "" : ` (${LATENESS_META[lateness].label.toLowerCase()})`}
           </span>
           {/*
             `break-all` rather than truncation. A URL is read left to right and a wrong one
@@ -102,19 +110,26 @@ export function SubmittedLinkHeading({
 export function SubmittedLinkRow({
   url,
   label,
-  isLate = false,
+  lateness = "onTime",
   className,
 }: {
   url: string;
   label: string;
-  isLate?: boolean;
+  /**
+   * Whether this arrived on time, by a deadline agreed with an instructor, or late.
+   *
+   * A verdict rather than the `isLate` boolean it replaces, because those are not the same
+   * question: work handed in by an agreed deadline is late by the column and not by the word a
+   * fellow should be shown for it. `lateness` in lib/submissions/hand-in.ts is what decides.
+   */
+  lateness?: Lateness;
   className?: string;
 }) {
   const host = linkHost(url);
 
   return (
     <div className={cn(panelSurface, "flex flex-col gap-3 p-4", className)}>
-      <SubmittedLinkHeading url={url} label={label} isLate={isLate} />
+      <SubmittedLinkHeading url={url} label={label} lateness={lateness} />
 
       {host ? (
         <p className="text-xs text-muted-foreground">

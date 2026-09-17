@@ -804,7 +804,7 @@ function Band({
                         pending={pending}
                         // The same predicate the Missing column counts with, so the column
                         // equals the red rings in its row by construction.
-                        missing={isMissing(assignment, cell?.status, at)}
+                        missing={isMissing(assignment, cell, at)}
                       />
                     );
                   })}

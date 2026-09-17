@@ -163,20 +163,27 @@ describe("awaitingByStudent", () => {
 });
 
 /**
- * How many of a student's submissions were handed in after the deadline.
+ * How many of a student's submissions were handed in after the deadline and not by a renegotiated
+ * one.
  *
- * The rule is `isLate === true`, which is the column `handInState` writes against the deadline as
- * it stood at hand-in. It is read and never recomputed here: a second comparison of a submission
- * time against a due date in the browser is how this figure would come to disagree with the "Late"
- * badge on the grading screen and with the student's own view of the same submission.
+ * `isLate` is the column `handInState` writes against the deadline as it stood at hand-in, and it
+ * is read here rather than recomputed: a second comparison of a submission time against a due date
+ * in the browser is how this figure would come to disagree with the "Late" badge on the grading
+ * screen and with the student's own view of the same submission. What the count then does with it
+ * is `lateness`, which lets a fellow who agreed a new date and met it out of the figure.
  */
 describe("lateByStudent", () => {
+  /** A cell with no extension on it, which is what all but the last cases below are about. */
+  function late(studentId: string, isLate: boolean | null) {
+    return { studentId, isLate, submittedAt: "2026-09-10T12:00:00.000Z", extendedDueAt: null };
+  }
+
   it("counts the submissions handed in after the deadline", () => {
     const counts = lateByStudent([
-      { studentId: "s1", isLate: true },
-      { studentId: "s1", isLate: true },
-      { studentId: "s1", isLate: false },
-      { studentId: "s2", isLate: true },
+      late("s1", true),
+      late("s1", true),
+      late("s1", false),
+      late("s2", true),
     ]);
 
     expect(counts.get("s1")).toBe(2);
@@ -188,16 +195,45 @@ describe("lateByStudent", () => {
     as late would turn every assignment nobody has started into a missed deadline.
   */
   it("counts neither an on-time hand-in nor a missing one", () => {
-    const counts = lateByStudent([
-      { studentId: "s1", isLate: false },
-      { studentId: "s1", isLate: null },
-    ]);
+    const counts = lateByStudent([late("s1", false), late("s1", null)]);
 
     expect(counts.get("s1")).toBeUndefined();
   });
 
   it("says nothing about a student who has missed no deadline", () => {
     expect(lateByStudent([]).size).toBe(0);
+  });
+
+  /*
+    The renegotiation cases, which are the whole reason this count reads `lateness` rather than
+    `isLate`. A fellow who agreed a new date and met it has done what the school asks; one who
+    agreed a new date and missed that too is late, and the count has to say so or an extension
+    would be a way of never being counted.
+  */
+  it("does not count work handed in by a renegotiated deadline", () => {
+    const counts = lateByStudent([
+      {
+        studentId: "s1",
+        isLate: true,
+        submittedAt: "2026-09-14T12:00:00.000Z",
+        extendedDueAt: "2026-09-15T00:00:00.000Z",
+      },
+    ]);
+
+    expect(counts.get("s1")).toBeUndefined();
+  });
+
+  it("counts work that missed the renegotiated deadline too", () => {
+    const counts = lateByStudent([
+      {
+        studentId: "s1",
+        isLate: true,
+        submittedAt: "2026-09-16T12:00:00.000Z",
+        extendedDueAt: "2026-09-15T00:00:00.000Z",
+      },
+    ]);
+
+    expect(counts.get("s1")).toBe(1);
   });
 });
 
@@ -218,16 +254,21 @@ describe("isMissing", () => {
     return { dueAt: PAST, distributedAt: "2026-08-01T00:00:00.000Z", ...overrides };
   }
 
+  /** The student's own row, as this function reads it: a status and whatever they were granted. */
+  function against(status: MissingCell["status"], extendedDueAt: string | null = null) {
+    return { status, extendedDueAt };
+  }
+
   it("is missing when past due and never taken up, accepted, or reset", () => {
     expect(isMissing(pastDue(), undefined, AT)).toBe(true);
-    expect(isMissing(pastDue(), "NOT_STARTED", AT)).toBe(true);
-    expect(isMissing(pastDue(), "ACCEPTED", AT)).toBe(true);
+    expect(isMissing(pastDue(), against("NOT_STARTED"), AT)).toBe(true);
+    expect(isMissing(pastDue(), against("ACCEPTED"), AT)).toBe(true);
   });
 
   // Handing in, however late, clears it — a missed deadline becomes a late hand-in, not both.
   it("is not missing once anything is handed in", () => {
-    expect(isMissing(pastDue(), "SUBMITTED", AT)).toBe(false);
-    expect(isMissing(pastDue(), "GRADED", AT)).toBe(false);
+    expect(isMissing(pastDue(), against("SUBMITTED"), AT)).toBe(false);
+    expect(isMissing(pastDue(), against("GRADED"), AT)).toBe(false);
   });
 
   // A student cannot miss what was never handed out.
@@ -244,6 +285,20 @@ describe("isMissing", () => {
   // is not yet missed.
   it("is not missing at the deadline itself", () => {
     expect(isMissing(pastDue({ dueAt: AT.toISOString() }), undefined, AT)).toBe(false);
+  });
+
+  /*
+    The one reader of an extension that acts on work which has not arrived. A fellow who agreed a
+    new date is not missing the work until that date passes — if they were, agreeing one in advance
+    would leave them looking overdue to themselves and to their instructor for the whole of the
+    period they had just been granted.
+  */
+  it("is not missing while a renegotiated deadline has still to pass", () => {
+    expect(isMissing(pastDue(), against("ACCEPTED", FUTURE), AT)).toBe(false);
+  });
+
+  it("is missing again once the renegotiated deadline has passed with nothing handed in", () => {
+    expect(isMissing(pastDue(), against("ACCEPTED", "2026-09-05T00:00:00.000Z"), AT)).toBe(true);
   });
 });
 
@@ -264,7 +319,7 @@ describe("missingByStudent", () => {
     studentId: string,
     status: MissingCell["status"],
   ): MissingCell {
-    return { assignmentId, studentId, status };
+    return { assignmentId, studentId, status, extendedDueAt: null };
   }
 
   it("counts absent cells and un-handed-in ones alike", () => {

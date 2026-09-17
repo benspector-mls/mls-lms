@@ -34,6 +34,7 @@ import { filterIsActive, matchesColumnFilter, parseColumnFilter } from "@/lib/gr
 import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
 import { gradingQueueHref, studentHref } from "@/lib/links";
 import { formatRelative } from "@/lib/status";
+import { lateness } from "@/lib/submissions/hand-in";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -573,7 +574,12 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
  */
 function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date }) {
   const anyTestStudent = group.rows.some((row) => row.student.testStudentNumber !== null);
-  const anyLate = group.rows.some((row) => row.isLate);
+  /*
+    Late in the sense the school cares about: a missed deadline that was not renegotiated. A fellow
+    who agreed a new date and met it does not mark their whole assignment's pile as late — see
+    `lateness`, and `lateByStudent` for the same rule in the gradebook's column.
+  */
+  const anyLate = group.rows.some((row) => lateness(row) === "late");
   /*
     So a pile of work says which of it is a second round. Grading a revision is a different job
     from grading a first submission — the previous report and score are what the new one is

@@ -40,7 +40,14 @@ function student(overrides: Partial<GradebookCsvPerson> = {}): GradebookCsvPerso
 function cell(
   overrides: Pick<GradebookCsvCell, "assignmentId" | "studentId"> & Partial<GradebookCsvCell>,
 ): GradebookCsvCell {
-  return { status: "SUBMITTED", finalScore: null, isLate: false, ...overrides };
+  return {
+    status: "SUBMITTED",
+    finalScore: null,
+    isLate: false,
+    submittedAt: "2026-09-10T12:00:00.000Z",
+    extendedDueAt: null,
+    ...overrides,
+  };
 }
 
 function gradebook(overrides: Partial<GradebookCsvData> = {}): GradebookCsvData {
@@ -481,6 +488,46 @@ describe("the missing column", () => {
     );
 
     expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Not submitted"]);
+  });
+
+  /*
+    **The deadline a cell is judged against is the fellow's own.** A pair, because each half passes
+    on its own against the wrong implementation: without the extension the same row reads "Missing",
+    so only the two together say that the extension is what moved it.
+
+    This is the one assertion that fails if `isMissing` is handed a bare status rather than the
+    cell — which is how the file compiled before, and is what somebody resolving a merge conflict
+    here would most plausibly reach for.
+  */
+  it("writes Not submitted where an agreed deadline has not yet passed", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: PAST_DUE })],
+        cells: [
+          cell({
+            assignmentId: "a1",
+            studentId: "s1",
+            status: "ACCEPTED",
+            extendedDueAt: "2026-10-01T00:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Not submitted"]);
+    expect(missingCount(csv)).toBe("0");
+  });
+
+  it("and Missing for the same work with no extension agreed", () => {
+    const csv = toCsv(
+      gradebook({
+        assignments: [assignment({ dueAt: PAST_DUE })],
+        cells: [cell({ assignmentId: "a1", studentId: "s1", status: "ACCEPTED" })],
+      }),
+    );
+
+    expect(studentRows(csv)[0].slice(FIRST_WORK_COLUMN)).toEqual(["Missing"]);
+    expect(missingCount(csv)).toBe("1");
   });
 });
 

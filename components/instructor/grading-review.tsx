@@ -20,6 +20,7 @@ import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import { lateness } from "@/lib/submissions/hand-in";
 import { useTRPC } from "@/trpc/client";
 import { CommentsCard } from "@/components/instructor/review/comments-card";
 import { DraftBody } from "@/components/instructor/review/draft-body";
@@ -230,7 +231,7 @@ export function GradingReview({
         artifactId={artifact.id}
         filename={artifact.uploadFilename ?? "Attachment"}
         sizeBytes={artifact.uploadSizeBytes}
-        isLate={submission.isLate ?? false}
+        lateness={lateness(submission)}
         label={label}
         previewByDefault={index === 0}
       />
@@ -239,7 +240,7 @@ export function GradingReview({
         key={artifact.id}
         url={artifact.url ?? ""}
         label={label}
-        isLate={submission.isLate ?? false}
+        lateness={lateness(submission)}
         previewByDefault={index === 0}
       />
     );

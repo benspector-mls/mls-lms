@@ -36,12 +36,14 @@ import {
   CONFIDENCE_META,
   DRAFT_STATUS_META,
   flagMeta,
+  latenessMeta,
   STUDENT_STATUS_META,
   SUBMISSION_STATUS_META,
   TONE_CLASSES,
   TONE_DOT,
   type StatusMeta,
 } from "@/lib/status";
+import { lateness, type LatenessFacts } from "@/lib/submissions/hand-in";
 import { cn } from "@/lib/utils";
 
 /**
@@ -134,6 +136,30 @@ export function SubmissionStatusBadge({
 }) {
   const meta =
     audience === "student" ? STUDENT_STATUS_META[status] : SUBMISSION_STATUS_META[status];
+  return <BadgeShell meta={meta} className={className} />;
+}
+
+/**
+ * Whether work arrived on time, by a deadline agreed with an instructor, or late.
+ *
+ * **Draws nothing for work that was on time**, which is why this returns null rather than a badge
+ * saying so: the common case earns no pill, and a row with nothing on it reads correctly.
+ *
+ * Takes the submission's own columns rather than a verdict, so no caller has to remember which
+ * three they are or how they combine. That was the failure this replaces — lateness was written out
+ * at six call sites as `isLate && <Badge>Late</Badge>`, and every one of them would have had to
+ * learn about extensions separately.
+ */
+export function LatenessBadge({
+  submission,
+  className,
+}: {
+  submission: LatenessFacts | null | undefined;
+  className?: string;
+}) {
+  const meta = submission ? latenessMeta(lateness(submission)) : null;
+  if (!meta) return null;
+
   return <BadgeShell meta={meta} className={className} />;
 }
 

@@ -9,6 +9,8 @@ import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { UploadedCode } from "@/components/uploaded-code";
 import { useTRPC } from "@/trpc/client";
+import { LATENESS_META } from "@/lib/status";
+import type { Lateness } from "@/lib/submissions/hand-in";
 import { formatBytes, previewKindOf } from "@/lib/uploads/file-types";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +38,7 @@ export function UploadedFileRow({
   artifactId,
   filename,
   sizeBytes,
-  isLate = false,
+  lateness = "onTime",
   label = "The file you submitted",
   previewByDefault = false,
 }: {
@@ -44,7 +46,14 @@ export function UploadedFileRow({
   artifactId: string;
   filename: string;
   sizeBytes: number | null;
-  isLate?: boolean;
+  /**
+   * Whether this arrived on time, by a deadline agreed with an instructor, or late.
+   *
+   * A verdict rather than the `isLate` boolean it replaces, because those are not the same
+   * question: work handed in by an agreed deadline is late by the column and not by the word a
+   * fellow should be shown for it. `lateness` in lib/submissions/hand-in.ts is what decides.
+   */
+  lateness?: Lateness;
   label?: string;
   /**
    * Open the preview without being asked. True on the review screen, where reading the work is
@@ -117,7 +126,7 @@ export function UploadedFileRow({
         <div className="flex min-w-0 flex-col">
           <span className="text-sm font-medium">
             {label}
-            {isLate ? " (late)" : ""}
+            {lateness === "onTime" ? "" : ` (${LATENESS_META[lateness].label.toLowerCase()})`}
           </span>
           <span className="truncate text-xs text-muted-foreground">
             {filename}
