@@ -432,15 +432,19 @@ export const assignmentsRouter = createTRPCRouter({
       const own = submissions[0] ?? null;
 
       /*
-        **The deadline this fellow is working to, under the name every reader already uses.** A
-        fellow with an agreed extension gets their own date here, so the overdue and upcoming
-        buckets, the sort, and the row's own text all follow without any of them learning what an
-        extension is. `extendedDueAt` travels beside it for the one thing the date alone cannot say:
-        that it was agreed rather than the deadline everybody else has.
-      */
-      const dueAt = effectiveDueAt({ dueAt: assignment.dueAt, submission: own });
+        **Two dates, because two questions are asked of them.** `dueAt` is the assignment's own —
+        the deadline the class was given — and it is what `lateness` measures a hand-in against, so
+        that work which arrived after it and before an agreed extension can read as extended rather
+        than as on time. `effectiveDueAt` is the deadline *this fellow* is working to, which is what
+        every screen shows them and what decides when they are overdue.
 
-      if (!own) return { ...assignment, dueAt, submission: null };
+        Substituting one for the other under a single name lost the first question's answer: an
+        extension would have made a fellow's late hand-in read as though they had never missed
+        anything.
+      */
+      const effective = effectiveDueAt({ dueAt: assignment.dueAt, submission: own });
+
+      if (!own) return { ...assignment, effectiveDueAt: effective, submission: null };
 
       /*
         The mirror column comes off the payload here and goes no further: it is an id for a row the
@@ -453,7 +457,7 @@ export const assignmentsRouter = createTRPCRouter({
 
       return {
         ...assignment,
-        dueAt,
+        effectiveDueAt: effective,
         submission: {
           ...submission,
           /*
@@ -527,7 +531,6 @@ export const assignmentsRouter = createTRPCRouter({
               */
               status: true,
               submittedAt: true,
-              isLate: true,
               /*
                 A deadline agreed with this fellow. It replaces the assignment's own in `dueAt`
                 below, and travels on its own as well, because the date alone cannot say that it
@@ -678,14 +681,17 @@ export const assignmentsRouter = createTRPCRouter({
       return assignments.map((assignment) => ({
         ...assignment,
         /*
-          The deadline the caller is working to, which is theirs where something was agreed with
-          them — the same substitution `listMine` makes, through the same function, so the course
-          page and the dashboard cannot show one fellow two different dates for one assignment.
+          The deadline the caller is working to, beside the assignment's own — the same pair
+          `listMine` returns, through the same function, so the course page and the dashboard cannot
+          show one fellow two different dates for one assignment.
 
-          Instructors reading this procedure have no submission of their own, so they see the
-          assignment's own deadline, which is the one they authored.
+          Instructors reading this procedure have no submission of their own, so the two are equal
+          for them: the deadline they authored.
         */
-        dueAt: effectiveDueAt({ dueAt: assignment.dueAt, submission: assignment.submissions[0] }),
+        effectiveDueAt: effectiveDueAt({
+          dueAt: assignment.dueAt,
+          submission: assignment.submissions[0],
+        }),
         /*
           The team the caller hands this in with, or null on work they do alone — and null too for a
           fellow on none of the set's teams, which is a real state an instructor has to fix rather

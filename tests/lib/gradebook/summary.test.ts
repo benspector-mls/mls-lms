@@ -173,65 +173,86 @@ describe("awaitingByStudent", () => {
  * is `lateness`, which lets a fellow who agreed a new date and met it out of the figure.
  */
 describe("lateByStudent", () => {
-  /** A cell with no extension on it, which is what all but the last cases below are about. */
-  function late(studentId: string, isLate: boolean | null) {
-    return { studentId, isLate, submittedAt: "2026-09-10T12:00:00.000Z", extendedDueAt: null };
+  /** The assignment every cell below belongs to, and the deadline they are measured against. */
+  const DUE = "2026-09-11T00:00:00.000Z";
+  const work = [{ id: "a1", dueAt: DUE }];
+
+  const ON_TIME = "2026-09-10T12:00:00.000Z";
+  const AFTER = "2026-09-12T12:00:00.000Z";
+
+  /** A cell with no extension on it, which is what all but the last two cases are about. */
+  function cell(studentId: string, submittedAt: string | null) {
+    return { assignmentId: "a1", studentId, submittedAt, extendedDueAt: null };
   }
 
   it("counts the submissions handed in after the deadline", () => {
-    const counts = lateByStudent([
-      late("s1", true),
-      late("s1", true),
-      late("s1", false),
-      late("s2", true),
-    ]);
+    const counts = lateByStudent(
+      [cell("s1", AFTER), cell("s1", AFTER), cell("s1", ON_TIME), cell("s2", AFTER)],
+      work,
+    );
 
     expect(counts.get("s1")).toBe(2);
     expect(counts.get("s2")).toBe(1);
   });
 
   /*
-    Null is "nothing handed in yet", which is not the same as handed in on time — and counting it
-    as late would turn every assignment nobody has started into a missed deadline.
+    Nothing handed in is not the same as handed in on time — and counting it would turn every
+    assignment nobody has started into a missed deadline.
   */
   it("counts neither an on-time hand-in nor a missing one", () => {
-    const counts = lateByStudent([late("s1", false), late("s1", null)]);
+    const counts = lateByStudent([cell("s1", ON_TIME), cell("s1", null)], work);
 
     expect(counts.get("s1")).toBeUndefined();
   });
 
   it("says nothing about a student who has missed no deadline", () => {
-    expect(lateByStudent([]).size).toBe(0);
+    expect(lateByStudent([], work).size).toBe(0);
   });
 
   /*
-    The renegotiation cases, which are the whole reason this count reads `lateness` rather than
-    `isLate`. A fellow who agreed a new date and met it has done what the school asks; one who
-    agreed a new date and missed that too is late, and the count has to say so or an extension
-    would be a way of never being counted.
+    An assignment with no deadline cannot be missed, whatever time the work arrived. Worth its own
+    case because the deadline now comes from a second list, and a cell whose assignment is absent
+    from it must read as undated rather than as late.
+  */
+  it("counts nothing for work with no deadline", () => {
+    expect(lateByStudent([cell("s1", AFTER)], [{ id: "a1", dueAt: null }]).size).toBe(0);
+    expect(lateByStudent([cell("s1", AFTER)], []).size).toBe(0);
+  });
+
+  /*
+    The renegotiation cases, which are the whole reason this count reads `lateness`. A fellow who
+    agreed a new date and met it has done what the school asks; one who agreed a new date and
+    missed that too is late, and the count has to say so or an extension would be a way of never
+    being counted.
   */
   it("does not count work handed in by a renegotiated deadline", () => {
-    const counts = lateByStudent([
-      {
-        studentId: "s1",
-        isLate: true,
-        submittedAt: "2026-09-14T12:00:00.000Z",
-        extendedDueAt: "2026-09-15T00:00:00.000Z",
-      },
-    ]);
+    const counts = lateByStudent(
+      [
+        {
+          assignmentId: "a1",
+          studentId: "s1",
+          submittedAt: "2026-09-14T12:00:00.000Z",
+          extendedDueAt: "2026-09-15T00:00:00.000Z",
+        },
+      ],
+      work,
+    );
 
     expect(counts.get("s1")).toBeUndefined();
   });
 
   it("counts work that missed the renegotiated deadline too", () => {
-    const counts = lateByStudent([
-      {
-        studentId: "s1",
-        isLate: true,
-        submittedAt: "2026-09-16T12:00:00.000Z",
-        extendedDueAt: "2026-09-15T00:00:00.000Z",
-      },
-    ]);
+    const counts = lateByStudent(
+      [
+        {
+          assignmentId: "a1",
+          studentId: "s1",
+          submittedAt: "2026-09-16T12:00:00.000Z",
+          extendedDueAt: "2026-09-15T00:00:00.000Z",
+        },
+      ],
+      work,
+    );
 
     expect(counts.get("s1")).toBe(1);
   });

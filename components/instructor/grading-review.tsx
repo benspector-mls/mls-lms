@@ -38,6 +38,7 @@ import { displayNameOf } from "@/lib/people";
 export function GradingReview({
   submission,
   assignmentId,
+  assignmentDueAt,
   assignmentKind,
   completionThreshold,
   studentHref,
@@ -56,6 +57,13 @@ export function GradingReview({
    * question can be asked before there is a submission at all.
    */
   assignmentId: string;
+  /**
+   * The deadline the class was given, which is what a hand-in is measured against.
+   *
+   * From the assignment rather than the submission, because lateness is computed when somebody
+   * looks rather than frozen when the work arrived — so the row alone cannot answer it.
+   */
+  assignmentDueAt: Date | null;
   /**
    * Decides whether a test suite is even a possibility for this assignment. Typed from the
    * enum rather than spelled out, so a kind added later is a compile error in the places that
@@ -231,7 +239,7 @@ export function GradingReview({
         artifactId={artifact.id}
         filename={artifact.uploadFilename ?? "Attachment"}
         sizeBytes={artifact.uploadSizeBytes}
-        lateness={lateness(submission)}
+        lateness={lateness({ ...submission, dueAt: assignmentDueAt })}
         label={label}
         previewByDefault={index === 0}
       />
@@ -240,7 +248,7 @@ export function GradingReview({
         key={artifact.id}
         url={artifact.url ?? ""}
         label={label}
-        lateness={lateness(submission)}
+        lateness={lateness({ ...submission, dueAt: assignmentDueAt })}
         previewByDefault={index === 0}
       />
     );

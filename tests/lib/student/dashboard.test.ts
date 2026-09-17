@@ -44,6 +44,12 @@ function row(
     id: `assignment-${counter}`,
     title: `Assignment ${counter}`,
     dueAt,
+    /*
+      The same date unless a case says otherwise. The screen measures against this one — it is the
+      deadline the fellow is working to — and `dueAt` beside it is the assignment's own, which only
+      lateness reads.
+    */
+    effectiveDueAt: dueAt,
     course: { id: "course-1", name: "Software Engineering Fellowship" },
     submission:
       status == null

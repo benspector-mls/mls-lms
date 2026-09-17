@@ -43,7 +43,6 @@ function cell(
   return {
     status: "SUBMITTED",
     finalScore: null,
-    isLate: false,
     submittedAt: "2026-09-10T12:00:00.000Z",
     extendedDueAt: null,
     ...overrides,
@@ -287,6 +286,13 @@ describe("the point values row", () => {
  * are most of why somebody wanted it.
  */
 describe("the handed-in-late column", () => {
+  /*
+    A deadline behind the fixture cell's hand-in time, so a cell on an assignment carrying it is
+    late. Lateness is computed rather than stored, so a case makes a hand-in late by giving the
+    assignment a deadline the hand-in is past — not by asserting it on the cell.
+  */
+  const MISSED = "2026-09-01T00:00:00.000Z";
+
   /** The count as the file writes it, so a case does not have to know the column's index. */
   function lateCount(csv: string, row = 0): string {
     return studentRows(csv)[row][LATE_COLUMN];
@@ -296,16 +302,17 @@ describe("the handed-in-late column", () => {
     const csv = toCsv(
       gradebook({
         assignments: [
-          assignment({ id: "a1", title: "Loops" }),
+          assignment({ id: "a1", title: "Loops", dueAt: MISSED }),
           assignment({
             id: "a2",
             title: "Recursion",
+            dueAt: MISSED,
             courseUnit: { id: "u2", position: 1, name: "Module 2", category: "MODULE" },
           }),
         ],
         cells: [
-          cell({ assignmentId: "a1", studentId: "s1", finalScore: 9, isLate: true }),
-          cell({ assignmentId: "a2", studentId: "s1", finalScore: 4, isLate: true }),
+          cell({ assignmentId: "a1", studentId: "s1", finalScore: 9 }),
+          cell({ assignmentId: "a2", studentId: "s1", finalScore: 4 }),
         ],
       }),
     );
@@ -326,12 +333,13 @@ describe("the handed-in-late column", () => {
     expect(lateCount(csv)).toBe("0");
   });
 
-  // Null is "nothing handed in", which is not the same as handed in on time — and a course of
-  // assignments nobody has started would otherwise read as a course of missed deadlines.
+  // Nothing handed in is not the same as handed in on time — and a course of assignments nobody
+  // has started would otherwise read as a course of missed deadlines.
   it("does not count work that was never handed in", () => {
     const csv = toCsv(
       gradebook({
-        cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null, isLate: null })],
+        assignments: [assignment({ dueAt: MISSED })],
+        cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: null, submittedAt: null })],
       }),
     );
 
@@ -345,10 +353,19 @@ describe("the handed-in-late column", () => {
   it("counts a removed student's missed deadlines too", () => {
     const csv = toCsv(
       gradebook({
+        assignments: [assignment({ dueAt: MISSED })],
         activeEnrollments: [{ student: student({ id: "s1", displayName: "Ada" }) }],
         removedEnrollments: [{ student: student({ id: "s2", displayName: "Grace" }) }],
-        cells: [cell({ assignmentId: "a1", studentId: "s1", finalScore: 9 })],
-        removedCells: [cell({ assignmentId: "a1", studentId: "s2", finalScore: 6, isLate: true })],
+        // Ada was inside the deadline and Grace was past it, on the same piece of work.
+        cells: [
+          cell({
+            assignmentId: "a1",
+            studentId: "s1",
+            finalScore: 9,
+            submittedAt: "2026-08-30T12:00:00.000Z",
+          }),
+        ],
+        removedCells: [cell({ assignmentId: "a1", studentId: "s2", finalScore: 6 })],
       }),
     );
 
@@ -406,7 +423,8 @@ describe("the missing column", () => {
     const csv = toCsv(
       gradebook({
         assignments: [assignment({ dueAt: PAST_DUE })],
-        cells: [cell({ assignmentId: "a1", studentId: "s1", isLate: true })],
+        // The fixture's hand-in time is past `PAST_DUE`, so this is a late hand-in.
+        cells: [cell({ assignmentId: "a1", studentId: "s1" })],
       }),
     );
 

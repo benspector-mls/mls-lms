@@ -321,11 +321,7 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
     });
 
     it("handing it in is what enters the queue", () => {
-      expect([submitted.status, submitted.isLate, submitted.submittedAt !== null]).toEqual([
-        "SUBMITTED",
-        false,
-        true,
-      ]);
+      expect([submitted.status, submitted.submittedAt !== null]).toEqual(["SUBMITTED", true]);
     });
   });
 

@@ -125,14 +125,16 @@ export function awaitingByStudent(cells: readonly AwaitingCell[]): Map<string, n
 
 /** The parts of a cell the late count reads. Separate again, for the same reason as above. */
 export type LateCell = {
+  assignmentId: string;
   studentId: string;
-  /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
-  isLate: boolean | null;
-  /** When it was handed in, which is what an extension is compared against. */
+  /** When it was handed in, or null where nothing was. */
   submittedAt: Date | string | null;
   /** A deadline renegotiated with this fellow, or null where none was. */
   extendedDueAt: Date | string | null;
 };
+
+/** The part of an assignment the late count reads: the deadline the class was given. */
+export type LateAssignment = { id: string; dueAt: Date | string | null };
 
 /**
  * Per student: how many of their submissions were handed in after the deadline.
@@ -142,11 +144,10 @@ export type LateCell = {
  * on. Unlike the waiting count, though, this one does not describe anything anybody can clear — it
  * is a record of what already happened, so it climbs and stays climbed.
  *
- * **`isLate` is read, never recomputed from a due date here.** The verdict is made once, in
- * `handInState`, against the deadline as it stood when the work was handed in, and the column it
- * writes is the answer. Comparing a submission time against `dueAt` in the browser would be a
- * second implementation free to disagree with the "Late" badge on the grading screen and with the
- * student's own view of the same submission.
+ * **Computed through `lateness`, which every other reader of timeliness also calls.** A second
+ * comparison of a hand-in against a deadline written out here is how this figure would come to
+ * disagree with the "Late" badge on the grading screen and with the student's own view of the same
+ * submission.
  *
  * **It means the *first* hand-in was late, and a resubmission cannot make it so.** `submittedAt` is
  * recorded once and never moved, deliberately, so that revising work does not retroactively turn an
@@ -166,14 +167,27 @@ export type LateCell = {
  * delivered is managing theirs. Recorded here because the alternative reads as the obvious
  * behaviour to anybody meeting this function cold, and it is not an oversight.
  *
- * Null `isLate` is "nothing handed in yet", which is not the same as on time; `lateness` reads it
- * as neither, following the `=== true` convention `isComplete` uses above.
+ * Nothing handed in is not the same as on time, and neither is counted here: `lateness` reads a
+ * null `submittedAt` as `onTime`, and whether that fellow is *missing* the work is `isMissing`'s
+ * question a few lines below.
  */
-export function lateByStudent(cells: readonly LateCell[]): Map<string, number> {
+export function lateByStudent(
+  cells: readonly LateCell[],
+  work: readonly LateAssignment[],
+): Map<string, number> {
+  /*
+    The assignments as a lookup, because lateness is computed rather than stored and every cell
+    needs the deadline its own assignment set. Taken as a second list rather than expected on each
+    cell — a deadline is not a column on a submission, and `missingByStudent` below is handed both
+    lists for the same reason.
+  */
+  const dueByAssignment = new Map(work.map((item) => [item.id, item.dueAt]));
+
   const counts = new Map<string, number>();
 
   for (const cell of cells) {
-    if (lateness(cell) !== "late") continue;
+    const dueAt = dueByAssignment.get(cell.assignmentId) ?? null;
+    if (lateness({ ...cell, dueAt }) !== "late") continue;
     counts.set(cell.studentId, (counts.get(cell.studentId) ?? 0) + 1);
   }
 

@@ -45,89 +45,46 @@ describe("handInStatus", () => {
 describe("handInState", () => {
   describe("a first hand-in", () => {
     it("records the moment as the submission time", () => {
-      const state = handInState({ current: null, dueAt: DUE, now: ON_TIME });
-      expect(state).toEqual({ status: "SUBMITTED", submittedAt: ON_TIME, isLate: false });
-    });
-
-    it("is late when it arrives after the due date", () => {
-      const state = handInState({ current: null, dueAt: DUE, now: AFTER });
-      expect(state.isLate).toBe(true);
-    });
-
-    it("is never late with no due date", () => {
-      const state = handInState({ current: null, dueAt: null, now: AFTER });
-      expect(state.isLate).toBe(false);
+      const state = handInState({ current: null, now: ON_TIME });
+      expect(state).toEqual({ status: "SUBMITTED", submittedAt: ON_TIME });
     });
   });
 
   describe("work handed in again after a grade", () => {
-    const graded = { status: "GRADED", submittedAt: ON_TIME, isLate: false } as const;
+    const graded = { status: "GRADED", submittedAt: ON_TIME } as const;
 
     it("enters the queue as a revision", () => {
-      const state = handInState({ current: graded, dueAt: DUE, now: AFTER });
+      const state = handInState({ current: graded, now: AFTER });
       expect(state.status).toBe("RESUBMITTED");
     });
 
+    /*
+      The revision's own timestamp is `lastActivityAt`, which every caller writes for itself. This
+      column answers when the work was handed in, and it has one answer — which is also what stops
+      revising after the deadline from making the work late, since `lateness` reads this.
+    */
     it("keeps the time the work was first handed in", () => {
-      // The revision's own timestamp is `lastActivityAt`, which every caller writes for
-      // itself. This column answers when the work was handed in, and it has one answer.
-      const state = handInState({ current: graded, dueAt: DUE, now: AFTER });
+      const state = handInState({ current: graded, now: AFTER });
       expect(state.submittedAt).toEqual(ON_TIME);
-    });
-
-    it("stays on time when the first submission was on time", () => {
-      // The whole point. Judged against the preserved submission time, so revising after the
-      // due date does not retroactively make the work late.
-      const state = handInState({ current: graded, dueAt: DUE, now: AFTER });
-      expect(state.isLate).toBe(false);
-    });
-
-    it("stays late when the first submission was late", () => {
-      const late = { status: "GRADED", submittedAt: AFTER, isLate: true } as const;
-      const state = handInState({ current: late, dueAt: DUE, now: AFTER });
-      expect(state.isLate).toBe(true);
     });
   });
 
   describe("a correction to work still in the queue", () => {
     it("leaves it a submission and does not move its submission time", () => {
-      const waiting = { status: "SUBMITTED", submittedAt: ON_TIME, isLate: false } as const;
-      const state = handInState({ current: waiting, dueAt: DUE, now: AFTER });
-      expect(state).toEqual({ status: "SUBMITTED", submittedAt: ON_TIME, isLate: false });
+      const waiting = { status: "SUBMITTED", submittedAt: ON_TIME } as const;
+      const state = handInState({ current: waiting, now: AFTER });
+      expect(state).toEqual({ status: "SUBMITTED", submittedAt: ON_TIME });
     });
   });
 
-  describe("lateness with no due date", () => {
-    it("keeps whatever was already on record", () => {
-      // Nothing to be late against, so the flag is not recomputed away. An assignment whose
-      // due date was removed keeps the lateness its submissions were already judged with.
-      const state = handInState({
-        current: { status: "GRADED", submittedAt: ON_TIME, isLate: true },
-        dueAt: null,
-        now: AFTER,
-      });
-      expect(state.isLate).toBe(true);
-    });
-
-    it("reads a row that was never judged as not late", () => {
-      const state = handInState({
-        current: { status: "ACCEPTED", submittedAt: null, isLate: null },
-        dueAt: null,
-        now: AFTER,
-      });
-      expect(state).toEqual({ status: "SUBMITTED", submittedAt: AFTER, isLate: false });
-    });
-  });
-
-  it("follows a moved due date, judging the preserved submission time against it", () => {
-    // `isLate` is recomputed rather than carried, so an instructor who extends a deadline sees
-    // the flag follow rather than having to correct forty rows by hand.
-    const state = handInState({
-      current: { status: "GRADED", submittedAt: AFTER, isLate: true },
-      dueAt: new Date("2026-03-20T23:59:00Z"),
-      now: AFTER,
-    });
-    expect(state.isLate).toBe(false);
+  /*
+    **Nothing here records lateness**, and that is the point: no deadline is passed in at all, so
+    there is no moment at which a verdict could be frozen against the deadline as it stood. See
+    `lateness` below.
+  */
+  it("takes no deadline, because it records no verdict about one", () => {
+    const state = handInState({ current: null, now: AFTER });
+    expect(Object.keys(state).sort()).toEqual(["status", "submittedAt"]);
   });
 });
 
@@ -144,8 +101,8 @@ describe("handInState", () => {
  * What a submission's timeliness reads as once a renegotiated deadline is taken into account.
  *
  * The distinction these cases are about: a fellow who missed a deadline and said nothing, and a
- * fellow who came to their instructor, agreed a new date, and met it. `isLate` cannot tell them
- * apart — it is true of both — and the second is the behaviour the school wants to encourage.
+ * fellow who came to their instructor, agreed a new date, and met it. One word for both cannot tell
+ * them apart, and the second is the behaviour the school wants to encourage.
  */
 describe("lateness", () => {
   /** An extension agreed two days after the original deadline. */
@@ -154,28 +111,26 @@ describe("lateness", () => {
   const WITHIN = new Date("2026-03-11T10:00:00Z");
 
   it("reads work that met its original deadline as on time", () => {
-    expect(lateness({ isLate: false, submittedAt: ON_TIME, extendedDueAt: null })).toBe("onTime");
+    expect(lateness({ dueAt: DUE, submittedAt: ON_TIME, extendedDueAt: null })).toBe("onTime");
   });
 
   it("reads work that missed its deadline with nothing agreed as late", () => {
-    expect(lateness({ isLate: true, submittedAt: AFTER, extendedDueAt: null })).toBe("late");
+    expect(lateness({ dueAt: DUE, submittedAt: AFTER, extendedDueAt: null })).toBe("late");
   });
 
   it("reads work handed in by a renegotiated deadline as extended", () => {
-    expect(lateness({ isLate: true, submittedAt: WITHIN, extendedDueAt: EXTENDED })).toBe(
-      "extended",
-    );
+    expect(lateness({ dueAt: DUE, submittedAt: WITHIN, extendedDueAt: EXTENDED })).toBe("extended");
   });
 
   // The case an extension must not excuse, or agreeing one would be a way of never being late.
   it("reads work that missed the renegotiated deadline too as late", () => {
-    expect(lateness({ isLate: true, submittedAt: AFTER, extendedDueAt: EXTENDED })).toBe("late");
+    expect(lateness({ dueAt: DUE, submittedAt: AFTER, extendedDueAt: EXTENDED })).toBe("late");
   });
 
   // Handed in at the extended deadline exactly, which is inside it — the same inclusive reading
-  // `handInState` gives the original deadline.
+  // the assignment's own deadline gets.
   it("reads work handed in at the renegotiated deadline itself as extended", () => {
-    expect(lateness({ isLate: true, submittedAt: EXTENDED, extendedDueAt: EXTENDED })).toBe(
+    expect(lateness({ dueAt: DUE, submittedAt: EXTENDED, extendedDueAt: EXTENDED })).toBe(
       "extended",
     );
   });
@@ -185,7 +140,7 @@ describe("lateness", () => {
     excuses one after the fact. It needs no separate mechanism: the comparison is satisfied.
   */
   it("reads a retroactive extension as extended", () => {
-    expect(lateness({ isLate: true, submittedAt: AFTER, extendedDueAt: AFTER })).toBe("extended");
+    expect(lateness({ dueAt: DUE, submittedAt: AFTER, extendedDueAt: AFTER })).toBe("extended");
   });
 
   /*
@@ -193,26 +148,52 @@ describe("lateness", () => {
     excuse. That is the right answer for one granted in advance and then not needed.
   */
   it("says on time for an extension nobody ended up needing", () => {
-    expect(lateness({ isLate: false, submittedAt: ON_TIME, extendedDueAt: EXTENDED })).toBe(
-      "onTime",
-    );
+    expect(lateness({ dueAt: DUE, submittedAt: ON_TIME, extendedDueAt: EXTENDED })).toBe("onTime");
   });
 
   /*
-    Nothing handed in: `isLate` is null, because it is only ever written of work that arrived.
-    Whether that fellow is *missing* the work is `isMissing`'s question, and it consults the
-    extension itself.
+    Nothing handed in has no arrival to measure, so it is not late. Whether that fellow is
+    *missing* the work is `isMissing`'s question, and it consults the extension itself.
   */
   it("says on time where nothing has been handed in", () => {
-    expect(lateness({ isLate: null, submittedAt: null, extendedDueAt: null })).toBe("onTime");
-    expect(lateness({ isLate: null, submittedAt: null, extendedDueAt: EXTENDED })).toBe("onTime");
+    expect(lateness({ dueAt: DUE, submittedAt: null, extendedDueAt: null })).toBe("onTime");
+    expect(lateness({ dueAt: DUE, submittedAt: null, extendedDueAt: EXTENDED })).toBe("onTime");
+  });
+
+  /*
+    **The bug deriving exists to fix.** A stored verdict was written at hand-in against the deadline
+    as it stood that minute. An assignment due the 10th: one fellow hands in on the 12th and is
+    recorded late; an instructor then decides the original was not enough time and moves it to the
+    20th; a second fellow hands in on the 14th and is recorded on time. The fellow who was *closer*
+    to the original deadline read as the worse of the two, and the only difference between them was
+    when the instructor happened to make the edit.
+
+    Derived, both read as on time, which is what the instructor meant by moving it.
+  */
+  it("reads both fellows the same when a deadline moves past them", () => {
+    const moved = new Date("2026-03-20T23:59:00Z");
+    const earlier = new Date("2026-03-12T10:00:00Z");
+    const later = new Date("2026-03-14T10:00:00Z");
+
+    expect(lateness({ dueAt: moved, submittedAt: earlier, extendedDueAt: null })).toBe("onTime");
+    expect(lateness({ dueAt: moved, submittedAt: later, extendedDueAt: null })).toBe("onTime");
+  });
+
+  // And both are late again against the deadline they actually missed, so moving one is what
+  // changes the answer rather than the order the two happened to hand in.
+  it("reads both fellows as late against the deadline they missed", () => {
+    const earlier = new Date("2026-03-12T10:00:00Z");
+    const later = new Date("2026-03-14T10:00:00Z");
+
+    expect(lateness({ dueAt: DUE, submittedAt: earlier, extendedDueAt: null })).toBe("late");
+    expect(lateness({ dueAt: DUE, submittedAt: later, extendedDueAt: null })).toBe("late");
   });
 
   // ISO strings, because the browser receives the payload serialized and reads it with this.
   it("reads timestamps that arrived as strings", () => {
     expect(
       lateness({
-        isLate: true,
+        dueAt: DUE.toISOString(),
         submittedAt: WITHIN.toISOString(),
         extendedDueAt: EXTENDED.toISOString(),
       }),
@@ -227,7 +208,6 @@ describe("taskVerdict", () => {
     const verdict = taskVerdict({
       done: true,
       current: null,
-      dueAt: DUE,
       at: ON_TIME,
       markedById: MARKER,
     });
@@ -245,7 +225,6 @@ describe("taskVerdict", () => {
     const verdict = taskVerdict({
       done: false,
       current: null,
-      dueAt: DUE,
       at: ON_TIME,
       markedById: MARKER,
     });
@@ -255,32 +234,31 @@ describe("taskVerdict", () => {
     expect(verdict.finalScorePossible).toBe(1);
   });
 
-  it("is late when it is first marked done after the due date", () => {
+  it("records when it was first marked done", () => {
     const verdict = taskVerdict({
       done: true,
       current: null,
-      dueAt: DUE,
       at: AFTER,
       markedById: MARKER,
     });
 
+    // Whether that is late is `lateness`'s question, asked against the assignment's deadline when
+    // somebody looks — a task's row records when the work was done and nothing about a verdict.
     expect(verdict.submittedAt).toEqual(AFTER);
-    expect(verdict.isLate).toBe(true);
   });
 
-  it("does not move when the work was done, or make it late, on a second mark", () => {
+  it("does not move when the work was done on a second mark", () => {
     // An instructor confirming a task that was marked done on time must not turn it late by
-    // agreeing with it after the deadline — the same rule `handInState` holds for a hand-in.
+    // agreeing with it after the deadline — which is why the time is preserved rather than reset,
+    // since that time is what `lateness` measures.
     const verdict = taskVerdict({
       done: true,
-      current: { submittedAt: ON_TIME, isLate: false },
-      dueAt: DUE,
+      current: { submittedAt: ON_TIME },
       at: AFTER,
       markedById: MARKER,
     });
 
     expect(verdict.submittedAt).toEqual(ON_TIME);
-    expect(verdict.isLate).toBe(false);
   });
 
   it("leaves when the work was done alone when it is sent back", () => {
@@ -288,14 +266,12 @@ describe("taskVerdict", () => {
     // `submittedAt` here would rewrite when a fellow did the work as a side effect of judging it.
     const verdict = taskVerdict({
       done: false,
-      current: { submittedAt: ON_TIME, isLate: false },
-      dueAt: DUE,
+      current: { submittedAt: ON_TIME },
       at: AFTER,
       markedById: MARKER,
     });
 
     expect(verdict.submittedAt).toEqual(ON_TIME);
-    expect(verdict.isLate).toBe(false);
   });
 
   it("marks the feedback read, because there is no report to read", () => {
@@ -308,7 +284,6 @@ describe("taskVerdict", () => {
     const verdict = taskVerdict({
       done: true,
       current: null,
-      dueAt: null,
       at: ON_TIME,
       markedById: MARKER,
     });
@@ -324,7 +299,6 @@ describe("taskVerdict", () => {
     const byFellow = taskVerdict({
       done: true,
       current: null,
-      dueAt: null,
       at: ON_TIME,
       markedById: MARKER,
       handedInById: MARKER,
@@ -332,7 +306,6 @@ describe("taskVerdict", () => {
     const byInstructor = taskVerdict({
       done: false,
       current: null,
-      dueAt: null,
       at: ON_TIME,
       markedById: MARKER,
     });
@@ -361,6 +334,5 @@ describe("taskReset", () => {
     expect(reset.feedbackReviewedAt).toBeNull();
     expect(reset.handedInById).toBeNull();
     expect(reset.submittedAt).toBeNull();
-    expect(reset.isLate).toBeNull();
   });
 });

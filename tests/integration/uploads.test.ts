@@ -315,11 +315,7 @@ describe("handing in a file", () => {
     });
 
     it("uploading is what enters the queue", () => {
-      expect([submission.status, submission.isLate, submission.submittedAt !== null]).toEqual([
-        "SUBMITTED",
-        false,
-        true,
-      ]);
+      expect([submission.status, submission.submittedAt !== null]).toEqual(["SUBMITTED", true]);
     });
 
     it("the file is one attachment on the submission", async () => {
@@ -830,9 +826,9 @@ describe("handing in a file", () => {
 
       const row = await tx().submission.findUniqueOrThrow({
         where: { id: submission.id },
-        select: { status: true, submittedAt: true, isLate: true },
+        select: { status: true, submittedAt: true },
       });
-      expect([row.status, row.submittedAt, row.isLate]).toEqual(["NOT_STARTED", null, null]);
+      expect([row.status, row.submittedAt]).toEqual(["NOT_STARTED", null]);
     });
 
     it("and attaching again hands it in afresh", async () => {

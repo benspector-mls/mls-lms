@@ -509,7 +509,7 @@ export function GradingQueue({
               selected && !isTask ? (
                 <span className="flex items-center gap-2">
                   <SubmissionStatusBadge status={selected.status} />
-                  <LatenessBadge submission={selected} />
+                  <LatenessBadge dueAt={data.assignment.dueAt} submission={selected} />
                   {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the
@@ -643,6 +643,7 @@ export function GradingQueue({
                 key={selected.id}
                 submission={selected}
                 assignmentId={data.assignment.id}
+                assignmentDueAt={data.assignment.dueAt}
                 // Links each member of a team's line to their own record — "what else has this
                 // person done" is the question a report prompts about a member.
                 studentHref={studentHref(data.assignment.courseId, selected.student.id)}

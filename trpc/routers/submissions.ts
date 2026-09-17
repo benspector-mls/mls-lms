@@ -54,7 +54,6 @@ const taskWorkSelect = {
   id: true,
   isComplete: true,
   submittedAt: true,
-  isLate: true,
 } satisfies Prisma.SubmissionSelect;
 
 /**
@@ -144,7 +143,6 @@ const reviewableSubmissionSelect = {
   // is no pull request. Hand grading needs somewhere to read the work from.
   artifacts: { orderBy: { createdAt: "asc" as const }, select: artifactSelect },
   submittedAt: true,
-  isLate: true,
   // Read with the two above by `lateness`, so a badge says "Extended" where one was agreed.
   extendedDueAt: true,
   // Who agreed to it and when, which is what the extension strip on a fellow's record says beside
@@ -447,7 +445,7 @@ export const submissionsRouter = createTRPCRouter({
         hand-in may move. `handInState` is that rule, shared with the upload path and the pull
         request webhook so the three ways work arrives cannot disagree about it.
       */
-      const state = handInState({ current: target, dueAt: assignment.dueAt, now });
+      const state = handInState({ current: target, now });
 
       /*
         The link itself, on the row holding the work and on that row only: it is where the work is,
@@ -486,7 +484,7 @@ export const submissionsRouter = createTRPCRouter({
         where: {
           assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
         },
-        select: { id: true, status: true, submittedAt: true, isLate: true },
+        select: { id: true, status: true, submittedAt: true },
       });
     }),
 
@@ -580,7 +578,7 @@ export const submissionsRouter = createTRPCRouter({
         where: {
           assignmentId_studentId: { assignmentId: assignment.id, studentId: ctx.profile.id },
         },
-        select: { id: true, status: true, submittedAt: true, isLate: true },
+        select: { id: true, status: true, submittedAt: true },
       });
     }),
 
@@ -1026,7 +1024,6 @@ export const submissionsRouter = createTRPCRouter({
           ? taskVerdict({
               done: true,
               current: work,
-              dueAt: assignment.dueAt,
               at: now,
               markedById: ctx.profile.id,
               // The fellow, so a team's panel can say which member marked it.
@@ -1152,7 +1149,6 @@ export const submissionsRouter = createTRPCRouter({
         verdict: taskVerdict({
           done: input.done,
           current: work,
-          dueAt: assignment.dueAt,
           at: now,
           markedById: ctx.profile.id,
           // Deliberately not passed. `handedInById` names the member who did the work, and an
@@ -1518,7 +1514,6 @@ export const submissionsRouter = createTRPCRouter({
         select: {
           id: true,
           status: true,
-          isLate: true,
           // With `submittedAt` below, what `lateness` reads to tell an agreed deadline from a
           // missed one — so a pile of work does not report a fellow who renegotiated as late.
           extendedDueAt: true,

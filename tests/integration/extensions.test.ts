@@ -303,11 +303,18 @@ describe("what the fellow sees", () => {
     });
   });
 
+  /*
+    Both dates travel, and they answer different questions: `effectiveDueAt` is the deadline this
+    fellow is working to and is what every screen shows them, while `dueAt` stays the assignment's
+    own so that `lateness` can tell a hand-in that missed the class deadline and met an agreed one
+    from a hand-in that missed nothing.
+  */
   it("their dashboard shows the deadline they were given", async () => {
     const rows = await createCaller(tx(), world.student.studentId).assignments.listMine();
     const row = rows.find((entry) => entry.id === assignmentId);
 
-    expect(row?.dueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    expect(row?.effectiveDueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    expect(row?.dueAt?.toISOString()).toBe(DUE.toISOString());
   });
 
   it("their course page shows the same one", async () => {
@@ -316,7 +323,8 @@ describe("what the fellow sees", () => {
     });
     const row = rows.find((entry) => entry.id === assignmentId);
 
-    expect(row?.dueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    expect(row?.effectiveDueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    expect(row?.dueAt?.toISOString()).toBe(DUE.toISOString());
   });
 
   // A fellow with no agreement sees the class deadline, which is the control for the two above: on
@@ -325,7 +333,7 @@ describe("what the fellow sees", () => {
     const rows = await createCaller(tx(), world.students[1]!.studentId).assignments.listMine();
     const row = rows.find((entry) => entry.id === assignmentId);
 
-    expect(row?.dueAt?.toISOString()).toBe(DUE.toISOString());
+    expect(row?.effectiveDueAt?.toISOString()).toBe(DUE.toISOString());
   });
 });
 
@@ -575,10 +583,6 @@ describe("the verdict on work that arrived", () => {
         status: "SUBMITTED",
         submittedAt,
       });
-      await tx().submission.updateMany({
-        where: { assignmentId, studentId: world.students[index]!.studentId },
-        data: { isLate: true },
-      });
     }
 
     const asInstructor = createCaller(tx(), world.instructorId);
@@ -610,22 +614,21 @@ describe("the verdict on work that arrived", () => {
     expect(row?.extendedDueAt?.toISOString()).toBe(EXTENDED.toISOString());
   });
 
-  // Still late against the original, which is the record the school keeps. The word the fellow is
-  // shown is derived from that plus the agreement, never by rewriting this.
-  it("leaves isLate saying the original deadline was missed", async () => {
-    expect((await facts(0))?.isLate).toBe(true);
-    expect((await facts(1))?.isLate).toBe(true);
-  });
-
-  it("keeps the hand-in time, which is what the agreement is compared against", async () => {
+  /*
+    The hand-in time is the record the school keeps, and the word a fellow is shown is computed from
+    it against the assignment's deadline and then the agreed one. Nothing is stored saying "late",
+    so nothing has to be rewritten when a deadline moves.
+  */
+  it("keeps the hand-in time, which is what both deadlines are compared against", async () => {
     expect((await facts(0))?.submittedAt?.toISOString()).toBe(WITHIN.toISOString());
     expect((await facts(1))?.submittedAt?.toISOString()).toBe(AFTER_BOTH.toISOString());
   });
 
-  // The fellow who was agreed nothing: no extension travels, so every reader calls them late.
+  // The fellow who was agreed nothing: no extension travels, so every reader measures them against
+  // the assignment's own deadline and calls them late.
   it("says nothing about a fellow who agreed nothing", async () => {
     const row = await facts(2);
     expect(row?.extendedDueAt).toBeNull();
-    expect(row?.isLate).toBe(true);
+    expect(row?.submittedAt?.toISOString()).toBe(WITHIN.toISOString());
   });
 });

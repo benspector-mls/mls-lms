@@ -12,7 +12,7 @@ import { isMirror, sharedAfterHandIn, teamRole, type HandIn } from "@/lib/submis
  */
 
 const handIn = (over: Partial<HandIn> = {}): HandIn => ({
-  state: { status: "SUBMITTED", submittedAt: new Date("2026-09-01T12:00:00Z"), isLate: false },
+  state: { status: "SUBMITTED", submittedAt: new Date("2026-09-01T12:00:00Z") },
   lastActivityAt: new Date("2026-09-01T12:00:00Z"),
   handedInById: "cara",
   ...over,
@@ -45,11 +45,10 @@ describe("teamRole", () => {
 });
 
 describe("sharedAfterHandIn", () => {
-  it("carries the status, the hand-in time, the lateness, and who handed it in", () => {
+  it("carries the status, the hand-in time, and who handed it in", () => {
     expect(sharedAfterHandIn(handIn())).toEqual({
       status: "SUBMITTED",
       submittedAt: new Date("2026-09-01T12:00:00Z"),
-      isLate: false,
       lastActivityAt: new Date("2026-09-01T12:00:00Z"),
       handedInById: "cara",
     });
@@ -112,15 +111,17 @@ describe("sharedAfterHandIn", () => {
     // The two rules compose rather than overlapping: `handInState` decides what a hand-in means,
     // and this decides who is told. A revision stays a revision on every member's row.
     const state = handInState({
-      current: { status: "GRADED", submittedAt: new Date("2026-09-01T12:00:00Z"), isLate: false },
-      dueAt: new Date("2026-09-02T12:00:00Z"),
+      current: { status: "GRADED", submittedAt: new Date("2026-09-01T12:00:00Z") },
       now: new Date("2026-09-05T12:00:00Z"),
     });
 
     const shared = sharedAfterHandIn(handIn({ state }));
     expect(shared.status).toBe("RESUBMITTED");
-    // Handed in before the deadline, revised after it, and still not late — on every row.
+    /*
+      The time the work was first handed in, unmoved by the revision, and carried onto every row —
+      which is what makes a team's timeliness one answer, since `lateness` reads that time against
+      the assignment's deadline rather than any stored verdict.
+    */
     expect(shared.submittedAt).toEqual(new Date("2026-09-01T12:00:00Z"));
-    expect(shared.isLate).toBe(false);
   });
 });

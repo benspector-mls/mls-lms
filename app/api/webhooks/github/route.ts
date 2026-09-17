@@ -179,7 +179,6 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
       id: true,
       status: true,
       submittedAt: true,
-      isLate: true,
       teamId: true,
       assignment: { select: { id: true, dueAt: true } },
     },
@@ -231,7 +230,7 @@ async function handlePullRequestEvent(payload: PullRequestWebhookPayload) {
     await recordHandIn(db, {
       submissionId: submission.id,
       handIn: {
-        state: handInState({ current: submission, dueAt: submission.assignment.dueAt, now }),
+        state: handInState({ current: submission, now }),
         lastActivityAt: now,
         handedInById: await memberBehind(payload.pull_request.user?.login ?? null, submission.id),
         location,

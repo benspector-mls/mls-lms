@@ -121,7 +121,6 @@ async function rowsFor(tx: Tx, assignmentId: string) {
       studentId: true,
       status: true,
       submittedAt: true,
-      isLate: true,
       teamSubmissionId: true,
       artifacts: { orderBy: { createdAt: "asc" as const }, select: { id: true, url: true } },
       handedInById: true,
@@ -230,9 +229,14 @@ describe("one hand-in, and what every member's row then says", () => {
       ]).toEqual([["https://example.com/alice"], []]);
     });
 
+    /*
+      The same moment on every row, which is what makes the team's verdict one verdict: lateness is
+      computed from `submittedAt` against the assignment's deadline, so members holding the same
+      time cannot read differently from one another.
+    */
     it("every member reads as having handed in, at the same moment", () => {
-      expect(rows.map((row) => [row.status, row.submittedAt?.toISOString(), row.isLate])).toEqual(
-        rows.map(() => ["SUBMITTED", work.submittedAt?.toISOString(), false]),
+      expect(rows.map((row) => [row.status, row.submittedAt?.toISOString()])).toEqual(
+        rows.map(() => ["SUBMITTED", work.submittedAt?.toISOString()]),
       );
     });
 
@@ -359,7 +363,7 @@ describe("one hand-in, and what every member's row then says", () => {
     beforeAll(async () => {
       await tx().submission.updateMany({
         where: { teamSubmissionId: work.id },
-        data: { status: "ACCEPTED", submittedAt: null, isLate: null },
+        data: { status: "ACCEPTED", submittedAt: null },
       });
       behind = await rowsFor(tx(), assignmentId);
     });

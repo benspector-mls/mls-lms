@@ -146,19 +146,26 @@ export function SubmissionStatusBadge({
  * **Draws nothing for work that was on time**, which is why this returns null rather than a badge
  * saying so: the common case earns no pill, and a row with nothing on it reads correctly.
  *
- * Takes the submission's own columns rather than a verdict, so no caller has to remember which
- * three they are or how they combine. That was the failure this replaces — lateness was written out
- * at six call sites as `isLate && <Badge>Late</Badge>`, and every one of them would have had to
- * learn about extensions separately.
+ * Takes the columns rather than a verdict, so no caller has to remember which they are or how they
+ * combine. That was the failure this replaces — lateness was written out at six call sites as
+ * `isLate && <Badge>Late</Badge>`, and every one of them would have had to learn about extensions
+ * separately.
+ *
+ * The deadline is a separate prop because it belongs to the assignment rather than to the row, and
+ * a caller passing the wrong one — a fellow's agreed date in place of the class's — would quietly
+ * turn every extension into an on-time hand-in.
  */
 export function LatenessBadge({
+  dueAt,
   submission,
   className,
 }: {
-  submission: LatenessFacts | null | undefined;
+  /** The assignment's own deadline. Taken separately because it is not a column on the row. */
+  dueAt: Date | string | null;
+  submission: Omit<LatenessFacts, "dueAt"> | null | undefined;
   className?: string;
 }) {
-  const meta = submission ? latenessMeta(lateness(submission)) : null;
+  const meta = submission ? latenessMeta(lateness({ ...submission, dueAt })) : null;
   if (!meta) return null;
 
   return <BadgeShell meta={meta} className={className} />;

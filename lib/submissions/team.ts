@@ -106,12 +106,10 @@ export type HandIn = {
 export const MIRRORED_COLUMNS = {
   status: true,
   submittedAt: true,
-  isLate: true,
   /*
     A deadline agreed with the team, and who agreed to it. **Mirrored because a team has one
-    deadline**, exactly as it has one `isLate`: the work is handed in once, so a date agreed about
-    it belongs to everybody it was agreed for, and a member reading their own row has to find the
-    same answer their teammates find.
+    deadline**: the work is handed in once, so a date agreed about it belongs to everybody it was
+    agreed for, and a member reading their own row has to find the same answer their teammates find.
 
     All three travel together or none does. The table's CHECK holds them null together or set
     together, so mirroring the date alone would make every mirror refuse to be written.
@@ -147,7 +145,6 @@ export function sharedAfterHandIn(handIn: HandIn): Prisma.SubmissionUncheckedUpd
   return {
     status: handIn.state.status,
     submittedAt: handIn.state.submittedAt,
-    isLate: handIn.state.isLate,
     lastActivityAt: handIn.lastActivityAt,
     handedInById: handIn.handedInById,
   };
@@ -184,7 +181,6 @@ export async function recordEmptiedHandIn(
   await write(db, params.submissionId, {
     status: "NOT_STARTED",
     submittedAt: null,
-    isLate: null,
     lastActivityAt: params.at,
   });
 }
@@ -335,9 +331,9 @@ export async function recordTaskVerdict(
  * Records a student declaring graded work ready to be looked at again.
  *
  * Its own act rather than a hand-in, because nothing was handed in: no link, no file, no commit.
- * What changes is that somebody is asking, so `submittedAt` and `isLate` are deliberately left
- * exactly as they are — the work was handed in when it was handed in, and asking for another look
- * is not a new answer to that.
+ * What changes is that somebody is asking, so `submittedAt` is deliberately left exactly as it is —
+ * the work was handed in when it was handed in, and asking for another look is not a new answer to
+ * that.
  *
  * On a team it reaches every member, because a resubmission is the team's and their gradebook
  * cells have to agree with the pile the instructor is looking at.

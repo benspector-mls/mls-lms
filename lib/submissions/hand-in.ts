@@ -21,14 +21,12 @@ import { TASK_POINT_VALUE } from "@/lib/assignments/spec";
 export interface HandInBefore {
   status: SubmissionStatus;
   submittedAt: Date | null;
-  isLate: boolean | null;
 }
 
 /** The columns this rule writes. Every field is set, so a caller cannot half-apply it. */
 export interface HandInAfter {
   status: SubmissionStatus;
   submittedAt: Date;
-  isLate: boolean;
 }
 
 /**
@@ -48,32 +46,23 @@ export function handInStatus(current: SubmissionStatus): SubmissionStatus {
 }
 
 /**
- * The three columns together, from the row as it stands and the assignment's due date.
+ * The two columns together, from the row as it stands.
  *
  * `submittedAt` is recorded on the first hand-in and never moved after it. It is when the work
  * was handed in, and a correction or a revision is not a new answer to that question — moving
- * it turns an on-time submission into a late one for the offence of having been revised, which
- * is what `isLate` then reports to the gradebook and to the student. When a revision happened
- * is `lastActivityAt`, which every caller writes for itself.
+ * it would turn an on-time submission into a late one for the offence of having been revised.
+ * When a revision happened is `lastActivityAt`, which every caller writes for itself.
  *
- * `isLate` follows from `submittedAt` rather than from the clock, so it is recomputed rather
- * than carried: an instructor who moves an assignment's due date should see the flag follow.
- * With no due date there is nothing to be late against, and the stored value stands — a
- * submission with no deadline is never late, and one whose deadline was removed keeps whatever
- * was already on record.
+ * **Nothing here records whether the work was late.** That is `lateness` below, computed when
+ * somebody looks rather than frozen when the work arrived — see its comment for why a frozen
+ * answer gave two fellows different verdicts for the same behaviour.
  */
-export function handInState(params: {
-  current: HandInBefore | null;
-  dueAt: Date | null;
-  now: Date;
-}): HandInAfter {
-  const { current, dueAt, now } = params;
-  const submittedAt = current?.submittedAt ?? now;
+export function handInState(params: { current: HandInBefore | null; now: Date }): HandInAfter {
+  const { current, now } = params;
 
   return {
     status: handInStatus(current?.status ?? "NOT_STARTED"),
-    submittedAt,
-    isLate: dueAt ? submittedAt > dueAt : (current?.isLate ?? false),
+    submittedAt: current?.submittedAt ?? now,
   };
 }
 
@@ -84,10 +73,10 @@ export function handInState(params: {
 /**
  * What a submission's timeliness reads as, once a renegotiated deadline is taken into account.
  *
- * Three answers rather than the two `isLate` holds, because "late" had been carrying two
- * situations a school treats very differently: a fellow who missed a deadline and said nothing,
- * and a fellow who came to their instructor, agreed a new date, and met it. The second is the
- * behaviour the school wants to reinforce, and a column that called it late could not.
+ * Three answers rather than two, because "late" had been carrying two situations a school treats
+ * very differently: a fellow who missed a deadline and said nothing, and a fellow who came to their
+ * instructor, agreed a new date, and met it. The second is the behaviour the school wants to
+ * reinforce, and one word for both could not.
  */
 export type Lateness = "onTime" | "extended" | "late";
 
@@ -101,9 +90,10 @@ export type Lateness = "onTime" | "extended" | "late";
  * the feed holds exactly the dated work the dashboard shows; three spellings of this rule is how
  * that check would start failing for a reason nobody could see.
  *
- * **Display only.** Nothing about a verdict reads this: `isLate` is judged against the assignment's
- * own deadline at hand-in, and `lateness` above compares the two afterwards. A fellow's extension
- * changes what they are shown and when they are called missing, never the record of what happened.
+ * **Display only, and deliberately not what `lateness` reads.** That compares the hand-in against
+ * the assignment's own deadline first and the agreed one second, so it can tell "extended" from "on
+ * time"; collapsing the two here would lose that distinction. This answers a different question —
+ * which date to *show* a fellow, and which one decides that they are missing the work.
  */
 export function effectiveDueAt(params: {
   /** The assignment's own deadline, which is every fellow's until one of them agrees otherwise. */
@@ -114,42 +104,50 @@ export function effectiveDueAt(params: {
   return params.submission?.extendedDueAt ?? params.dueAt;
 }
 
-/** The columns the verdict reads. Structural, so a test can state a case in one line. */
+/** What the verdict reads. Structural, so a test can state a case in one line. */
 export interface LatenessFacts {
-  /** Whether the *original* deadline was missed, judged once at hand-in and never rewritten. */
-  isLate: boolean | null;
+  /** The assignment's own deadline — the one the class was given. */
+  dueAt: Date | string | null;
+  /** When the work arrived, or null where nothing has. */
   submittedAt: Date | string | null;
-  /** The renegotiated deadline, or null where none was agreed. */
+  /** A deadline renegotiated with this fellow, or null where none was agreed. */
   extendedDueAt: Date | string | null;
 }
 
 /**
  * Whether work was on time, extended, or late.
  *
- * **Derived from two recorded timestamps rather than stored**, which is what keeps it honest: both
- * of them are written once and never moved, so there is no state for a stored verdict to drift
- * away from. `submittedAt` records the first hand-in; `extendedDueAt` changes only when an
- * instructor grants or revokes, and a grant is an act somebody performed rather than something a
- * clock does.
+ * **Computed when somebody looks, never stored**, and that is the whole of this function's design.
+ * A stored verdict was written at hand-in against the deadline as it stood that minute, which gave
+ * two fellows opposite records for the same behaviour: an assignment due the 1st, one fellow hands
+ * in on the 3rd and is recorded late, an instructor decides on the 4th that the original was not
+ * enough time and moves it to the 10th, a second fellow hands in on the 5th and is recorded on
+ * time. The fellow who was *closer* to the original deadline read as the worse of the two, and the
+ * difference was only when the instructor happened to make the edit. Worse, the first fellow's
+ * record corrected itself only if they later resubmitted, because that is when the stored value was
+ * recomputed — so whether a record was right depended on whether the work had been revised.
  *
- * **`isLate` is the gate, and it is read rather than recomputed.** An extension on work that was
- * on time anyway says nothing — there was no deadline missed for it to excuse — so it reads
- * `onTime` and the grant sits on the row unused. That is the right outcome for an extension
- * granted in advance and then not needed.
+ * Moving a deadline now moves every verdict measured against it, which is what an instructor means
+ * by moving it.
  *
- * **Not yet handed in reads `late` once the original deadline has passed**, because `isLate` is
- * only ever true of work that arrived. A row with nothing handed in has `isLate` null and reads
- * `onTime` here; whether that fellow is *missing* the work is `isMissing`'s question, and it is
- * the one that consults an extension for work that has not arrived.
+ * **Nothing handed in is `onTime`.** Whether that fellow is *missing* the work is `isMissing`'s
+ * question, and it is the one that consults an extension for work that has not arrived. Work with
+ * no deadline is `onTime` too: there is nothing to be late against.
+ *
+ * **An extension on work that was never late says nothing.** It reads `onTime` and the grant sits
+ * on the row unused, which is the right outcome for one agreed in advance and then not needed.
  *
  * Retroactive excusal needs no separate path: an extension dated at or after a hand-in that
  * already happened satisfies the comparison, which is what granting one after the fact means.
  */
 export function lateness(facts: LatenessFacts): Lateness {
-  if (facts.isLate !== true) return "onTime";
-  if (facts.extendedDueAt == null || facts.submittedAt == null) return "late";
+  if (facts.submittedAt == null || facts.dueAt == null) return "onTime";
 
-  return new Date(facts.submittedAt) <= new Date(facts.extendedDueAt) ? "extended" : "late";
+  const submitted = new Date(facts.submittedAt);
+  if (submitted <= new Date(facts.dueAt)) return "onTime";
+
+  if (facts.extendedDueAt == null) return "late";
+  return submitted <= new Date(facts.extendedDueAt) ? "extended" : "late";
 }
 
 // ===========================================================================
@@ -183,7 +181,6 @@ export function lateness(facts: LatenessFacts): Lateness {
 /** The columns a verdict reads from the row as it stands. Null for a row that does not exist yet. */
 export interface TaskBefore {
   submittedAt: Date | null;
-  isLate: boolean | null;
 }
 
 export function taskVerdict(params: {
@@ -191,7 +188,6 @@ export function taskVerdict(params: {
   done: boolean;
   /** The row as it stands, or null when there is not one yet. */
   current: TaskBefore | null;
-  dueAt: Date | null;
   at: Date;
   /** Who decided. Written to `gradedById`, whether that is the fellow or their instructor. */
   markedById: string;
@@ -204,7 +200,7 @@ export function taskVerdict(params: {
    */
   handedInById?: string;
 }): Prisma.SubmissionUncheckedUpdateManyInput {
-  const { done, current, dueAt, at, markedById, handedInById } = params;
+  const { done, current, at, markedById, handedInById } = params;
 
   /*
     When the work was done, recorded on the first done verdict and never moved after it — the
@@ -216,11 +212,6 @@ export function taskVerdict(params: {
     invent one for.
   */
   const submittedAt = done ? (current?.submittedAt ?? at) : (current?.submittedAt ?? null);
-  const isLate = done
-    ? dueAt
-      ? (current?.submittedAt ?? at) > dueAt
-      : (current?.isLate ?? false)
-    : (current?.isLate ?? null);
 
   return {
     status: "GRADED",
@@ -232,7 +223,6 @@ export function taskVerdict(params: {
     gradedAt: at,
     lastActivityAt: at,
     submittedAt,
-    isLate,
     ...(handedInById === undefined ? {} : { handedInById }),
     /*
       No report, and both columns say so rather than being left to whatever a previous act put
@@ -268,8 +258,8 @@ export function taskVerdict(params: {
  * reach for — "not done" is a thing they are saying, where this is the absence of anybody having
  * said anything.
  *
- * Every column `taskVerdict` writes is cleared, including `submittedAt` and `isLate`: nothing
- * stands, so nothing may be recorded as standing. `NOT_STARTED` is what puts the task back on the
+ * Every column `taskVerdict` writes is cleared, `submittedAt` included: nothing stands, so nothing
+ * may be recorded as standing. `NOT_STARTED` is what puts the task back on the
  * fellow's overdue and upcoming lists, which is right — they have not done it.
  */
 export function taskReset(params: { at: Date }): Prisma.SubmissionUncheckedUpdateManyInput {
@@ -285,7 +275,6 @@ export function taskReset(params: { at: Date }): Prisma.SubmissionUncheckedUpdat
     feedbackReviewedAt: null,
     handedInById: null,
     submittedAt: null,
-    isLate: null,
     lastActivityAt: params.at,
     salesforceSyncStatus: "PENDING",
   };

@@ -352,7 +352,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               selected?.submission ? (
                 <span className="flex items-center gap-2">
                   <SubmissionStatusBadge status={selected.submission.status} />
-                  <LatenessBadge submission={selected.submission} />
+                  <LatenessBadge dueAt={selected.assignment.dueAt} submission={selected.submission} />
                   {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the
@@ -466,6 +466,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 key={selected.submission.id}
                 submission={selected.submission}
                 assignmentId={selected.assignment.id}
+                assignmentDueAt={selected.assignment.dueAt}
                 assignmentKind={selected.assignment.kind}
                 // Per row here, where the queue reads it once for the page: every row on this
                 // screen is a different assignment, and the threshold is what decides whether a

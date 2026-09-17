@@ -1221,7 +1221,6 @@ async function courseCells(
       assignmentId: true,
       studentId: true,
       status: true,
-      isLate: true,
       /*
         The two an extension is read against. `isLate` alone no longer answers the question the
         Handed in late column asks — see `lateness` in lib/submissions/hand-in.ts — and

@@ -42,7 +42,17 @@ import { feedbackIsUnread, handedIn } from "@/lib/status";
 export type DashboardRow = {
   id: string;
   title: string;
+  /** The assignment's own deadline, which the class was given. */
   dueAt: Date | null;
+  /**
+   * The deadline this fellow is working to: theirs where one was agreed with them, and the
+   * assignment's own otherwise.
+   *
+   * **Every figure on this screen is measured against this one**, because the screen is theirs.
+   * `dueAt` above answers a different question — whether a hand-in was late against what the class
+   * was given — and lives beside it so neither has to stand in for the other.
+   */
+  effectiveDueAt: Date | null;
   course: { id: string; name: string };
   submission: {
     status: SubmissionStatus;
@@ -256,9 +266,9 @@ export function dashboardSections<Row extends DashboardRow>(
       inProgress.push(row);
     }
 
-    if (row.dueAt != null && !handedIn(submission?.status)) {
-      if (row.dueAt.getTime() < now.getTime()) overdue.push(row);
-      else if (row.dueAt.getTime() <= windowEnds) upcoming.push(row);
+    if (row.effectiveDueAt != null && !handedIn(submission?.status)) {
+      if (row.effectiveDueAt.getTime() < now.getTime()) overdue.push(row);
+      else if (row.effectiveDueAt.getTime() <= windowEnds) upcoming.push(row);
       else laterCount += 1;
     }
   }
@@ -301,12 +311,17 @@ export function dashboardSections<Row extends DashboardRow>(
   };
 }
 
-/** Assignments with no due date sit at the foot, never at the head. */
+/**
+ * Assignments with no due date sit at the foot, never at the head.
+ *
+ * Ordered by the deadline the fellow is working to, so a row they were given longer for sits where
+ * they will next need it rather than where the class was told to expect it.
+ */
 function byDueAtAscending(a: DashboardRow, b: DashboardRow): number {
-  if (a.dueAt == null && b.dueAt == null) return 0;
-  if (a.dueAt == null) return 1;
-  if (b.dueAt == null) return -1;
-  return a.dueAt.getTime() - b.dueAt.getTime();
+  if (a.effectiveDueAt == null && b.effectiveDueAt == null) return 0;
+  if (a.effectiveDueAt == null) return 1;
+  if (b.effectiveDueAt == null) return -1;
+  return a.effectiveDueAt.getTime() - b.effectiveDueAt.getTime();
 }
 
 /**

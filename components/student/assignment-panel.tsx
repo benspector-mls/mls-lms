@@ -78,8 +78,8 @@ import type { Assignment, Submission } from "./types";
  * request (extended)" — and the pill vocabulary belongs to the screens that list many submissions
  * at once.
  */
-function latenessNote(submission: LatenessFacts): string {
-  const verdict = lateness(submission);
+function latenessNote(dueAt: Date | null, submission: Omit<LatenessFacts, "dueAt">): string {
+  const verdict = lateness({ ...submission, dueAt });
   return verdict === "onTime" ? "" : ` (${LATENESS_META[verdict].label.toLowerCase()})`;
 }
 
@@ -708,7 +708,7 @@ function SubmissionTab({
         </div>
       )}
 
-      {submission && <RepoLinks submission={submission} />}
+      {submission && <RepoLinks submission={submission} dueAt={assignment.dueAt} />}
 
       {/*
         The assignment's own instructions, where the instructor wrote any. Above the
@@ -789,7 +789,7 @@ function SubmissionTab({
         <AttachmentRow
           key={artifact.id}
           artifact={artifact}
-          lateness={lateness(submission)}
+          lateness={lateness({ ...submission, dueAt: assignment.dueAt })}
           driveKind={assignment.kind === "GOOGLE_DRIVE"}
           // Removable on exactly the terms the forms are offered on. While an instructor is
           // reading, the server refuses both, and the notice below says why.
@@ -1652,7 +1652,14 @@ function RequestReviewButton({ submissionId }: { submissionId: string }) {
   );
 }
 
-function RepoLinks({ submission }: { submission: Submission }) {
+function RepoLinks({
+  submission,
+  dueAt,
+}: {
+  submission: Submission;
+  /** The class deadline, which the note beside the pull request is measured against. */
+  dueAt: Date | null;
+}) {
   if (!submission.repoUrl && !submission.prUrl) return null;
 
   return (
@@ -1677,7 +1684,7 @@ function RepoLinks({ submission }: { submission: Submission }) {
           className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
         >
           <GitPullRequest data-icon="inline-start" />
-          Your pull request{latenessNote(submission)}
+          Your pull request{latenessNote(dueAt, submission)}
           <ExternalLink data-icon="inline-end" />
         </a>
       )}

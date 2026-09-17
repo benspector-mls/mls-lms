@@ -1257,8 +1257,8 @@ model Submission {
   /// does not change with them.
   repoGithubLoginAtCreation String? @map("repo_github_login_at_creation")
 
-  prNumber     Int?    @map("pr_number")
-  prUrl        String? @map("pr_url")
+  prNumber          Int?      @map("pr_number")
+  prUrl             String?   @map("pr_url")
   /// **Frozen. Read by nothing, written by nothing.** These five held the one link or the one
   /// file a submission was allowed, back when handing in one way nulled the other. What a
   /// student hands in is now any number of `SubmissionArtifact` rows, and every screen reads
@@ -1279,23 +1279,20 @@ model Submission {
   headBranch        String?   @map("head_branch")
   headSha           String?   @map("head_sha")
   submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
-  isLate            Boolean?  @map("is_late")
   lastActivityAt    DateTime? @map("last_activity_at") @db.Timestamptz(6)
 
   /// A deadline renegotiated with this fellow, for this piece of work.
   ///
-  /// **`isLate` above is not touched by this, and that is the whole design.** It records whether
-  /// the original deadline was missed, judged once at hand-in, and it goes on saying so. This
-  /// column records what was agreed instead. Keeping both is what lets the school ask the question
-  /// it actually cares about — did this fellow meet a deadline, or renegotiate one and meet the new
-  /// one — which a column that simply moved the deadline could not answer, because the fact that
-  /// anything was renegotiated would be written down nowhere.
+  /// **`Assignment.dueAt` is not touched by this, and that is the whole design.** The class keeps the
+  /// deadline it was given; this records what was agreed with one fellow instead. Keeping both is
+  /// what lets the school ask the question it actually cares about — did this fellow meet a
+  /// deadline, or renegotiate one and meet the new one — which a column that simply moved the
+  /// assignment's own date could not answer, because the fact that anything was renegotiated would
+  /// be written down nowhere.
   ///
-  /// **The verdict is derived from the two, never stored.** `lateness` in lib/submissions/hand-in.ts
-  /// compares `submittedAt` against this: missed the original and met this one reads "Extended",
-  /// missed both reads "Late". Safe to derive because neither timestamp moves once written —
-  /// `submittedAt` records the first hand-in and is never rewritten, and this changes only when an
-  /// instructor grants or revokes.
+  /// **The verdict is derived from the three dates, never stored.** `lateness` in
+  /// lib/submissions/hand-in.ts compares `submittedAt` against the assignment's deadline and then
+  /// against this one: past the first and inside this reads "Extended", past both reads "Late".
   ///
   /// **Retroactive excusal is the same column**, not a second mechanism: an extension dated at or
   /// after a hand-in that already happened makes it read as extended. That is what granting one

@@ -47,6 +47,7 @@ import {
 } from "@/lib/gradebook/summary";
 import { gradingQueueHref, studentHref } from "@/lib/links";
 import { formatDueDate, scoreLabel, scorePercent, SUBMISSION_STATUS_META } from "@/lib/status";
+import { lateness } from "@/lib/submissions/hand-in";
 import { cn } from "@/lib/utils";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import type { RouterOutputs } from "@/trpc/types";
@@ -396,7 +397,7 @@ function Band({
     names no task at all: it is a record of deadlines already missed, and it stays true after a
     student leaves the cohort.
   */
-  const late = lateByStudent(shown);
+  const late = lateByStudent(shown, work);
 
   /*
     From `work` and `shown` for the same reason again: the figure has to count the red rings in
@@ -805,6 +806,9 @@ function Band({
                         // The same predicate the Missing column counts with, so the column
                         // equals the red rings in its row by construction.
                         missing={isMissing(assignment, cell, at)}
+                        late={
+                          cell ? lateness({ ...cell, dueAt: assignment.dueAt }) === "late" : false
+                        }
                       />
                     );
                   })}
@@ -1097,6 +1101,7 @@ function ScoreCell({
   cell,
   pending,
   missing,
+  late,
 }: {
   courseId: string;
   assignmentId: string;
@@ -1104,6 +1109,11 @@ function ScoreCell({
   pending: Pending;
   /** Past the due date with nothing handed in — `isMissing`, precomputed where the column is. */
   missing: boolean;
+  /**
+   * Handed in after the deadline and not by one agreed instead — `lateness`, precomputed where the
+   * column is, for the same reason `missing` is: both need the assignment, and the cell is not it.
+   */
+  late: boolean;
 }) {
   if (!cell) {
     /*
@@ -1208,10 +1218,10 @@ function ScoreCell({
         {/*
           After whatever the cell already says, in every one of the three branches above: a late
           hand-in can be graded, ungraded, or a removed student's work that nobody will mark, and
-          it is equally true in all three. Drawn only for `=== true`, since null means nothing was
-          handed in — which is not the same as handed in on time.
+          it is equally true in all three. Work handed in by a deadline agreed with the fellow is
+          not marked, and nor is work nobody has handed in — neither is a missed deadline.
         */}
-        {cell.isLate === true && <LateMark />}
+        {late && <LateMark />}
       </Link>
     </TableCell>
   );

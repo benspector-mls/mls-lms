@@ -367,7 +367,6 @@ export async function rowHoldingWork(
     id: true,
     status: true,
     submittedAt: true,
-    isLate: true,
     gradedAt: true,
   } as const;
 
@@ -576,7 +575,7 @@ export async function recordUpload(
     request webhook use: a file uploaded on top of a released grade is a revision, and it does
     not move the time the work was first handed in.
   */
-  const state = handInState({ current: submission, dueAt: params.assignment.dueAt, now });
+  const state = handInState({ current: submission, now });
 
   /*
     The attachment itself, on the row holding the work. **On that row only**, for a team: the bytes
@@ -627,6 +626,6 @@ export async function recordUpload(
         studentId: params.profileId,
       },
     },
-    select: { id: true, status: true, submittedAt: true, isLate: true },
+    select: { id: true, status: true, submittedAt: true },
   });
 }

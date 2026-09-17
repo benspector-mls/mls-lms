@@ -579,7 +579,7 @@ function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date 
     who agreed a new date and met it does not mark their whole assignment's pile as late — see
     `lateness`, and `lateByStudent` for the same rule in the gradebook's column.
   */
-  const anyLate = group.rows.some((row) => lateness(row) === "late");
+  const anyLate = group.rows.some((row) => lateness({ ...row, dueAt: row.assignment.dueAt }) === "late");
   /*
     So a pile of work says which of it is a second round. Grading a revision is a different job
     from grading a first submission — the previous report and score are what the new one is

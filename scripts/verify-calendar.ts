@@ -219,7 +219,7 @@ async function main() {
       and `listMine` ever stop sharing `distributedToStudent`, this is the check that says so.
     */
     const dashboard = await student.assignments.listMine();
-    const expected = dashboard.filter((row) => row.dueAt !== null);
+    const expected = dashboard.filter((row) => row.effectiveDueAt !== null);
     const uidsIn = (text: string) => [...text.matchAll(/^UID:(.+)$/gm)].map((m) => m[1].trim());
 
     check(
@@ -240,8 +240,8 @@ async function main() {
 
       checkThat(
         "an event's title carries the deadline as an instructor set it",
-        feed.text.includes(`Due at ${formatSchoolTime(soonest.dueAt!)}:`),
-        `Due at ${formatSchoolTime(soonest.dueAt!)}`,
+        feed.text.includes(`Due at ${formatSchoolTime(soonest.effectiveDueAt!)}:`),
+        `Due at ${formatSchoolTime(soonest.effectiveDueAt!)}`,
       );
       checkThat(
         "...and the cohort's name, so a student knows which class it is for",
@@ -384,8 +384,8 @@ async function main() {
       const extendedRow = withExtensionOnDashboard.find((row) => row.id === fixture.id);
       checkThat(
         "...and the dashboard shows the fellow the same deadline the feed does",
-        extendedRow?.dueAt?.toISOString() === extended.toISOString(),
-        extendedRow?.dueAt?.toISOString() ?? "the row is not on the dashboard",
+        extendedRow?.effectiveDueAt?.toISOString() === extended.toISOString(),
+        extendedRow?.effectiveDueAt?.toISOString() ?? "the row is not on the dashboard",
       );
     }
 

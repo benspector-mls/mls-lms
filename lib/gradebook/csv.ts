@@ -67,8 +67,6 @@ export type GradebookCsvCell = {
   studentId: string;
   status: SubmissionStatus;
   finalScore: number | null;
-  /** Whether the first hand-in came after the deadline, or null where nothing was handed in. */
-  isLate: boolean | null;
   /** When it was handed in, which is what a renegotiated deadline is compared against. */
   submittedAt: Date | string | null;
   /** A deadline renegotiated with this fellow, or null where none was. */
@@ -179,7 +177,7 @@ export function gradebookCsv(data: GradebookCsvData, at: Date): string {
     table across all four, so a student with two late modules and one late project reads as three
     here and as two or one there. Both are right about what they count; only this one is a total.
   */
-  const late = lateByStudent([...data.cells, ...data.removedCells]);
+  const late = lateByStudent([...data.cells, ...data.removedCells], data.assignments);
 
   /*
     **`missingByStudent` rather than a count written here**, for the late column's reason: it is
