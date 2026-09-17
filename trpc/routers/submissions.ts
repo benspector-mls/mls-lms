@@ -1980,7 +1980,16 @@ export const submissionsRouter = createTRPCRouter({
       }
 
       const assignments = await ctx.db.assignment.findMany({
-        where: { courseId: input.courseId },
+        /*
+          **Released work only.** This screen is one fellow's record — what they have done and what
+          they still owe — and a draft is neither: they have never been shown it, so "not started"
+          says something about the instructor rather than about them. Reading a record down the
+          page, a row nobody could have begun is a row that has to be mentally skipped.
+
+          Where an instructor sees what is still unwritten is the curriculum view, which badges
+          drafts deliberately. This is the same rule the gradebook now follows.
+        */
+        where: { courseId: input.courseId, distributedAt: { not: null } },
         // Course order — the sequence the instructor set — because reading a student's record is
         // reading it in the order they met the work.
         orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],

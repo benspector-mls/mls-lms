@@ -411,11 +411,11 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             `ExtensionControl` says so before anything is pressed, because an instructor reading one
             fellow's record is a keystroke away from believing they are changing one fellow's date.
 
-            Still never for a draft, and never without a deadline: `ExtensionControl` returns nothing
-            without a due date, and a fellow cannot be late for work that was never handed out, so
-            there is no deadline of theirs to renegotiate.
+            Nothing here about drafts or about work with no deadline, because the record holds no
+            drafts and `ExtensionControl` returns nothing without a due date. `grantExtension`
+            refuses both anyway, and those refusals are the guard rather than conditions here.
           */}
-          {selected && selected.assignment.distributedAt && (
+          {selected && (
             <ExtensionControl
               key={selected.assignment.id}
               assignmentId={selected.assignment.id}
@@ -494,11 +494,6 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                     <>
                       {name} has not started any of this course&apos;s assignments. Their work opens
                       here once there is some.
-                    </>
-                  ) : selected.assignment.distributedAt === null ? (
-                    <>
-                      {selected.assignment.title} has not been published, so {name} cannot have
-                      started it.
                     </>
                   ) : (
                     <>
@@ -653,12 +648,12 @@ function NotStartedRow({
           {secondaryLine(row.assignment)}
         </span>
       </div>
+      {/*
+        No "Not published" among these. The record holds released work only, so every row here is
+        work the fellow has actually been given and has not begun.
+      */}
       <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-        {row.assignment.distributedAt === null
-          ? "Not published"
-          : row.assignment.kind === "TASK"
-            ? "Not marked"
-            : "Not started"}
+        {row.assignment.kind === "TASK" ? "Not marked" : "Not started"}
       </span>
     </>
   );
