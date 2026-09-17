@@ -474,10 +474,10 @@ function OverviewTable({
             <TableRow key={student.id}>
               <TableCell className={cn(stickyColumn, "font-medium")}>
                 <div className={stickyColumnContent}>
+                  {student.testStudentNumber !== null && <TestStudentBadge />}
                   <Link href={studentHref(courseId, student.id)} className="hover:underline">
                     {studentLabel(student)}
                   </Link>
-                  {student.testStudentNumber !== null && <TestStudentBadge />}
                 </div>
               </TableCell>
 

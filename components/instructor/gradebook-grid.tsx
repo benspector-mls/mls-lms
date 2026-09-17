@@ -596,11 +596,18 @@ function Band({
                   Centred in the cell, so a one-line title and a three-line one share a middle
                   rather than a top or a bottom edge — which is what keeps a row of mixed lengths
                   from reading as ragged.
+
+                  **6rem on a phone and 10rem from `sm` up.** The width is set by the title in this
+                  heading and never by the cells, which hold a dot or two and would sit happily in
+                  half of it — so on a small screen the column can give most of that width back and
+                  let the title take another line instead. Two assignments fit beside the name
+                  there rather than none, and comparing one against the next is most of what the
+                  grid is read for.
                 */}
                 {entry.work.map((assignment) => (
                   <TableHead
                     key={assignment.id}
-                    className="w-40 min-w-40 py-2 text-center align-middle whitespace-normal"
+                    className="w-24 min-w-24 py-2 text-center align-middle whitespace-normal sm:w-40 sm:min-w-40"
                   >
                     <div className="flex items-start justify-center gap-1">
                       {/*
@@ -699,10 +706,10 @@ function Band({
                 {/* Into their record for this cohort. A row of scores prompts "what happened
                     with this person", and the name is where a reader already points. */}
                 <div className={stickyColumnContent}>
+                  {student.testStudentNumber !== null && <TestStudentBadge />}
                   <Link href={studentHref(courseId, student.id)} className="hover:underline">
                     {studentLabel(student)}
                   </Link>
-                  {student.testStudentNumber !== null && <TestStudentBadge />}
                 </div>
               </TableCell>
 

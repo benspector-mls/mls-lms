@@ -68,20 +68,56 @@ const stickyColumn = "sticky left-0 z-10 bg-table-sticky";
  * The row of content inside a frozen name cell: the name, and whatever sits beside it.
  *
  * **Capped, so that one long name cannot set the width of the column.** A frozen column is
- * subtracted from the screen — every marks column has to fit in what is left of a phone — and a
- * table's column takes the width of its widest cell, so a single fellow with a long name narrows
- * every row's view of the marks. The name scrolls sideways within its cell instead.
+ * subtracted from the screen — every marks column has to fit in what is left — and a table's
+ * column takes the width of its widest cell, so a single fellow with a long name would narrow
+ * every row's view of the marks.
  *
  * The cap has to sit here rather than on the `<td>`, which carries `whitespace-nowrap`: a cell's
  * `max-width` is advisory in an auto-layout table and unwrappable text overrides it, while a
  * block inside the cell contributes only its own capped width to the column.
  *
- * `no-scrollbar` because this is one scroller per row. Where a scrollbar takes real space rather
- * than floating over the content, as it does on Windows, a bar inside every name would add height
- * to every row of the table and draw a line down the column. The names remain reachable: the cell
- * takes a swipe or a shift-wheel, and tabbing to the link inside scrolls it into view.
+ * **7rem on a phone and 8rem from `sm` up, and a name too wide for the cap is dealt with
+ * differently at each.**
+ *
+ * On a laptop it stays on one line and scrolls sideways within its cell. Fellows here commonly
+ * have three or four parts to their name, and a wrapped name sets the height of its whole row —
+ * a roster where most rows stand two or three lines tall is harder to read down than one where a
+ * few long names need a swipe.
+ *
+ * On a phone it wraps instead, because scrolling is the wrong trade at 7rem: nearly every name
+ * would need a swipe of its own, and a column of names that each have to be dragged into view is
+ * barely a name column. A phone has vertical space to spare and none to spare sideways, so a
+ * second line is what the narrower cap is best spent on. The narrower cap is itself the point
+ * there — at 12rem the frozen column took well over half of a 390px viewport and left too little
+ * beside it for even one full column of marks.
+ *
+ * `whitespace-normal` because `white-space` is inherited and the cell sets `nowrap`; `sm:` puts it
+ * back. `wrap-anywhere` rather than `break-words` because a flex item will not shrink below the
+ * width of its longest unbreakable word unless the break is one the browser counts when it
+ * measures, and `overflow-wrap: anywhere` counts where `break-word` does not. Without it a student
+ * with no display name — whose label falls back to an email address or a GitHub username, neither
+ * of which holds a space — would push the name straight back past its cap on a phone.
+ *
+ * `no-scrollbar` because the laptop arrangement is one scroller per row, and a scrollbar that
+ * takes real space would add height to every row of the table and draw a line down the column.
+ *
+ * **A column on a phone and a row from `sm` up, which follows from those two arrangements.** The
+ * test-student badge is what sits with the name, and it does not shrink. Where the name wraps, a
+ * badge on the same line takes its width first and leaves the name a few characters of a cap that
+ * is already narrow — which together with `wrap-anywhere` is a name broken one letter per line —
+ * so on a phone it takes a line of its own. Where the name scrolls there is nothing to squeeze:
+ * the row is as wide as its contents and the cell scrolls across the whole of it, so the two sit
+ * on one line.
+ *
+ * **The badge comes before the name**, at every call site. It marks a row that is not a person,
+ * which is the one thing about that row a reader must not miss — and after a name it is the part
+ * of the cell that a cap this narrow cuts off, reachable only by scrolling the cell that holds it.
+ * First, it is the first thing read on a phone and the first thing visible on a laptop.
  */
-const stickyColumnContent = "no-scrollbar flex max-w-48 items-center gap-2 overflow-x-auto";
+const stickyColumnContent =
+  "no-scrollbar flex max-w-28 flex-col items-start gap-1 whitespace-normal wrap-anywhere " +
+  "sm:max-w-32 sm:flex-row sm:items-center sm:gap-2 sm:overflow-x-auto sm:whitespace-nowrap " +
+  "sm:wrap-normal";
 
 /**
  * The container of a table whose header stays put: `containerClassName` for `Table`, paired with

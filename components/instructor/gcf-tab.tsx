@@ -372,6 +372,7 @@ function StandingsTable({
                     destination the other tabs go to is one further click rather than gone.
                   */}
                   <div className={stickyColumnContent}>
+                    {student.testStudentNumber !== null && <TestStudentBadge />}
                     <button
                       type="button"
                       onClick={() => onOpen(student)}
@@ -385,7 +386,6 @@ function StandingsTable({
                       />
                       <span className="group-hover:underline">{studentLabel(student)}</span>
                     </button>
-                    {student.testStudentNumber !== null && <TestStudentBadge />}
                   </div>
                 </TableCell>
 

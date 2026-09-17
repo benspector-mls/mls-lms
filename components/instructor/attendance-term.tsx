@@ -269,13 +269,13 @@ function Grid({
             <TableRow key={summary.fellow.enrollmentId}>
               <TableCell className={stickyColumn}>
                 <div className={stickyColumnContent}>
+                  {summary.fellow.testStudentNumber !== null && <TestStudentBadge />}
                   <Link
                     href={programStudentHref(programId, summary.fellow.studentId)}
                     className="font-medium hover:underline"
                   >
                     {displayNameOf(summary.fellow, "Unnamed")}
                   </Link>
-                  {summary.fellow.testStudentNumber !== null && <TestStudentBadge />}
                 </div>
               </TableCell>
               <TableCell className="text-right tabular-nums">
