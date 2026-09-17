@@ -87,13 +87,21 @@ describe("granting an extension", () => {
     assignment at least has one from the moment they accept.
   */
   it("creates the row for a fellow who has handed nothing in", async () => {
-    const granted = await asInstructor().submissions.grantExtension({
+    const granted = await asInstructor().submissions.grantExtensions({
       assignmentId,
-      studentId: world.student.studentId,
+      studentIds: [world.student.studentId],
       extendedDueAt: EXTENDED,
     });
 
-    expect(granted.extendedDueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    expect(granted.changed).toBe(1);
+
+    const row = await tx().submission.findFirstOrThrow({
+      where: { assignmentId, studentId: world.student.studentId },
+      select: { extendedDueAt: true, status: true },
+    });
+
+    expect(row.extendedDueAt?.toISOString()).toBe(EXTENDED.toISOString());
+    expect(row.status).toBe("NOT_STARTED");
   });
 
   it("records who agreed to it and when", async () => {
@@ -128,9 +136,9 @@ describe("granting an extension", () => {
   });
 
   it("taking it back clears all three columns together", async () => {
-    await asInstructor().submissions.grantExtension({
+    await asInstructor().submissions.grantExtensions({
       assignmentId,
-      studentId: world.student.studentId,
+      studentIds: [world.student.studentId],
       extendedDueAt: null,
     });
 
@@ -175,9 +183,9 @@ describe("what an extension is refused for", () => {
   it("refuses a date earlier than the assignment's own", async () => {
     expect(
       await refusal(() =>
-        asInstructor().submissions.grantExtension({
+        asInstructor().submissions.grantExtensions({
           assignmentId: dated,
-          studentId: world.student.studentId,
+          studentIds: [world.student.studentId],
           extendedDueAt: new Date("2026-09-01T00:00:00Z"),
         }),
       ),
@@ -187,9 +195,9 @@ describe("what an extension is refused for", () => {
   it("refuses the assignment's own deadline back again", async () => {
     expect(
       await refusal(() =>
-        asInstructor().submissions.grantExtension({
+        asInstructor().submissions.grantExtensions({
           assignmentId: dated,
-          studentId: world.student.studentId,
+          studentIds: [world.student.studentId],
           extendedDueAt: DUE,
         }),
       ),
@@ -208,9 +216,9 @@ describe("what an extension is refused for", () => {
 
     expect(
       await refusal(() =>
-        asInstructor().submissions.grantExtension({
+        asInstructor().submissions.grantExtensions({
           assignmentId: undated.id,
-          studentId: world.student.studentId,
+          studentIds: [world.student.studentId],
           extendedDueAt: EXTENDED,
         }),
       ),
@@ -234,9 +242,9 @@ describe("what an extension is refused for", () => {
 
     expect(
       await refusal(() =>
-        asInstructor().submissions.grantExtension({
+        asInstructor().submissions.grantExtensions({
           assignmentId: unpublished.id,
-          studentId: world.student.studentId,
+          studentIds: [world.student.studentId],
           extendedDueAt: EXTENDED,
         }),
       ),
@@ -252,9 +260,9 @@ describe("what an extension is refused for", () => {
 
     expect(
       await refusal(() =>
-        asInstructor().submissions.grantExtension({
+        asInstructor().submissions.grantExtensions({
           assignmentId: dated,
-          studentId: elsewhere.student.studentId,
+          studentIds: [elsewhere.student.studentId],
           extendedDueAt: EXTENDED,
         }),
       ),
@@ -264,10 +272,213 @@ describe("what an extension is refused for", () => {
   it("refuses a fellow acting on their own work", async () => {
     expect(
       await refusal(() =>
-        createCaller(tx(), world.student.studentId).submissions.grantExtension({
+        createCaller(tx(), world.student.studentId).submissions.grantExtensions({
           assignmentId: dated,
-          studentId: world.student.studentId,
+          studentIds: [world.student.studentId],
           extendedDueAt: EXTENDED,
+        }),
+      ),
+    ).toBe("FORBIDDEN");
+  });
+
+  /*
+    Naming teams on work each fellow hands in alone. Which list this assignment takes is decided by
+    the assignment rather than by the caller, so this is a request that cannot be honoured rather
+    than one to interpret generously.
+  */
+  it("refuses teams on work handed in alone", async () => {
+    expect(
+      await refusal(() =>
+        asInstructor().submissions.grantExtensions({
+          assignmentId: dated,
+          teamIds: [world.student.id],
+          extendedDueAt: EXTENDED,
+        }),
+      ),
+    ).toBe("PRECONDITION_FAILED");
+  });
+
+  // Neither list, or both, is refused by the input schema before any of the above is consulted.
+  it("refuses naming both lists, or neither", async () => {
+    expect(
+      await refusal(() =>
+        asInstructor().submissions.grantExtensions({
+          assignmentId: dated,
+          studentIds: [world.student.studentId],
+          teamIds: [world.student.id],
+          extendedDueAt: EXTENDED,
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+
+    expect(
+      await refusal(() =>
+        asInstructor().submissions.grantExtensions({
+          assignmentId: dated,
+          extendedDueAt: EXTENDED,
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+});
+
+/**
+ * A batch is all of it or none of it.
+ *
+ * The reason the mutation takes a list rather than being called in a loop from the browser: eight
+ * grants where the fifth is refused would otherwise leave four fellows with a deadline, one
+ * instructor with an error, and no way to tell which is which.
+ */
+describe("a batch that cannot be applied whole", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let assignmentId: string;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 3 });
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Integration Extension Batch",
+      dueAt: DUE,
+    });
+    assignmentId = assignment.id;
+  });
+
+  it("applies nothing when one fellow named is off the roster", async () => {
+    const elsewhere = await makeWorld(tx(), { students: 1 });
+
+    expect(
+      await refusal(() =>
+        asInstructor().submissions.grantExtensions({
+          assignmentId,
+          studentIds: [
+            world.students[0]!.studentId,
+            elsewhere.student.studentId,
+            world.students[1]!.studentId,
+          ],
+          extendedDueAt: EXTENDED,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+
+    // The two who *were* on the roster have nothing, which is the whole point of the transaction.
+    const held = await tx().submission.findMany({
+      where: { assignmentId, extendedDueAt: { not: null } },
+      select: { studentId: true },
+    });
+
+    expect(held).toEqual([]);
+  });
+
+  it("gives every fellow named the same deadline when it can", async () => {
+    const granted = await asInstructor().submissions.grantExtensions({
+      assignmentId,
+      studentIds: [world.students[0]!.studentId, world.students[2]!.studentId],
+      extendedDueAt: EXTENDED,
+    });
+
+    expect(granted.changed).toBe(2);
+
+    const held = await tx().submission.findMany({
+      where: { assignmentId, extendedDueAt: { not: null } },
+      select: { studentId: true },
+    });
+
+    expect(new Set(held.map((row) => row.studentId))).toEqual(
+      new Set([world.students[0]!.studentId, world.students[2]!.studentId]),
+    );
+  });
+
+  // Granting again over a fellow who already has one is how changing it works — last write wins,
+  // which is the semantics the column already has and needs no second control.
+  it("replaces an agreement a fellow already had", async () => {
+    const later = new Date("2026-10-20T00:00:00Z");
+
+    await asInstructor().submissions.grantExtensions({
+      assignmentId,
+      studentIds: [world.students[0]!.studentId],
+      extendedDueAt: later,
+    });
+
+    const row = await tx().submission.findFirstOrThrow({
+      where: { assignmentId, studentId: world.students[0]!.studentId },
+      select: { extendedDueAt: true },
+    });
+
+    expect(row.extendedDueAt?.toISOString()).toBe(later.toISOString());
+  });
+});
+
+/**
+ * What the assignment's own screen can say about extensions.
+ *
+ * The read that did not exist before this: granting was possible and surveying was not, so an
+ * instructor had no way to answer "who did I give longer to on this?" short of opening fellows one
+ * at a time.
+ */
+describe("reading the extensions on one assignment", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let assignmentId: string;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 3 });
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Integration Extension Survey",
+      dueAt: DUE,
+    });
+    assignmentId = assignment.id;
+
+    await asInstructor().submissions.grantExtensions({
+      assignmentId,
+      studentIds: [world.students[1]!.studentId],
+      extendedDueAt: EXTENDED,
+    });
+  });
+
+  /*
+    The roster rather than the submissions, which is what makes this screen able to agree a
+    deadline in advance: on self-directed work nobody has a row until they submit.
+  */
+  it("lists every active fellow, whether or not they have handed anything in", async () => {
+    const data = await asInstructor().submissions.extensionsForAssignment({ assignmentId });
+
+    expect(data.grantedTo).toBe("fellow");
+    expect(data.rows).toHaveLength(3);
+  });
+
+  it("says which of them has an agreed deadline, and who agreed it", async () => {
+    const data = await asInstructor().submissions.extensionsForAssignment({ assignmentId });
+
+    const granted = data.rows.filter((row) => row.extension !== null);
+    expect(granted).toHaveLength(1);
+    expect(granted[0]!.id).toBe(world.students[1]!.studentId);
+    expect(granted[0]!.extension!.extendedDueAt.toISOString()).toBe(EXTENDED.toISOString());
+    // Who agreed it travels as a name rather than an id, which is what the sheet prints.
+    expect(granted[0]!.extension!.grantedBy).not.toBeNull();
+    expect(granted[0]!.extension!.grantedAt).not.toBeNull();
+  });
+
+  it("names the assignment's own deadline, which the sheet reads against", async () => {
+    const data = await asInstructor().submissions.extensionsForAssignment({ assignmentId });
+
+    expect(data.assignment.dueAt?.toISOString()).toBe(DUE.toISOString());
+  });
+
+  it("refuses a fellow reading it", async () => {
+    expect(
+      await refusal(() =>
+        createCaller(tx(), world.student.studentId).submissions.extensionsForAssignment({
+          assignmentId,
         }),
       ),
     ).toBe("FORBIDDEN");
@@ -296,9 +507,9 @@ describe("what the fellow sees", () => {
     });
     assignmentId = assignment.id;
 
-    await createCaller(tx(), world.instructorId).submissions.grantExtension({
+    await createCaller(tx(), world.instructorId).submissions.grantExtensions({
       assignmentId,
-      studentId: world.student.studentId,
+      studentIds: [world.student.studentId],
       extendedDueAt: EXTENDED,
     });
   });
@@ -387,9 +598,9 @@ describe("a deadline agreed about team work", () => {
     });
     assignmentId = assignment.id;
 
-    await createCaller(tx(), world.instructorId).submissions.grantExtension({
+    await createCaller(tx(), world.instructorId).submissions.grantExtensions({
       assignmentId,
-      studentId: world.students[0]!.studentId,
+      teamIds: [teamId],
       extendedDueAt: EXTENDED,
     });
   });
@@ -502,9 +713,9 @@ describe("a deadline agreed about team work", () => {
   });
 
   it("taking it back clears every member's row too", async () => {
-    await createCaller(tx(), world.instructorId).submissions.grantExtension({
+    await createCaller(tx(), world.instructorId).submissions.grantExtensions({
       assignmentId,
-      studentId: world.students[1]!.studentId,
+      teamIds: [teamId],
       extendedDueAt: null,
     });
 
@@ -538,9 +749,9 @@ describe("a deadline agreed about team work", () => {
 
     expect(
       await refusal(() =>
-        createCaller(tx(), world.instructorId).submissions.grantExtension({
+        createCaller(tx(), world.instructorId).submissions.grantExtensions({
           assignmentId: assignment.id,
-          studentId: world.students[0]!.studentId,
+          studentIds: [world.students[0]!.studentId],
           extendedDueAt: EXTENDED,
         }),
       ),
@@ -590,9 +801,9 @@ describe("the verdict on work that arrived", () => {
     // The first two were agreed an extension; the third was not, and handed in at the same moment
     // as the first.
     for (const index of [0, 1]) {
-      await asInstructor.submissions.grantExtension({
+      await asInstructor.submissions.grantExtensions({
         assignmentId,
-        studentId: world.students[index]!.studentId,
+        studentIds: [world.students[index]!.studentId],
         extendedDueAt: EXTENDED,
       });
     }

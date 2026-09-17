@@ -3,7 +3,16 @@
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
-import { BookCheck, BookDashed, Copy, Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import {
+  BookCheck,
+  BookDashed,
+  CalendarClock,
+  Copy,
+  Eye,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -21,11 +30,12 @@ import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 
 import { CopyAssignmentDialog } from "./copy-assignment-dialog";
+import { ExtensionsSheet } from "./extensions-sheet";
 import { RemoveAssignmentDialog } from "./remove-assignment-dialog";
 
 /**
  * What can be done to one assignment: preview it as a student, edit it, publish or unpublish it,
- * copy it, remove it.
+ * agree extensions on it, copy it, remove it.
  *
  * **Two buttons and a menu.** Preview and edit are the two an instructor presses over and over
  * while reading their own curriculum, so they are buttons and cost one press. Publishing, copying
@@ -60,6 +70,8 @@ export type ActionableAssignment = {
   id: string;
   title: string;
   distributedAt: Date | string | null;
+  /** Read only to decide whether extensions are offered — there is nothing to extend without one. */
+  dueAt: Date | string | null;
 };
 
 export function AssignmentActions({
@@ -83,8 +95,17 @@ export function AssignmentActions({
   const settled = useServerMutation();
   const [removing, setRemoving] = React.useState(false);
   const [copying, setCopying] = React.useState(false);
+  const [extending, setExtending] = React.useState(false);
 
   const published = assignment.distributedAt !== null;
+
+  /*
+    Offered only where a grant could succeed. `grantExtensions` refuses a draft — nobody has been
+    given its deadline — and work with no deadline, which cannot be late and so has nothing to
+    extend. A menu that opened a sheet whose every action the server would refuse is a door with
+    nothing behind it.
+  */
+  const extendable = published && assignment.dueAt !== null;
 
   const publish = useMutation(
     trpc.assignments.publish.mutationOptions(
@@ -188,6 +209,12 @@ export function AssignmentActions({
               Publish
             </DropdownMenuItem>
           )}
+          {extendable && (
+            <DropdownMenuItem onClick={() => setExtending(true)}>
+              <CalendarClock data-icon="inline-start" />
+              Extensions…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => setCopying(true)}>
             <Copy data-icon="inline-start" />
             Copy to…
@@ -204,6 +231,13 @@ export function AssignmentActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ExtensionsSheet
+        assignmentId={assignment.id}
+        title={assignment.title}
+        open={extending}
+        onOpenChange={setExtending}
+      />
 
       <CopyAssignmentDialog
         assignmentId={assignment.id}

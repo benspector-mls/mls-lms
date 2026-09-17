@@ -4,7 +4,7 @@ import { z } from "zod";
 import { isManualOnly, taskIsSelfMarked } from "@/lib/assignments/spec";
 import { auditActor, auditEventData } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
-import type { Tx } from "@/lib/prisma";
+import { inTransaction, type Tx } from "@/lib/prisma";
 import type { ResolvedTeam } from "@/lib/submissions/team";
 import { HandInMethod } from "@/lib/generated/prisma/enums";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
@@ -1200,43 +1200,181 @@ export const submissionsRouter = createTRPCRouter({
     }),
 
   /**
-   * Agreeing a new deadline with one fellow, on one piece of work.
+   * Who has an agreed deadline on one assignment, and who could be given one.
+   *
+   * **The only read of extensions that is about an assignment rather than a submission.** Every
+   * other place `extendedDueAt` travels, it rides along on one fellow's row inside some larger
+   * payload — so granting was possible and surveying was not, and an instructor had no way to
+   * answer "who did I give longer to on this?" short of opening fellows one at a time.
+   *
+   * **The list is the roster, not the submissions.** A fellow who has handed in nothing still
+   * appears, which is the whole reason this lives on the assignment: on self-directed work there is
+   * no Accept, so everybody who has not submitted has no row at all, and they are exactly the
+   * people an extension is agreed with in advance.
+   *
+   * **On team work the rows are teams**, because the work is handed in once and the deadline is the
+   * team's. Which kind of row these are is `grantedTo`, and it is also which kind of id the
+   * mutation below expects back.
+   */
+  extensionsForAssignment: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const assignment = await teachableAssignment(ctx, input.assignmentId, {
+        id: true,
+        title: true,
+        dueAt: true,
+        teamSetId: true,
+        course: { select: { programId: true } },
+      });
+
+      /*
+        Every extension on this assignment, read once. For individual work each row is the fellow's
+        own; for team work the rows holding each team's work are the ones that carry it, and the
+        mirrors repeat it — so `teamSubmissionId: null` is what keeps a team from being counted
+        once per member.
+      */
+      const granted = await ctx.db.submission.findMany({
+        where: {
+          assignmentId: assignment.id,
+          extendedDueAt: { not: null },
+          ...(assignment.teamSetId === null ? {} : { teamSubmissionId: null }),
+        },
+        select: {
+          studentId: true,
+          teamId: true,
+          extendedDueAt: true,
+          extensionGrantedAt: true,
+          extensionGrantedBy: { select: personNameSelect },
+        },
+      });
+
+      /** What one row says about an agreement, or null where there is none. */
+      const extensionFor = (key: string | null) => {
+        const row = granted.find((entry) =>
+          assignment.teamSetId === null ? entry.studentId === key : entry.teamId === key,
+        );
+
+        return row?.extendedDueAt == null
+          ? null
+          : {
+              extendedDueAt: row.extendedDueAt,
+              grantedAt: row.extensionGrantedAt,
+              grantedBy: row.extensionGrantedBy,
+            };
+      };
+
+      if (assignment.teamSetId === null) {
+        /*
+          Active fellows only, which is the same roster every other instructor screen draws: a
+          fellow who has left is not somebody a deadline is agreed with, and their existing
+          extension is not something this screen should offer to change.
+        */
+        const enrollments = await ctx.db.enrollment.findMany({
+          where: { programId: assignment.course.programId, status: "ACTIVE" },
+          select: { student: { select: personSelect } },
+        });
+
+        const rows = enrollments
+          .map(({ student }) => ({
+            id: student.id,
+            student,
+            /*
+              The two shapes match exactly, so the sheet draws one list rather than branching its
+              markup on which kind of row it is holding — two lists would be two to keep in step.
+              A fellow is nobody's team, so these two are empty and null.
+            */
+            teamName: null,
+            members: [] as { id: string; displayName: string | null }[],
+            extension: extensionFor(student.id),
+          }))
+          .sort((a, b) => displayNameOf(a.student, "").localeCompare(displayNameOf(b.student, "")));
+
+        return {
+          assignment: { id: assignment.id, title: assignment.title, dueAt: assignment.dueAt },
+          grantedTo: "fellow" as const,
+          rows,
+        };
+      }
+
+      const teams = await ctx.db.team.findMany({
+        where: { teamSetId: assignment.teamSetId },
+        orderBy: [{ position: "asc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          memberships: {
+            where: { enrollment: { status: "ACTIVE" } },
+            /*
+              A name and an id, which is all the sheet prints under a team. `personSelect` carries
+              emails and GitHub handles that nothing here shows, and a team set of twenty teams
+              would send them all.
+            */
+            select: {
+              enrollment: { select: { student: { select: { id: true, displayName: true } } } },
+            },
+          },
+        },
+      });
+
+      return {
+        assignment: { id: assignment.id, title: assignment.title, dueAt: assignment.dueAt },
+        grantedTo: "team" as const,
+        rows: teams.map((team) => ({
+          id: team.id,
+          // A team is nobody, so the shape carries null here and the name in `teamName`.
+          student: null,
+          teamName: team.name,
+          members: team.memberships.map((membership) => membership.enrollment.student),
+          extension: extensionFor(team.id),
+        })),
+      };
+    }),
+
+  /**
+   * Agreeing a new deadline on one assignment, with any number of fellows — or teams — at once.
    *
    * **This moves no deadline and rewrites no verdict.** `Assignment.dueAt` is untouched, and so is
-   * `isLate` — which goes on saying that the original deadline was missed, because it was. What
-   * this records is what was agreed instead, and `lateness` reads the two together: missed the
-   * original and met this one is "Extended", missed both is "Late". Keeping both facts is the whole
-   * point, and it is what lets the school ask whether a fellow meets deadlines *or* renegotiates
-   * them and meets the new one.
+   * the record of when work arrived. What this writes is what was agreed instead, and `lateness`
+   * reads the two together: past the class deadline and inside the agreed one is "Extended", past
+   * both is "Late". Keeping both facts is the whole point, and it is what lets the school ask
+   * whether a fellow meets deadlines *or* renegotiates them and meets the new one.
    *
-   * **Keyed on the fellow rather than on a submission id**, like `setTaskCompletion` above and for
-   * its reason: an extension agreed in advance is agreed with somebody who has handed in nothing,
-   * and a submission id is a thing they do not have yet. The row is created to hold the agreement,
-   * which is also what puts the new date in front of the fellow on their own dashboard — the point
-   * of agreeing one in advance being that the days in between are not a period of being in trouble.
+   * **Keyed on fellows rather than on submission ids**, because an extension agreed in advance is
+   * agreed with somebody who has handed in nothing, and a submission id is a thing they do not have
+   * yet. The row is created to hold the agreement, which is also what puts the new date in front of
+   * the fellow on their own dashboard — the point of agreeing one in advance being that the days in
+   * between are not a period of being in trouble.
    *
    * **On team work the agreement is the team's**, and every member gets it. One piece of work is
-   * handed in once, at one moment, so a deadline agreed about it cannot belong to one member —
-   * that would read the same shared hand-in as extended for them and late for the rest. So the
-   * write lands on the row holding the team's work and fans out through `syncTeamRows`, which is
-   * how `isLate` already reaches every member, and a member added to the team afterwards inherits
-   * it from the same fan-out.
+   * handed in once, at one moment, so a deadline agreed about it cannot belong to one member — that
+   * would read the same shared hand-in as extended for them and late for the rest. So the write
+   * lands on the row holding the team's work and fans out through `syncTeamRows`, which is how a
+   * hand-in already reaches every member, and a member added to the team afterwards inherits it
+   * from the same fan-out. That is also why the two lists are exclusive rather than merged:
+   * selecting three of a team's four members is not a request this can honour.
    *
-   * The caller still names a fellow rather than a team, because the screen this is reached from is
-   * one fellow's record. Which team that means is read from their own membership, the way every
-   * other caller reads it.
+   * **One transaction for the whole batch.** An instructor granting to eight fellows gets eight
+   * extensions or an error, never five and a dialog they cannot read the state of.
    *
    * Null revokes, clearing all three columns together — the state the CHECK constraint on the table
    * admits, and the one an instructor reaches by taking back an agreement that was never used.
    */
-  grantExtension: instructorProcedure
+  grantExtensions: instructorProcedure
     .input(
-      z.object({
-        assignmentId: z.string().uuid(),
-        studentId: z.string().uuid(),
-        /** The new deadline, or null to take the agreement back. */
-        extendedDueAt: z.date().nullable(),
-      }),
+      z
+        .object({
+          assignmentId: z.string().uuid(),
+          /** The new deadline, or null to take the agreement back from everybody named. */
+          extendedDueAt: z.date().nullable(),
+          /** Who it is agreed with, on work each fellow hands in alone. */
+          studentIds: z.array(z.string().uuid()).nonempty().optional(),
+          /** Which teams it is agreed with, on work a team hands in together. */
+          teamIds: z.array(z.string().uuid()).nonempty().optional(),
+        })
+        .refine((value) => (value.studentIds === undefined) !== (value.teamIds === undefined), {
+          message:
+            "Name fellows or teams, not both — an assignment is handed in one way or the other.",
+        }),
     )
     .mutation(async ({ ctx, input }) => {
       const assignment = await teachableAssignment(ctx, input.assignmentId, {
@@ -1247,6 +1385,20 @@ export const submissionsRouter = createTRPCRouter({
         teamSetId: true,
         course: { select: { programId: true } },
       });
+
+      /*
+        A draft is a deadline nobody has been given. `isMissing` already refuses to call a fellow
+        late for work that was never handed out, so an agreement about one would mean nothing until
+        the day it was published.
+      */
+      if (assignment.distributedAt === null && input.extendedDueAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This assignment has not been published, so nobody has been given its deadline yet. " +
+            "Publish it first.",
+        });
+      }
 
       /*
         Nothing to extend. An assignment with no deadline can never be late, so an agreement about
@@ -1263,27 +1415,11 @@ export const submissionsRouter = createTRPCRouter({
       }
 
       /*
-        A draft, which is a deadline nobody has been given. `isMissing` already refuses to call a
-        fellow late for work that was never handed out, so an agreement about one would sit on the
-        row meaning nothing until the day it was published. Refused rather than accepted-and-inert
-        so that this procedure and the strip that calls it hold the same rule — the strip is not
-        drawn for a draft, and a rule kept in only one of the two places is one that drifts.
-      */
-      if (assignment.distributedAt === null && input.extendedDueAt !== null) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "This assignment has not been published, so nobody has been given its deadline yet. " +
-            "Publish it first.",
-        });
-      }
-
-      /*
-        **Later than the deadline it replaces.** An earlier one would be consulted by neither
-        reader in the way anybody intends: `lateness` only asks about it for work already past the
-        original deadline, so an earlier date always reads "Late", while `isMissing` would start
-        drawing a red ring *before* the rest of the cohort's deadline had even passed. A new
-        deadline that makes somebody late sooner is not an extension.
+        **Later than the deadline it replaces.** An earlier one would be consulted by neither reader
+        in the way anybody intends: `lateness` only calls work extended when it is past the class
+        deadline, so an earlier date always reads "Late", while `isMissing` would start drawing a
+        red ring *before* the rest of the cohort's deadline had even passed. A new deadline that
+        makes somebody late sooner is not an extension.
       */
       if (
         input.extendedDueAt !== null &&
@@ -1297,23 +1433,26 @@ export const submissionsRouter = createTRPCRouter({
       }
 
       /*
-        On the roster, and active. The same clause `setTaskCompletion` applies, and not redundant
-        for the same reason: without it an instructor could write an agreement onto somebody from
-        another program by naming their id, and the upsert below would create the row to hold it.
+        The two lists are exclusive, and which one this assignment takes is decided by the
+        assignment rather than by the caller — naming teams on individual work, or fellows on team
+        work, is a request that cannot be honoured rather than one to interpret generously.
       */
-      const enrollment = await ctx.db.enrollment.findFirst({
-        where: {
-          programId: assignment.course.programId,
-          studentId: input.studentId,
-          status: "ACTIVE",
-        },
-        select: { id: true },
-      });
+      const isTeamWork = assignment.teamSetId !== null;
 
-      if (!enrollment) {
+      if (isTeamWork && input.teamIds === undefined) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "That fellow is not on this course's roster.",
+          code: "PRECONDITION_FAILED",
+          message:
+            "This work is handed in by teams, which share one deadline. Name the teams rather " +
+            "than their members.",
+        });
+      }
+
+      if (!isTeamWork && input.studentIds === undefined) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This work is handed in by each fellow alone, so name fellows rather than teams.",
         });
       }
 
@@ -1327,76 +1466,107 @@ export const submissionsRouter = createTRPCRouter({
               extensionGrantedAt: new Date(),
             };
 
-      /*
-        Which team the fellow hands in with, read from their own membership the way every other
-        caller reads it. A fellow on no team of the set is refused rather than given a row of their
-        own: the work is one piece per team, and a team of one nobody meant to create is worse than
-        being told to fix the roster. The same refusal `setTaskCompletion` gives.
-      */
-      const team = assignment.teamSetId
-        ? await teamForStudent(ctx.db, {
-            teamSetId: assignment.teamSetId,
-            studentId: input.studentId,
-          })
-        : null;
+      return inTransaction(ctx.db, async (tx) => {
+        if (!isTeamWork) {
+          const studentIds = input.studentIds!;
 
-      if (assignment.teamSetId && !team) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "This work is handed in by teams, and that fellow is not on one. Put them on a team " +
-            "first.",
-        });
-      }
-
-      /*
-        The row the agreement lands on: the team's, where there is a team, and the fellow's own
-        otherwise. `claimTeamWork` finds or creates the row holding the team's work, so a team that
-        has begun nothing can still be given a deadline — the same reason the individual branch
-        below upserts rather than requiring a row to exist.
-
-        `NOT_STARTED` for a row brought into being here, which is what every other path that creates
-        one writes. It holds the agreement and nothing else; accepting or handing in afterwards
-        moves it on exactly as it would have.
-      */
-      const work = team
-        ? await claimTeamWork(ctx.db, {
-            assignmentId: assignment.id,
-            studentId: input.studentId,
-            team,
-            statusIfNew: "NOT_STARTED",
-          }).then(({ submissionId }) =>
-            ctx.db.submission.update({
-              where: { id: submissionId },
-              data: granted,
-              select: { id: true, extendedDueAt: true },
-            }),
-          )
-        : await ctx.db.submission.upsert({
+          /*
+            On the roster, and active. Counted rather than checked one at a time, because the whole
+            batch is refused together: an instructor who named somebody from another program gets
+            one refusal rather than a partial grant and a puzzle.
+          */
+          const onRoster = await tx.enrollment.count({
             where: {
-              assignmentId_studentId: {
-                assignmentId: assignment.id,
-                studentId: input.studentId,
-              },
+              programId: assignment.course.programId,
+              studentId: { in: studentIds },
+              status: "ACTIVE",
             },
-            create: {
-              assignmentId: assignment.id,
-              studentId: input.studentId,
-              status: "NOT_STARTED",
-              ...granted,
-            },
-            update: granted,
-            select: { id: true, extendedDueAt: true },
           });
 
-      /*
-        Every member's row, brought into agreement with the one holding the work — which is what
-        makes this the team's deadline rather than one member's. A no-op for individual work, so it
-        is called without asking whether there is a team.
-      */
-      await syncTeamRows(ctx.db, { submissionId: work.id });
+          if (onRoster !== new Set(studentIds).size) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Somebody named is not on this course's roster.",
+            });
+          }
 
-      return work;
+          for (const studentId of studentIds) {
+            await tx.submission.upsert({
+              where: { assignmentId_studentId: { assignmentId: assignment.id, studentId } },
+              /*
+                `NOT_STARTED` for a fellow who has taken nothing up, which is what every other path
+                that brings a row into being writes. The row holds the agreement and nothing else;
+                accepting or handing in afterwards moves it on exactly as it would have.
+              */
+              create: {
+                assignmentId: assignment.id,
+                studentId,
+                status: "NOT_STARTED",
+                ...granted,
+              },
+              update: granted,
+            });
+          }
+
+          return { changed: studentIds.length };
+        }
+
+        const teamIds = input.teamIds!;
+
+        /*
+          Teams of this assignment's own set, with an active member to claim through. A team with
+          nobody on it cannot be granted anything: `claimTeamWork` writes the row against a member,
+          and there is no row for a team that has none.
+        */
+        const teams = await tx.team.findMany({
+          where: { id: { in: teamIds }, teamSetId: assignment.teamSetId! },
+          select: {
+            id: true,
+            name: true,
+            teamSetId: true,
+            memberships: {
+              where: { enrollment: { status: "ACTIVE" } },
+              take: 1,
+              select: { enrollment: { select: { studentId: true } } },
+            },
+          },
+        });
+
+        if (teams.length !== new Set(teamIds).size) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "A team named is not one of this assignment's teams.",
+          });
+        }
+
+        for (const team of teams) {
+          const member = team.memberships[0]?.enrollment.studentId;
+
+          if (!member) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `${team.name} has nobody on it, so there is nobody to agree a deadline with.`,
+            });
+          }
+
+          const { submissionId } = await claimTeamWork(tx, {
+            assignmentId: assignment.id,
+            studentId: member,
+            team: { id: team.id, name: team.name, teamSetId: team.teamSetId },
+            statusIfNew: "NOT_STARTED",
+          });
+
+          await tx.submission.update({ where: { id: submissionId }, data: granted });
+
+          /*
+            Every member's row, brought into agreement with the one holding the work — which is what
+            makes this the team's deadline rather than one member's.
+          */
+          await syncTeamRows(tx, { submissionId });
+        }
+
+        return { changed: teams.length };
+      });
     }),
 
   /**
@@ -1996,9 +2166,6 @@ export const submissionsRouter = createTRPCRouter({
           pointValue: true,
           completionThreshold: true,
           distributedAt: true,
-          // Whether this is handed in by teams, which is what decides that no extension may be
-          // agreed on it: one hand-in carries one verdict for every member. See `grantExtension`.
-          teamSetId: true,
           // So the task pane can say whether the fellow could have marked this themselves —
           // `taskIsSelfMarked` reads it beside `kind`.
           studentMayMarkDone: true,
