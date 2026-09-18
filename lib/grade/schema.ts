@@ -17,13 +17,14 @@ import { z } from "zod";
  *
  * Claude's structured output rejects numeric constraints (`minimum`, `maximum`),
  * string length limits, and objects without `additionalProperties: false`. So no
- * `.min()`, `.max()`, or `.length()` appears below — a schema carrying them would
- * work on Groq and fail on Claude, which defeats the point of one definition.
+ * `.min()`, `.max()`, or `.length()` appears below — a schema carrying them is
+ * rejected when the request is made, which is a failure at grading time rather than
+ * one a type check would catch.
  *
  * The cost is that the schema cannot express "score_earned must not exceed
  * score_possible", or that scores are non-negative. Those are checked in
  * cross-check.ts instead. This is why the arithmetic verification there is not
- * made redundant by schema validation on either provider.
+ * made redundant by schema validation.
  */
 
 /** One criterion's contribution, matching a row in the rubric. */
@@ -144,22 +145,6 @@ export const gradingReportSchema = z.object({
 export type RubricItem = z.infer<typeof rubricItemSchema>;
 export type TestClaim = z.infer<typeof testClaimSchema>;
 export type GradingReport = z.infer<typeof gradingReportSchema>;
-
-/**
- * The JSON Schema both providers receive.
- *
- * Derived rather than hand-written, so it cannot fall out of step with the
- * validator. zod 4 emits `additionalProperties: false` and a complete `required`
- * array for every object, which is what strict modes demand.
- *
- * `$schema` is stripped: Groq's strict `json_schema` response format rejects the
- * declaration, and it carries no information the provider needs.
- */
-export function gradingReportJsonSchema(): Record<string, unknown> {
-  const schema = z.toJSONSchema(gradingReportSchema) as Record<string, unknown>;
-  delete schema.$schema;
-  return schema;
-}
 
 /** Thrown when a response does not match the schema. */
 export class ReportValidationError extends Error {

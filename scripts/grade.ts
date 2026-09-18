@@ -51,7 +51,7 @@ async function main() {
   }
 
   console.log(`Submission  ${submission.repoFullName} @ ${submission.headSha?.slice(0, 7)}`);
-  console.log(`Provider    ${process.env.GRADING_LLM_PROVIDER ?? "groq"}\n`);
+  console.log(`Provider    ${process.env.GRADING_LLM_PROVIDER ?? "claude"}\n`);
 
   const startedAt = Date.now();
   const draft = await generateReportForSubmission(submission.id);

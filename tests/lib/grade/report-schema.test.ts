@@ -1,5 +1,7 @@
 import { extractRubricSection } from "@/lib/grade/assets";
-import { gradingReportJsonSchema, parseGradingReport, REPORT_FLAGS } from "@/lib/grade/schema";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+
+import { gradingReportSchema, parseGradingReport, REPORT_FLAGS } from "@/lib/grade/schema";
 import type { GradingReport } from "@/lib/grade/schema";
 
 /**
@@ -30,13 +32,14 @@ function report(overrides: Partial<GradingReport> = {}): GradingReport {
   };
 }
 
-describe("gradingReportJsonSchema", () => {
-  const schema = gradingReportJsonSchema();
+/**
+ * Derived through `zodOutputFormat`, which is what `providers/claude.ts` hands to the SDK —
+ * so these assertions are made against the bytes Claude actually receives rather than against
+ * a second derivation maintained alongside it.
+ */
+describe("the JSON Schema Claude receives", () => {
+  const schema = zodOutputFormat(gradingReportSchema).schema as Record<string, unknown>;
   const serialized = JSON.stringify(schema);
-
-  it("declares no $schema", () => {
-    expect("$schema" in schema).toBe(false);
-  });
 
   it("forbids extra properties", () => {
     expect(schema.additionalProperties).toBe(false);

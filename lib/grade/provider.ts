@@ -3,11 +3,10 @@ import "server-only";
 import type { GradingReport } from "./schema";
 
 /**
- * One interface, two implementations.
+ * The interface a grading provider implements.
  *
- * The proof of concept runs on Groq's free tier; changing to Claude later should
- * modify one file rather than the pipeline. Everything upstream calls
- * `getReportGenerator()` and never names a vendor.
+ * Everything upstream calls `getReportGenerator()` and never names a vendor, so
+ * changing model or provider is a change to one file rather than to the pipeline.
  */
 
 export type ReportRequest = {
@@ -28,11 +27,10 @@ export type ReportRequest = {
 /**
  * What a provider is asked to enforce, expressed once.
  *
- * The zod schema is the contract rather than a JSON Schema document, because the
- * two providers consume it differently and each has a better path than a
- * hand-rolled one. Claude's SDK derives the format and parses the response through
- * the same schema; Groq needs a plain JSON Schema in its request body, which the
- * schema derives. Passing JSON Schema alone would throw away the Claude path.
+ * The zod schema is the contract rather than a JSON Schema document, because a
+ * provider's SDK derives the request format from it and validates the response
+ * against the same definition. A JSON Schema document describes the request only,
+ * and leaves the validator to be written a second time by hand.
  */
 
 export type ReportResponse = {
@@ -66,28 +64,25 @@ export class ProviderError extends Error {
 }
 
 /**
- * Selected with GRADING_LLM_PROVIDER. Defaults to Groq, which is what the proof of
- * concept runs on.
+ * Selected with GRADING_LLM_PROVIDER, which defaults to Claude.
  *
- * Imported lazily so that a missing GROQ_API_KEY does not break a process that only
- * wanted to run tests, and so that adding a provider does not pull its SDK into
+ * An unrecognized value throws rather than falling back, so a stale setting left in
+ * an environment fails loudly instead of quietly grading with a provider nobody
+ * chose.
+ *
+ * Imported lazily so that a missing ANTHROPIC_API_KEY does not break a process that
+ * only wanted to run tests, and so that adding a provider does not pull its SDK into
  * every bundle that touches this module.
  */
 export async function getReportGenerator(): Promise<ReportGenerator> {
-  const provider = (process.env.GRADING_LLM_PROVIDER ?? "groq").toLowerCase();
+  const provider = (process.env.GRADING_LLM_PROVIDER ?? "claude").toLowerCase();
 
   switch (provider) {
-    case "groq": {
-      const { createGroqGenerator } = await import("./providers/groq");
-      return createGroqGenerator();
-    }
     case "claude": {
       const { createClaudeGenerator } = await import("./providers/claude");
       return createClaudeGenerator();
     }
     default:
-      throw new ProviderError(
-        `Unknown GRADING_LLM_PROVIDER "${provider}". Supported: groq, claude.`,
-      );
+      throw new ProviderError(`Unknown GRADING_LLM_PROVIDER "${provider}". Supported: claude.`);
   }
 }

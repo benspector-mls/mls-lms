@@ -46,7 +46,6 @@ async function main() {
       "SUPABASE_SERVICE_ROLE_KEY",
       "DATABASE_URL",
       "DIRECT_URL",
-      "GROQ_API_KEY",
       "CANARY_SECRET",
     ].filter((name) => env.stdout.includes(`${name}=`));
 

@@ -744,10 +744,9 @@ Test results are a fact the model must not contradict, and one rubric input amon
 
 ### Provider isolation
 
-- **One interface, two implementations.** Pipeline code calls `getReportGenerator()` and never references a vendor; `GRADING_LLM_PROVIDER=claude|groq` selects. The contract carries a Zod schema rather than a JSON Schema document, because Claude's SDK derives the response format through `messages.parse()` and `zodOutputFormat()`, and Groq needs a plain JSON Schema in its request body, which the same schema derives.
+- **Pipeline code never references a vendor.** It calls `getReportGenerator()`, and `GRADING_LLM_PROVIDER` selects the implementation — an unrecognized value throws rather than falling back, so a stale setting fails loudly instead of grading with a provider nobody chose. The contract carries a Zod schema rather than a JSON Schema document, because Claude's SDK derives the response format from it through `messages.parse()` and `zodOutputFormat()` and validates the reply against the same definition; a JSON Schema document would describe the request only and leave the validator to be written a second time by hand.
 - **Claude is the provider in use, on `claude-sonnet-5`.** The model is a constant in `lib/grade/providers/claude.ts` with `ANTHROPIC_MODEL` as an override, so trying another tier costs an environment variable — what it does not cost is the [calibration](#what-is-verified-and-how) that says whether the other tier still agrees with an instructor. That calibration has been run against `claude-opus-5` four times across four rubric generations, and on the current one it agrees on 10 of 20 held-out completion decisions against Sonnet's 19 of 20, ranking two submissions the wrong way round every time. The cheaper tier is also the better-calibrated one.
-- **Groq's `openai/gpt-oss-120b` with strict `json_schema` remains implemented** and is the only Groq model and mode combination confirmed to guarantee schema-conformant output. Its free tier caps requests at 8,000 tokens per minute and a frontend prompt does not fit — those carry several answer keys and a verbatim README checklist, about 12,400 tokens by Groq's count, rejected with a 413.
-- **Claude's JSON schema support rejects numeric constraints** such as `minimum` and `maximum`, rejects string length limits, and requires `additionalProperties: false`. The schema cannot express them, so the cross-check's arithmetic verification stays necessary on either provider.
+- **Claude's JSON schema support rejects numeric constraints** such as `minimum` and `maximum`, rejects string length limits, and requires `additionalProperties: false`. The schema cannot express them, so the cross-check's arithmetic verification stays necessary.
 - **Claude reports cached tokens separately from `promptTokens`, not as a subset.** A run that writes the cache shows zero reads and an unchanged prompt count, indistinguishable from broken caching unless the write count is also recorded. All four counts go into `modelMetadata`.
 
 ### What a report costs
@@ -1293,7 +1292,7 @@ The counts quoted are what each script reported when its section was written. **
 - Renaming a suite out of `tests/` neither hides it nor escapes notice — reported against the protected source path, and every test still ran.
 - A routine mod-1 commit, which stages a rewritten `scores/scores.json`, reports nothing.
 - A broken `testCommand` is `ERRORED` with null counts, not a zero. An assignment with no tests throws rather than recording a failure.
-- **Nothing from `process.env` reaches the sandbox**, checked by name for both GitHub key sets, the E2B key, the Supabase service role key, both database URLs, the Groq key, and a canary variable set immediately before creation.
+- **Nothing from `process.env` reaches the sandbox**, checked by name for both GitHub key sets, the E2B key, the Supabase secret key, both database URLs, and a canary variable set immediately before creation.
 - The network works before revocation and not after. An endless command is killed with exit code 124 and reported `TIMED_OUT`. No sandbox is left running, confirmed through `Sandbox.list`.
 - A second assignment grades correctly with no per-assignment configuration, nested npm package and all.
 

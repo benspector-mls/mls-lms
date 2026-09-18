@@ -9,8 +9,8 @@ import { gradingReportSchema, parseGradingReport } from "../schema";
 /**
  * Claude, through the official SDK.
  *
- * Two things this does that the Groq implementation cannot, and they are the reason
- * the interface passes a zod schema rather than a JSON Schema document.
+ * Two things this does are the reason the interface passes a zod schema rather than
+ * a JSON Schema document.
  *
  * `messages.parse()` with `zodOutputFormat()` derives the response format from the
  * same schema that validates the result, so there is no hand-written validator to
