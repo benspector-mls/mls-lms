@@ -93,7 +93,7 @@ export function storageClient(): StorageClient {
  * Keyed by submission id, so a stored file is traceable back to the row that describes it
  * with no lookup table and no trust placed in a filename. **The student's own filename is
  * never part of the path** — it is theirs to choose, it can contain anything, and a path is
- * not the place to find out. It is kept in `submissions.upload_filename` instead, which is
+ * not the place to find out. It is kept in `submission_artifacts.upload_filename` instead, which is
  * what the instructor sees and what their browser calls the download.
  *
  * A generated segment rather than a fixed name, so re-uploading writes a new object instead of

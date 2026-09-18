@@ -1259,23 +1259,6 @@ model Submission {
 
   prNumber          Int?      @map("pr_number")
   prUrl             String?   @map("pr_url")
-  /// **Frozen. Read by nothing, written by nothing.** These five held the one link or the one
-  /// file a submission was allowed, back when handing in one way nulled the other. What a
-  /// student hands in is now any number of `SubmissionArtifact` rows, and every screen reads
-  /// those.
-  ///
-  /// They are still here so that the release before the switch can still run, which is what
-  /// keeps rolling the code back possible. They are dropped in their own release once this one
-  /// has soaked — schema first, then `DROP COLUMN`, because Prisma writes without an explicit
-  /// select ask for every column the generated client knows about.
-  ///
-  /// Their values are whatever stood at the moment of the switch, and they do not move. Do not
-  /// read them for anything: a submission handed in since is not described here at all.
-  submittedUrl      String?   @map("submitted_url")
-  uploadPath        String?   @map("upload_path")
-  uploadFilename    String?   @map("upload_filename")
-  uploadSizeBytes   Int?      @map("upload_size_bytes")
-  uploadContentType String?   @map("upload_content_type")
   headBranch        String?   @map("head_branch")
   headSha           String?   @map("head_sha")
   submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
