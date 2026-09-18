@@ -361,8 +361,9 @@ export const programsRouter = createTRPCRouter({
    * they are in, and where they stand in each course of the year. Splitting them is what lets grading
    * stay per course while the roster lives above every course.
    *
-   * **The attendance figures and arrival averages come from `attendanceStandingFor`**, from this
-   * fellow's records alone, and the coaching form reads the same function for its Trends.
+   * **The attendance figures, arrival averages, and calendar days come from
+   * `attendanceStandingFor`**, from this fellow's records alone, and the coaching form reads the
+   * same function for its Trends.
    *
    * **A course's Overview figures rather than a submission list.** The row is a way in: what belongs
    * on this screen is "they have finished the prework, with two assignments missing", and the work
@@ -439,6 +440,8 @@ export const programsRouter = createTRPCRouter({
         /** The last few mornings, by the whole-term drift rule, for the record's Trends section. */
         recentAttendance: attendance.recentAttendance,
         arrivals: attendance.arrivals,
+        /** Every session day and what was recorded for them on it, for the record's calendar. */
+        days: attendance.days,
         courses,
         gcf,
       };

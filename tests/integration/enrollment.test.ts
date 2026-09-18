@@ -51,6 +51,7 @@
  */
 import { studentRepoName, suggestCourseSlug } from "@/lib/courses/course-slug";
 import { db } from "@/lib/prisma";
+import { dateColumnFor } from "@/lib/school-time";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
@@ -1437,6 +1438,38 @@ describe("one fellow across the whole program", () => {
       dueAt: new Date("2026-01-10T00:00:00Z"),
     });
 
+    // One closed morning with a mark on it, so the record's calendar has a square to say
+    // something about: late, written by hand, with the reason an instructor gave. The enrollment is
+    // moved back first, because a morning before the fellow joined counts for nothing.
+    await tx().enrollment.update({
+      where: { id: built.student.id },
+      data: { createdAt: new Date("2026-01-05T12:00:00Z") },
+    });
+    const session = await tx().attendanceSession.create({
+      data: {
+        programId: built.programId,
+        date: dateColumnFor("2026-01-12"),
+        startedAt: new Date("2026-01-12T14:00:00Z"),
+        endsAt: new Date("2026-01-12T23:00:00Z"),
+        endedAt: new Date("2026-01-12T23:00:00Z"),
+        lateAfterMinutes: 5,
+        codeSecret: "c".repeat(64),
+      },
+      select: { id: true },
+    });
+    await tx().attendanceRecord.create({
+      data: {
+        sessionId: session.id,
+        programId: built.programId,
+        enrollmentId: built.student.id,
+        status: "LATE",
+        source: "INSTRUCTOR",
+        checkedInAt: new Date("2026-01-12T14:20:00Z"),
+        note: "Train delay",
+        recordedById: built.instructorId,
+      },
+    });
+
     courseCount = await tx().course.count({ where: { programId: built.programId } });
     person = await asInstructor().programs.student({
       programId: built.programId,
@@ -1446,6 +1479,25 @@ describe("one fellow across the whole program", () => {
 
   it("the fellow's record names them", () => {
     expect(person.student.id).toBe(built.student.studentId);
+  });
+
+  /*
+    The calendar's square and the figures beside it come from one read, so the day carries the
+    status the summary counted and the note and author the tooltip prints.
+  */
+  it("...and carries each session day with what was recorded on it", () => {
+    expect(person.summary.late).toBe(1);
+    expect(person.days).toContainEqual(
+      expect.objectContaining({
+        day: "2026-01-12",
+        status: "LATE",
+        open: false,
+        upcoming: false,
+        source: "INSTRUCTOR",
+        note: "Train delay",
+      }),
+    );
+    expect(person.days.find((day) => day.day === "2026-01-12")?.recordedByName).toBeTruthy();
   });
 
   it("...and carries a row per course of the program", () => {

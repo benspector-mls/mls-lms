@@ -3,8 +3,8 @@ import { CalendarCheck } from "lucide-react";
 import { ArrivalAveragesPanel } from "@/components/arrival-averages";
 import { EmptyState } from "@/components/list-states";
 import { AttendanceCalendar } from "@/components/student/attendance-calendar";
-import { formatSchoolDay, formatSchoolTime, type SchoolDay } from "@/lib/school-time";
-import { attendanceSourceLabel, formatPercent } from "@/lib/status";
+import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
+import { attendanceProvenance, formatPercent } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
@@ -53,7 +53,7 @@ export function StudentAttendanceRecord({ data, today }: { data: Record; today: 
     upcoming: day.state === "scheduled",
     // Keyed on there being a record rather than on the day being closed: a fellow who checked in
     // this morning is owed "checked in at 9:02" now, not this evening.
-    detail: day.status ? provenance(day) : null,
+    detail: day.status ? attendanceProvenance(day) : null,
     note: day.note,
   }));
 
@@ -98,15 +98,4 @@ export function StudentAttendanceRecord({ data, today }: { data: Record; today: 
       <AttendanceCalendar days={calendarDays} enrolledFrom={data.enrolledFrom} today={today} />
     </div>
   );
-}
-
-/**
- * Where one day's mark came from, in words.
- *
- * "checked in at 9:02" and "marked by Ben Spector" are different claims about the same status, and
- * the difference is the one a fellow asks about when they disagree with a row.
- */
-function provenance(day: Record["days"][number]): string {
-  const source = attendanceSourceLabel(day.source ?? "FINALIZED", day.recordedByName);
-  return day.checkedInAt ? `${source} at ${formatSchoolTime(day.checkedInAt)}` : source;
 }

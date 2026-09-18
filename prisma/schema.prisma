@@ -44,6 +44,20 @@ enum Role {
   @@schema("public")
 }
 
+/// How often somebody hears about their own events over Slack. **The default is OFF.** A direct
+/// message arrives in a workspace a person shares with their whole cohort, so being messaged
+/// there is a claim on their attention that nobody should make on the strength of a default.
+/// The profile card beside the calendar feed is where somebody turns notifications on, and the
+/// three other values are the cadences they may then choose between.
+enum NotificationCadence {
+  IMMEDIATE
+  DAILY
+  WEEKLY
+  OFF
+
+  @@schema("public")
+}
+
 /// Application profile, 1:1 with auth.users. Owned by Prisma.
 model Profile {
   /// Same value as auth.users.id — this is the FK *and* the PK.
@@ -90,6 +104,31 @@ model Profile {
   /// `@unique` because it is how the route finds this row, and because two profiles landing on one
   /// token must fail at the database rather than by having checked first and been overtaken.
   calendarToken     String?  @unique @map("calendar_token")
+  /// How this person wants to hear about their own events — feedback released on their work,
+  /// comments written on it — as Slack direct messages. `OFF` until they say otherwise on their
+  /// profile, so an account that has never opened that card is never messaged. Every send path
+  /// filters on this column, which is what makes the default do the work. See
+  /// `lib/notifications/`.
+  slackCadence      NotificationCadence @default(OFF) @map("slack_cadence")
+  /// Their Slack workspace member id (`U…`), written by the first successful
+  /// `users.lookupByEmail` and read on every send after that. Deliberately NOT `@unique`: a
+  /// duplicate would only mean one person pointed two of their own profiles at themselves, and a
+  /// uniqueness violation inside a caught send path would silently and permanently unlink them.
+  slackUserId       String?  @map("slack_user_id")
+  /// The email they use in Slack, saved by hand on the profile card only after the automatic
+  /// lookup of their sign-in email failed. Null means "use `email`". Lowercased on write, like
+  /// `GcfIdentity.email`, so matching is a lookup rather than a scan.
+  slackEmail        String?  @map("slack_email")
+  /// When the last lookup answered `users_not_found` — the state the profile card renders as
+  /// "we could not find you in the workspace". Cleared on a successful lookup and whenever a new
+  /// `slackEmail` is saved.
+  slackLookupFailedAt DateTime? @map("slack_lookup_failed_at") @db.Timestamptz(6)
+  /// Digest watermark: every event at or before this instant has been covered by a digest DM or
+  /// deliberately skipped. Written to "now" when the cadence switches into DAILY/WEEKLY, advanced
+  /// only when a digest goes out (or the window held nothing) — so a failed digest send needs no
+  /// retry bookkeeping; the next digest re-covers the same window. Null for IMMEDIATE/OFF, whose
+  /// sends are per-event.
+  slackDigestedTo   DateTime? @map("slack_digested_to") @db.Timestamptz(6)
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
   // default on the column so the on-signup trigger (which writes via raw SQL,

@@ -36,9 +36,10 @@ async function Profile() {
     and a calendar token is a credential — there is no reason for it to sit in the payload of every
     page when one card on this screen reads it.
   */
-  const [profile, calendar] = await Promise.all([
+  const [profile, calendar, slack] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.calendarSubscription.queryOptions()),
+    queryClient.fetchQuery(trpc.slackNotifications.queryOptions()),
   ]);
 
   return (
@@ -53,7 +54,7 @@ async function Profile() {
         empty form here would invite somebody to type a name into a row that does not exist.
       */}
       {profile ? (
-        <ProfileView profile={profile} calendarToken={calendar.token} />
+        <ProfileView profile={profile} calendarToken={calendar.token} slack={slack} />
       ) : (
         <ErrorState
           title="This account has no profile"

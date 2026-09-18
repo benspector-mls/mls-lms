@@ -3,6 +3,7 @@ import { z } from "zod";
 import { viewedStudentLabel } from "@/lib/auth/view-as";
 import { newJoinToken } from "@/lib/courses/join-token";
 import { displayNameSchema } from "@/lib/people";
+import { isSlackConfigured, lookupUserIdByEmail } from "@/lib/slack/client";
 import { createTRPCRouter, protectedProcedure } from "../init";
 import { assignmentsRouter } from "./assignments";
 import { attendanceRouter } from "./attendance";
@@ -159,6 +160,119 @@ export const appRouter = createTRPCRouter({
 
     return { token: profile.calendarToken };
   }),
+
+  /*
+    ===================================================================================
+    Slack notifications
+
+    A DM when your feedback is released or somebody writes on your work, at a cadence you choose
+    on the profile card. The sends themselves live in `lib/notifications/`; these three procedures
+    are the card's whole surface, and they follow the calendar trio directly above:
+    `protectedProcedure` scoped to `ctx.user.id`, one narrow write each, and a separate query
+    rather than columns on `me` — the Slack columns are one card's business, not every page's.
+    ===================================================================================
+  */
+
+  /** The card's whole state: cadence, whether the account is linked, and how linking went. */
+  slackNotifications: protectedProcedure.query(async ({ ctx }) => {
+    const profile = await ctx.db.profile.findUnique({
+      // Scoped to the caller — Prisma bypasses row level security, so this where clause is what
+      // stops one person reading how another chose to be notified.
+      where: { id: ctx.user.id },
+      select: { slackCadence: true, slackUserId: true, slackEmail: true, slackLookupFailedAt: true, email: true },
+    });
+
+    return {
+      cadence: profile?.slackCadence ?? "OFF",
+      linked: profile?.slackUserId != null,
+      lookupFailed: profile?.slackLookupFailedAt != null,
+      slackEmail: profile?.slackEmail ?? null,
+      email: profile?.email ?? null,
+      // Unset in development on purpose, and the card says so instead of offering a lookup that
+      // can only fail.
+      configured: isSlackConfigured(),
+    };
+  }),
+
+  /**
+   * Choose how to hear about your own events.
+   *
+   * Switching *into* a digest from IMMEDIATE or OFF writes the watermark to now, so nobody's
+   * first digest is their whole history. Switching between the two digests keeps it — nothing is
+   * lost or repeated, the window just gets read on a different morning.
+   */
+  setSlackCadence: protectedProcedure
+    .input(z.object({ cadence: z.enum(["IMMEDIATE", "DAILY", "WEEKLY", "OFF"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const current = await ctx.db.profile.findUnique({
+        where: { id: ctx.user.id },
+        select: { slackCadence: true },
+      });
+
+      const wasDigest = current?.slackCadence === "DAILY" || current?.slackCadence === "WEEKLY";
+      const isDigest = input.cadence === "DAILY" || input.cadence === "WEEKLY";
+
+      const profile = await ctx.db.profile.update({
+        where: { id: ctx.user.id },
+        data: {
+          slackCadence: input.cadence,
+          ...(isDigest && !wasDigest ? { slackDigestedTo: new Date() } : {}),
+        },
+        select: { slackCadence: true },
+      });
+
+      return { cadence: profile.slackCadence };
+    }),
+
+  /**
+   * Link the caller to their Slack account, now.
+   *
+   * One mutation for both presses: "check now" sends no email and looks up whatever address is on
+   * file; the fallback sends the address the person uses in Slack, which is stored (lowercased,
+   * like `GcfIdentity.email`) and looked up in the same breath. Sends also retry the lookup on
+   * every event, so this button is a convenience, not a requirement.
+   */
+  linkSlackIdentity: protectedProcedure
+    .input(z.object({ email: z.string().trim().toLowerCase().email().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.email) {
+        await ctx.db.profile.update({
+          where: { id: ctx.user.id },
+          data: { slackEmail: input.email, slackUserId: null, slackLookupFailedAt: null },
+        });
+      }
+
+      const profile = await ctx.db.profile.findUnique({
+        where: { id: ctx.user.id },
+        select: { email: true, slackEmail: true },
+      });
+      const address = (profile?.slackEmail ?? profile?.email)?.toLowerCase() ?? null;
+
+      let linked = false;
+      let lookupFailed = false;
+
+      if (isSlackConfigured() && address) {
+        const result = await lookupUserIdByEmail(address);
+        linked = result.ok;
+        lookupFailed = !result.ok && result.notFound;
+
+        await ctx.db.profile.update({
+          where: { id: ctx.user.id },
+          data: result.ok
+            ? { slackUserId: result.userId, slackLookupFailedAt: null }
+            : result.notFound
+              ? { slackLookupFailedAt: new Date() }
+              : {},
+        });
+      }
+
+      return {
+        linked,
+        lookupFailed,
+        slackEmail: profile?.slackEmail ?? null,
+        configured: isSlackConfigured(),
+      };
+    }),
 
   programs: programsRouter,
   courses: coursesRouter,

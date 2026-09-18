@@ -87,6 +87,12 @@ A GitHub App has exactly one webhook URL, and GitHub cannot reach localhost. So 
 
 **smee.io answers GitHub with 200 whether or not anything is listening.** A push that arrives while `dev:webhook` is not running is recorded as a successful delivery and dropped. Redeliver it from the App's Advanced page rather than pushing again.
 
+### Slack app setup
+
+One app, in the one Marcy Lab workspace, serving only the deployment — unlike the GitHub Apps there is no inbound webhook, so nothing about it points at a URL and nothing needs a development twin. Create it at [api.slack.com/apps](https://api.slack.com/apps) (from scratch, in the Marcy Lab workspace), add four Bot Token Scopes under **OAuth & Permissions** — `chat:write`, `im:write`, `users:read`, `users:read.email` — install it to the workspace, and copy the Bot User OAuth Token (`xoxb-…`) into the deployment's `SLACK_BOT_TOKEN`. The digest cron additionally needs `CRON_SECRET` set there; both are described in `.env.example`.
+
+Leave `SLACK_BOT_TOKEN` out of `.env.local`: unset, every notification path is a silent no-op, which is what makes a development machine unable to DM anyone. To exercise the real workspace deliberately, set it temporarily and use `npm run verify:slack`.
+
 ---
 
 ## Scripts
@@ -129,6 +135,7 @@ Everything below those is a script, because everything below them needs somethin
 | `npm run verify:resubmission` | The resubmission and re-approval loop end to end; `--post` also posts a real comment                                                                                                             |
 | `npm run verify:test-student` | The half of test students that makes something real: `--live` creates and deletes an account, `--live --github` also generates and deletes a repository, and the last check is that the run left nothing behind |
 | `npm run verify:calendar`     | The calendar feed over real HTTP: its headers, that it shows exactly what the dashboard shows, and that it refuses a token nobody holds. Needs the application running; `--base=<url>` points it elsewhere |
+| `npm run verify:slack`        | The Slack integration against the real workspace: `--lookup <email>` resolves a member, `--digest <email>` prints that profile's derived digest without sending, `--dm <email> --post` sends one real test DM |
 | `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                                                                                       |
 | `npm run grade`               | Generates one real report from the terminal                                                                                                                                                      |
 | `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                                                                               |

@@ -7,7 +7,7 @@ import type {
 } from "@/lib/generated/prisma/enums";
 
 import { handInMethodsFor, type HandInShape } from "@/lib/assignments/spec";
-import { SCHOOL_TIME_ZONE } from "@/lib/school-time";
+import { formatSchoolTime, SCHOOL_TIME_ZONE } from "@/lib/school-time";
 import { isSectionType, SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 
 /**
@@ -96,6 +96,23 @@ export function attendanceSourceLabel(source: AttendanceSource, recordedBy: stri
   if (source === "SELF_CHECK_IN") return "checked in";
   if (source === "INSTRUCTOR") return recordedBy ? `marked by ${recordedBy}` : "marked by staff";
   return "not recorded";
+}
+
+/**
+ * Where one day's mark came from, in words: "checked in at 9:02", "marked by Ben Spector".
+ *
+ * The two are different claims about the same status, and the difference is the one a fellow asks
+ * about when they disagree with a square. One function because the fellow's calendar and the
+ * instructor's view of the same fellow both print it, and a fellow checking the claim they were
+ * told has to find the same words their instructor read.
+ */
+export function attendanceProvenance(day: {
+  source: AttendanceSource | null;
+  recordedByName: string | null;
+  checkedInAt: Date | null;
+}): string {
+  const source = attendanceSourceLabel(day.source ?? "FINALIZED", day.recordedByName);
+  return day.checkedInAt ? `${source} at ${formatSchoolTime(day.checkedInAt)}` : source;
 }
 
 /**

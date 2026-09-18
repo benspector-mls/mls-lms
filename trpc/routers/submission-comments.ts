@@ -14,6 +14,7 @@ import {
   visibleBody,
 } from "@/lib/submissions/comments";
 import { claimTeamWork, syncTeamRows, teamForStudent } from "@/lib/submissions/team";
+import { notifyCommentPosted } from "@/lib/notifications/slack";
 
 import { createTRPCRouter, profileProcedure } from "../init";
 import { personNameSelect } from "../selects";
@@ -411,6 +412,22 @@ export const submissionCommentsRouter = createTRPCRouter({
           body: input.body,
         },
         select: { id: true },
+      });
+
+      // The other side of the conversation hears about it over Slack, best effort: the function
+      // catches everything and only logs, and it sends nothing unless SLACK_BOT_TOKEN is set.
+      // The comment above is already written, so a DM can never announce a message that failed.
+      await notifyCommentPosted({
+        client: ctx.db,
+        submissionId,
+        body: input.body,
+        author: {
+          id: ctx.profile.id,
+          role: commentAuthorRole(ctx.profile.role),
+          displayName: ctx.profile.displayName,
+          email: ctx.profile.email,
+          githubUsername: ctx.profile.githubUsername,
+        },
       });
 
       // The whole thread back, so the screen can replace what it holds rather than ask again.

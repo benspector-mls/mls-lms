@@ -41,14 +41,18 @@ import type { RouterOutputs } from "@/trpc/types";
  */
 
 type Profile = NonNullable<RouterOutputs["me"]>;
+type SlackNotifications = RouterOutputs["slackNotifications"];
 
 export function ProfileView({
   profile,
   calendarToken,
+  slack,
 }: {
   profile: Profile;
   /** The caller's calendar feed token, or null if they have never asked for one. */
   calendarToken: string | null;
+  /** How the caller hears about their own events over Slack, and whether they are linked yet. */
+  slack: SlackNotifications;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -62,6 +66,11 @@ export function ProfileView({
         looking as a test student sees it, because a test student is a STUDENT.
       */}
       {profile.role === "STUDENT" && <CalendarCard calendarToken={calendarToken} />}
+      {/*
+        Everybody, unlike the calendar card above: a fellow hears about feedback and replies, and
+        an instructor hears about questions on work they graded or wrote in.
+      */}
+      <NotificationsCard slack={slack} role={profile.role} />
       <StoredDataCard />
     </div>
   );
@@ -421,6 +430,187 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
             Treat the address as private once it exists. Anyone holding it can read your deadlines —
             which is why it carries nothing else — and you can replace it here at any time.
           </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The four cadences as a person reads them, in the order they sit on the card. */
+const CADENCE_OPTIONS: { value: SlackNotifications["cadence"]; label: string; caption: string }[] = [
+  {
+    value: "IMMEDIATE",
+    label: "Immediately",
+    caption: "A DM the moment feedback is released or somebody writes on your work.",
+  },
+  {
+    value: "DAILY",
+    label: "Daily digest",
+    caption: "One DM at 9am with everything since the last one.",
+  },
+  {
+    value: "WEEKLY",
+    label: "Weekly digest",
+    caption: "One DM on Monday at 9am with everything since the last one.",
+  },
+  {
+    value: "OFF",
+    label: "Off",
+    caption: "Nothing is sent. Everything still appears in this application as it happens.",
+  },
+];
+
+/**
+ * Slack DMs about your own events, and the choice of how often.
+ *
+ * **Off until somebody turns it on**, and placed directly beneath the calendar feed because the
+ * two are the same kind of thing: a channel outside this application that a person opens for
+ * themselves, from their own profile. Somebody who came looking for one has found the other.
+ *
+ * Linking still needs no action. The first send after a cadence is chosen looks the sign-in email
+ * up in the workspace and records what comes back, so the ordinary state of this card is
+ * "connected" without anything having been pressed. The two hand-operated controls exist for the
+ * person whose Slack email differs from their sign-in email, which a failed lookup renders as the
+ * amber box.
+ */
+function NotificationsCard({
+  slack,
+  role,
+}: {
+  slack: SlackNotifications;
+  role: Profile["role"];
+}) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  /*
+    What the mutations last answered, held locally for the same reason `CalendarCard.written` is:
+    `useServerMutation` refreshes the server component and the props catch up, but a beat later,
+    and the pressed button would otherwise not light until after the toast about it.
+  */
+  const [chosen, setChosen] = React.useState<SlackNotifications["cadence"] | null>(null);
+  const cadence = chosen ?? slack.cadence;
+
+  const [linkResult, setLinkResult] = React.useState<{
+    linked: boolean;
+    lookupFailed: boolean;
+  } | null>(null);
+  const linked = linkResult?.linked ?? slack.linked;
+  const lookupFailed = linkResult?.lookupFailed ?? slack.lookupFailed;
+
+  const [slackEmailInput, setSlackEmailInput] = React.useState("");
+
+  const setCadence = useMutation(
+    trpc.setSlackCadence.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          setChosen(result.cadence);
+          const option = CADENCE_OPTIONS.find((o) => o.value === result.cadence);
+          toast.success(
+            result.cadence === "OFF" ? "Slack notifications are off." : `Slack DMs: ${option?.label.toLowerCase()}.`,
+          );
+        },
+      }),
+    ),
+  );
+
+  const link = useMutation(
+    trpc.linkSlackIdentity.mutationOptions(
+      settled({
+        onSuccess: (result) => {
+          setLinkResult(result);
+          if (result.linked) {
+            setSlackEmailInput("");
+            toast.success("Connected to your Slack account.");
+          }
+        },
+        onError: shownInPlace,
+      }),
+    ),
+  );
+
+  const active = CADENCE_OPTIONS.find((option) => option.value === cadence);
+  const lookupAddress = slack.slackEmail ?? slack.email ?? "your sign-in email";
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Slack notifications</h2>
+        <p className="text-xs text-muted-foreground">
+          {role === "STUDENT"
+            ? "A direct message in the Marcy Lab Slack when feedback on your work is released, and when an instructor writes on it."
+            : "A direct message in the Marcy Lab Slack when a fellow writes on work you graded or on a conversation you are part of."}{" "}
+          Nothing is sent until you turn it on here.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {CADENCE_OPTIONS.map((option) => (
+          <Button
+            key={option.value}
+            size="sm"
+            variant={option.value === cadence ? "default" : "outline"}
+            aria-pressed={option.value === cadence}
+            disabled={setCadence.isPending}
+            onClick={() => {
+              if (option.value !== cadence) setCadence.mutate({ cadence: option.value });
+            }}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+      {active && <p className="text-xs text-muted-foreground">{active.caption}</p>}
+
+      {!slack.configured ? (
+        <p className="text-xs text-muted-foreground">
+          Slack is not connected in this environment, so nothing is sent from here. Your choice
+          above is saved and applies wherever it is.
+        </p>
+      ) : linked ? (
+        <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Check className="size-3.5 shrink-0" />
+          Connected to your Slack account.
+        </p>
+      ) : lookupFailed ? (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            We could not find <span className="font-medium">{lookupAddress}</span> in the Marcy Lab
+            Slack workspace. If you use a different email there, paste it here.
+          </p>
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const email = slackEmailInput.trim();
+              if (email) link.mutate({ email });
+            }}
+          >
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              className="h-8 max-w-64 text-xs"
+              value={slackEmailInput}
+              disabled={link.isPending}
+              onChange={(event) => setSlackEmailInput(event.target.value)}
+            />
+            <Button type="submit" size="sm" variant="outline" disabled={!slackEmailInput.trim() || link.isPending}>
+              {link.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
+              Use this email
+            </Button>
+          </form>
+          {link.error && <p className="text-xs text-destructive">{link.error.message}</p>}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-muted-foreground">
+            Connects automatically using <span className="font-medium">{lookupAddress}</span> the
+            first time something is sent.
+          </p>
+          <Button size="sm" variant="outline" disabled={link.isPending} onClick={() => link.mutate({})}>
+            {link.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
+            Check now
+          </Button>
         </div>
       )}
     </section>

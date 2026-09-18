@@ -23,7 +23,8 @@ import type { Tx } from "@/lib/prisma";
 import { SNAPSHOT_VERSION, type CoachingSnapshot } from "../coaching";
 import { arrivalAverages } from "../attendance/arrival";
 import { recentAttendance, summarize } from "../attendance/summary";
-import { isUnsettled } from "../attendance/window";
+import { sessionStateOf, stateIsUnsettled } from "../attendance/window";
+import { displayNameOf } from "../people";
 import { schoolDayFromColumn, schoolDayOf } from "../school-time";
 
 /**
@@ -185,7 +186,7 @@ export async function courseFiguresFor(
 
 /**
  * Where one fellow stands on attendance: the whole-term figures, the last few mornings by the drift
- * rule, and when they arrive.
+ * rule, when they arrive, and every session day with what was recorded for them on it.
  *
  * **One computation behind the record, its Trends, the coaching form, and the snapshot**, for the
  * reason `courseFiguresFor` is one: two screens computing the same rate separately is two chances
@@ -200,6 +201,13 @@ export async function courseFiguresFor(
  * session's day rather than from the arrival instant; both rules live in `lib/attendance/arrival.ts`.
  * They are computed from this fellow's records alone, rather than by reusing `attendance.history`,
  * which would fetch a year of records for the whole roster to report on one person.
+ *
+ * **The day list is what the record's calendar draws, and it is built from the same two reads the
+ * figures are.** The instructor's calendar and the figures beside it therefore cannot disagree
+ * about which mornings exist or what was recorded on them. It leaves out a prepared session whose
+ * check-in never opened, as `attendance.myHistory` does: nobody could have checked in to it, so a
+ * square for it would read as a morning this fellow has something to answer for. The figures still
+ * see that session, where `summarize` skips it for anybody with no record in it.
  */
 export async function attendanceStandingFor(db: Tx, enrollment: EnrollmentKey, at: Date) {
   const [sessions, records] = await Promise.all([
@@ -210,14 +218,27 @@ export async function attendanceStandingFor(db: Tx, enrollment: EnrollmentKey, a
     }),
     db.attendanceRecord.findMany({
       where: { enrollmentId: enrollment.id },
-      select: { sessionId: true, status: true, checkedInAt: true },
+      select: {
+        sessionId: true,
+        status: true,
+        source: true,
+        checkedInAt: true,
+        note: true,
+        recordedBy: { select: { displayName: true, email: true, githubUsername: true } },
+      },
     }),
   ]);
 
-  const summarySessions = sessions.map((session) => ({
-    id: session.id,
+  const states = sessions.map((session) => ({
+    ...session,
     day: schoolDayFromColumn(session.date),
-    unsettled: isUnsettled(session, at),
+    state: sessionStateOf(session, at),
+  }));
+
+  const summarySessions = states.map((session) => ({
+    id: session.id,
+    day: session.day,
+    unsettled: stateIsUnsettled(session.state),
   }));
 
   // Nobody reads the name fields of a one-fellow summary; its counts are what every caller shows.
@@ -242,6 +263,7 @@ export async function attendanceStandingFor(db: Tx, enrollment: EnrollmentKey, a
   );
 
   const dayBySession = new Map(summarySessions.map((session) => [session.id, session.day]));
+  const recordBySession = new Map(records.map((record) => [record.sessionId, record]));
 
   return {
     summary,
@@ -253,6 +275,30 @@ export async function attendanceStandingFor(db: Tx, enrollment: EnrollmentKey, a
         return day && record.checkedInAt ? [{ day, checkedInAt: record.checkedInAt }] : [];
       }),
     ),
+    /**
+     * Every session day with what this fellow's record on it says, oldest first. The shape the
+     * fellow's own calendar is drawn from, so an instructor and a fellow see the same square for
+     * the same morning.
+     */
+    days: states
+      .filter((session) => session.state !== "pending")
+      .map((session) => {
+        const record = recordBySession.get(session.id) ?? null;
+        return {
+          day: session.day,
+          status: record?.status ?? null,
+          /** Check-in is still accepting codes, so a fellow with no status yet can still get one. */
+          open: session.state === "open",
+          /** A day the schedule has made that has not come. */
+          upcoming: session.state === "scheduled",
+          source: record?.source ?? null,
+          checkedInAt: record?.checkedInAt ?? null,
+          note: record?.note ?? null,
+          recordedByName: record?.recordedBy
+            ? displayNameOf(record.recordedBy, "an instructor")
+            : null,
+        };
+      }),
   };
 }
 

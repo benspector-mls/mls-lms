@@ -5,17 +5,18 @@ import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
 import { RenameStudent } from "@/components/instructor/rename-student";
+import { AttendanceCalendar } from "@/components/student/attendance-calendar";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
 import { Trends } from "@/components/instructor/trends";
 import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { coachingSessionHref, studentHref } from "@/lib/links";
-import { formatDate } from "@/lib/status";
+import { attendanceProvenance, formatDate } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { displayNameOf, initials } from "@/lib/people";
-import { formatSchoolDay } from "@/lib/school-time";
+import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
 import { formatPercent } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -55,17 +56,30 @@ export function ProgramStudent({
   data,
   coaching,
   fellows,
+  today,
 }: {
   data: Data;
   coaching: Coaching;
   fellows: Fellows;
+  /** Read once by the page and handed down, so the server and the browser agree which square is today. */
+  today: SchoolDay;
 }) {
   const name = displayNameOf(data.student, "Unnamed");
   const removed = data.enrollmentStatus !== "ACTIVE";
+
   /*
-    The courses with anything to have a trend about. The same guard the course rows below use for
-    their figures: none of nothing is not a figure.
+    The fellow's own calendar, drawn for their instructor. The sentence in each square's tooltip is
+    composed here, as the fellow's record composes it, because turning a source and a timestamp into
+    words needs the school's timezone and the calendar itself is a client component.
   */
+  const calendarDays = data.days.map((day) => ({
+    day: day.day,
+    status: day.status,
+    open: day.open,
+    upcoming: day.upcoming,
+    detail: day.status ? attendanceProvenance(day) : null,
+    note: day.note,
+  }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -207,6 +221,22 @@ export function ProgramStudent({
                   " — an excused morning still counts as one they missed."}
               </p>
             </div>
+
+            {/*
+              The term as the fellow sees it, square for square. The figures above answer how much
+              of the term they have been here for; the calendar answers which mornings, which is the
+              question an instructor has before a conversation about attendance — a run of red
+              Mondays and a scattering of absences are the same rate and different conversations. It
+              is the fellow's own calendar, drawn from the same days, so the two of them can look at
+              the same square and read the same thing in it.
+            */}
+            {data.days.length > 0 && (
+              <AttendanceCalendar
+                days={calendarDays}
+                enrolledFrom={data.enrolledFrom}
+                today={today}
+              />
+            )}
           </section>
 
           <section className="flex flex-col gap-2">

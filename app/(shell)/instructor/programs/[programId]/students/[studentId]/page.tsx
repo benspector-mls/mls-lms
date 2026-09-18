@@ -4,6 +4,7 @@ import { ProgramStudent } from "@/components/instructor/program-student";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { displayNameOf } from "@/lib/people";
+import { schoolDayOf } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
@@ -55,7 +56,17 @@ async function Student({ params }: { params: Promise<{ programId: string; studen
         title={displayNameOf(data.student, "Fellow")}
         description={`${data.program.name} · ${data.program.term}`}
       />
-      <ProgramStudent data={data} coaching={coaching} fellows={fellows} />
+      {/*
+        The clock is read once, here, and handed down, so the server and the browser agree about
+        which square on the attendance calendar is today. Reading it inside the component would put
+        a different answer in each render, which React reports as a hydration mismatch.
+      */}
+      <ProgramStudent
+        data={data}
+        coaching={coaching}
+        fellows={fellows}
+        today={schoolDayOf(new Date())}
+      />
     </div>
   );
 }

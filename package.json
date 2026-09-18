@@ -47,7 +47,8 @@
     "verify:drive-embed": "tsx --conditions=react-server scripts/verify-drive-embed.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts",
     "verify:test-student": "tsx --conditions=react-server scripts/verify-test-student.ts",
-    "verify:calendar": "tsx --conditions=react-server scripts/verify-calendar.ts"
+    "verify:calendar": "tsx --conditions=react-server scripts/verify-calendar.ts",
+    "verify:slack": "tsx --conditions=react-server scripts/verify-slack.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

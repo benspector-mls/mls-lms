@@ -266,6 +266,16 @@ export function courseHref(courseId: string): string {
 }
 
 /**
+ * One assignment on the student's own course page — the address a notification hands a fellow.
+ *
+ * The query parameter is what `components/student/course-detail.tsx` scrolls to; the shape lives
+ * here so a DM and the page cannot drift apart about it.
+ */
+export function studentAssignmentHref(courseId: string, assignmentId: string): string {
+  return `/courses/${courseId}?assignment=${assignmentId}`;
+}
+
+/**
  * The same view in a different cohort, for the course switcher.
  *
  * Switching course should keep you where you were — an instructor comparing two courses'

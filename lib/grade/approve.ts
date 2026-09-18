@@ -4,6 +4,7 @@ import { inDeclaredOrder } from "../assignments/spec";
 import { auditEventData, type AuditActor } from "../audit/record";
 import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
+import { notifyFeedbackReleased } from "../notifications/slack";
 import { opensOwnTransaction } from "../transactions";
 import { sharedAfterGrade } from "../submissions/team";
 import { getConfiguredInstallationId } from "../github/app-client";
@@ -159,6 +160,8 @@ export async function approveDraft(params: {
           // may since have changed.
           studentId: true,
           student: { select: { displayName: true, email: true, githubUsername: true } },
+          // For the deep link in the Slack DM; the assignment relation below carries no id.
+          assignmentId: true,
           /*
             The team, if this is a team's work, and every member's own row.
 
@@ -511,6 +514,20 @@ export async function approveDraft(params: {
       commentError = err instanceof Error ? err.message : String(err);
     }
   }
+
+  // ---- Step three: the Slack DM, best effort -------------------------------
+  //
+  // After the grade for the same reason the comment is, and after the comment so a student
+  // following the DM's link finds everything already in place. It can never fail the approval —
+  // the function catches everything and only logs — and it sends nothing unless SLACK_BOT_TOKEN
+  // is set, which development and the tests leave unset.
+  await notifyFeedbackReleased({
+    client,
+    submission,
+    finalScore,
+    finalScorePossible,
+    isComplete,
+  });
 
   return {
     submissionId: submission.id,
