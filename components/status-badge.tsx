@@ -331,8 +331,13 @@ const UNIT_CATEGORY_ICON: Record<CourseUnitCategory, React.ElementType> = {
  *
  * **Drawn only for team work, with nothing in its place for the rest**, because work a fellow does
  * alone is what almost every row is: a marker on every solo row would be forty repetitions of the
- * default, and a reader scanning a course page for the two group projects would have to read past
- * all of them.
+ * default, and a reader scanning for the two group projects would have to read past all of them.
+ *
+ * **Both audiences, and the same marker to each**: a fellow's course page and an instructor's
+ * curriculum. There is nothing about "a team hands this in" that either should be told differently,
+ * which is why this takes no `audience` — unlike `SubmissionStatusBadge`, where the two vocabularies
+ * genuinely differ. The team's name appears when the reader is on one, and the wording stands
+ * without it for an instructor, who is on none.
  *
  * Through `KindIcon` like the kind marker beside it, so it is the same size, the same colour, and
  * expands the same way — a tooltip for a pointer and an `sr-only` name for a screen reader, adding
@@ -340,9 +345,8 @@ const UNIT_CATEGORY_ICON: Record<CourseUnitCategory, React.ElementType> = {
  * supposed to do: one hand-in exists for the whole team, and somebody who misreads it starts their
  * own copy of work that is already being done.
  *
- * The team's name is in the tooltip when the reader is on one. A fellow on none of the set's teams
- * still sees the marker, because the assignment is still team work and that is the fact worth
- * knowing — who they are with is a question for their instructor.
+ * A fellow on none of the set's teams still sees the marker, because the assignment is still team
+ * work and that is the fact worth knowing — who they are with is a question for their instructor.
  */
 export function TeamWorkIcon({
   teamName,
@@ -358,8 +362,8 @@ export function TeamWorkIcon({
       label="Team work"
       description={
         teamName
-          ? `Team work — handed in once by ${teamName}, for all of you.`
-          : "Team work — handed in once by your team, for all of you."
+          ? `Team work — handed in once by ${teamName}, for everyone on it.`
+          : "Team work — one hand-in for the whole team."
       }
       className={className}
     />

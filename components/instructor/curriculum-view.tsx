@@ -6,7 +6,7 @@ import * as React from "react";
 import { ChevronRight, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AssignmentKindIcon, UnitCategoryIcon } from "@/components/status-badge";
+import { AssignmentKindIcon, TeamWorkIcon, UnitCategoryIcon } from "@/components/status-badge";
 import { EmptyState, ErrorState, ListSkeleton } from "@/components/list-states";
 import { ResourceItem } from "@/components/resource-item";
 import { SortableList, SortableRow } from "@/components/sortable-list";
@@ -646,6 +646,19 @@ function UnitSection({
                         {assignment.distributedAt === null && (
                           <Badge variant="outline">Draft</Badge>
                         )}
+                        {/*
+                      That a team hands this in, the same marker a fellow's own course page
+                      carries. Nothing marks work done alone, which is nearly every row.
+
+                      At the end of the row's title group so every title begins at the same place,
+                      immediately after the kind marker — and so the two group projects in a term
+                      are findable by running an eye down the right of the names rather than by
+                      reading each one.
+
+                      No team is named. An instructor is on none of them, and which teams a set
+                      holds is a question this row does not ask.
+                    */}
+                        {assignment.teamSetId !== null && <TeamWorkIcon />}
                       </div>
                       {/*
                     The time as well as the date, because the instructor set one and it decides

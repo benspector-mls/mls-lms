@@ -559,16 +559,19 @@ function RowSummary({
           keeps the one thing the wide row was telling it.
         */}
         <AssignmentKindIcon assignment={assignment} />
+        <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
         {/*
           That this one is handed in by a team, and nothing at all for work a fellow does alone —
           which is nearly every row, so a marker on those would be the default repeated forty times
           for a reader who is scanning for the two group projects.
 
-          Beside the kind marker rather than after the title, so the row's fixed-width left edge
-          carries both facts and the title keeps the space it has.
+          **After the title rather than before it**, so that every title in the list begins at the
+          same place, immediately after the kind marker. A second icon on the left edge would indent
+          the two group projects further than everything around them, which reads as a hierarchy
+          that is not there — and the marker stands out better at the end of a name than buried in a
+          pair at the start.
         */}
         {assignment.teamSetId !== null && <TeamWorkIcon teamName={assignment.team?.name} />}
-        <span className="min-w-0 truncate text-sm font-medium">{assignment.title}</span>
       </span>
 
       <span className="flex shrink-0 items-center gap-x-2 sm:gap-x-3">

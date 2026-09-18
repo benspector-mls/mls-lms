@@ -148,6 +148,12 @@ export const courseUnitsRouter = createTRPCRouter({
               pointValue: true,
               dueAt: true,
               distributedAt: true,
+              /*
+                Whether a team hands this in, which the row marks with an icon. The id and not the
+                set: the marker says only that the work is a team's, and which teams they are is a
+                question the row does not ask.
+              */
+              teamSetId: true,
             },
           },
           /**
