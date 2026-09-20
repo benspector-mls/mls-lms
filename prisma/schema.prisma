@@ -98,26 +98,28 @@ model Profile {
 
   user AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  programsInstructing  ProgramInstructor[]
-  enrollments          Enrollment[]
-  submissions          Submission[]
-  gradedSubmissions    Submission[]            @relation("GradedBy")
-  approvedDrafts       GradingDraft[]          @relation("ApprovedDrafts")
-  editedSections       GradingDraftSection[]   @relation("EditedSections")
-  invitesCreated       InstructorInvite[]      @relation("InvitesCreated")
-  invitesRedeemed      InstructorInvite[]      @relation("InvitesRedeemed")
-  rosterEntriesClaimed RosterEntry[]           @relation("RosterClaimed")
-  rosterEntriesAdded   RosterEntry[]           @relation("RosterAdded")
-  attendanceStarted    AttendanceSession[]     @relation("AttendanceStarted")
-  attendanceRecorded   AttendanceRecord[]      @relation("AttendanceRecorded")
-  gcfAttempts          GcfAttempt[]            @relation("GcfAttempts")
-  gcfRecorded          GcfAttempt[]            @relation("GcfRecorded")
-  gcfIdentities        GcfIdentity[]           @relation("GcfIdentities")
-  handedIn             Submission[]            @relation("HandedInBy")
-  commentsWritten      SubmissionComment[]     @relation("CommentsWritten")
-  commentsResolved     Submission[]            @relation("CommentsResolved")
-  extensionsGranted    Submission[]            @relation("ExtensionGrantedBy")
-  commentReads         SubmissionCommentRead[] @relation("CommentReads")
+  programsInstructing    ProgramInstructor[]
+  enrollments            Enrollment[]
+  submissions            Submission[]
+  gradedSubmissions      Submission[]            @relation("GradedBy")
+  approvedDrafts         GradingDraft[]          @relation("ApprovedDrafts")
+  editedSections         GradingDraftSection[]   @relation("EditedSections")
+  invitesCreated         InstructorInvite[]      @relation("InvitesCreated")
+  invitesRedeemed        InstructorInvite[]      @relation("InvitesRedeemed")
+  rosterEntriesClaimed   RosterEntry[]           @relation("RosterClaimed")
+  rosterEntriesAdded     RosterEntry[]           @relation("RosterAdded")
+  attendanceStarted      AttendanceSession[]     @relation("AttendanceStarted")
+  attendanceRecorded     AttendanceRecord[]      @relation("AttendanceRecorded")
+  gcfAttempts            GcfAttempt[]            @relation("GcfAttempts")
+  gcfRecorded            GcfAttempt[]            @relation("GcfRecorded")
+  gcfIdentities          GcfIdentity[]           @relation("GcfIdentities")
+  instructorNotesWritten InstructorNote[]        @relation("InstructorNotesWritten")
+  coachingSessionsLed    CoachingSession[]       @relation("CoachingSessionsLed")
+  handedIn               Submission[]            @relation("HandedInBy")
+  commentsWritten        SubmissionComment[]     @relation("CommentsWritten")
+  commentsResolved       Submission[]            @relation("CommentsResolved")
+  extensionsGranted      Submission[]            @relation("ExtensionGrantedBy")
+  commentReads           SubmissionCommentRead[] @relation("CommentReads")
 
   @@map("profiles")
   @@schema("public")
@@ -536,11 +538,14 @@ model Enrollment {
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  program         Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
-  student         Profile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  cohort          Cohort?            @relation(fields: [cohortId, programId], references: [id, programId], onDelete: Restrict)
-  teamMemberships TeamMembership[]
-  attendance      AttendanceRecord[]
+  program          Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  student          Profile            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohort           Cohort?            @relation(fields: [cohortId, programId], references: [id, programId], onDelete: Restrict)
+  teamMemberships  TeamMembership[]
+  attendance       AttendanceRecord[]
+  instructorNotes  InstructorNote[]
+  coachingSessions CoachingSession[]
+  goals            Goal[]
 
   @@unique([programId, studentId])
   /// Redundant on its own — `id` is already the primary key — and bought for two readers:
@@ -1257,12 +1262,12 @@ model Submission {
   /// does not change with them.
   repoGithubLoginAtCreation String? @map("repo_github_login_at_creation")
 
-  prNumber          Int?      @map("pr_number")
-  prUrl             String?   @map("pr_url")
-  headBranch        String?   @map("head_branch")
-  headSha           String?   @map("head_sha")
-  submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
-  lastActivityAt    DateTime? @map("last_activity_at") @db.Timestamptz(6)
+  prNumber       Int?      @map("pr_number")
+  prUrl          String?   @map("pr_url")
+  headBranch     String?   @map("head_branch")
+  headSha        String?   @map("head_sha")
+  submittedAt    DateTime? @map("submitted_at") @db.Timestamptz(6)
+  lastActivityAt DateTime? @map("last_activity_at") @db.Timestamptz(6)
 
   /// A deadline renegotiated with this fellow, for this piece of work.
   ///
@@ -1853,6 +1858,25 @@ enum AuditAction {
   /// worth being able to answer at all.
   ATTENDANCE_CHECK_IN_FAILED
 
+  /// Coaching: staff writing about a fellow the fellow does not see, which is exactly the act
+  /// that wants a record of who wrote and when. The note events carry no body text and never
+  /// will — this table is append-only, so an event holding the body would be a permanent copy
+  /// of the one kind of text somebody must be able to delete.
+  COACHING_NOTE_CREATED
+  COACHING_NOTE_UPDATED
+  COACHING_NOTE_DELETED
+  /// The release act: the snapshot is written and the session's goals become visible to the
+  /// fellow, so this is coaching's counterpart of GRADE_APPROVED.
+  COACHING_SESSION_COMPLETED
+  /// Deleting a completed session deletes a snapshot the fellow has seen (its goals survive),
+  /// which is worth being able to find without reading every edit.
+  COACHING_SESSION_DELETED
+  /// Nothing writes either of these. They are left from the design where an instructor owned a
+  /// fellow's goals; a fellow keeping their own is not an act this log records. Postgres has no
+  /// DROP VALUE for an enum, so they stay until it is next rebuilt for some other reason.
+  GOAL_UPDATED
+  GOAL_DELETED
+
   @@schema("public")
 }
 
@@ -2315,5 +2339,160 @@ model GcfIdentity {
 
   @@index([studentId])
   @@map("gcf_identities")
+  @@schema("public")
+}
+
+// ---------------------------------------------------------------------------
+// Coaching: instructor notes, coaching sessions, and goals.
+//
+// Three kinds of record staff keep on one fellow in one program, with one visibility line
+// through them: notes and a session's answers are staff-only forever; a goal and a completed
+// session's snapshot are the fellow's to read. All three key to the enrollment the way
+// `AttendanceRecord` does — `(enrollmentId, programId)` against the enrollment's redundant
+// unique — so a row written against another program's fellow is unrepresentable, and `programId`
+// is always copied from the enrollment the server just loaded, never taken from input.
+// ---------------------------------------------------------------------------
+
+/// Where a fellow stands on one goal, assessed by an instructor in a coaching conversation.
+/// The column wearing this is nullable, because a new goal is an agreement, not a judgment.
+enum DevelopmentMarker {
+  FOUNDATIONAL
+  DEVELOPING
+  PROFICIENT
+  EXCEEDS
+
+  @@schema("public")
+}
+
+/// Which kind of competency entry a goal was built on: something to work toward, or something to
+/// work away from. Stored rather than derived from the entry id, because the list in
+/// `lib/competencies.ts` is still being developed and an entry deleted there must not change how
+/// an agreed goal renders.
+enum CompetencyEntryKind {
+  INDICATOR
+  PITFALL
+
+  @@schema("public")
+}
+
+/// Free-text staff observations about one fellow in one program. Staff-only forever: no procedure
+/// outside the instructor-guarded ones ever selects the body, and the body never reaches a CSV,
+/// an audit event, or any future Salesforce sync.
+model InstructorNote {
+  id           String @id @default(uuid()) @db.Uuid
+  programId    String @map("program_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+
+  /// Markdown, rendered the way feedback is.
+  body String
+
+  /// SetNull rather than Cascade, for the reason `AttendanceRecord.recordedById` is: deleting
+  /// the person must not delete the record of what they wrote.
+  authorId  String?  @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+  author     Profile?   @relation("InstructorNotesWritten", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId, createdAt(sort: Desc)])
+  @@map("instructor_notes")
+  @@schema("public")
+}
+
+/// One coaching conversation with one fellow: a temperature check and the check-in answers. A
+/// draft until `endedAt` is written; completing it stores the snapshot, which is the half of a
+/// session the fellow sees.
+///
+/// **It owns no goals.** The fellow's goals are theirs and stand on their own, and a session is
+/// where they are usually talked through rather than where they live — so deleting a session, or
+/// never holding one, leaves them untouched.
+model CoachingSession {
+  id           String @id @default(uuid()) @db.Uuid
+  programId    String @map("program_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+
+  /// How the fellow said they were feeling, 1 to 10. Staff-only, like the answers. Null until
+  /// asked; the range is a CHECK constraint in the migration, so a bypassed procedure cannot
+  /// disagree with the zod schema.
+  temperature Int?
+
+  /// `[{promptId, prompt, answer}]` — see `sessionAnswersSchema` in `lib/coaching.ts`. The
+  /// prompt text is copied in server-side at save, so a session renders the prompts as they were
+  /// asked however the template moves afterwards. Staff-only.
+  answers Json @default("[]")
+
+  /// When the instructor completed it. Null while a draft; written once, never cleared. The
+  /// migration's `_ended_has_snapshot` CHECK ties it to `snapshot`: a completed session is
+  /// exactly a session carrying its snapshot.
+  endedAt DateTime? @map("ended_at") @db.Timestamptz(6)
+
+  /// The dated record of where the fellow stood when the conversation ended — attendance summary
+  /// and per-course figures, versioned; see `CoachingSnapshot` in `lib/coaching.ts`. Immutable
+  /// once written and visible to the fellow. **A record of what was shown, not a cached
+  /// verdict**: lateness and completion stay computed-on-read everywhere else, and this column
+  /// exists because a conversation's meaning depends on what both people were looking at while
+  /// they agreed — recomputing it later would rewrite what the goals beside it were about.
+  snapshot Json?
+
+  authorId  String?  @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+  author     Profile?   @relation("CoachingSessionsLed", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId, createdAt(sort: Desc)])
+  @@map("coaching_sessions")
+  @@schema("public")
+}
+
+/// A goal a fellow has set for themselves: one competency entry to work toward or away from, what
+/// success looks like, and the plan.
+///
+/// **The fellow's row, not the instructor's.** They write it, they edit it, they say where they
+/// stand on it, and they delete it — usually agreed in a coaching session, but they may set one
+/// any time without one. It carries no session and no release: an instructor reading this record
+/// sees every goal the moment it exists, which is the opposite of the notes and answers beside it
+/// and the reason the two live in different tables.
+///
+/// **Nothing here is instructor-writable.** An instructor who thinks a fellow has placed
+/// themselves wrongly says so in the coaching session, which is what the session is for — so
+/// there is no reply column, and no audit trail either: a fellow setting, moving or deleting
+/// their own goal is their record rather than an act needing accountability.
+model Goal {
+  id           String @id @default(uuid()) @db.Uuid
+  programId    String @map("program_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+
+  /// The chosen competency entry: the permanent slug from `lib/competencies.ts`, with the text
+  /// and the competency's name copied as they read at selection. Copies rather than lookups —
+  /// the list is still being developed, and a rewording there must not rewrite what was agreed
+  /// here. `entryKind` is stored for the same reason: an entry deleted from the list must not
+  /// stop a pitfall-goal rendering as one.
+  entryId        String              @map("entry_id")
+  entryKind      CompetencyEntryKind @map("entry_kind")
+  entryText      String              @map("entry_text")
+  competencyName String              @map("competency_name")
+
+  /// The three prose parts, in the coaching structure's own terms. The fellow's to rewrite
+  /// whenever they like — a goal is a thing being worked on, not a contract.
+  successCriteria String @map("success_criteria")
+  objectives      String
+  actionPlan      String @map("action_plan")
+
+  /// Where the fellow says they stand, set by them and agreed in conversation rather than handed
+  /// down. Null until they have placed themselves.
+  marker DevelopmentMarker?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// No author column: the enrollment is the author. A goal belongs to the fellow whose record it
+  /// is on, and there is no second person who could have written one.
+  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+
+  @@index([enrollmentId, createdAt(sort: Desc)])
+  @@map("goals")
   @@schema("public")
 }
