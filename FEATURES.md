@@ -197,6 +197,8 @@ If a link goes astray, **regenerate** it. Everybody already in stays in, and the
 
 A column on the roster names each fellow's **cohort**, or says "No cohort" where nobody has placed them, because that is the question you ask while reading the roster. Placing them is the tab beside it.
 
+**Sort the roster** by clicking Fellow, GitHub or Cohort. Clicking the same heading again reverses it, and a fellow with nothing in that column — no GitHub account yet, nobody having placed them in a cohort — sits at the bottom either way rather than at the top of the blanks. The Enrollment column does not sort, because the removed fellows are already a table of their own below.
+
 ### Cohorts, and splitting the marking
 
 **Cohorts** is the roster's second tab, and cohorts divide the roster between instructors. Create one — "Cohort A" — place fellows in it, and the cohort picker narrows triage, the gradebook, the curriculum list, and an assignment's queue to just those fellows. If you and a co-teacher split a roster, set your cohort once and **every course of the program** defaults to your half.

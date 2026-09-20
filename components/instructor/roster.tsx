@@ -4,7 +4,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import * as React from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
+  ChevronsUpDown,
   Copy,
   Eye,
   FlaskConical,
@@ -35,6 +38,13 @@ import {
 import type { EnrollmentStatus } from "@/lib/generated/prisma/enums";
 import { programStudentHref } from "@/lib/links";
 import { initials } from "@/lib/people";
+import {
+  DEFAULT_ROSTER_SORT,
+  sortRoster,
+  toggleRosterSort,
+  type RosterSort,
+  type RosterSortColumn,
+} from "@/lib/roster";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -53,6 +63,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * In their own table below the roster, though, rather than dimmed among it. One list mixing the two
  * made "who is on this roster" a question you answered by reading opacity, and put the Restore
  * button in the same column as Remove — two rows apart, opposite in effect.
+ *
+ * **Fellow, GitHub and Cohort sort; Enrollment does not.** The two tables are split on exactly that
+ * status, so within either one the column holds a single value and a header that sorted it would
+ * be a control that visibly does nothing. Each table keeps its own order, because they are two
+ * lists answering two questions rather than one list with a divider.
  */
 
 type Data = RouterOutputs["programs"]["roster"];
@@ -341,33 +356,55 @@ function RosterTable({
   onRestore: (enrollmentId: string) => void;
   onDelete: (profileId: string) => void;
 }) {
+  const [sort, setSort] = React.useState<RosterSort>(DEFAULT_ROSTER_SORT);
+
+  /*
+    What each row reads as in each column, which is also what each cell prints — one rule, so the
+    order on screen is the order of the words on screen. The cohort is looked up here rather than
+    compared by id, because ids sort into an order nobody can see.
+  */
+  const ordered = sortRoster(enrollments, sort, (enrollment, by) => {
+    if (by === "name") return rosterName(enrollment);
+    if (by === "github") return enrollment.student.githubUsername;
+    return enrollment.cohortId === null ? null : (cohortName.get(enrollment.cohortId) ?? null);
+  });
+
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Fellow</TableHead>
-            <TableHead className="hidden sm:table-cell">GitHub</TableHead>
+            <SortableHead label="Fellow" by="name" sort={sort} onSort={setSort} />
+            <SortableHead
+              label="GitHub"
+              by="github"
+              sort={sort}
+              onSort={setSort}
+              className="hidden sm:table-cell"
+            />
             {/*
               Read-only here, and named rather than counted. The Cohorts tab is where a fellow is
               placed; this column is so that reading the roster shows who is in none, which is who
               an instructor comes looking for when somebody joins by the link mid-term.
             */}
-            <TableHead className="hidden md:table-cell">Cohort</TableHead>
+            <SortableHead
+              label="Cohort"
+              by="cohort"
+              sort={sort}
+              onSort={setSort}
+              className="hidden md:table-cell"
+            />
+            {/*
+              Not sortable, and the docblock says why: this table is already the fellows of one
+              status, so every row in it reads the same here.
+            */}
             <TableHead>Enrollment</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {enrollments.map((enrollment) => {
-            // An enrollment always has a student now, because the row is created by somebody
-            // joining. The fallbacks are for a profile that has signed in with GitHub and
-            // never set a display name.
-            const name =
-              enrollment.student.displayName ??
-              enrollment.student.githubUsername ??
-              enrollment.student.email ??
-              "Unnamed";
+          {ordered.map((enrollment) => {
+            const name = rosterName(enrollment);
             const removed = enrollment.status !== "ACTIVE";
             const isTestStudent = enrollment.student.testStudentNumber !== null;
 
@@ -505,6 +542,62 @@ function RosterTable({
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+/**
+ * What a fellow is called on this screen.
+ *
+ * An enrollment always has a student, because the row is created by somebody joining. The
+ * fallbacks are for a profile that has signed in with GitHub and never set a display name — and
+ * the sort uses this same function, so a fellow shown by their username is ordered by it too.
+ */
+function rosterName(enrollment: Data["enrollments"][number]): string {
+  return (
+    enrollment.student.displayName ??
+    enrollment.student.githubUsername ??
+    enrollment.student.email ??
+    "Unnamed"
+  );
+}
+
+/** A header that sorts the table, with the arrow showing which way when it is the active one. */
+function SortableHead({
+  label,
+  by,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  by: RosterSortColumn;
+  sort: RosterSort;
+  onSort: (sort: RosterSort) => void;
+  className?: string;
+}) {
+  const active = sort.by === by;
+
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(toggleRosterSort(sort, by))}
+        aria-label={`Sort by ${label.toLowerCase()}`}
+        className={cn(
+          "flex items-center gap-1 rounded-sm transition-colors hover:text-foreground",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {!active ? (
+          <ChevronsUpDown className="size-3 shrink-0" aria-hidden />
+        ) : sort.direction === "asc" ? (
+          <ArrowUp className="size-3 shrink-0" aria-hidden />
+        ) : (
+          <ArrowDown className="size-3 shrink-0" aria-hidden />
+        )}
+      </button>
+    </TableHead>
   );
 }
 
