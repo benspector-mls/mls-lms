@@ -12,7 +12,15 @@ import { countLabel, Detail } from "@/components/instructor/impact-detail";
 import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { programsHref, triageHref } from "@/lib/links";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DISCIPLINES, DISCIPLINE_META, type Discipline } from "@/lib/competencies";
+import { competenciesHref, programsHref, triageHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
@@ -59,6 +67,7 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
       )}
 
       <IdentityCard data={data} />
+      <DisciplineCard data={data} />
       <CoursesCard data={data} courses={courses} />
       <AttendanceCard data={data} />
       <ArchiveCard data={data} />
@@ -121,6 +130,74 @@ function IdentityCard({ data }: { data: Data }) {
  * decisions about one course. What this list is for is seeing at a glance which courses of the year
  * fellows can actually reach, which is the question somebody asks in the week a term starts.
  */
+/**
+ * Which fellowship this program runs, and so which competencies its fellows set goals against.
+ *
+ * **A field, where the name and the term above are facts.** Those two are half of the program's
+ * identity each; this one decides which part of the competency list the goal picker offers, and
+ * nothing else. Changing it does not touch a goal already set: a goal keeps its own copy of the
+ * wording it was built on, so a fellow moved between fellowships keeps reading exactly what they
+ * wrote.
+ *
+ * Saved on choosing rather than behind a Save button, which is the one-control-one-act shape: the
+ * select has nothing to be submitted alongside.
+ */
+function DisciplineCard({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const save = useMutation(
+    trpc.programs.setDiscipline.mutationOptions(
+      settled({
+        onSuccess: (result) =>
+          toast.success(
+            `Fellows of this program now set goals from the ${
+              DISCIPLINE_META[result.discipline].label
+            } competencies.`,
+          ),
+      }),
+    ),
+  );
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Discipline</h2>
+        <p className="text-xs text-muted-foreground">
+          Which fellowship this is a run of. It decides which competencies its fellows choose their
+          goals from — the sections every fellowship shares, plus this one&apos;s own.
+        </p>
+      </div>
+
+      <Select
+        value={data.program.discipline}
+        onValueChange={(value) =>
+          save.mutate({ programId: data.program.id, discipline: value as Discipline })
+        }
+      >
+        <SelectTrigger className="w-full sm:w-72" disabled={save.isPending}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DISCIPLINES.map((option) => (
+            <SelectItem key={option} value={option}>
+              {DISCIPLINE_META[option].label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <p className="text-xs text-muted-foreground">
+        Goals already set are untouched by this: each one keeps the wording it was built on.{" "}
+        <Link href={competenciesHref()} className="underline underline-offset-2">
+          The competency list
+        </Link>{" "}
+        itself is written by an admin and shared by every program.
+      </p>
+    </section>
+  );
+}
+
 function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }) {
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">

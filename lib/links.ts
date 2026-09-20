@@ -132,6 +132,17 @@ export function gcfHref(): string {
   return "/gcf";
 }
 
+/**
+ * The competency list, which admins write and every program shares.
+ *
+ * Under `/admin` rather than under a program, because there is one list for the application: a
+ * program says which *discipline* it runs, and the list says which disciplines each competency is
+ * offered to. Takes nothing, like `gcfHref` above and for the same reason.
+ */
+export function competenciesHref(): string {
+  return "/admin/competencies";
+}
+
 // ---------------------------------------------------------------------------------------------
 // The course's five views
 // ---------------------------------------------------------------------------------------------

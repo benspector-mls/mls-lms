@@ -77,6 +77,7 @@ import { ViewAsBanner } from "@/components/view-as-banner";
 import { feedbackFormUrl } from "@/lib/feedback-form";
 import {
   attendanceHref,
+  competenciesHref,
   curriculumHref,
   courseSettingsHref,
   gradebookHref,
@@ -1270,6 +1271,16 @@ function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string 
           >
             <ShieldCheck />
             <span>Staff</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname === competenciesHref()}
+            tooltip="Competencies"
+            render={<Link href={competenciesHref()} />}
+          >
+            <ListChecks />
+            <span>Competencies</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
