@@ -233,6 +233,18 @@ Three things about that figure, so it can be quoted safely. **Only mornings they
 
 **No cohort filter here, unlike most instructor screens.** Attendance is taken for everybody present, and a remembered filter would have the morning board reading "11 of 15" — a number that is wrong about the room while looking entirely correct.
 
+### Coaching a fellow
+
+Open a fellow from the roster and their record has two tabs under their details. **Performance** is their attendance, where they stand in each course, and their GCF history. **Coaching** is goals, coaching sessions, and notes, each section saying plainly who can read it.
+
+**Start a coaching session** and you get a form built for the conversation: a strip across the top showing exactly the figures the record shows — attendance, and each course's completed, missing, and late counts — a 1–10 temperature check, a set of check-in prompts, and the goals you agree on together. The strip is not decoration: **what you are both looking at is what gets recorded** when you complete the session, dated, as a snapshot the fellow keeps. Everything you type saves on its own.
+
+**The goals belong to the fellow, and the session is where you talk them through.** Their goals appear on the form beside your questions, read-only: you guide somebody to set one, or to move where they say they stand, and they do it on their own screen. Nothing on this page writes a goal. If you think somebody has placed themselves too high or too low, say so — that is what the conversation is for.
+
+**Completing a session shares the snapshot.** Until then it is a staff-only draft the fellow cannot see; completing it gives them the dated figures and closes the form to further editing. The temperature check and the check-in answers stay staff-only for good, and their goals are unaffected either way.
+
+**Notes** are the third section: free-form markdown observations, never shown to fellows. A fellow may still ask to read their record, so the section says what to write: what happened and what was decided, as you would say it to them. Who wrote, edited, or deleted a note is logged — the words themselves never are.
+
 ### Triage: what is waiting on you
 
 **Triage** is the first screen of a course and answers one question — what do I do next. Work is sorted into piles by what it needs:
@@ -283,6 +295,8 @@ Three things are refused rather than warned about, because each one would produc
 Every fellow against every assignment of the course. Cells that have a score show it; cells that do not carry one of three marks — nothing accepted, accepted but not handed in, or handed in and waiting on you — with a legend above the grid. An amber dot means it needs you.
 
 Both edges are totalled: a **Completed** row under each assignment title says how many fellows met its threshold, and a **Completed assignments** column says how many each fellow has finished. Removed fellows are in their own table underneath and count towards neither.
+
+The **Overview** tab reads the whole course in one row per fellow: completed units per category, then three course-wide figures — completed assignments, handed in late, and missing — then what is waiting on you, the course verdict, and their best GCF. Every column header sorts, most-of-it first, and the late and missing totals are the same ones the CSV has always carried. The same three figures appear on each course row of a fellow's program record.
 
 **Download CSV** gives you the grid as a spreadsheet.
 
@@ -413,6 +427,16 @@ The **Feedback** tab shows every round, oldest first, each with its score and it
 **Mark as read** clears the row from **Feedback to read**. It does nothing else — it does not tell your instructor anything you need to worry about, it does not gate resubmitting, and nothing waits on it.
 
 **It does not clear work that came back incomplete.** That stays under **Needs another attempt** until you hand it in again, because reading why something fell short is not the same as having fixed it.
+
+### Your goals
+
+**Goals** sits beside Attendance in your sidebar, and what is on it is yours. Set a goal for something you want to get better at: choose a skill to work toward or a pitfall to work away from, from your program's competencies, then write what success would look like, two objectives, and what you will do before the next coaching session. Say where you are with it — Foundational, Developing, Proficient, Exceeds — or leave that until you have decided.
+
+**Change any of it whenever you like**, and remove a goal when it stops being what you are working on. You do not need permission and you do not need to wait for a session, though most goals get agreed in one.
+
+**Your instructors can see your goals**, which is the point of keeping them here rather than in a notebook: they read them before a coaching session and talk them through with you. They cannot edit them. If an instructor thinks your own assessment is off the mark, they will tell you in the session rather than change it.
+
+Beneath your goals is your **coaching history**: one dated snapshot per session of where things stood that day — your attendance and each course's figures at the moment the conversation ended. It is a record of that conversation, not a live scoreboard; your current standing is on your dashboard and your course pages.
 
 ### Asking for another look
 

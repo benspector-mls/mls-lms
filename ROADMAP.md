@@ -191,8 +191,8 @@ What this touches:
 
 - **Bulk grading** beyond the basic gradebook table, and a single action that generates reports for every submission still waiting on one.
 - **Rendering a Jupyter notebook in the review screen.** `previewKindOf` answers `pdf` or `image` and everything else downloads. A notebook is the most-read of the uploaded types and the one where the download-and-open-elsewhere loop that [embedding a PDF exists to remove](ARCHITECTURE.md#handing-in-a-file) costs the most. Rendering one is a real dependency and its own decision, which is why a check records that not previewing it is deliberate.
-- **A per-student record that accumulates over time and informs grading.** Requires deciding what is tracked and deserves its own design discussion.
-- **A grading assistant mode** that identifies patterns across a student's assignments relative to a rubric. Depends on the previous item existing first.
+- **A grading assistant mode** that identifies patterns across a student's assignments relative to a rubric, with the coaching record — sessions, goals, and dated snapshots — as the per-student material to draw on.
+- **A retention policy for coaching records.** Instructor notes, coaching sessions, and snapshots are kept indefinitely today, and that is a decision deferred rather than made. Notes are staff writing about a person: how long they should outlive the fellow's program — and whether deletion is a rule, a button, or both — needs deciding deliberately, and the append-only audit log already records deletions without their words, so a rule can be added without losing accountability.
 
 ---
 
