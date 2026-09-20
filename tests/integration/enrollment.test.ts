@@ -189,12 +189,14 @@ describe("starting a program", () => {
     program = await asInstructor.programs.create({
       name: named("Program"),
       term: termNamed("A"),
+      discipline: "SOFTWARE_ENGINEERING",
     });
     programsMade.push(program.id);
 
     second = await asInstructor.programs.create({
       name: named("Program"),
       term: termNamed("A2"),
+      discipline: "SOFTWARE_ENGINEERING",
     });
     programsMade.push(second.id);
   });
@@ -235,6 +237,7 @@ describe("starting a program", () => {
       createCaller(tx(), studentId).programs.create({
         name: named("Nope"),
         term: termNamed("Nope"),
+        discipline: "SOFTWARE_ENGINEERING",
       }),
     );
     expect(code).toBe("FORBIDDEN");
@@ -257,11 +260,16 @@ describe("a program with the same name and term", () => {
     const first = await asInstructor.programs.create({
       name: named("Duplicate"),
       term: termNamed("Duplicate"),
+      discipline: "SOFTWARE_ENGINEERING",
     });
     programsMade.push(first.id);
 
     const code = await refusal(() =>
-      asInstructor.programs.create({ name: named("Duplicate"), term: termNamed("Duplicate") }),
+      asInstructor.programs.create({
+        name: named("Duplicate"),
+        term: termNamed("Duplicate"),
+        discipline: "SOFTWARE_ENGINEERING",
+      }),
     );
     expect(code).toBe("CONFLICT");
   });

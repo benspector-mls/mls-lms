@@ -6,6 +6,7 @@ import { inTransaction } from "@/lib/prisma";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { arrivalAverages } from "@/lib/attendance/arrival";
 import { courseFiguresFor } from "@/lib/coaching/snapshot";
+import { DISCIPLINES } from "@/lib/competencies";
 import { summarize } from "@/lib/attendance/summary";
 import { sessionStateOf } from "@/lib/attendance/window";
 import { newJoinToken } from "@/lib/courses/join-token";
@@ -401,6 +402,7 @@ export const programsRouter = createTRPCRouter({
         archivedAt: true,
         createdAt: true,
         attendanceLateAfterMinutes: true,
+        discipline: true,
         joinToken: true,
         instructorToken: true,
         instructors: {
@@ -470,18 +472,19 @@ export const programsRouter = createTRPCRouter({
    * schema change, so it is deliberately not here yet.
    */
   create: instructorProcedure
-    .input(z.object({ name: programName, term }))
+    .input(z.object({ name: programName, term, discipline: z.enum(DISCIPLINES) }))
     .mutation(async ({ ctx, input }) => {
       try {
         return await ctx.db.program.create({
           data: {
             name: input.name,
             term: input.term,
+            discipline: input.discipline,
             joinToken: newJoinToken(),
             instructorToken: newJoinToken(),
             instructors: { create: { userId: ctx.profile.id, isPrimary: true } },
           },
-          select: { id: true, name: true, term: true },
+          select: { id: true, name: true, term: true, discipline: true },
         });
       } catch (err) {
         if ((err as { code?: string }).code === "P2002") {
@@ -544,6 +547,24 @@ export const programsRouter = createTRPCRouter({
         where: { id: input.programId },
         data: { attendanceLateAfterMinutes: input.minutes },
         select: { id: true, attendanceLateAfterMinutes: true },
+      }),
+    ),
+
+  /**
+   * Which fellowship this run is, and so which competencies its fellows are offered.
+   *
+   * **A field rather than a fact, where the name and the term are facts.** Those two are in the
+   * unique key, in the join link, and in every repository name, so getting one wrong is a program
+   * created again. This changes one thing: which competencies the picker shows. Goals already set
+   * are untouched either way, because a goal keeps its own copy of the wording.
+   */
+  setDiscipline: programProcedure
+    .input(z.object({ discipline: z.enum(DISCIPLINES) }))
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.program.update({
+        where: { id: input.programId },
+        data: { discipline: input.discipline },
+        select: { id: true, discipline: true },
       }),
     ),
 

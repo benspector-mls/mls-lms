@@ -21,6 +21,7 @@
  * the profile by hand instead would test a path nobody uses and would miss the trigger breaking.
  */
 import type { Prisma } from "@/lib/generated/prisma/client";
+import type { Discipline } from "@/lib/generated/prisma/enums";
 
 import { required, type Tx } from "./transaction";
 
@@ -63,16 +64,24 @@ export async function makeAccount(
 }
 
 /** A program: the thing that owns a roster, its cohorts, its attendance and its instructors. */
-export async function makeProgram(tx: Tx, options: { name?: string } = {}) {
+export async function makeProgram(
+  tx: Tx,
+  options: { name?: string; discipline?: Discipline } = {},
+) {
   const suffix = unique().slice(0, 8);
   return tx.program.create({
     data: {
       name: options.name ?? `Integration Program ${suffix}`,
       term: `Cohort Integration ${suffix}`,
+      /*
+        Software engineering unless a group says otherwise, which is what the column's own default
+        says and what every suite but the competency one is about.
+      */
+      discipline: options.discipline ?? "SOFTWARE_ENGINEERING",
       joinToken: `integration-join-${unique()}`,
       instructorToken: `integration-inst-${unique()}`,
     },
-    select: { id: true, name: true, term: true },
+    select: { id: true, name: true, term: true, discipline: true },
   });
 }
 

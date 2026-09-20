@@ -178,6 +178,7 @@ describe("instructing a program, owning it, and retiring it", () => {
     const elsewhere = await asStranger.programs.create({
       name: "Verify Elsewhere",
       term: termFor("Z"),
+      discipline: "SOFTWARE_ENGINEERING",
     });
     strangerCourseId = (
       await asStranger.courses.create({
@@ -189,6 +190,7 @@ describe("instructing a program, owning it, and retiring it", () => {
     const program = await asOwner().programs.create({
       name: "Verify Instructors",
       term: termFor("A"),
+      discipline: "SOFTWARE_ENGINEERING",
     });
     programId = program.id;
     const tokens = await tx().program.findUniqueOrThrow({
@@ -377,6 +379,7 @@ describe("instructing a program, owning it, and retiring it", () => {
       const archived = await asOwner().programs.create({
         name: "Verify Instructors Archived",
         term: termFor("B"),
+        discipline: "SOFTWARE_ENGINEERING",
       });
       await asOwner().programs.setArchived({ programId: archived.id, archived: true });
       const token = (
@@ -399,6 +402,7 @@ describe("instructing a program, owning it, and retiring it", () => {
       const both = await asOwner().programs.create({
         name: "Verify Instructors Enrolled",
         term: termFor("C"),
+        discipline: "SOFTWARE_ENGINEERING",
       });
       const token = (
         await tx().program.findUniqueOrThrow({
@@ -724,6 +728,7 @@ describe("instructing a program, owning it, and retiring it", () => {
       const derived = await asOwner().programs.create({
         name: "Verify Derived Ownership",
         term: termFor("D"),
+        discipline: "SOFTWARE_ENGINEERING",
       });
       derivedId = derived.id;
       derivedToken = (
@@ -869,6 +874,7 @@ describe("instructing a program, owning it, and retiring it", () => {
       const doomed = await asOwner().programs.create({
         name: "Verify Deletion",
         term: termFor("E"),
+        discipline: "SOFTWARE_ENGINEERING",
       });
       doomedId = doomed.id;
       doomedCourseId = (
