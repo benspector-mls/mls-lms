@@ -1,6 +1,6 @@
 # Marcy Lab School Competencies
 
-## Professionalism & Productivity Competencies
+## Durable Skills
 
 * **Growth Mindset:** Deriving satisfaction from growth and proactively seeking feedback and assistance to continuously improve and evolve.  
   * Indicators  
@@ -85,7 +85,7 @@
 
 ---
 
-## Leadership Seminar
+## Leadership & Development
 
 * **Critical Thinking:** Analyzing information objectively to make reasoned judgments and innovative decisions.  
   * Indicators  
@@ -130,7 +130,7 @@
 
 ---
 
-## SWE Technical Competencies
+## Software Engineering
 
 * **Technical Communication:** Clearly articulating the "what, how, and why" of technical decisions and product development to diverse audiences, from stakeholders to teammates.  
   * Indicators:  
