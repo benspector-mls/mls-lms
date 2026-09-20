@@ -5,10 +5,10 @@ import { inTransaction } from "@/lib/prisma";
 
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { arrivalAverages } from "@/lib/attendance/arrival";
+import { courseFiguresFor } from "@/lib/coaching/snapshot";
 import { summarize } from "@/lib/attendance/summary";
 import { sessionStateOf } from "@/lib/attendance/window";
 import { newJoinToken } from "@/lib/courses/join-token";
-import { allUnits, courseVerdictByStudent, groupByUnit } from "@/lib/gradebook/categories";
 import { assertOwnsProgram, ownerOf } from "@/lib/programs/ownership";
 import { schoolDayFromColumn, schoolDayOf } from "@/lib/school-time";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
@@ -242,11 +242,11 @@ export const programsRouter = createTRPCRouter({
    * year's records for twenty-five people to report on one — the shared thing is `arrivalAverages`
    * itself, so the two screens cannot disagree about what a mean means.
    *
-   * **A verdict per course rather than a submission list.** The row is a way in: what belongs on this
-   * screen is "they have finished the prework and are half through the fellowship", and the work
-   * itself is one click away at `studentHref`. `courseVerdictByStudent` is the same function the
-   * gradebook's Overview column reads, so a fellow and their instructor cannot be shown different
-   * answers.
+   * **A course's Overview figures rather than a submission list.** The row is a way in: what belongs
+   * on this screen is "they have finished the prework, with two assignments missing", and the work
+   * itself is one click away at `studentHref`. The figures come from `courseFiguresFor`, which is
+   * also what the coaching session form previews and what a completed session freezes into its
+   * snapshot — one computation behind three surfaces, so no two of them can disagree.
    */
   student: programProcedure
     .input(z.object({ studentId: z.string().uuid() }))
@@ -263,23 +263,7 @@ export const programsRouter = createTRPCRouter({
           createdAt: true,
           cohort: { select: { id: true, name: true } },
           student: { select: personSelect },
-          program: {
-            select: {
-              id: true,
-              name: true,
-              term: true,
-              archivedAt: true,
-              /*
-                Every course, published or not: the reader is an instructor, and a course they are
-                still writing is one this fellow is already a student of. The screen says which are
-                which so a missing verdict is not read as missing work.
-              */
-              courses: {
-                orderBy: [{ createdAt: "asc" }],
-                select: { id: true, name: true, publishedAt: true, archivedAt: true },
-              },
-            },
-          },
+          program: { select: { id: true, name: true, term: true, archivedAt: true } },
         },
       });
 
@@ -290,9 +274,7 @@ export const programsRouter = createTRPCRouter({
         });
       }
 
-      const courseIds = enrollment.program.courses.map((course) => course.id);
-
-      const [sessions, records, units, cells, gcf] = await Promise.all([
+      const [sessions, records, courses, gcf] = await Promise.all([
         ctx.db.attendanceSession.findMany({
           where: { programId: input.programId },
           orderBy: { date: "asc" },
@@ -302,36 +284,21 @@ export const programsRouter = createTRPCRouter({
           where: { enrollmentId: enrollment.id },
           select: { sessionId: true, status: true, checkedInAt: true },
         }),
-        courseIds.length === 0
-          ? []
-          : ctx.db.courseUnit.findMany({
-              where: { courseId: { in: courseIds } },
-              select: {
-                id: true,
-                courseId: true,
-                name: true,
-                position: true,
-                category: true,
-                assignments: {
-                  select: {
-                    id: true,
-                    title: true,
-                    dueAt: true,
-                    courseUnitId: true,
-                    distributedAt: true,
-                  },
-                },
-              },
-            }),
-        courseIds.length === 0
-          ? []
-          : ctx.db.submission.findMany({
-              where: {
-                studentId: input.studentId,
-                assignment: { courseId: { in: courseIds } },
-              },
-              select: { assignmentId: true, studentId: true, isComplete: true },
-            }),
+        /*
+          Every course of the program with this fellow's Overview figures — the shared computation
+          the coaching snapshot also freezes; see `lib/coaching/snapshot.ts` for why it is one
+          function.
+        */
+        courseFiguresFor(
+          ctx.db,
+          {
+            id: enrollment.id,
+            programId: input.programId,
+            studentId: input.studentId,
+            createdAt: enrollment.createdAt,
+          },
+          new Date(),
+        ),
         /*
           Their whole GCF history, and it names no program. A result is sat at CodeSignal on a
           fellow's own schedule and carries no program, so somebody who repeats a year has one history
@@ -400,23 +367,6 @@ export const programsRouter = createTRPCRouter({
           return day ? [{ day, checkedInAt: record.checkedInAt! }] : [];
         }),
       );
-
-      const courses = enrollment.program.courses.map((course) => {
-        const own = units.filter((unit) => unit.courseId === course.id);
-        const grouped = groupByUnit(
-          own.flatMap((unit) => unit.assignments),
-          own,
-        );
-
-        return {
-          ...course,
-          /** Where they stand on the whole course, by the rule the gradebook's Overview applies. */
-          completion:
-            courseVerdictByStudent(cells, allUnits(grouped), [input.studentId]).get(
-              input.studentId,
-            ) ?? "pending",
-        };
-      });
 
       return {
         program: enrollment.program,

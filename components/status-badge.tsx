@@ -22,6 +22,7 @@ import type * as React from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { handInMethodsFor, type HandInShape } from "@/lib/assignments/spec";
+import { MARKER_META, type DevelopmentMarker } from "@/lib/coaching";
 import { CATEGORY_META } from "@/lib/course-units";
 import type {
   AttendanceStatus,
@@ -167,6 +168,33 @@ export function LatenessBadge({
 }) {
   const meta = submission ? latenessMeta(lateness({ ...submission, dueAt })) : null;
   if (!meta) return null;
+
+  return <BadgeShell meta={meta} className={className} />;
+}
+
+/**
+ * Where a fellow stands on one goal, or the quiet statement that nobody has assessed it yet.
+ *
+ * The null state is a pill rather than nothing, because on a list of goals an absent badge reads
+ * as a rendering failure where "Not yet assessed" reads as a fact — a new goal is an agreement,
+ * not a judgment, and the marker arrives in a later conversation.
+ */
+export function GoalMarkerBadge({
+  marker,
+  className,
+}: {
+  marker: DevelopmentMarker | null;
+  className?: string;
+}) {
+  const meta =
+    marker === null
+      ? {
+          label: "Not yet assessed",
+          tone: "neutral" as const,
+          description:
+            "A new goal is an agreement, not a judgment — the marker arrives in a later conversation.",
+        }
+      : MARKER_META[marker];
 
   return <BadgeShell meta={meta} className={className} />;
 }

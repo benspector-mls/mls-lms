@@ -1410,6 +1410,25 @@ describe("one fellow across the whole program", () => {
     // a single row that any answer of length one would satisfy.
     await makeCourse(tx(), { programId: built.programId });
 
+    // Two released assignments past due: one handed in late and graded complete, one never handed
+    // in — so the row's three figures each have something real to count.
+    const graded = await makeAssignment(tx(), {
+      courseId: built.courseId,
+      courseUnitId: built.unitId,
+      dueAt: new Date("2026-01-10T00:00:00Z"),
+    });
+    await makeSubmission(tx(), {
+      assignmentId: graded.id,
+      studentId: built.student.studentId,
+      submittedAt: new Date("2026-01-20T10:00:00Z"),
+      graded: { score: 9, possible: 10, isComplete: true },
+    });
+    await makeAssignment(tx(), {
+      courseId: built.courseId,
+      courseUnitId: built.unitId,
+      dueAt: new Date("2026-01-10T00:00:00Z"),
+    });
+
     courseCount = await tx().course.count({ where: { programId: built.programId } });
     person = await asInstructor().programs.student({
       programId: built.programId,
@@ -1423,6 +1442,26 @@ describe("one fellow across the whole program", () => {
 
   it("...and carries a row per course of the program", () => {
     expect(person.courses.length).toBe(courseCount);
+  });
+
+  it("...each row carrying the fellow's course-wide figures", () => {
+    const first = person.courses.find((course) => course.id === built.courseId);
+    const second = person.courses.find((course) => course.id !== built.courseId);
+
+    expect(first).toMatchObject({
+      completedAssignments: { complete: 1, possible: 2 },
+      missing: 1,
+      late: 1,
+    });
+    expect(["complete", "incomplete", "pending"]).toContain(first?.verdict);
+
+    // The empty course reads as zeros, not as an absence: nothing due, nothing late, none of
+    // none completed.
+    expect(second).toMatchObject({
+      completedAssignments: { complete: 0, possible: 0 },
+      missing: 0,
+      late: 0,
+    });
   });
 
   it("...and their arrival averages", () => {
@@ -1447,6 +1486,78 @@ describe("one fellow across the whole program", () => {
       asInstructor().programs.student({ programId: built.programId, studentId: outsiderId }),
     );
     expect(code).toBe("NOT_FOUND");
+  });
+});
+
+/*
+  ---- Everybody on the roster, for the record's own switcher -------------------------------------
+
+  What the program student record's dropdown reads. The checks that earn their place are the two
+  that decide whether it is safe to put every name in a payload: another program's instructor gets
+  nothing, and a fellow who has left is not offered as somewhere to go next.
+*/
+describe("listing a program's fellows", () => {
+  const tx = withRollback();
+
+  let built: World;
+  let other: World;
+  let removedId: string;
+
+  const asInstructor = () => createCaller(tx(), built.instructorId);
+
+  beforeAll(async () => {
+    built = await world(tx(), { students: 3 });
+    other = await world(tx());
+
+    removedId = built.students[2]!.studentId;
+    await tx().enrollment.update({
+      where: { id: built.students[2]!.id },
+      data: { status: "REMOVED" },
+    });
+  });
+
+  it("names every active fellow of the program", async () => {
+    const listed = await asInstructor().enrollments.listForProgram({
+      programId: built.programId,
+    });
+
+    expect(listed.map((student) => student.id).sort()).toEqual(
+      [built.students[0]!.studentId, built.students[1]!.studentId].sort(),
+    );
+  });
+
+  it("...and leaves out one who has been removed", async () => {
+    const listed = await asInstructor().enrollments.listForProgram({
+      programId: built.programId,
+    });
+
+    expect(listed.map((student) => student.id)).not.toContain(removedId);
+  });
+
+  it("...and nobody from another program", async () => {
+    const listed = await asInstructor().enrollments.listForProgram({
+      programId: built.programId,
+    });
+
+    expect(listed.map((student) => student.id)).not.toContain(other.student.studentId);
+  });
+
+  it("refuses an instructor of another program", async () => {
+    const code = await refusal(() =>
+      createCaller(tx(), other.instructorId).enrollments.listForProgram({
+        programId: built.programId,
+      }),
+    );
+    expect(code).toBe("FORBIDDEN");
+  });
+
+  it("refuses a fellow of the program, who has no business with the roster", async () => {
+    const code = await refusal(() =>
+      createCaller(tx(), built.student.studentId).enrollments.listForProgram({
+        programId: built.programId,
+      }),
+    );
+    expect(code).toBe("FORBIDDEN");
   });
 });
 

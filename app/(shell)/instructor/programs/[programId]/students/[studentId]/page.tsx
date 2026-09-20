@@ -37,9 +37,17 @@ export default function ProgramStudentPage({
 
 async function Student({ params }: { params: Promise<{ programId: string; studentId: string }> }) {
   const { programId, studentId } = await params;
-  const data = await getQueryClient().fetchQuery(
-    trpc.programs.student.queryOptions({ programId, studentId }),
-  );
+  const queryClient = getQueryClient();
+  const [data, coaching, fellows] = await Promise.all([
+    queryClient.fetchQuery(trpc.programs.student.queryOptions({ programId, studentId })),
+    queryClient.fetchQuery(trpc.coaching.forStudent.queryOptions({ programId, studentId })),
+    /*
+      The roster, for the record's own switcher. Fetched here rather than by the picker so the
+      names are in the first paint — one more query on a screen that already makes two, against a
+      list of about twenty-five.
+    */
+    queryClient.fetchQuery(trpc.enrollments.listForProgram.queryOptions({ programId })),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
@@ -47,7 +55,7 @@ async function Student({ params }: { params: Promise<{ programId: string; studen
         title={displayNameOf(data.student, "Fellow")}
         description={`${data.program.name} · ${data.program.term}`}
       />
-      <ProgramStudent data={data} />
+      <ProgramStudent data={data} coaching={coaching} fellows={fellows} />
     </div>
   );
 }

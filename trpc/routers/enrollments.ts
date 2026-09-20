@@ -395,6 +395,30 @@ export const enrollmentsRouter = createTRPCRouter({
   }),
 
   /**
+   * The same list, for the screens that already know the program.
+   *
+   * The sibling of `listForCourse`, and the two differ by one lookup: enrollment lives on the
+   * program, so that one reads a course's `programId` before asking this question. The program
+   * student record has no course in scope — it is the screen above every course — and reaching
+   * the other procedure from there would mean naming one of the program's courses arbitrarily to
+   * answer a question that is not about a course at all.
+   *
+   * **Active only**, for the reason its sibling is: a removed fellow's record stays reachable by
+   * any link that names them, and this is the list a picker offers rather than a gate on who may
+   * be read. The record's own switcher puts whoever is currently open into its trigger, so a
+   * removed fellow being absent from here does not leave it blank.
+   */
+  listForProgram: programProcedure.query(async ({ ctx, input }) => {
+    const enrollments = await ctx.db.enrollment.findMany({
+      where: { programId: input.programId, status: "ACTIVE" },
+      select: { student: { select: personSelect } },
+      orderBy: { student: { displayName: "asc" } },
+    });
+
+    return enrollments.map((enrollment) => enrollment.student);
+  }),
+
+  /**
    * Who is expected on this roster, claimed or not.
    *
    * `programProcedure`, so an instructor reads their own program's list and not another's. The

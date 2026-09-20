@@ -72,6 +72,11 @@ export function myAttendanceHref(programId: string): string {
   return `/programs/${programId}/attendance`;
 }
 
+/** A fellow's own goals and coaching history for one program. */
+export function myGoalsHref(programId: string): string {
+  return `/programs/${programId}/goals`;
+}
+
 /**
  * The roster: everybody who has ever joined this program, and the link that lets them.
  *
@@ -97,6 +102,19 @@ export function programSettingsHref(programId: string): string {
  */
 export function programStudentHref(programId: string, studentId: string): string {
   return `/instructor/programs/${programId}/students/${studentId}`;
+}
+
+/**
+ * One coaching session with one fellow: the check-in form, the goals agreed in the room, and the
+ * strip showing what completing it will record. Under the fellow's record, because the record is
+ * what both people are looking at while it is filled in.
+ */
+export function coachingSessionHref(
+  programId: string,
+  studentId: string,
+  sessionId: string,
+): string {
+  return `${programStudentHref(programId, studentId)}/coaching/${sessionId}`;
 }
 
 /**
