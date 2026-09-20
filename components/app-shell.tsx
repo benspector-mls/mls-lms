@@ -8,6 +8,7 @@ import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card
 import {
   BarChart3,
   CalendarCheck,
+  Target,
   ChevronsUpDown,
   GraduationCap,
   Gauge,
@@ -82,6 +83,7 @@ import {
   gradingQueueHref,
   gcfHref,
   myAttendanceHref,
+  myGoalsHref,
   programSettingsHref,
   programsHref,
   rosterHref,
@@ -1067,6 +1069,7 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
       {ordered.map((program) => {
         const programCourses = byProgram.get(program.id) ?? [];
         const attendance = myAttendanceHref(program.id);
+        const goals = myGoalsHref(program.id);
 
         return (
           <SidebarGroup key={program.id}>
@@ -1090,6 +1093,17 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
                 >
                   <CalendarCheck />
                   <span>Attendance</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={pathname === goals}
+                  tooltip={`Goals · ${program.term}`}
+                  render={<Link href={goals} />}
+                >
+                  <Target />
+                  <span>Goals</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
