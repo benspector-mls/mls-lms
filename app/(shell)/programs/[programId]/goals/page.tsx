@@ -26,12 +26,23 @@ export default function MyGoalsPage({ params }: { params: Promise<{ programId: s
 
 async function MyGoals({ params }: { params: Promise<{ programId: string }> }) {
   const { programId } = await params;
-  const data = await getQueryClient().fetchQuery(trpc.coaching.myGoals.queryOptions({ programId }));
+
+  /*
+    Two reads in parallel: what this fellow has written, and what they may write about. The
+    competency list is fetched here rather than by the picker so that opening the picker is
+    instant and so that one request answers the whole page — the shape every other server page
+    here uses.
+  */
+  const queryClient = getQueryClient();
+  const [data, competencies] = await Promise.all([
+    queryClient.fetchQuery(trpc.coaching.myGoals.queryOptions({ programId })),
+    queryClient.fetchQuery(trpc.competencies.forProgram.queryOptions({ programId })),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader title="Your goals" description={`${data.program.name} · ${data.program.term}`} />
-      <GoalsRecord data={data} />
+      <GoalsRecord data={data} sections={competencies.sections} />
     </div>
   );
 }

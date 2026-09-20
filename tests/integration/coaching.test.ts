@@ -28,7 +28,57 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
   }
 }
 
-const INDICATOR = "growth-mindset/asks-for-help";
+/**
+ * A competency of this suite's own, so that what these tests assert about copied wording is about
+ * the copying rather than about whatever the school's seeded list happens to say today.
+ *
+ * Offered to `SOFTWARE_ENGINEERING`, which is what `makeWorld`'s program runs. The pitfall row
+ * exists so that one test can name an entry a fellow is *not* offered without inventing a second
+ * fellowship's worth of list.
+ */
+async function seedCompetency(db: Tx) {
+  const competency = await db.competency.create({
+    data: {
+      name: "Growth Mindset",
+      blurb: "Deriving satisfaction from growth.",
+      disciplines: ["SOFTWARE_ENGINEERING"],
+      position: 0,
+      group: { create: { name: "Durable Skills", position: 0 } },
+      entries: {
+        create: [
+          {
+            kind: "INDICATOR",
+            text: "Asks for help when stuck rather than struggling in silence.",
+            position: 0,
+          },
+        ],
+      },
+    },
+    select: { id: true, entries: { select: { id: true } } },
+  });
+
+  return competency.entries[0]!.id;
+}
+
+/** The seeded indicator's id, set by whichever block created it inside its own transaction. */
+let INDICATOR: string;
+
+/** An entry of a competency this suite's fellows are not offered. */
+async function seedOtherDiscipline(db: Tx) {
+  const competency = await db.competency.create({
+    data: {
+      name: "Statistical Reasoning",
+      blurb: "",
+      disciplines: ["DATA_ANALYTICS"],
+      position: 0,
+      group: { create: { name: "Data Analytics", position: 1 } },
+      entries: { create: [{ kind: "INDICATOR", text: "Checks a distribution.", position: 0 }] },
+    },
+    select: { entries: { select: { id: true } } },
+  });
+
+  return competency.entries[0]!.id;
+}
 
 describe("who may write about a fellow", () => {
   const tx = withRollback();
@@ -308,6 +358,7 @@ describe("goals belong to the fellow", () => {
   beforeAll(async () => {
     world = await makeWorld(tx(), { students: 2 });
     outsider = await makeWorld(tx());
+    INDICATOR = await seedCompetency(tx());
   });
 
   it("a fellow sets one for themselves, with no session behind it", async () => {
@@ -335,7 +386,30 @@ describe("goals belong to the fellow", () => {
       await refusal(() =>
         asFellow().coaching.setGoal({
           programId: world.programId,
-          entryId: "growth-mindset/no-such-entry",
+          entryId: "00000000-0000-4000-8000-000000000000",
+          successCriteria: "",
+          objectives: "",
+          actionPlan: "",
+          marker: null,
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  /*
+    The list is application-wide, so the other fellowship's entries are real rows with real ids.
+    What keeps them off this fellow's goal is the competency's `disciplines`, which is the same
+    filter the picker renders from — so the refusal is what makes the payload agree with the
+    screen.
+  */
+  it("...and an entry of the other fellowship is refused, though the id is real", async () => {
+    const elsewhere = await seedOtherDiscipline(tx());
+
+    expect(
+      await refusal(() =>
+        asFellow().coaching.setGoal({
+          programId: world.programId,
+          entryId: elsewhere,
           successCriteria: "",
           objectives: "",
           actionPlan: "",
@@ -502,6 +576,7 @@ describe("discarding a coaching session", () => {
 
   beforeAll(async () => {
     world = await makeWorld(tx());
+    INDICATOR = await seedCompetency(tx());
   });
 
   it("a draft goes, and the log says it was never completed", async () => {

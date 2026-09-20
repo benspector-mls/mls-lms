@@ -10,6 +10,7 @@ import { GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { parseSnapshot } from "@/lib/coaching";
+import type { CompetencySection } from "@/lib/competencies";
 import { formatDate } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -32,7 +33,14 @@ type Data = RouterOutputs["coaching"]["myGoals"];
  * that open: a fellow scanning "what am I working on" wants the list, and the plan behind one goal
  * is a paragraph they read when they mean to. The page above it still fetches on the server.
  */
-export function GoalsRecord({ data }: { data: Data }) {
+export function GoalsRecord({
+  data,
+  sections,
+}: {
+  data: Data;
+  /** The competencies this fellow may build a goal on, fetched beside their goals. */
+  sections: readonly CompetencySection[];
+}) {
   if (data.goals.length === 0 && data.sessions.length === 0) {
     return (
       <div className="flex flex-col gap-4">
@@ -41,7 +49,7 @@ export function GoalsRecord({ data }: { data: Data }) {
           title="No goals yet"
           description="Set a goal for something you want to get better at — a skill to build, or a habit to break. Your instructor sees it and can talk it through with you in a coaching session."
         />
-        <AddGoal programId={data.program.id} />
+        <AddGoal programId={data.program.id} sections={sections} />
       </div>
     );
   }
@@ -60,12 +68,12 @@ export function GoalsRecord({ data }: { data: Data }) {
         {data.goals.length > 0 && (
           <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
             {data.goals.map((goal) => (
-              <GoalRow key={goal.id} goal={goal} programId={data.program.id} />
+              <GoalRow key={goal.id} goal={goal} programId={data.program.id} sections={sections} />
             ))}
           </ul>
         )}
 
-        <AddGoal programId={data.program.id} />
+        <AddGoal programId={data.program.id} sections={sections} />
       </section>
 
       {data.sessions.length > 0 && (
@@ -117,7 +125,15 @@ export function GoalsRecord({ data }: { data: Data }) {
  * the failure mode. Editing is a button inside the opened row rather than a second thing to hit
  * on the row itself, so opening a goal to read it cannot turn into opening it to change it.
  */
-function GoalRow({ goal, programId }: { goal: Data["goals"][number]; programId: string }) {
+function GoalRow({
+  goal,
+  programId,
+  sections,
+}: {
+  goal: Data["goals"][number];
+  programId: string;
+  sections: readonly CompetencySection[];
+}) {
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const hasPlan = goal.successCriteria !== "" || goal.objectives !== "" || goal.actionPlan !== "";
@@ -153,7 +169,12 @@ function GoalRow({ goal, programId }: { goal: Data["goals"][number]; programId: 
 
       {open && editing && (
         <div className="px-3 pb-3 pl-9">
-          <GoalEditor programId={programId} goal={goal} onDone={() => setEditing(false)} />
+          <GoalEditor
+            programId={programId}
+            sections={sections}
+            goal={goal}
+            onDone={() => setEditing(false)}
+          />
         </div>
       )}
 

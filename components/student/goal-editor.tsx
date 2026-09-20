@@ -18,7 +18,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { DEVELOPMENT_MARKERS, MARKER_META, type DevelopmentMarker } from "@/lib/coaching";
-import { entryById, type PickableEntry } from "@/lib/competencies";
+import type { CompetencySection, PickableEntry } from "@/lib/competencies";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -39,10 +39,13 @@ type Goal = RouterOutputs["coaching"]["myGoals"]["goals"][number];
  */
 export function GoalEditor({
   programId,
+  sections,
   goal,
   onDone,
 }: {
   programId: string;
+  /** The competencies this fellow may choose from, fetched by the page above. */
+  sections: readonly CompetencySection[];
   /** The goal being changed, or null to set a new one. */
   goal: Goal | null;
   onDone: () => void;
@@ -98,7 +101,7 @@ export function GoalEditor({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4 rounded-lg border border-border p-4">
-      <CompetencyEntryField value={entry} onChange={setEntry} />
+      <CompetencyEntryField value={entry} sections={sections} onChange={setEntry} />
 
       <Part
         label="What does success look like?"
@@ -151,10 +154,25 @@ export function GoalEditor({
 }
 
 /** The button that opens an empty editor, and the editor when it is open. */
-export function AddGoal({ programId }: { programId: string }) {
+export function AddGoal({
+  programId,
+  sections,
+}: {
+  programId: string;
+  sections: readonly CompetencySection[];
+}) {
   const [open, setOpen] = React.useState(false);
 
-  if (open) return <GoalEditor programId={programId} goal={null} onDone={() => setOpen(false)} />;
+  if (open) {
+    return (
+      <GoalEditor
+        programId={programId}
+        sections={sections}
+        goal={null}
+        onDone={() => setOpen(false)}
+      />
+    );
+  }
 
   return (
     <Button
@@ -172,18 +190,18 @@ export function AddGoal({ programId }: { programId: string }) {
 }
 
 /**
- * The stored copies as a field value: what the fellow chose, in the words it carried at the time,
- * whatever the competency list says now.
+ * The stored copies as a field value: what the fellow chose, in the words it carried at the time.
+ *
+ * **Nothing is looked up.** The goal holds every word this needs, so an entry an admin has since
+ * reworded or deleted opens the editor reading exactly as it did the day it was set — and the
+ * picker, which does know the current list, simply highlights nothing when it opens.
  */
 function entryOfGoal(goal: Goal): PickableEntry {
-  const current = entryById(goal.entryId);
   return {
     entryId: goal.entryId,
     kind: goal.entryKind,
     text: goal.entryText,
     competencyName: goal.competencyName,
-    competencyId: current?.competencyId ?? "",
-    group: current?.group ?? "DURABLE_SKILLS",
   };
 }
 

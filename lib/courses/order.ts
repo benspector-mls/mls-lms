@@ -4,7 +4,7 @@ import { Prisma } from "../generated/prisma/client";
 import type { Tx } from "../prisma";
 
 /**
- * The one statement that writes a presentation order, for the two tables that have one.
+ * The one statement that writes a presentation order, for every table that has one.
  *
  * **One statement, which is what makes it atomic on its own.** The obvious implementation is one
  * `update` per row, and a half-applied order is worse than none — the page would show two rows in
@@ -29,19 +29,33 @@ import type { Tx } from "../prisma";
 const SEQUENCES = {
   courseUnits: { table: "course_units", scope: "course_id" },
   resources: { table: "resources", scope: "course_unit_id" },
+  competencies: { table: "competencies", scope: "group_id" },
+  competencyEntries: { table: "competency_entries", scope: "competency_id" },
+  /*
+    The one sequence with nothing above it: the sections are the top level of the competency list,
+    so there is no column to scope them by and the predicate is left out for them. Every other
+    sequence here keeps it, and the reason it is worth keeping is below.
+  */
+  competencyGroups: { table: "competency_groups", scope: null },
 } as const;
 
 export async function writeOrder(
   tx: Tx,
   /*
     A key of the table above rather than a table name, so the only strings that ever reach
-    `Prisma.raw` are the two literals written here. Nothing a request carries can reach it.
+    `Prisma.raw` are the literals written here. Nothing a request carries can reach it.
   */
   of: keyof typeof SEQUENCES,
-  scopeId: string,
+  /** Null for a sequence that has nothing above it — see `competencyGroups` above. */
+  scopeId: string | null,
   ids: string[],
 ): Promise<void> {
   const { table, scope } = SEQUENCES[of];
+
+  const within =
+    scope === null
+      ? Prisma.empty
+      : Prisma.sql`AND t.${Prisma.raw(`"${scope}"`)} = ${scopeId}::uuid`;
 
   await tx.$executeRaw`
     UPDATE ${Prisma.raw(`"${table}"`)} AS t
@@ -52,6 +66,6 @@ export async function writeOrder(
             AS u(id, position)
       ) AS ordered
      WHERE t.id::text = ordered.id
-       AND t.${Prisma.raw(`"${scope}"`)} = ${scopeId}::uuid
+       ${within}
   `;
 }

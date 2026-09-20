@@ -14,12 +14,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  GROUP_META,
-  entryById,
+  entriesOfKind,
   filterCompetencies,
   type Competency,
+  type CompetencyEntry,
   type CompetencyEntryKind,
-  type CompetencyGroup,
+  type CompetencySection,
   type PickableEntry,
 } from "@/lib/competencies";
 import { cn } from "@/lib/utils";
@@ -31,10 +31,14 @@ import { cn } from "@/lib/utils";
  * both call them indicators, and `lib/competencies.ts` keeps that word so the two can be matched
  * up by anybody reading them side by side.
  *
- * **Three levels, opened one at a time**: the three categories, a category's competencies, and a
+ * **Three levels, opened one at a time**: the sections, a section's competencies, and a
  * competency's skills and pitfalls. Nearly two hundred lines sit under eighteen competencies, and
  * showing them at once asks somebody to read the whole vocabulary to find the one thing they
- * already have in mind. Opening a category is how a conversation about a goal actually narrows.
+ * already have in mind. Opening a section is how a conversation about a goal actually narrows.
+ *
+ * **The list arrives as a prop**, already restricted to what this fellow's fellowship is offered.
+ * It is authored by admins and read on the server by the page above, so this component neither
+ * queries it nor decides what is in it.
  *
  * **Searching overrides the levels rather than filtering inside them.** A query prunes the tree to
  * what matches and shows every survivor open, because the point of typing is to see the matches —
@@ -47,11 +51,14 @@ import { cn } from "@/lib/utils";
 export function CompetencyPicker({
   open,
   onOpenChange,
+  sections,
   selectedId,
   onPick,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The list this fellow may choose from, in the order an admin put it. */
+  sections: readonly CompetencySection[];
   /** The currently chosen entry's id, highlighted when the picker reopens. */
   selectedId: string | null;
   onPick: (entry: PickableEntry) => void;
@@ -67,12 +74,12 @@ export function CompetencyPicker({
   React.useEffect(() => {
     if (!open) return;
     setQuery("");
-    const chosen = selectedId === null ? null : entryById(selectedId);
-    setOpenGroups(chosen ? new Set([chosen.group]) : new Set());
+    const chosen = selectedId === null ? null : locate(sections, selectedId);
+    setOpenGroups(chosen ? new Set([chosen.sectionId]) : new Set());
     setOpenCompetencies(chosen ? new Set([chosen.competencyId]) : new Set());
-  }, [open, selectedId]);
+  }, [open, selectedId, sections]);
 
-  const competencies = filterCompetencies(query);
+  const shown = filterCompetencies(query, sections);
   const searching = query.trim() !== "";
 
   const toggle = (
@@ -98,7 +105,7 @@ export function CompetencyPicker({
     closed it would pick something nobody had been shown. Everything else is the dialog's own
     keyboard handling: Tab and Enter across the rows, Escape to close.
   */
-  const first = searching ? firstEntryOf(competencies) : null;
+  const first = searching ? firstEntryOf(shown) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -143,29 +150,32 @@ export function CompetencyPicker({
         </div>
 
         <div className="-mx-2 flex-1 overflow-y-auto px-2">
-          {competencies.length === 0 ? (
+          {shown.length === 0 ? (
             <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-              Nothing matches that search.
+              {sections.length === 0
+                ? "Your programme has no competencies yet. Ask an instructor — somebody has to write the list before there is anything to choose from."
+                : "Nothing matches that search."}
             </p>
           ) : (
             <div className="flex flex-col gap-1.5 pb-2">
-              {groupsOf(competencies).map(([group, own]) => {
-                const groupOpen = searching || openGroups.has(group);
+              {shown.map((section) => {
+                const sectionOpen = searching || openGroups.has(section.id);
+                const held = section.competencies.length;
 
                 return (
-                  <section key={group} className="flex flex-col">
+                  <section key={section.id} className="flex flex-col">
                     <DisclosureRow
-                      open={groupOpen}
-                      onClick={() => toggle(setOpenGroups, group)}
-                      label={<span className="text-sm font-medium">{GROUP_META[group].label}</span>}
-                      meta={own.length === 1 ? "1 competency" : `${own.length} competencies`}
+                      open={sectionOpen}
+                      onClick={() => toggle(setOpenGroups, section.id)}
+                      label={<span className="text-sm font-medium">{section.name}</span>}
+                      meta={held === 1 ? "1 competency" : `${held} competencies`}
                     />
 
-                    {groupOpen &&
-                      own.map((competency) => {
+                    {sectionOpen &&
+                      section.competencies.map((competency) => {
                         const competencyOpen = searching || openCompetencies.has(competency.id);
-                        const skills = competency.indicators.length;
-                        const pitfalls = competency.pitfalls.length;
+                        const indicators = entriesOfKind(competency, "INDICATOR");
+                        const pitfalls = entriesOfKind(competency, "PITFALL");
 
                         return (
                           <div key={competency.id} className="flex flex-col pl-5">
@@ -173,39 +183,43 @@ export function CompetencyPicker({
                               open={competencyOpen}
                               onClick={() => toggle(setOpenCompetencies, competency.id)}
                               label={<span className="text-sm">{competency.name}</span>}
-                              meta={`${skills} ${skills === 1 ? "skill" : "skills"} · ${pitfalls} ${
-                                pitfalls === 1 ? "pitfall" : "pitfalls"
+                              meta={`${indicators.length} ${
+                                indicators.length === 1 ? "skill" : "skills"
+                              } · ${pitfalls.length} ${
+                                pitfalls.length === 1 ? "pitfall" : "pitfalls"
                               }`}
                             />
 
                             {competencyOpen && (
                               <div className="flex flex-col pl-5">
-                                <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">
-                                  {competency.blurb}
-                                </p>
+                                {competency.blurb !== "" && (
+                                  <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">
+                                    {competency.blurb}
+                                  </p>
+                                )}
 
-                                {competency.indicators.map((entry) => (
+                                {indicators.map((entry) => (
                                   <EntryRow
                                     key={entry.id}
                                     text={entry.text}
                                     kind="INDICATOR"
                                     selected={entry.id === selectedId}
-                                    onClick={() => pick(entryOf(competency, entry.id, "INDICATOR"))}
+                                    onClick={() => pick(entryOf(competency, entry))}
                                   />
                                 ))}
 
-                                {pitfalls > 0 && (
+                                {pitfalls.length > 0 && (
                                   <p className="px-2 pt-2 pb-0.5 text-[11px] font-medium text-muted-foreground">
                                     Pitfalls
                                   </p>
                                 )}
-                                {competency.pitfalls.map((entry) => (
+                                {pitfalls.map((entry) => (
                                   <EntryRow
                                     key={entry.id}
                                     text={entry.text}
                                     kind="PITFALL"
                                     selected={entry.id === selectedId}
-                                    onClick={() => pick(entryOf(competency, entry.id, "PITFALL"))}
+                                    onClick={() => pick(entryOf(competency, entry))}
                                   />
                                 ))}
                               </div>
@@ -233,9 +247,11 @@ export function CompetencyPicker({
  */
 export function CompetencyEntryField({
   value,
+  sections,
   onChange,
 }: {
   value: PickableEntry | null;
+  sections: readonly CompetencySection[];
   onChange: (entry: PickableEntry) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -283,6 +299,7 @@ export function CompetencyEntryField({
       <CompetencyPicker
         open={open}
         onOpenChange={setOpen}
+        sections={sections}
         selectedId={value?.entryId ?? null}
         onPick={onChange}
       />
@@ -366,45 +383,40 @@ function EntryRow({
   );
 }
 
-/** The filtered competencies bucketed under their groups, groups kept in presentation order. */
-function groupsOf(competencies: readonly Competency[]): [CompetencyGroup, Competency[]][] {
-  const buckets = new Map<CompetencyGroup, Competency[]>();
-  for (const competency of competencies) {
-    const bucket = buckets.get(competency.group) ?? [];
-    bucket.push(competency);
-    buckets.set(competency.group, bucket);
-  }
-  return [...buckets.entries()];
-}
-
-/** A row's full entry, assembled from the competency it sits under. */
-function entryOf(
-  competency: Competency,
-  entryId: string,
-  kind: CompetencyEntryKind,
-): PickableEntry {
-  const entry = (kind === "INDICATOR" ? competency.indicators : competency.pitfalls).find(
-    (candidate) => candidate.id === entryId,
-  )!;
-
+/** A row's full entry, carrying the competency's name because that is what a goal copies. */
+function entryOf(competency: Competency, entry: CompetencyEntry): PickableEntry {
   return {
     entryId: entry.id,
-    kind,
+    kind: entry.kind,
     text: entry.text,
-    competencyId: competency.id,
     competencyName: competency.name,
-    group: competency.group,
   };
 }
 
+/** Where a chosen entry sits, so that reopening the picker opens the path down to it. */
+function locate(
+  sections: readonly CompetencySection[],
+  entryId: string,
+): { sectionId: string; competencyId: string } | null {
+  for (const section of sections) {
+    for (const competency of section.competencies) {
+      if (competency.entries.some((entry) => entry.id === entryId)) {
+        return { sectionId: section.id, competencyId: competency.id };
+      }
+    }
+  }
+
+  return null;
+}
+
 /** What Enter in the search box picks: the first entry the current query leaves standing. */
-function firstEntryOf(competencies: readonly Competency[]): PickableEntry | null {
-  const competency = competencies[0];
-  if (!competency) return null;
+function firstEntryOf(sections: readonly CompetencySection[]): PickableEntry | null {
+  for (const section of sections) {
+    for (const competency of section.competencies) {
+      const entry = competency.entries[0];
+      if (entry) return entryOf(competency, entry);
+    }
+  }
 
-  const indicator = competency.indicators[0];
-  if (indicator) return entryOf(competency, indicator.id, "INDICATOR");
-
-  const pitfall = competency.pitfalls[0];
-  return pitfall ? entryOf(competency, pitfall.id, "PITFALL") : null;
+  return null;
 }

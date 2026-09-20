@@ -11,7 +11,6 @@ import {
   sessionAnswersSchema,
 } from "@/lib/coaching";
 import { assembleSnapshot } from "@/lib/coaching/snapshot";
-import { entryById } from "@/lib/competencies";
 import { assertActiveInProgram, assertProgramMember } from "@/lib/courses/membership";
 import { inTransaction } from "@/lib/prisma";
 
@@ -43,8 +42,9 @@ import { displayNameOf, personNameSelect, personSelect } from "../selects";
  * carrying a body would be a permanent copy of the one text somebody must be able to delete.
  *
  * The agreed text on a goal is copied server-side: the client sends an `entryId`, and this router
- * resolves it in `lib/competencies.ts` and copies the entry's text, kind, and competency name onto
- * the row. The client never supplies the words that will be shown to the fellow as agreed.
+ * resolves it against the competency list — restricted to the entries this fellow's discipline is
+ * offered — and copies the entry's text, kind, and competency name onto the row. The client never
+ * supplies the words shown on the goal, and never reaches another fellowship's section.
  */
 
 type Ctx = Parameters<Parameters<typeof programProcedure.mutation>[0]>[0]["ctx"];
@@ -182,21 +182,43 @@ async function assertOwnGoal(ctx: FellowCtx, enrollmentId: string, goalId: strin
   }
 }
 
-/** The chosen entry's copies, resolved server-side — see the router header. */
-function copiesOf(entryId: string) {
-  const entry = entryById(entryId);
+/**
+ * The chosen entry's copies, read from the list rather than taken from the request.
+ *
+ * **The entry has to be one this fellow is actually offered**, which is why the program comes in
+ * beside the id: the list is application-wide, so an id from the other fellowship's section names
+ * a real row, and only the competency's `disciplines` says whether it belongs on this goal. The
+ * picker never shows those entries; this is what makes the payload agree with the screen.
+ */
+async function copiesOf(ctx: FellowCtx, programId: string, entryId: string) {
+  const program = await ctx.db.program.findUnique({
+    where: { id: programId },
+    select: { discipline: true },
+  });
+
+  const entry =
+    program === null
+      ? null
+      : await ctx.db.competencyEntry.findFirst({
+          where: {
+            id: entryId,
+            competency: { disciplines: { has: program.discipline } },
+          },
+          select: { id: true, kind: true, text: true, competency: { select: { name: true } } },
+        });
+
   if (!entry) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "That competency entry is not in the list.",
+      message: "That competency entry is not one of the ones you can choose from.",
     });
   }
 
   return {
-    entryId: entry.entryId,
+    entryId: entry.id,
     entryKind: entry.kind,
     entryText: entry.text,
-    competencyName: entry.competencyName,
+    competencyName: entry.competency.name,
   };
 }
 
@@ -399,15 +421,14 @@ export const coachingRouter = createTRPCRouter({
    * fellow after they have been removed — so there is no argument and no role that could write a
    * goal onto somebody else's record.
    *
-   * The agreed wording is copied server-side out of `lib/competencies.ts`, exactly as it was when
-   * an instructor was the one writing: the client sends an `entryId` and the server copies the
-   * text, the kind and the competency's name onto the row, because the list is still being
-   * developed and a rewording must not rewrite what somebody set out to work on.
+   * The agreed wording is copied server-side out of the competency list: the client sends an
+   * `entryId` and the server copies the text, the kind and the competency's name onto the row,
+   * because an admin rewording an entry must not rewrite what somebody set out to work on.
    */
   setGoal: fellowGoalProcedure
     .input(
       z.object({
-        entryId: z.string(),
+        entryId: z.string().uuid(),
         successCriteria: proseInput,
         objectives: proseInput,
         actionPlan: proseInput,
@@ -421,7 +442,7 @@ export const coachingRouter = createTRPCRouter({
         data: {
           enrollmentId,
           programId: input.programId,
-          ...copiesOf(input.entryId),
+          ...(await copiesOf(ctx, input.programId, input.entryId)),
           successCriteria: input.successCriteria,
           objectives: input.objectives,
           actionPlan: input.actionPlan,
@@ -445,7 +466,7 @@ export const coachingRouter = createTRPCRouter({
     .input(
       z.object({
         goalId: z.string().uuid(),
-        entryId: z.string().optional(),
+        entryId: z.string().uuid().optional(),
         successCriteria: proseInput.optional(),
         objectives: proseInput.optional(),
         actionPlan: proseInput.optional(),
@@ -459,7 +480,9 @@ export const coachingRouter = createTRPCRouter({
       return ctx.db.goal.update({
         where: { id: input.goalId },
         data: {
-          ...(input.entryId === undefined ? {} : copiesOf(input.entryId)),
+          ...(input.entryId === undefined
+            ? {}
+            : await copiesOf(ctx, input.programId, input.entryId)),
           ...(input.successCriteria === undefined
             ? {}
             : { successCriteria: input.successCriteria }),
