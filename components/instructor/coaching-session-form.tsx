@@ -2,6 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -21,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CHECK_IN_PROMPTS, TEMPERATURE_MAX, TEMPERATURE_MIN, parseSnapshot } from "@/lib/coaching";
+import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDateTime } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
@@ -56,7 +58,9 @@ type PendingSave = { temperature: number | null; answers: Record<string, string>
  * show, does the full refresh.
  *
  * A completed session renders the same layout as a record: the answers as text and the stored
- * snapshot in the strip. Nothing on it is editable, which is the whole of what completing means.
+ * snapshot in the strip. Nothing on it is editable, which is the whole of what completing means —
+ * and Discard is gone with the rest, because throwing away an empty form and taking back a
+ * snapshot somebody has already read are different acts.
  */
 export function CoachingSessionForm({ programId, data }: { programId: string; data: SessionData }) {
   const trpc = useTRPC();
@@ -135,13 +139,32 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
   // ---- Completing. -----------------------------------------------------------------------------
 
   const settled = useServerMutation();
+  const router = useRouter();
   const [confirming, setConfirming] = React.useState(false);
+  const [discarding, setDiscarding] = React.useState(false);
   const complete = useMutation(
     trpc.coaching.completeSession.mutationOptions(
       settled({
         onSuccess: () => {
           toast.success(`Shared with ${fellowName}.`);
           setConfirming(false);
+        },
+      }),
+    ),
+  );
+
+  /*
+    Pressing "Start coaching session" on the wrong fellow's record is the mistake this is for, so
+    it is offered on drafts and not on completed sessions: those hold a snapshot the fellow has
+    already seen, and taking one back is a different act from throwing away an empty form. The
+    procedure will delete either — the audit event says which — if that ever needs a button.
+  */
+  const discard = useMutation(
+    trpc.coaching.deleteSession.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Session discarded.");
+          router.push(programStudentHref(programId, data.student.id));
         },
       }),
     ),
@@ -247,8 +270,44 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
               "Edits save on their own."
             )}
           </p>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={discard.isPending}
+            onClick={() => setDiscarding(true)}
+            className="ml-auto text-destructive hover:text-destructive"
+          >
+            Discard
+          </Button>
         </div>
       )}
+
+      <Dialog open={discarding} onOpenChange={setDiscarding}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Discard this session?</DialogTitle>
+            <DialogDescription>
+              The temperature check and everything written here go, and cannot be brought back.
+              {fellowName} never saw any of it — nothing was shared, because the session was never
+              completed — and their goals are untouched.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setDiscarding(false)}>
+              Keep it
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={discard.isPending}
+              onClick={() => discard.mutate({ programId, sessionId: data.id })}
+            >
+              {discard.isPending && <Loader2 className="animate-spin" aria-hidden />}
+              Discard session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent className="sm:max-w-md">

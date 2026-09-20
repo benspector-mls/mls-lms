@@ -111,6 +111,12 @@ describe("who may write about a fellow", () => {
         asOutsider().coaching.completeSession({ programId: outsider.programId, sessionId }),
       ),
     ).toBe("NOT_FOUND");
+
+    expect(
+      await refusal(() =>
+        asOutsider().coaching.deleteSession({ programId: outsider.programId, sessionId }),
+      ),
+    ).toBe("NOT_FOUND");
   });
 
   it("a fellow cannot reach the instructor surface at all", async () => {
@@ -468,6 +474,112 @@ describe("goals belong to the fellow", () => {
 
     const mine = await asFellow().coaching.myGoals({ programId: world.programId });
     expect(mine.goals).toEqual([]);
+  });
+});
+
+/*
+  ---- Discarding a session --------------------------------------------------------------------
+
+  Pressing "Start coaching session" on the wrong fellow's record is the mistake this exists for, so
+  the draft case is the one that matters. A completed session can go too, and the event says which
+  it was, because deleting one takes back a snapshot the fellow has already seen.
+*/
+describe("discarding a coaching session", () => {
+  const tx = withRollback();
+
+  let world: World;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+  const asFellow = () => createCaller(tx(), world.student.studentId);
+
+  const start = async () => {
+    const session = await asInstructor().coaching.startSession({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    return session.id;
+  };
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+  });
+
+  it("a draft goes, and the log says it was never completed", async () => {
+    const sessionId = await start();
+    await asInstructor().coaching.deleteSession({ programId: world.programId, sessionId });
+
+    expect(await tx().coachingSession.findUnique({ where: { id: sessionId } })).toBeNull();
+
+    const events = await tx().auditEvent.findMany({
+      where: { action: "COACHING_SESSION_DELETED", subjectId: world.student.studentId },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toMatchObject({ sessionId, wasCompleted: false });
+  });
+
+  it("a completed one goes too, and the log says so", async () => {
+    const sessionId = await start();
+    await asInstructor().coaching.completeSession({ programId: world.programId, sessionId });
+    await asInstructor().coaching.deleteSession({ programId: world.programId, sessionId });
+
+    const events = await tx().auditEvent.findMany({
+      where: {
+        action: "COACHING_SESSION_DELETED",
+        subjectId: world.student.studentId,
+        detail: { path: ["sessionId"], equals: sessionId },
+      },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toMatchObject({ wasCompleted: true });
+
+    // And the fellow stops seeing the snapshot it had shared with them.
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.sessions.map((session) => session.id)).not.toContain(sessionId);
+  });
+
+  /*
+    The claim the schema makes structurally — a goal carries no session — asserted from outside,
+    because it is the whole reason discarding is safe to offer.
+  */
+  it("the fellow's goals are untouched by it", async () => {
+    const goal = await asFellow().coaching.setGoal({
+      programId: world.programId,
+      entryId: INDICATOR,
+      successCriteria: "",
+      objectives: "",
+      actionPlan: "",
+      marker: null,
+    });
+
+    const sessionId = await start();
+    await asInstructor().coaching.deleteSession({ programId: world.programId, sessionId });
+
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.goals.map((row) => row.id)).toContain(goal.id);
+  });
+
+  it("an instructor of another program cannot", async () => {
+    const sessionId = await start();
+    const outsider = await makeWorld(tx());
+
+    expect(
+      await refusal(() =>
+        createCaller(tx(), outsider.instructorId).coaching.deleteSession({
+          programId: world.programId,
+          sessionId,
+        }),
+      ),
+    ).toBe("FORBIDDEN");
+  });
+
+  it("a fellow cannot discard their own instructor's session", async () => {
+    const sessionId = await start();
+
+    expect(
+      await refusal(() =>
+        asFellow().coaching.deleteSession({ programId: world.programId, sessionId }),
+      ),
+    ).toBe("FORBIDDEN");
   });
 });
 

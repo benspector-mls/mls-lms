@@ -243,6 +243,8 @@ Open a fellow from the roster and their record has two tabs under their details.
 
 **Completing a session shares the snapshot.** Until then it is a staff-only draft the fellow cannot see; completing it gives them the dated figures and closes the form to further editing. The temperature check and the check-in answers stay staff-only for good, and their goals are unaffected either way.
 
+**Started one on the wrong person?** **Discard** it. A draft goes entirely, the fellow never saw any of it, and their goals are untouched. It is offered on drafts only — once a session is completed the fellow has read its snapshot, and taking that back is a different thing from throwing away a form nobody saw.
+
 **Notes** are the third section: free-form markdown observations, never shown to fellows. A fellow may still ask to read their record, so the section says what to write: what happened and what was decided, as you would say it to them. Who wrote, edited, or deleted a note is logged — the words themselves never are.
 
 ### Triage: what is waiting on you
