@@ -8,8 +8,8 @@ import { writeOrder } from "@/lib/courses/order";
 import { adminProcedure, createTRPCRouter, profileProcedure } from "../init";
 
 /**
- * The competency list: the sections, the competencies under them, and the indicators and pitfalls
- * a goal is built on.
+ * The competency list: the competency groups, the competencies under them, and the indicators and
+ * pitfalls a goal is built on.
  *
  * **One list for the application, and admins author all of it.** There is no program column on any
  * of the three tables — a program is one *run* of a fellowship, so a list owned by a run would be
@@ -38,16 +38,16 @@ const nextPosition = (last: { position: number } | null) => (last === null ? 0 :
 
 export const competenciesRouter = createTRPCRouter({
   /**
-   * The list one program's fellows are offered: the sections, each holding the competencies whose
-   * disciplines include that program's own, and their entries.
+   * The list one program's fellows are offered: the competency groups, each holding the
+   * competencies whose disciplines include that program's own, and their entries.
    *
    * **Read by every member of the program**, which is the widest read in this router and still the
    * right one: the list is what a fellow chooses a goal from and what an instructor sees them
    * choose from. `assertProgramMember` rather than `assertActiveInProgram`, so a removed fellow
    * looking back at their goals page is not told the list does not exist.
    *
-   * A section left with no competencies by the discipline filter is dropped here rather than in
-   * the picker, because an empty heading is the one thing a three-level list must never show — and
+   * A group left with no competencies by the discipline filter is dropped here rather than in the
+   * picker, because an empty heading is the one thing a three-level list must never show — and
    * "Data Analytics" is seeded empty on purpose, waiting for an admin to write it.
    */
   forProgram: profileProcedure
@@ -87,13 +87,13 @@ export const competenciesRouter = createTRPCRouter({
 
       return {
         discipline: program.discipline,
-        sections: groups.filter((group) => group.competencies.length > 0),
+        groups: groups.filter((group) => group.competencies.length > 0),
       };
     }),
 
   /**
-   * Every section, competency, and entry, whatever discipline it is offered to: the authoring
-   * screen's read.
+   * Every competency group, competency, and entry, whatever discipline it is offered to: the
+   * authoring screen's read.
    *
    * A second procedure rather than a flag on `forProgram`, because the two answer different
    * questions. One is "what may this fellow choose from", which is a question about a program and
@@ -123,7 +123,7 @@ export const competenciesRouter = createTRPCRouter({
     }),
   ),
 
-  /** Adds a section to the end of the list, or renames one. */
+  /** Adds a competency group to the end of the list, or renames one. */
   saveGroup: adminProcedure
     .input(z.object({ groupId: z.string().uuid().nullable(), name }))
     .mutation(async ({ ctx, input }) => {
@@ -150,7 +150,7 @@ export const competenciesRouter = createTRPCRouter({
     }),
 
   /**
-   * Removes an empty section.
+   * Removes an empty competency group.
    *
    * **Refused while any competency sits in it**, naming the count, for the reason
    * `courseUnits.remove` refuses a unit with assignments: the foreign key is `RESTRICT` and would
@@ -166,7 +166,10 @@ export const competenciesRouter = createTRPCRouter({
       });
 
       if (!group) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "That section does not exist." });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That competency group does not exist.",
+        });
       }
 
       const held = group._count.competencies;
@@ -185,8 +188,8 @@ export const competenciesRouter = createTRPCRouter({
     }),
 
   /**
-   * Creates a competency at the end of a section, or updates one — including moving it to another
-   * section, which lands it at the end of that one.
+   * Creates a competency at the end of a competency group, or updates one — including moving it to
+   * another group, which lands it at the end of that one.
    */
   saveCompetency: adminProcedure
     .input(
@@ -205,7 +208,10 @@ export const competenciesRouter = createTRPCRouter({
       });
 
       if (!group) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "That section does not exist." });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That competency group does not exist.",
+        });
       }
 
       if (input.competencyId !== null) {
@@ -226,8 +232,8 @@ export const competenciesRouter = createTRPCRouter({
             blurb: input.blurb,
             disciplines: input.disciplines,
             /*
-              A competency carried into another section keeps its old position otherwise, which
-              would drop it into the middle of rows it has never been ordered against.
+              A competency carried into another group keeps its old position otherwise, which would
+              drop it into the middle of rows it has never been ordered against.
             */
             position:
               current.groupId === input.groupId
@@ -265,7 +271,7 @@ export const competenciesRouter = createTRPCRouter({
   /**
    * Deletes a competency and the entries under it.
    *
-   * **No refusal and no count of the goals built on it**, unlike a section: those goals hold their
+   * **No refusal and no count of the goals built on it**, unlike a competency group: those goals hold their
    * own copy of every word they need and go on rendering exactly as they did. The screen says so
    * beside the control, because "will this delete somebody's goal" is the question an admin will
    * have, and the answer is no.
@@ -338,8 +344,8 @@ export const competenciesRouter = createTRPCRouter({
    * **The whole order rather than "move this one"**, the `courseUnits.reorder` shape and for its
    * reasons: it is idempotent, it cannot leave a gap or a duplicate, and a list that does not name
    * exactly the rows it is allowed to touch is refused rather than half-applied. `within` names
-   * the section whose competencies are being ordered or the competency whose entries are, and is
-   * null for the sections themselves, which have nothing above them.
+   * the group whose competencies are being ordered or the competency whose entries are, and is
+   * null for the groups themselves, which have nothing above them.
    */
   reorder: adminProcedure
     .input(
@@ -376,7 +382,11 @@ export const competenciesRouter = createTRPCRouter({
               });
 
       const noun =
-        input.of === "groups" ? "section" : input.of === "competencies" ? "competency" : "entry";
+        input.of === "groups"
+          ? "competency group"
+          : input.of === "competencies"
+            ? "competency"
+            : "entry";
 
       const sent = new Set(input.ids);
       if (sent.size !== input.ids.length) {

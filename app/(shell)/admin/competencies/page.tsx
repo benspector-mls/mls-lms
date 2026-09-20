@@ -32,7 +32,7 @@ export default function CompetenciesPage() {
 }
 
 async function List() {
-  const sections = await getQueryClient().fetchQuery(trpc.competencies.all.queryOptions());
+  const groups = await getQueryClient().fetchQuery(trpc.competencies.all.queryOptions());
 
-  return <CompetencyAdmin sections={sections} />;
+  return <CompetencyAdmin groups={groups} />;
 }

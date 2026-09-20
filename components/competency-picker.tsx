@@ -19,7 +19,7 @@ import {
   type Competency,
   type CompetencyEntry,
   type CompetencyEntryKind,
-  type CompetencySection,
+  type CompetencyGroup,
   type PickableEntry,
 } from "@/lib/competencies";
 import { cn } from "@/lib/utils";
@@ -31,10 +31,10 @@ import { cn } from "@/lib/utils";
  * both call them indicators, and `lib/competencies.ts` keeps that word so the two can be matched
  * up by anybody reading them side by side.
  *
- * **Three levels, opened one at a time**: the sections, a section's competencies, and a
+ * **Three levels, opened one at a time**: the competency groups, a group's competencies, and a
  * competency's skills and pitfalls. Nearly two hundred lines sit under eighteen competencies, and
  * showing them at once asks somebody to read the whole vocabulary to find the one thing they
- * already have in mind. Opening a section is how a conversation about a goal actually narrows.
+ * already have in mind. Opening a group is how a conversation about a goal actually narrows.
  *
  * **The list arrives as a prop**, already restricted to what this fellow's fellowship is offered.
  * It is authored by admins and read on the server by the page above, so this component neither
@@ -51,14 +51,14 @@ import { cn } from "@/lib/utils";
 export function CompetencyPicker({
   open,
   onOpenChange,
-  sections,
+  groups,
   selectedId,
   onPick,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The list this fellow may choose from, in the order an admin put it. */
-  sections: readonly CompetencySection[];
+  groups: readonly CompetencyGroup[];
   /** The currently chosen entry's id, highlighted when the picker reopens. */
   selectedId: string | null;
   onPick: (entry: PickableEntry) => void;
@@ -74,12 +74,12 @@ export function CompetencyPicker({
   React.useEffect(() => {
     if (!open) return;
     setQuery("");
-    const chosen = selectedId === null ? null : locate(sections, selectedId);
-    setOpenGroups(chosen ? new Set([chosen.sectionId]) : new Set());
+    const chosen = selectedId === null ? null : locate(groups, selectedId);
+    setOpenGroups(chosen ? new Set([chosen.groupId]) : new Set());
     setOpenCompetencies(chosen ? new Set([chosen.competencyId]) : new Set());
-  }, [open, selectedId, sections]);
+  }, [open, selectedId, groups]);
 
-  const shown = filterCompetencies(query, sections);
+  const shown = filterCompetencies(query, groups);
   const searching = query.trim() !== "";
 
   const toggle = (
@@ -152,27 +152,27 @@ export function CompetencyPicker({
         <div className="-mx-2 flex-1 overflow-y-auto px-2">
           {shown.length === 0 ? (
             <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-              {sections.length === 0
+              {groups.length === 0
                 ? "Your programme has no competencies yet. Ask an instructor — somebody has to write the list before there is anything to choose from."
                 : "Nothing matches that search."}
             </p>
           ) : (
             <div className="flex flex-col gap-1.5 pb-2">
-              {shown.map((section) => {
-                const sectionOpen = searching || openGroups.has(section.id);
-                const held = section.competencies.length;
+              {shown.map((group) => {
+                const groupOpen = searching || openGroups.has(group.id);
+                const held = group.competencies.length;
 
                 return (
-                  <section key={section.id} className="flex flex-col">
+                  <section key={group.id} className="flex flex-col">
                     <DisclosureRow
-                      open={sectionOpen}
-                      onClick={() => toggle(setOpenGroups, section.id)}
-                      label={<span className="text-sm font-medium">{section.name}</span>}
+                      open={groupOpen}
+                      onClick={() => toggle(setOpenGroups, group.id)}
+                      label={<span className="text-sm font-medium">{group.name}</span>}
                       meta={held === 1 ? "1 competency" : `${held} competencies`}
                     />
 
-                    {sectionOpen &&
-                      section.competencies.map((competency) => {
+                    {groupOpen &&
+                      group.competencies.map((competency) => {
                         const competencyOpen = searching || openCompetencies.has(competency.id);
                         const indicators = entriesOfKind(competency, "INDICATOR");
                         const pitfalls = entriesOfKind(competency, "PITFALL");
@@ -247,11 +247,11 @@ export function CompetencyPicker({
  */
 export function CompetencyEntryField({
   value,
-  sections,
+  groups,
   onChange,
 }: {
   value: PickableEntry | null;
-  sections: readonly CompetencySection[];
+  groups: readonly CompetencyGroup[];
   onChange: (entry: PickableEntry) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -299,7 +299,7 @@ export function CompetencyEntryField({
       <CompetencyPicker
         open={open}
         onOpenChange={setOpen}
-        sections={sections}
+        groups={groups}
         selectedId={value?.entryId ?? null}
         onPick={onChange}
       />
@@ -395,13 +395,13 @@ function entryOf(competency: Competency, entry: CompetencyEntry): PickableEntry 
 
 /** Where a chosen entry sits, so that reopening the picker opens the path down to it. */
 function locate(
-  sections: readonly CompetencySection[],
+  groups: readonly CompetencyGroup[],
   entryId: string,
-): { sectionId: string; competencyId: string } | null {
-  for (const section of sections) {
-    for (const competency of section.competencies) {
+): { groupId: string; competencyId: string } | null {
+  for (const group of groups) {
+    for (const competency of group.competencies) {
       if (competency.entries.some((entry) => entry.id === entryId)) {
-        return { sectionId: section.id, competencyId: competency.id };
+        return { groupId: group.id, competencyId: competency.id };
       }
     }
   }
@@ -410,9 +410,9 @@ function locate(
 }
 
 /** What Enter in the search box picks: the first entry the current query leaves standing. */
-function firstEntryOf(sections: readonly CompetencySection[]): PickableEntry | null {
-  for (const section of sections) {
-    for (const competency of section.competencies) {
+function firstEntryOf(groups: readonly CompetencyGroup[]): PickableEntry | null {
+  for (const group of groups) {
+    for (const competency of group.competencies) {
       const entry = competency.entries[0];
       if (entry) return entryOf(competency, entry);
     }

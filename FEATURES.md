@@ -82,13 +82,13 @@ Two things to expect while you are in that view. Your admin powers are **refused
 
 ### Writing the competency list
 
-**Admin → Competencies** is what a fellow chooses a goal from: sections, the competencies under them, and under each one the skills to work toward and the pitfalls to work away from. One list for the school, written here and shared by every program.
+**Admin → Competencies** is what a fellow chooses a goal from: competency groups, the competencies under them, and under each one the skills to work toward and the pitfalls to work away from. One list for the school, written here and shared by every program.
 
-**Each competency says which fellowships it is offered to.** The competencies about how somebody works and learns are usually offered to both the software engineering and the data analytics fellowships, and a technical section to one of them — so what the two share is written once rather than kept twice and left to drift apart. A fellow is shown their own programme's discipline and nothing else, and a section left empty by that is not shown at all.
+**Each competency says which fellowships it is offered to.** The competencies about how somebody works and learns are usually offered to both the software engineering and the data analytics fellowships, and a technical group to one of them — so what the two share is written once rather than kept twice and left to drift apart. A fellow is shown their own programme's discipline and nothing else, and a competency group left empty by that is not shown at all.
 
 **Editing this cannot damage a goal.** A goal copies its entry's wording the moment it is set and never reads it back, so rewording an entry, moving it, or deleting the whole competency leaves every goal already written exactly as its author wrote it. That is why deleting asks for no confirmation beyond the click: there is nothing of anybody else's to lose.
 
-The one refusal is a **section that still holds competencies**, which says how many and asks you to move or delete them first.
+The one refusal is a **competency group that still holds competencies**, which says how many and asks you to move or delete them first.
 
 ### Reaching every program
 

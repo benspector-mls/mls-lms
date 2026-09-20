@@ -34,8 +34,8 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
   }
 }
 
-/** A section holding one competency with one indicator, offered to whoever is named. */
-async function makeSection(
+/** A competency group holding one competency with one indicator, offered to whoever is named. */
+async function makeGroup(
   tx: Tx,
   options: {
     name: string;
@@ -86,7 +86,7 @@ describe("who may write the list", () => {
 
   let world: World;
   let adminId: string;
-  let section: Awaited<ReturnType<typeof makeSection>>;
+  let group: Awaited<ReturnType<typeof makeGroup>>;
 
   const asAdmin = () => createCaller(tx(), adminId);
   const asInstructor = () => createCaller(tx(), world.instructorId);
@@ -95,7 +95,7 @@ describe("who may write the list", () => {
   beforeAll(async () => {
     world = await makeWorld(tx());
     adminId = await makeAccount(tx(), { role: "ADMIN" });
-    section = await makeSection(tx(), {
+    group = await makeGroup(tx(), {
       name: "Durable Skills",
       competency: "Growth Mindset",
       disciplines: ["SOFTWARE_ENGINEERING", "DATA_ANALYTICS"],
@@ -113,7 +113,7 @@ describe("who may write the list", () => {
       await refusal(() =>
         instructor.competencies.saveCompetency({
           competencyId: null,
-          groupId: section.groupId,
+          groupId: group.groupId,
           name: "No",
           blurb: "",
           disciplines: ["SOFTWARE_ENGINEERING"],
@@ -124,18 +124,18 @@ describe("who may write the list", () => {
       await refusal(() =>
         instructor.competencies.saveEntry({
           entryId: null,
-          competencyId: section.competencyId,
+          competencyId: group.competencyId,
           kind: "INDICATOR",
           text: "No",
         }),
       ),
     ).toBe("FORBIDDEN");
     expect(
-      await refusal(() => instructor.competencies.removeEntry({ entryId: section.entryId })),
+      await refusal(() => instructor.competencies.removeEntry({ entryId: group.entryId })),
     ).toBe("FORBIDDEN");
     expect(
       await refusal(() =>
-        instructor.competencies.reorder({ of: "groups", within: null, ids: [section.groupId] }),
+        instructor.competencies.reorder({ of: "groups", within: null, ids: [group.groupId] }),
       ),
     ).toBe("FORBIDDEN");
   });
@@ -162,7 +162,7 @@ describe("who may write the list", () => {
     const found = await asFellow().competencies.forProgram({ programId: world.programId });
 
     expect(found.discipline).toBe("SOFTWARE_ENGINEERING");
-    expect(found.sections.map((row) => row.id)).toContain(section.groupId);
+    expect(found.groups.map((row) => row.id)).toContain(group.groupId);
   });
 
   it("somebody outside the program is refused it", async () => {
@@ -190,9 +190,9 @@ describe("the list a program is offered", () => {
   let dataProgramId: string;
   let fellowOfData: string;
   let fellowOfSwe: string;
-  let shared: Awaited<ReturnType<typeof makeSection>>;
-  let sweOnly: Awaited<ReturnType<typeof makeSection>>;
-  let dataOnly: Awaited<ReturnType<typeof makeSection>>;
+  let shared: Awaited<ReturnType<typeof makeGroup>>;
+  let sweOnly: Awaited<ReturnType<typeof makeGroup>>;
+  let dataOnly: Awaited<ReturnType<typeof makeGroup>>;
 
   beforeAll(async () => {
     const swe = await makeWorld(tx());
@@ -206,19 +206,19 @@ describe("the list a program is offered", () => {
       data: { programId: data.id, studentId: fellowOfData, status: "ACTIVE" },
     });
 
-    shared = await makeSection(tx(), {
+    shared = await makeGroup(tx(), {
       name: "Durable Skills",
       competency: "Growth Mindset",
       disciplines: ["SOFTWARE_ENGINEERING", "DATA_ANALYTICS"],
       position: 0,
     });
-    sweOnly = await makeSection(tx(), {
+    sweOnly = await makeGroup(tx(), {
       name: "Software Engineering",
       competency: "Debugging",
       disciplines: ["SOFTWARE_ENGINEERING"],
       position: 1,
     });
-    dataOnly = await makeSection(tx(), {
+    dataOnly = await makeGroup(tx(), {
       name: "Data Analytics",
       competency: "Statistical Reasoning",
       disciplines: ["DATA_ANALYTICS"],
@@ -230,7 +230,7 @@ describe("the list a program is offered", () => {
     const found = await createCaller(tx(), fellowOfSwe).competencies.forProgram({
       programId: sweProgramId,
     });
-    const ids = found.sections.map((row) => row.id);
+    const ids = found.groups.map((row) => row.id);
 
     expect(ids).toContain(shared.groupId);
     expect(ids).toContain(sweOnly.groupId);
@@ -241,7 +241,7 @@ describe("the list a program is offered", () => {
     const found = await createCaller(tx(), fellowOfData).competencies.forProgram({
       programId: dataProgramId,
     });
-    const ids = found.sections.map((row) => row.id);
+    const ids = found.groups.map((row) => row.id);
 
     expect(found.discipline).toBe("DATA_ANALYTICS");
     expect(ids).toContain(shared.groupId);
@@ -250,11 +250,11 @@ describe("the list a program is offered", () => {
   });
 
   /*
-    A section the filter empties is dropped rather than shown with nothing under it, which is the
-    one thing a three-level list must never do — and the state a newly added section sits in until
+    A group the filter empties is dropped rather than shown with nothing under it, which is the
+    one thing a three-level list must never do — and the state a newly added group sits in until
     somebody writes its first competency.
   */
-  it("a section left empty by the filter is not returned at all", async () => {
+  it("a competency group left empty by the filter is not returned at all", async () => {
     const empty = await tx().competencyGroup.create({
       data: { name: "Nothing Yet", position: 9 },
       select: { id: true },
@@ -264,7 +264,7 @@ describe("the list a program is offered", () => {
       programId: sweProgramId,
     });
 
-    expect(found.sections.map((row) => row.id)).not.toContain(empty.id);
+    expect(found.groups.map((row) => row.id)).not.toContain(empty.id);
   });
 });
 
@@ -281,8 +281,8 @@ describe("writing the list", () => {
     adminId = await makeAccount(tx(), { role: "ADMIN" });
   });
 
-  it("a section holding a competency refuses to be deleted, and says how many", async () => {
-    const section = await makeSection(tx(), {
+  it("a competency group holding a competency refuses to be deleted, and says how many", async () => {
+    const group = await makeGroup(tx(), {
       name: "Durable Skills",
       competency: "Growth Mindset",
       disciplines: ["SOFTWARE_ENGINEERING"],
@@ -290,23 +290,23 @@ describe("writing the list", () => {
     });
 
     expect(
-      await refusal(() => asAdmin().competencies.removeGroup({ groupId: section.groupId })),
+      await refusal(() => asAdmin().competencies.removeGroup({ groupId: group.groupId })),
     ).toBe("PRECONDITION_FAILED");
 
-    await asAdmin().competencies.removeCompetency({ competencyId: section.competencyId });
-    await asAdmin().competencies.removeGroup({ groupId: section.groupId });
+    await asAdmin().competencies.removeCompetency({ competencyId: group.competencyId });
+    await asAdmin().competencies.removeGroup({ groupId: group.groupId });
 
-    expect(await tx().competencyGroup.findUnique({ where: { id: section.groupId } })).toBeNull();
+    expect(await tx().competencyGroup.findUnique({ where: { id: group.groupId } })).toBeNull();
   });
 
-  it("a competency moved to another section lands at the end of it", async () => {
-    const first = await makeSection(tx(), {
+  it("a competency moved to another group lands at the end of it", async () => {
+    const first = await makeGroup(tx(), {
       name: "First",
       competency: "Moving",
       disciplines: ["SOFTWARE_ENGINEERING"],
       position: 0,
     });
-    const second = await makeSection(tx(), {
+    const second = await makeGroup(tx(), {
       name: "Second",
       competency: "Sitting",
       disciplines: ["SOFTWARE_ENGINEERING"],
@@ -332,7 +332,7 @@ describe("writing the list", () => {
   });
 
   it("an order that is not exactly one competency's entries is refused", async () => {
-    const section = await makeSection(tx(), {
+    const group = await makeGroup(tx(), {
       name: "Ordering",
       competency: "Growth Mindset",
       disciplines: ["SOFTWARE_ENGINEERING"],
@@ -341,7 +341,7 @@ describe("writing the list", () => {
 
     const second = await asAdmin().competencies.saveEntry({
       entryId: null,
-      competencyId: section.competencyId,
+      competencyId: group.competencyId,
       kind: "PITFALL",
       text: "Avoiding the thing.",
     });
@@ -350,8 +350,8 @@ describe("writing the list", () => {
       await refusal(() =>
         asAdmin().competencies.reorder({
           of: "entries",
-          within: section.competencyId,
-          ids: [section.entryId],
+          within: group.competencyId,
+          ids: [group.entryId],
         }),
       ),
     ).toBe("BAD_REQUEST");
@@ -360,7 +360,7 @@ describe("writing the list", () => {
       await refusal(() =>
         asAdmin().competencies.reorder({
           of: "entries",
-          within: section.competencyId,
+          within: group.competencyId,
           ids: [second.id, second.id],
         }),
       ),
@@ -368,25 +368,25 @@ describe("writing the list", () => {
 
     await asAdmin().competencies.reorder({
       of: "entries",
-      within: section.competencyId,
-      ids: [second.id, section.entryId],
+      within: group.competencyId,
+      ids: [second.id, group.entryId],
     });
 
     const ordered = await tx().competencyEntry.findMany({
-      where: { competencyId: section.competencyId },
+      where: { competencyId: group.competencyId },
       orderBy: { position: "asc" },
       select: { id: true },
     });
 
-    expect(ordered.map((row) => row.id)).toEqual([second.id, section.entryId]);
+    expect(ordered.map((row) => row.id)).toEqual([second.id, group.entryId]);
   });
 
   /*
-    The sections are the one sequence with nothing above them, so `writeOrder` runs without its
+    The groups are the one sequence with nothing above them, so `writeOrder` runs without its
     scope predicate for this call — which is worth asserting, because a predicate that silently
     matched nothing would leave the order unwritten and look like success.
   */
-  it("the sections themselves reorder, though nothing scopes them", async () => {
+  it("the groups themselves reorder, though nothing scopes them", async () => {
     const first = await asAdmin().competencies.saveGroup({ groupId: null, name: "Alpha" });
     const second = await asAdmin().competencies.saveGroup({ groupId: null, name: "Beta" });
 
@@ -422,13 +422,13 @@ describe("editing the list leaves goals alone", () => {
 
   let world: World;
   let adminId: string;
-  let section: Awaited<ReturnType<typeof makeSection>>;
+  let group: Awaited<ReturnType<typeof makeGroup>>;
   let goalId: string;
 
   beforeAll(async () => {
     world = await makeWorld(tx());
     adminId = await makeAccount(tx(), { role: "ADMIN" });
-    section = await makeSection(tx(), {
+    group = await makeGroup(tx(), {
       name: "Durable Skills",
       competency: "Growth Mindset",
       disciplines: ["SOFTWARE_ENGINEERING"],
@@ -437,7 +437,7 @@ describe("editing the list leaves goals alone", () => {
 
     const goal = await createCaller(tx(), world.student.studentId).coaching.setGoal({
       programId: world.programId,
-      entryId: section.entryId,
+      entryId: group.entryId,
       successCriteria: "Asks in the channel within half an hour.",
       objectives: "One question a week.",
       actionPlan: "Review them at the next session.",
@@ -448,8 +448,8 @@ describe("editing the list leaves goals alone", () => {
 
   it("rewording an entry leaves the goal reading as it was set", async () => {
     await createCaller(tx(), adminId).competencies.saveEntry({
-      entryId: section.entryId,
-      competencyId: section.competencyId,
+      entryId: group.entryId,
+      competencyId: group.competencyId,
       kind: "INDICATOR",
       text: "Something else entirely.",
     });
@@ -467,17 +467,17 @@ describe("editing the list leaves goals alone", () => {
 
   it("deleting the whole competency leaves the goal standing, word for word", async () => {
     await createCaller(tx(), adminId).competencies.removeCompetency({
-      competencyId: section.competencyId,
+      competencyId: group.competencyId,
     });
 
-    expect(await tx().competencyEntry.findUnique({ where: { id: section.entryId } })).toBeNull();
+    expect(await tx().competencyEntry.findUnique({ where: { id: group.entryId } })).toBeNull();
 
     const mine = await createCaller(tx(), world.student.studentId).coaching.myGoals({
       programId: world.programId,
     });
 
     expect(mine.goals.find((row) => row.id === goalId)).toMatchObject({
-      entryId: section.entryId,
+      entryId: group.entryId,
       entryText: "Growth Mindset: does the thing.",
       competencyName: "Growth Mindset",
     });

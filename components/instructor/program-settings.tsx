@@ -19,7 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DISCIPLINES, DISCIPLINE_META, type Discipline } from "@/lib/competencies";
+import {
+  DISCIPLINES,
+  DISCIPLINE_ITEMS,
+  DISCIPLINE_META,
+  type Discipline,
+} from "@/lib/competencies";
 import { competenciesHref, programsHref, triageHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
@@ -171,8 +176,9 @@ function DisciplineCard({ data }: { data: Data }) {
 
       <Select
         value={data.program.discipline}
+        items={DISCIPLINE_ITEMS}
         onValueChange={(value) =>
-          save.mutate({ programId: data.program.id, discipline: value as Discipline })
+          value && save.mutate({ programId: data.program.id, discipline: value as Discipline })
         }
       >
         <SelectTrigger className="w-full sm:w-72" disabled={save.isPending}>

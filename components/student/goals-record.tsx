@@ -10,7 +10,7 @@ import { GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { parseSnapshot } from "@/lib/coaching";
-import type { CompetencySection } from "@/lib/competencies";
+import type { CompetencyGroup } from "@/lib/competencies";
 import { formatDate } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -35,11 +35,11 @@ type Data = RouterOutputs["coaching"]["myGoals"];
  */
 export function GoalsRecord({
   data,
-  sections,
+  groups,
 }: {
   data: Data;
   /** The competencies this fellow may build a goal on, fetched beside their goals. */
-  sections: readonly CompetencySection[];
+  groups: readonly CompetencyGroup[];
 }) {
   if (data.goals.length === 0 && data.sessions.length === 0) {
     return (
@@ -49,7 +49,7 @@ export function GoalsRecord({
           title="No goals yet"
           description="Set a goal for something you want to get better at — a skill to build, or a habit to break. Your instructor sees it and can talk it through with you in a coaching session."
         />
-        <AddGoal programId={data.program.id} sections={sections} />
+        <AddGoal programId={data.program.id} groups={groups} />
       </div>
     );
   }
@@ -68,12 +68,12 @@ export function GoalsRecord({
         {data.goals.length > 0 && (
           <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
             {data.goals.map((goal) => (
-              <GoalRow key={goal.id} goal={goal} programId={data.program.id} sections={sections} />
+              <GoalRow key={goal.id} goal={goal} programId={data.program.id} groups={groups} />
             ))}
           </ul>
         )}
 
-        <AddGoal programId={data.program.id} sections={sections} />
+        <AddGoal programId={data.program.id} groups={groups} />
       </section>
 
       {data.sessions.length > 0 && (
@@ -128,11 +128,11 @@ export function GoalsRecord({
 function GoalRow({
   goal,
   programId,
-  sections,
+  groups,
 }: {
   goal: Data["goals"][number];
   programId: string;
-  sections: readonly CompetencySection[];
+  groups: readonly CompetencyGroup[];
 }) {
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -171,7 +171,7 @@ function GoalRow({
         <div className="px-3 pb-3 pl-9">
           <GoalEditor
             programId={programId}
-            sections={sections}
+            groups={groups}
             goal={goal}
             onDone={() => setEditing(false)}
           />

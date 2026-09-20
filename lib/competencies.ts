@@ -23,8 +23,8 @@ export type { CompetencyEntryKind, Discipline };
  *
  * **Fixed here rather than authored, unlike every other part of the list.** A program names one
  * and the goal procedures filter on it, so a discipline is structure: adding one means deciding
- * what it is called, which competencies it is offered, and which programs run it. A new *section*
- * of the list is none of that, which is why sections are rows.
+ * what it is called, which competencies it is offered, and which programs run it. A new
+ * *competency group* is none of that, which is why groups are rows.
  */
 export const DISCIPLINES = [
   "SOFTWARE_ENGINEERING",
@@ -52,7 +52,18 @@ export const DISCIPLINE_META = {
 } satisfies Record<Discipline, DisciplineMeta>;
 
 /**
- * The list as every screen receives it: sections holding competencies holding entries.
+ * The fellowships as a select's `items`: what its trigger shows once one is chosen.
+ *
+ * Base UI's `Select.Value` renders the stored value unless the root is given the labels, so a
+ * select without this shows `SOFTWARE_ENGINEERING` to somebody who picked "Software Engineering".
+ * One map, built from the same meta the options render from, so the two cannot disagree.
+ */
+export const DISCIPLINE_ITEMS: Record<Discipline, string> = Object.fromEntries(
+  DISCIPLINES.map((discipline) => [discipline, DISCIPLINE_META[discipline].label]),
+) as Record<Discipline, string>;
+
+/**
+ * The list as every screen receives it: competency groups holding competencies holding entries.
  *
  * Structural types rather than the generated row types, because what the picker renders is what
  * `competencies.forProgram` selects — a few columns of each table, nested — and a type naming the
@@ -72,7 +83,7 @@ export type Competency = {
   entries: readonly CompetencyEntry[];
 };
 
-export type CompetencySection = {
+export type CompetencyGroup = {
   id: string;
   name: string;
   competencies: readonly Competency[];
@@ -97,30 +108,30 @@ export function entriesOfKind(
 /**
  * The list a search query leaves standing, pruned to its matching entries.
  *
- * Case-insensitive substring over entry text, competency name, and section name. A query matching
- * a competency's name or its section's name keeps everything under that competency — somebody
- * typing "growth mindset" wants the competency, not the subset of its lines that repeat the words
- * — and a competency left with no entries, or a section left with no competencies, disappears
- * rather than standing as an empty heading. A blank query is the whole list, which is what the
- * picker opens on.
+ * Case-insensitive substring over entry text, competency name, and group name. A query matching a
+ * competency's name or its group's name keeps everything under that competency — somebody typing
+ * "growth mindset" wants the competency, not the subset of its lines that repeat the words — and a
+ * competency left with no entries, or a group left with no competencies, disappears rather than
+ * standing as an empty heading. A blank query is the whole list, which is what the picker opens
+ * on.
  */
 export function filterCompetencies(
   query: string,
-  sections: readonly CompetencySection[],
-): readonly CompetencySection[] {
+  groups: readonly CompetencyGroup[],
+): readonly CompetencyGroup[] {
   const needle = query.trim().toLowerCase();
-  if (needle === "") return sections;
+  if (needle === "") return groups;
 
   const matches = (text: string) => text.toLowerCase().includes(needle);
 
-  return sections.flatMap((section) => {
-    const competencies = section.competencies.flatMap((competency) => {
-      if (matches(competency.name) || matches(section.name)) return [competency];
+  return groups.flatMap((group) => {
+    const competencies = group.competencies.flatMap((competency) => {
+      if (matches(competency.name) || matches(group.name)) return [competency];
 
       const entries = competency.entries.filter((entry) => matches(entry.text));
       return entries.length === 0 ? [] : [{ ...competency, entries }];
     });
 
-    return competencies.length === 0 ? [] : [{ ...section, competencies }];
+    return competencies.length === 0 ? [] : [{ ...group, competencies }];
   });
 }

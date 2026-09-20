@@ -18,7 +18,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { DEVELOPMENT_MARKERS, MARKER_META, type DevelopmentMarker } from "@/lib/coaching";
-import type { CompetencySection, PickableEntry } from "@/lib/competencies";
+import type { CompetencyGroup, PickableEntry } from "@/lib/competencies";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -39,13 +39,13 @@ type Goal = RouterOutputs["coaching"]["myGoals"]["goals"][number];
  */
 export function GoalEditor({
   programId,
-  sections,
+  groups,
   goal,
   onDone,
 }: {
   programId: string;
   /** The competencies this fellow may choose from, fetched by the page above. */
-  sections: readonly CompetencySection[];
+  groups: readonly CompetencyGroup[];
   /** The goal being changed, or null to set a new one. */
   goal: Goal | null;
   onDone: () => void;
@@ -101,7 +101,7 @@ export function GoalEditor({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4 rounded-lg border border-border p-4">
-      <CompetencyEntryField value={entry} sections={sections} onChange={setEntry} />
+      <CompetencyEntryField value={entry} groups={groups} onChange={setEntry} />
 
       <Part
         label="What does success look like?"
@@ -156,21 +156,16 @@ export function GoalEditor({
 /** The button that opens an empty editor, and the editor when it is open. */
 export function AddGoal({
   programId,
-  sections,
+  groups,
 }: {
   programId: string;
-  sections: readonly CompetencySection[];
+  groups: readonly CompetencyGroup[];
 }) {
   const [open, setOpen] = React.useState(false);
 
   if (open) {
     return (
-      <GoalEditor
-        programId={programId}
-        sections={sections}
-        goal={null}
-        onDone={() => setOpen(false)}
-      />
+      <GoalEditor programId={programId} groups={groups} goal={null} onDone={() => setOpen(false)} />
     );
   }
 

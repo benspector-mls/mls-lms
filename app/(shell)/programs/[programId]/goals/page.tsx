@@ -42,7 +42,7 @@ async function MyGoals({ params }: { params: Promise<{ programId: string }> }) {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader title="Your goals" description={`${data.program.name} · ${data.program.term}`} />
-      <GoalsRecord data={data} sections={competencies.sections} />
+      <GoalsRecord data={data} groups={competencies.groups} />
     </div>
   );
 }

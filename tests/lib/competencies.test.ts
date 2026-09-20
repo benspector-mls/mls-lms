@@ -13,10 +13,10 @@ import {
   ENTRY_KINDS,
   entriesOfKind,
   filterCompetencies,
-  type CompetencySection,
+  type CompetencyGroup,
 } from "@/lib/competencies";
 
-const SECTIONS: CompetencySection[] = [
+const GROUPS: CompetencyGroup[] = [
   {
     id: "durable",
     name: "Durable Skills",
@@ -66,7 +66,7 @@ describe("the fellowships", () => {
 });
 
 describe("entriesOfKind", () => {
-  const growth = SECTIONS[0]!.competencies[0]!;
+  const growth = GROUPS[0]!.competencies[0]!;
 
   it("keeps one kind, in the order they were given", () => {
     expect(entriesOfKind(growth, "INDICATOR").map((entry) => entry.id)).toEqual([
@@ -79,12 +79,12 @@ describe("entriesOfKind", () => {
 
 describe("filterCompetencies", () => {
   it("a blank query is the whole list", () => {
-    expect(filterCompetencies("", SECTIONS)).toBe(SECTIONS);
-    expect(filterCompetencies("   ", SECTIONS)).toBe(SECTIONS);
+    expect(filterCompetencies("", GROUPS)).toBe(GROUPS);
+    expect(filterCompetencies("   ", GROUPS)).toBe(GROUPS);
   });
 
   it("keeps the entries that match, and drops what is left empty", () => {
-    const found = filterCompetencies("defensive", SECTIONS);
+    const found = filterCompetencies("defensive", GROUPS);
 
     expect(found).toHaveLength(1);
     expect(found[0]!.competencies).toHaveLength(1);
@@ -96,13 +96,13 @@ describe("filterCompetencies", () => {
     repeat the words back — which for "Growth Mindset" would be none of them.
   */
   it("a competency's own name keeps everything under it", () => {
-    const found = filterCompetencies("growth mind", SECTIONS);
+    const found = filterCompetencies("growth mind", GROUPS);
 
     expect(found[0]!.competencies[0]!.entries).toHaveLength(3);
   });
 
-  it("a section's name keeps every competency in it", () => {
-    const found = filterCompetencies("software engineering", SECTIONS);
+  it("a group's name keeps every competency in it", () => {
+    const found = filterCompetencies("software engineering", GROUPS);
 
     expect(found).toHaveLength(1);
     expect(found[0]!.name).toBe("Software Engineering");
@@ -110,17 +110,17 @@ describe("filterCompetencies", () => {
   });
 
   it("ignores case", () => {
-    expect(filterCompetencies("ISOLATES", SECTIONS)).toHaveLength(1);
+    expect(filterCompetencies("ISOLATES", GROUPS)).toHaveLength(1);
   });
 
   it("a query nothing matches is an empty list rather than empty headings", () => {
-    expect(filterCompetencies("kubernetes", SECTIONS)).toEqual([]);
+    expect(filterCompetencies("kubernetes", GROUPS)).toEqual([]);
   });
 
   it("leaves the list it was given alone", () => {
-    filterCompetencies("defensive", SECTIONS);
+    filterCompetencies("defensive", GROUPS);
 
-    expect(SECTIONS[0]!.competencies[0]!.entries).toHaveLength(3);
-    expect(SECTIONS).toHaveLength(2);
+    expect(GROUPS[0]!.competencies[0]!.entries).toHaveLength(3);
+    expect(GROUPS).toHaveLength(2);
   });
 });

@@ -28,21 +28,21 @@ import {
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
-type Sections = RouterOutputs["competencies"]["all"];
-type Section = Sections[number];
-type Competency = Section["competencies"][number];
+type Groups = RouterOutputs["competencies"]["all"];
+type Group = Groups[number];
+type Competency = Group["competencies"][number];
 type Entry = Competency["entries"][number];
 
-/** Every section, for the field that moves a competency from one to another. */
-type SectionChoice = { id: string; name: string };
+/** Every competency group, for the field that moves a competency from one to another. */
+type GroupChoice = { id: string; name: string };
 
 /**
- * Writing the competency list: the sections, the competencies under them, and the indicators and
- * pitfalls a fellow builds a goal on.
+ * Writing the competency list: the competency groups, the competencies under them, and the
+ * indicators and pitfalls a fellow builds a goal on.
  *
  * **One list for the whole school, and every level of it is written here.** Which fellowships a
- * competency is offered to is a property of the competency — the sections about how a person works
- * and learns belong to both, a technical section to one — so the two fellowships share everything
+ * competency is offered to is a property of the competency — the groups about how a person works
+ * and learns belong to both, a technical group to one — so the two fellowships share everything
  * they have in common instead of keeping two lists that drift.
  *
  * **Editing this can never damage a goal.** A goal copies its entry's wording when it is set and
@@ -55,7 +55,7 @@ type SectionChoice = { id: string; name: string };
  * gathers the skills together and the pitfalls together for reading, keeping the order within each
  * — so an admin who keeps the two kinds apart sees the same list a fellow does.
  */
-export function CompetencyAdmin({ sections }: { sections: Sections }) {
+export function CompetencyAdmin({ groups }: { groups: Groups }) {
   const [adding, setAdding] = React.useState(false);
 
   return (
@@ -63,8 +63,8 @@ export function CompetencyAdmin({ sections }: { sections: Sections }) {
       <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/30 p-4">
         <p className="text-sm">
           Every program shares this list. A competency reaches a fellow when it is offered to the
-          discipline their program runs, so the sections about how somebody works and learns are
-          usually offered to both.
+          discipline their program runs, so the competency groups about how somebody works and
+          learns are usually offered to both.
         </p>
         <p className="text-xs text-muted-foreground">
           Goals already set keep the wording they were built on, whatever you change here. Nothing
@@ -72,19 +72,19 @@ export function CompetencyAdmin({ sections }: { sections: Sections }) {
         </p>
       </div>
 
-      {sections.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="rounded-lg border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          There are no sections yet. Add the first one — &ldquo;Durable Skills&rdquo;, say — and the
-          competencies go under it.
+          There are no competency groups yet. Add the first one — &ldquo;Durable Skills&rdquo;, say
+          — and the competencies go under it.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {sections.map((section, index) => (
-            <SectionCard
-              key={section.id}
-              section={section}
-              all={sections.map((row) => ({ id: row.id, name: row.name }))}
-              order={sections.map((row) => row.id)}
+          {groups.map((group, index) => (
+            <GroupCard
+              key={group.id}
+              group={group}
+              all={groups.map((row) => ({ id: row.id, name: row.name }))}
+              order={groups.map((row) => row.id)}
               index={index}
             />
           ))}
@@ -92,7 +92,7 @@ export function CompetencyAdmin({ sections }: { sections: Sections }) {
       )}
 
       {adding ? (
-        <SectionForm section={null} onDone={() => setAdding(false)} />
+        <GroupForm group={null} onDone={() => setAdding(false)} />
       ) : (
         <Button
           type="button"
@@ -103,22 +103,22 @@ export function CompetencyAdmin({ sections }: { sections: Sections }) {
           data-icon="inline-start"
         >
           <Plus aria-hidden />
-          Add a section
+          Add a competency group
         </Button>
       )}
     </div>
   );
 }
 
-/** One section: its name, what it holds, and where a competency is added to it. */
-function SectionCard({
-  section,
+/** One competency group: its name, what it holds, and where a competency is added to it. */
+function GroupCard({
+  group,
   all,
   order,
   index,
 }: {
-  section: Section;
-  all: SectionChoice[];
+  group: Group;
+  all: GroupChoice[];
   order: string[];
   index: number;
 }) {
@@ -131,11 +131,11 @@ function SectionCard({
 
   const remove = useMutation(
     trpc.competencies.removeGroup.mutationOptions(
-      settled({ onSuccess: () => toast.success(`Removed ${section.name}.`) }),
+      settled({ onSuccess: () => toast.success(`Removed ${group.name}.`) }),
     ),
   );
 
-  const held = section.competencies.length;
+  const held = group.competencies.length;
 
   return (
     <li className="flex flex-col gap-3 rounded-lg border border-border p-4">
@@ -151,21 +151,27 @@ function SectionCard({
           ) : (
             <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           )}
-          <span className="truncate text-sm font-medium">{section.name}</span>
+          <span className="truncate text-sm font-medium">{group.name}</span>
           <span className="shrink-0 text-xs text-muted-foreground">
             {held === 1 ? "1 competency" : `${held} competencies`}
           </span>
         </button>
 
-        <MoveButtons of="groups" within={null} order={order} index={index} label="section" />
+        <MoveButtons
+          of="groups"
+          within={null}
+          order={order}
+          index={index}
+          label="competency group"
+        />
 
         <Button type="button" variant="ghost" size="xs" onClick={() => setRenaming(true)}>
           Rename
         </Button>
 
         {/*
-          Only offered on an empty section. The procedure refuses a full one and names the count,
-          and the foreign key refuses it underneath — but a control that is there and always fails
+          Only offered on an empty group. The procedure refuses a full one and names the count, and
+          the foreign key refuses it underneath — but a control that is there and always fails
           teaches an admin to distrust the screen rather than the list.
         */}
         {held === 0 && (
@@ -174,7 +180,7 @@ function SectionCard({
             variant="ghost"
             size="xs"
             disabled={remove.isPending}
-            onClick={() => remove.mutate({ groupId: section.id })}
+            onClick={() => remove.mutate({ groupId: group.id })}
             className="text-destructive hover:text-destructive"
           >
             Delete
@@ -182,19 +188,19 @@ function SectionCard({
         )}
       </div>
 
-      {renaming && <SectionForm section={section} onDone={() => setRenaming(false)} />}
+      {renaming && <GroupForm group={group} onDone={() => setRenaming(false)} />}
 
       {open && (
         <>
           {held > 0 && (
             <ul className="flex flex-col gap-3">
-              {section.competencies.map((competency, competencyIndex) => (
+              {group.competencies.map((competency, competencyIndex) => (
                 <CompetencyBlock
                   key={competency.id}
                   competency={competency}
-                  sections={all}
-                  groupId={section.id}
-                  order={section.competencies.map((row) => row.id)}
+                  groups={all}
+                  groupId={group.id}
+                  order={group.competencies.map((row) => row.id)}
                   index={competencyIndex}
                 />
               ))}
@@ -204,8 +210,8 @@ function SectionCard({
           {adding ? (
             <CompetencyForm
               competency={null}
-              sections={all}
-              groupId={section.id}
+              groups={all}
+              groupId={group.id}
               onDone={() => setAdding(false)}
             />
           ) : (
@@ -230,13 +236,13 @@ function SectionCard({
 /** One competency: what it is called, who it is offered to, and the entries beneath it. */
 function CompetencyBlock({
   competency,
-  sections,
+  groups,
   groupId,
   order,
   index,
 }: {
   competency: Competency;
-  sections: SectionChoice[];
+  groups: GroupChoice[];
   groupId: string;
   order: string[];
   index: number;
@@ -305,7 +311,7 @@ function CompetencyBlock({
       {editing && (
         <CompetencyForm
           competency={competency}
-          sections={sections}
+          groups={groups}
           groupId={groupId}
           onDone={() => setEditing(false)}
         />
@@ -440,7 +446,7 @@ function MoveButtons({
 
     /*
       The union in the procedure's input pairs `of` with what `within` may be — null for the
-      sections, an id for the other two — so the call is written out per branch rather than spread
+      groups, an id for the other two — so the call is written out per branch rather than spread
       from one object the type cannot narrow.
     */
     if (of === "groups") reorder.mutate({ of, within: null, ids: next });
@@ -473,18 +479,18 @@ function MoveButtons({
   );
 }
 
-/** Adding a section, or renaming one. */
-function SectionForm({ section, onDone }: { section: Section | null; onDone: () => void }) {
+/** Adding a competency group, or renaming one. */
+function GroupForm({ group, onDone }: { group: Group | null; onDone: () => void }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
-  const [name, setName] = React.useState(section?.name ?? "");
+  const [name, setName] = React.useState(group?.name ?? "");
 
   const save = useMutation(
     trpc.competencies.saveGroup.mutationOptions(
       settled({
         onSuccess: () => {
-          toast.success(section === null ? "Section added." : "Section renamed.");
+          toast.success(group === null ? "Competency group added." : "Competency group renamed.");
           onDone();
         },
       }),
@@ -497,7 +503,7 @@ function SectionForm({ section, onDone }: { section: Section | null; onDone: () 
       onSubmit={(event) => {
         event.preventDefault();
         if (name.trim() !== "") {
-          save.mutate({ groupId: section?.id ?? null, name: name.trim() });
+          save.mutate({ groupId: group?.id ?? null, name: name.trim() });
         }
       }}
     >
@@ -505,12 +511,12 @@ function SectionForm({ section, onDone }: { section: Section | null; onDone: () 
         autoFocus
         value={name}
         placeholder="Durable Skills"
-        aria-label="Section name"
+        aria-label="Competency group name"
         onChange={(event) => setName(event.target.value)}
         className="w-full sm:w-72"
       />
       <Button type="submit" size="sm" disabled={name.trim() === "" || save.isPending}>
-        {section === null ? "Add section" : "Save"}
+        {group === null ? "Add competency group" : "Save"}
       </Button>
       <Button type="button" size="sm" variant="ghost" onClick={onDone}>
         Cancel
@@ -519,16 +525,16 @@ function SectionForm({ section, onDone }: { section: Section | null; onDone: () 
   );
 }
 
-/** Adding a competency to a section, or changing one — including which section it sits in. */
+/** Adding a competency to a group, or changing one — including which group it sits in. */
 function CompetencyForm({
   competency,
-  sections,
+  groups,
   groupId,
   onDone,
 }: {
   competency: Competency | null;
-  sections: SectionChoice[];
-  /** The section it is in now, which is where a new one is added. */
+  groups: GroupChoice[];
+  /** The group it is in now, which is where a new one is added. */
   groupId: string;
   onDone: () => void;
 }) {
@@ -540,7 +546,7 @@ function CompetencyForm({
   const [disciplines, setDisciplines] = React.useState<ReadonlySet<Discipline>>(
     new Set(competency?.disciplines ?? DISCIPLINES),
   );
-  const [section, setSection] = React.useState(groupId);
+  const [group, setGroup] = React.useState(groupId);
 
   const save = useMutation(
     trpc.competencies.saveCompetency.mutationOptions(
@@ -561,7 +567,7 @@ function CompetencyForm({
         if (name.trim() === "") return;
         save.mutate({
           competencyId: competency?.id ?? null,
-          groupId: section,
+          groupId: group,
           name: name.trim(),
           blurb: blurb.trim(),
           disciplines: [...disciplines],
@@ -585,19 +591,23 @@ function CompetencyForm({
       />
 
       {/*
-        Only when changing one. A new competency belongs to the section whose "Add a competency"
-        was pressed, and a field offering to put it somewhere else would be asking a question the
-        press already answered.
+        Only when changing one. A new competency belongs to the group whose "Add a competency" was
+        pressed, and a field offering to put it somewhere else would be asking a question the press
+        already answered.
       */}
-      {competency !== null && sections.length > 1 && (
+      {competency !== null && groups.length > 1 && (
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium">Section</span>
-          <Select value={section} onValueChange={(value) => value && setSection(value)}>
+          <span className="text-xs font-medium">Competency group</span>
+          <Select
+            value={group}
+            items={Object.fromEntries(groups.map((option) => [option.id, option.name]))}
+            onValueChange={(value) => value && setGroup(value)}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {sections.map((option) => (
+              {groups.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
                   {option.name}
                 </SelectItem>
@@ -605,7 +615,7 @@ function CompetencyForm({
             </SelectContent>
           </Select>
           <span className="text-xs text-muted-foreground">
-            Moving it puts it at the end of the section it lands in.
+            Moving it puts it at the end of the group it lands in.
           </span>
         </label>
       )}
@@ -641,6 +651,12 @@ function CompetencyForm({
     </form>
   );
 }
+
+/** What each kind is called on screen, and what the trigger shows once one is chosen. */
+const KIND_LABELS: Record<CompetencyEntryKind, string> = {
+  INDICATOR: "Skill to work toward",
+  PITFALL: "Pitfall to work away from",
+};
 
 /** Adding an indicator or a pitfall, or rewriting one. */
 function EntryForm({
@@ -688,14 +704,18 @@ function EntryForm({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={kind} onValueChange={(value) => setKind(value as CompetencyEntryKind)}>
-          <SelectTrigger className="w-44" aria-label="Which kind this is">
+        <Select
+          value={kind}
+          items={KIND_LABELS}
+          onValueChange={(value) => value && setKind(value as CompetencyEntryKind)}
+        >
+          <SelectTrigger className="w-56" aria-label="Which kind this is">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {ENTRY_KINDS.map((option) => (
               <SelectItem key={option} value={option}>
-                {option === "INDICATOR" ? "Skill to work toward" : "Pitfall to work away from"}
+                {KIND_LABELS[option]}
               </SelectItem>
             ))}
           </SelectContent>

@@ -15,7 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DISCIPLINES, DISCIPLINE_META, type Discipline } from "@/lib/competencies";
+import {
+  DISCIPLINES,
+  DISCIPLINE_ITEMS,
+  DISCIPLINE_META,
+  type Discipline,
+} from "@/lib/competencies";
 import { rosterHref } from "@/lib/links";
 import { useTRPC } from "@/trpc/client";
 
@@ -119,7 +124,11 @@ export function NewProgramForm({
         <label className="text-xs font-medium" htmlFor="program-discipline">
           Discipline
         </label>
-        <Select value={discipline} onValueChange={(value) => setDiscipline(value as Discipline)}>
+        <Select
+          value={discipline}
+          items={DISCIPLINE_ITEMS}
+          onValueChange={(value) => value && setDiscipline(value as Discipline)}
+        >
           <SelectTrigger id="program-discipline" className="w-full sm:w-72">
             <SelectValue />
           </SelectTrigger>
