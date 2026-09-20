@@ -398,3 +398,89 @@ describe("clicking a header", () => {
     });
   });
 });
+
+/*
+  The Overview table sorts by columns the per-category grids do not have: a category's unit
+  completion, the course verdict, and the best GCF. They live in the same union because the two
+  tables are one screen and should mean the same thing by "sorted" — and their callbacks are
+  optional so the grids, which never offer these columns, supply nothing for them.
+*/
+describe("the overview's columns", () => {
+  const ada = student({ id: "ada", displayName: "Ada" });
+  const grace = student({ id: "grace", displayName: "Grace" });
+  const katherine = student({ id: "kat", displayName: "Katherine" });
+  const roster = [grace, ada, katherine];
+
+  const values = {
+    completed: () => 0,
+    waiting: () => 0,
+    late: () => 0,
+    missing: () => 0,
+    score: () => null,
+  };
+
+  it("opens each of them descending, because the question is who has the most", () => {
+    const byName: RowSort = { by: "name", direction: "asc" };
+
+    expect(toggleSort(byName, { by: "category", category: "MODULE" })).toEqual({
+      by: "category",
+      category: "MODULE",
+      direction: "desc",
+    });
+    expect(toggleSort(byName, { by: "course" })).toEqual({ by: "course", direction: "desc" });
+    expect(toggleSort(byName, { by: "gcf" })).toEqual({ by: "gcf", direction: "desc" });
+  });
+
+  it("tells two category columns apart", () => {
+    const onModules: RowSort = { by: "category", category: "MODULE", direction: "desc" };
+
+    expect(namesSameColumn(onModules, { by: "category", category: "MODULE" })).toBe(true);
+    expect(namesSameColumn(onModules, { by: "category", category: "PROJECT" })).toBe(false);
+
+    expect(toggleSort(onModules, { by: "category", category: "PROJECT" })).toEqual({
+      by: "category",
+      category: "PROJECT",
+      direction: "desc",
+    });
+  });
+
+  it("ranks by a category's figure for the named category only", () => {
+    const sorted = sortStudents(
+      roster,
+      { by: "category", category: "PROJECT", direction: "desc" },
+      {
+        ...values,
+        category: (id: string, category: string) =>
+          category === "PROJECT" ? ({ ada: 1, grace: 3, kat: 2 })[id] ?? null : null,
+      },
+    );
+
+    expect(sorted.map((s) => s.id)).toEqual(["grace", "kat", "ada"]);
+  });
+
+  it("ranks by the course verdict and by the best GCF", () => {
+    const byCourse = sortStudents(
+      roster,
+      { by: "course", direction: "desc" },
+      { ...values, course: (id: string) => ({ ada: 2, grace: 0, kat: 1 })[id] ?? null },
+    );
+    expect(byCourse.map((s) => s.id)).toEqual(["ada", "kat", "grace"]);
+
+    const byGcf = sortStudents(
+      roster,
+      { by: "gcf", direction: "desc" },
+      { ...values, gcf: (id: string) => ({ ada: 512, kat: 430 })[id] ?? null },
+    );
+    // Grace has no sitting: null sorts last, whichever way the arrow points.
+    expect(byGcf.map((s) => s.id)).toEqual(["ada", "kat", "grace"]);
+  });
+
+  /*
+    A grid handed one of these sorts without the callback must not reorder arbitrarily: every rank
+    is null, so the roster falls back to name order — the same rule an unscored assignment follows.
+  */
+  it("ranks null when the callback is absent", () => {
+    const sorted = sortStudents(roster, { by: "course", direction: "desc" }, values);
+    expect(sorted.map((s) => s.id)).toEqual(["ada", "grace", "kat"]);
+  });
+});

@@ -822,8 +822,13 @@ function Band({
   );
 }
 
-/** A header that sorts the rows, with the arrow showing which way when it is the active one. */
-function SortableHead({
+/**
+ * A header that sorts the rows, with the arrow showing which way when it is the active one.
+ *
+ * Exported for the Overview table, which sorts by the same gesture — the `VerdictMark` precedent
+ * for a piece of this grid that the gradebook's other table renders too.
+ */
+export function SortableHead({
   label,
   sort,
   column,

@@ -2,36 +2,13 @@ import Link from "next/link";
 import { BarChart3 } from "lucide-react";
 
 import { GcfTab } from "@/components/instructor/gcf-tab";
-import { GradebookGrid, VerdictMark } from "@/components/instructor/gradebook-grid";
+import { GradebookGrid } from "@/components/instructor/gradebook-grid";
+import { Overview } from "@/components/instructor/gradebook-overview";
 import { EmptyState } from "@/components/list-states";
-import { TestStudentBadge } from "@/components/test-student-badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  stickyColumn,
-  stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
-} from "@/components/ui/table";
-import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/course-units";
-import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
-import {
-  allUnits,
-  countedUnits,
-  courseVerdictByStudent,
-  groupByUnit,
-  unitCompletionByStudent,
-  workOf,
-  type GroupedCourse,
-} from "@/lib/gradebook/categories";
+import { CATEGORY_META, UNIT_CATEGORIES } from "@/lib/course-units";
+import { groupByUnit, workOf } from "@/lib/gradebook/categories";
 import { gradebookIsEmpty, sortGradebookAssignments } from "@/lib/gradebook/csv";
-import { studentLabel } from "@/lib/gradebook/filters";
-import { awaitingByStudent, completionLabel, type Completion } from "@/lib/gradebook/summary";
-import { gradebookHref, studentHref } from "@/lib/links";
+import { gradebookHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -67,11 +44,6 @@ import type { RouterOutputs } from "@/trpc/types";
 
 type Gradebook = RouterOutputs["courses"]["gradebook"];
 type Gcf = RouterOutputs["gcf"]["forCourse"];
-type Assignment = Gradebook["assignments"][number];
-type Cell = Gradebook["cells"][number];
-// From the active list rather than a whole-roster one, which this payload no longer carries.
-// Either complement has the same shape, so which it is read off is a question of what exists.
-type Student = Gradebook["activeEnrollments"][number]["student"];
 
 /**
  * The five tabs, in the order they are offered.
@@ -199,6 +171,7 @@ export function Gradebook({
           cells={data.cells}
           removedCells={data.removedCells}
           gcf={gcf}
+          now={now}
         />
       ) : tab === "GCF" ? (
         gcf === null ? null : (
@@ -282,250 +255,5 @@ function TabStrip({
         </Link>
       ))}
     </nav>
-  );
-}
-
-/**
- * One row per student: how many units of each category they have finished, and whether the course
- * itself is finished.
- *
- * **The point of the tab**: the three figures side by side, so "strong on modules and behind on
- * projects" is one glance rather than three. Every figure is the same one its own tab shows,
- * computed from the same functions over the same cells, so the four tabs cannot disagree.
- *
- * **Units completed rather than assignments completed**, on every one of the three. Completion is
- * one rule at three levels — an assignment is complete when it is marked so, a unit when all its
- * published assignments are, a course when all its units are — and a row that counted assignments
- * here and units on the tabs would be two different claims sharing a heading.
- */
-function Overview({
-  courseId,
-  grouped,
-  active,
-  removed,
-  cells,
-  removedCells,
-  gcf,
-}: {
-  courseId: string;
-  grouped: GroupedCourse<Assignment>;
-  active: Student[];
-  removed: Student[];
-  cells: Cell[];
-  removedCells: Cell[];
-  gcf: Gcf | null;
-}) {
-  return (
-    <div className="flex flex-col gap-6">
-      {active.length > 0 && (
-        <OverviewTable
-          courseId={courseId}
-          grouped={grouped}
-          students={active}
-          cells={cells}
-          countWaiting
-          gcf={gcf}
-        />
-      )}
-
-      {removed.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <div className="flex flex-col gap-0.5">
-            <h3 className="text-sm font-medium">Removed students</h3>
-            <p className="text-xs text-muted-foreground">
-              No longer in the cohort, and not counted in any figure above.
-            </p>
-          </div>
-          <OverviewTable
-            courseId={courseId}
-            grouped={grouped}
-            students={removed}
-            cells={removedCells}
-            countWaiting={false}
-            gcf={gcf}
-          />
-        </section>
-      )}
-    </div>
-  );
-}
-
-function OverviewTable({
-  courseId,
-  grouped,
-  students,
-  cells,
-  countWaiting,
-  gcf,
-}: {
-  courseId: string;
-  grouped: GroupedCourse<Assignment>;
-  students: Student[];
-  cells: Cell[];
-  /** The cohort's GCF results, for the one column here that is not this course's own work. */
-  gcf: Gcf | null;
-  /**
-   * Whether an ungraded submission counts as work outstanding.
-   *
-   * False for the removed students' table: their work is out of triage and out of the queue, so
-   * nobody is going to grade it, and a count of it would claim a task that cannot be cleared.
-   */
-  countWaiting: boolean;
-}) {
-  const byCategory: Record<CourseUnitCategory, Map<string, Completion>> = {
-    MODULE: unitCompletionByStudent(cells, grouped.MODULE),
-    PROJECT: unitCompletionByStudent(cells, grouped.PROJECT),
-    ASSESSMENT: unitCompletionByStudent(cells, grouped.ASSESSMENT),
-  };
-
-  /*
-    **Units that hold released work, not every unit of the category.** A project whose deliverables
-    are all still drafts cannot be finished by anybody, so counting it turns "2 of 2 projects" into
-    "2 of 3" for a whole cohort the moment an instructor starts writing the next one — a figure that
-    falls the day work is *authored* rather than the day anything changes about the fellow.
-
-    `unitHasVerdict` rather than a count written here, because it is the rule the numerator beside
-    this already uses: `unitCompletionByStudent` measures against the units that have a verdict, and
-    the two halves of one fraction reading different sets of units is how "3 of 2" appears. It is
-    also what the course roll-up counts, so the three figures in a row agree.
-  */
-  const possible: Record<CourseUnitCategory, number> = {
-    MODULE: countedUnits(grouped.MODULE),
-    PROJECT: countedUnits(grouped.PROJECT),
-    ASSESSMENT: countedUnits(grouped.ASSESSMENT),
-  };
-
-  /*
-    The one figure that exists nowhere else in the application: whether a student has finished the
-    course. Computed over every unit of every category, from the same cells the three columns
-    beside it read, so the roll-up and its parts cannot disagree.
-  */
-  const courseVerdicts = courseVerdictByStudent(
-    cells,
-    allUnits(grouped),
-    students.map((student) => student.id),
-  );
-
-  const awaiting = countWaiting ? awaitingByStudent(cells) : null;
-
-  /*
-    The one figure here that is not about this course's own work: a fellow's best proctored GCF.
-    Best rather than latest, and the same reading the GCF tab uses — a later, weaker sitting does
-    not take away a score somebody has already achieved.
-  */
-  const proctoredBest = new Map<string, number>();
-  for (const attempt of gcf?.attempts ?? []) {
-    if (attempt.kind !== "PROCTORED") continue;
-    const current = proctoredBest.get(attempt.studentId);
-    if (current === undefined || attempt.score > current) {
-      proctoredBest.set(attempt.studentId, attempt.score);
-    }
-  }
-
-  /*
-    The border's `overflow-hidden` is not a scroller: the container inside `Table` scrolls both
-    axes now, and this div's overflow only clips the opaque sticky cells to the rounded corner.
-  */
-  return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <Table containerClassName={stickyHeaderContainer}>
-        <TableHeader className={stickyHeader}>
-          <TableRow>
-            <TableHead className={stickyColumn}>Student</TableHead>
-            {UNIT_CATEGORIES.map((category) => (
-              <TableHead key={category} className="text-center">
-                <span className="mx-auto block max-w-28 text-xs leading-tight">
-                  Completed
-                  <br />
-                  {CATEGORY_META[category].pluralNoun}
-                </span>
-              </TableHead>
-            ))}
-            <TableHead className="text-center">
-              <span className="mx-auto block max-w-28 text-xs leading-tight">
-                Waiting
-                <br />
-                on you
-              </span>
-            </TableHead>
-            <TableHead className="text-center">
-              <span className="mx-auto block max-w-28 text-xs leading-tight">Course</span>
-            </TableHead>
-            {gcf !== null && (
-              <TableHead className="text-center">
-                {/*
-                  The scale and the target both said once in the heading, so the numbers beneath
-                  are bare — the same convention the GCF tab uses, since a reader moving between
-                  the two should not find one column of `512` and another of `512/600`.
-                */}
-                <span className="mx-auto block max-w-28 text-xs leading-tight">
-                  Best GCF
-                  <br />
-                  <span className="font-normal opacity-70">
-                    out of {PROCTORED_SCALE.max} · target {targetLabel("PROCTORED")}
-                  </span>
-                </span>
-              </TableHead>
-            )}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {students.map((student) => (
-            <TableRow key={student.id}>
-              <TableCell className={cn(stickyColumn, "font-medium")}>
-                <div className={stickyColumnContent}>
-                  {student.testStudentNumber !== null && <TestStudentBadge />}
-                  <Link href={studentHref(courseId, student.id)} className="hover:underline">
-                    {studentLabel(student)}
-                  </Link>
-                </div>
-              </TableCell>
-
-              {UNIT_CATEGORIES.map((category) => (
-                <TableCell
-                  key={category}
-                  className="text-center text-sm font-medium tabular-nums text-muted-foreground"
-                >
-                  {completionLabel(byCategory[category].get(student.id), possible[category])}
-                </TableCell>
-              ))}
-
-              {/*
-                Amber when there is anything, and the same amber as the dots it counts on the
-                other tabs. Zero is muted rather than hidden: "nothing waiting" is worth reading,
-                and a blank cell says only that something failed to render.
-              */}
-              <TableCell
-                className={cn(
-                  "text-center text-sm tabular-nums",
-                  awaiting?.get(student.id)
-                    ? "font-medium text-amber-600 dark:text-amber-400"
-                    : "text-muted-foreground",
-                )}
-              >
-                {awaiting === null ? "—" : (awaiting.get(student.id) ?? 0)}
-              </TableCell>
-
-              <TableCell className="text-center">
-                <VerdictMark verdict={courseVerdicts.get(student.id) ?? "pending"} />
-              </TableCell>
-
-              {gcf !== null && (
-                <TableCell
-                  className={cn(
-                    "text-center text-sm font-medium tabular-nums",
-                    (proctoredBest.get(student.id) ?? 0) >= GCF_TARGET.PROCTORED
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {proctoredBest.get(student.id) ?? "—"}
-                </TableCell>
-              )}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
   );
 }

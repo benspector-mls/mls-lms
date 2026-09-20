@@ -310,7 +310,10 @@ export type RowSort =
   | { by: "waiting"; direction: SortDirection }
   | { by: "late"; direction: SortDirection }
   | { by: "missing"; direction: SortDirection }
-  | { by: "assignment"; assignmentId: string; direction: SortDirection };
+  | { by: "assignment"; assignmentId: string; direction: SortDirection }
+  | { by: "category"; category: string; direction: SortDirection }
+  | { by: "course"; direction: SortDirection }
+  | { by: "gcf"; direction: SortDirection };
 
 export type SortDirection = "asc" | "desc";
 
@@ -326,7 +329,10 @@ export type SortColumn =
   | { by: "waiting" }
   | { by: "late" }
   | { by: "missing" }
-  | { by: "assignment"; assignmentId: string };
+  | { by: "assignment"; assignmentId: string }
+  | { by: "category"; category: string }
+  | { by: "course" }
+  | { by: "gcf" };
 
 export const DEFAULT_ROW_SORT: RowSort = { by: "name", direction: "asc" };
 
@@ -353,6 +359,9 @@ export function namesSameColumn(sort: RowSort, column: SortColumn): boolean {
   if (sort.by !== column.by) return false;
   if (sort.by === "assignment" && column.by === "assignment") {
     return sort.assignmentId === column.assignmentId;
+  }
+  if (sort.by === "category" && column.by === "category") {
+    return sort.category === column.category;
   }
   return true;
 }
@@ -385,6 +394,17 @@ export function sortStudents<S extends SearchableStudent & { id: string }>(
     missing: (studentId: string) => number;
     /** Their score on one assignment as a fraction, or null where there is none. */
     score: (studentId: string, assignmentId: string) => number | null;
+    /**
+     * The three below are the Overview table's own columns, optional because the per-category
+     * grids never offer them — a grid handed such a sort anyway ranks everybody null, which the
+     * null-last rule turns into name order rather than an arbitrary shuffle.
+     */
+    /** How many units of one category they have completed, or null where it cannot say. */
+    category?: (studentId: string, category: string) => number | null;
+    /** Where they stand on the whole course, higher meaning further along. */
+    course?: (studentId: string) => number | null;
+    /** Their best proctored GCF, or null where they have not sat one. */
+    gcf?: (studentId: string) => number | null;
   },
 ): S[] {
   const sign = sort.direction === "asc" ? 1 : -1;
@@ -395,6 +415,9 @@ export function sortStudents<S extends SearchableStudent & { id: string }>(
     if (sort.by === "waiting") return values.waiting(student.id);
     if (sort.by === "late") return values.late(student.id);
     if (sort.by === "missing") return values.missing(student.id);
+    if (sort.by === "category") return values.category?.(student.id, sort.category) ?? null;
+    if (sort.by === "course") return values.course?.(student.id) ?? null;
+    if (sort.by === "gcf") return values.gcf?.(student.id) ?? null;
     return values.score(student.id, sort.assignmentId);
   };
 
