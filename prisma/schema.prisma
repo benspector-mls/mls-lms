@@ -207,6 +207,15 @@ model Program {
   /// `AttendanceSession` for what the absence of a calendar costs and why the cost is accepted.
   term String
 
+  /// Which fellowship this is a run of, and so which competencies its fellows pick goals from.
+  ///
+  /// **A column rather than a table**, for the reason the name above is repeated rather than held
+  /// once: a second table would be a third level in every URL, every query, and every guard for
+  /// the sake of one value. The default is what lets a release that does not know this column
+  /// still create a program while a deploy is in flight; `programs.create` requires the caller to
+  /// choose.
+  discipline Discipline @default(SOFTWARE_ENGINEERING)
+
   /// The one link that enrolls a fellow in this program, and so in every published course of it.
   ///
   /// Moved up from the course, which is most of what this table is for: a fellow used to be sent one
@@ -2343,6 +2352,120 @@ model GcfIdentity {
 }
 
 // ---------------------------------------------------------------------------
+// The competency list: what the school says a fellow is working on.
+//
+// **One list for the application, not one per program.** A `Program` row is one *run* of a
+// fellowship, so a list owned by a run would be copied into each new run and drift from the one
+// beside it, and the sections both fellowships share would exist once per run per discipline.
+// Instead a run names its discipline and each competency says which disciplines it applies to —
+// so the competencies about how a person works and learns are written once, and a technical
+// section reaches only the fellowship it belongs to. `Rubric` is the same shape for the same
+// reason: a taxonomy the school keeps is not a cohort's property.
+//
+// **Admins author every row of it in the application**, sections included. What a goal stores is
+// an entry's id and a *copy* of its wording, so rewording, moving, or deleting an entry here
+// never reaches a goal already written against it — which is what makes an editable list safe.
+// ---------------------------------------------------------------------------
+
+/// Which fellowship a program runs, and so which competencies its fellows are offered.
+///
+/// **Fixed in code, unlike the sections of the list below.** A program names one and `setGoal`
+/// filters on it, which makes a discipline structure rather than content; a third fellowship is a
+/// rarer and larger event than a new section, and costs one value here, one label in
+/// `DISCIPLINE_META`, and a migration.
+enum Discipline {
+  SOFTWARE_ENGINEERING
+  DATA_ANALYTICS
+
+  @@schema("public")
+}
+
+/// Which kind of competency entry a goal was built on: something to work toward, or something to
+/// work away from. Stored on the goal rather than derived from its entry id, because an entry
+/// deleted from the list must not change how a goal already built on it renders.
+enum CompetencyEntryKind {
+  INDICATOR
+  PITFALL
+
+  @@schema("public")
+}
+
+/// One section of the competency list — "Durable Skills", "Software Engineering".
+///
+/// A table rather than an enum, because a list whose leaves an admin can edit and whose branches
+/// they cannot is half an authoring screen: the first new section would be back to asking for a
+/// deploy. Nothing about a section lives in code.
+model CompetencyGroup {
+  id String @id @default(uuid()) @db.Uuid
+
+  name String
+
+  /// Where the section sits in the list, written by `writeOrder` like every other sequence here.
+  position Int
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  competencies Competency[]
+
+  @@map("competency_groups")
+  @@schema("public")
+}
+
+/// One competency: a named thing a fellow develops, with the indicators and pitfalls beneath it.
+model Competency {
+  id      String @id @default(uuid()) @db.Uuid
+  groupId String @map("group_id") @db.Uuid
+
+  name String
+
+  /// The one-line definition, shown wherever the name alone is not enough. May be empty.
+  blurb String
+
+  /// The fellowships this competency is offered to. Empty applies to nobody, which the authoring
+  /// screen says beside the row rather than refusing — a competency being written is allowed to
+  /// be unfinished.
+  disciplines Discipline[]
+
+  position Int
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// `Restrict` rather than `Cascade`: deleting a section is a tidying act and the competencies
+  /// under it are the content, so an admin empties a section before removing it. The same rule
+  /// `CourseUnit` keeps against its assignments.
+  group   CompetencyGroup   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  entries CompetencyEntry[]
+
+  @@index([groupId, position])
+  @@map("competencies")
+  @@schema("public")
+}
+
+/// One selectable line: an indicator of a competency, or a pitfall of it. What a goal is built on.
+model CompetencyEntry {
+  id           String @id @default(uuid()) @db.Uuid
+  competencyId String @map("competency_id") @db.Uuid
+
+  kind CompetencyEntryKind
+  text String
+
+  position Int
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// `Cascade`, unlike the section above: the entries of a deleted competency are part of it, and
+  /// the goals built on them keep their own copy of the wording either way.
+  competency Competency @relation(fields: [competencyId], references: [id], onDelete: Cascade)
+
+  @@index([competencyId, position])
+  @@map("competency_entries")
+  @@schema("public")
+}
+
+// ---------------------------------------------------------------------------
 // Coaching: instructor notes, coaching sessions, and goals.
 //
 // Three kinds of record staff keep on one fellow in one program, with one visibility line
@@ -2360,17 +2483,6 @@ enum DevelopmentMarker {
   DEVELOPING
   PROFICIENT
   EXCEEDS
-
-  @@schema("public")
-}
-
-/// Which kind of competency entry a goal was built on: something to work toward, or something to
-/// work away from. Stored rather than derived from the entry id, because the list in
-/// `lib/competencies.ts` is still being developed and an entry deleted there must not change how
-/// an agreed goal renders.
-enum CompetencyEntryKind {
-  INDICATOR
-  PITFALL
 
   @@schema("public")
 }
@@ -2465,11 +2577,12 @@ model Goal {
   programId    String @map("program_id") @db.Uuid
   enrollmentId String @map("enrollment_id") @db.Uuid
 
-  /// The chosen competency entry: the permanent slug from `lib/competencies.ts`, with the text
-  /// and the competency's name copied as they read at selection. Copies rather than lookups —
-  /// the list is still being developed, and a rewording there must not rewrite what was agreed
-  /// here. `entryKind` is stored for the same reason: an entry deleted from the list must not
-  /// stop a pitfall-goal rendering as one.
+  /// The chosen `CompetencyEntry`'s id, with the text and the competency's name copied as they
+  /// read at selection. **Copies rather than lookups, and no foreign key**: an admin rewords,
+  /// moves, and deletes entries, and a goal has to survive all three holding the words somebody
+  /// set out to work on. `entryKind` is stored for the same reason — an entry that no longer
+  /// exists must not stop a pitfall-goal rendering as one. Goals set while the list lived in code
+  /// hold a slug here that names no row, which reads exactly like a deleted entry.
   entryId        String              @map("entry_id")
   entryKind      CompetencyEntryKind @map("entry_kind")
   entryText      String              @map("entry_text")
