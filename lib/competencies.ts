@@ -24,7 +24,7 @@ import type { CompetencyEntryKind } from "./generated/prisma/enums";
 export type { CompetencyEntryKind };
 
 /** The three sections of the source document, in presentation order. */
-export type CompetencyGroup = "PROFESSIONALISM" | "LEADERSHIP_SEMINAR" | "SWE_TECHNICAL";
+export type CompetencyGroup = "DURABLE_SKILLS" | "LEADERSHIP_DEVELOPMENT" | "SOFTWARE_ENGINEERING";
 
 /** One selectable line: an indicator or a pitfall. */
 export type Entry = {
@@ -49,9 +49,9 @@ export type Competency = {
 };
 
 export const COMPETENCY_GROUPS = [
-  "PROFESSIONALISM",
-  "LEADERSHIP_SEMINAR",
-  "SWE_TECHNICAL",
+  "DURABLE_SKILLS",
+  "LEADERSHIP_DEVELOPMENT",
+  "SOFTWARE_ENGINEERING",
 ] as const satisfies readonly CompetencyGroup[];
 
 export type GroupMeta = {
@@ -64,16 +64,16 @@ export type GroupMeta = {
  * compile error — the same guarantee `CATEGORY_META` makes in `lib/course-units.ts`.
  */
 export const GROUP_META = {
-  PROFESSIONALISM: { label: "Professionalism & Productivity" },
-  LEADERSHIP_SEMINAR: { label: "Leadership Seminar" },
-  SWE_TECHNICAL: { label: "SWE Technical" },
+  DURABLE_SKILLS: { label: "Durable Skills" },
+  LEADERSHIP_DEVELOPMENT: { label: "Leadership & Development" },
+  SOFTWARE_ENGINEERING: { label: "Software Engineering" },
 } satisfies Record<CompetencyGroup, GroupMeta>;
 
 export const COMPETENCIES = [
-  // ————— Professionalism & Productivity —————
+  // ————— Durable Skills —————
   {
     id: "growth-mindset",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Growth Mindset",
     blurb:
       "Deriving satisfaction from growth and proactively seeking feedback and assistance to continuously improve and evolve.",
@@ -125,7 +125,7 @@ export const COMPETENCIES = [
   },
   {
     id: "time-task-management",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Time & Task Management",
     blurb:
       "Prioritizing workloads effectively to consistently meet deadlines and deliver reliable results.",
@@ -170,7 +170,7 @@ export const COMPETENCIES = [
   },
   {
     id: "learning-retention",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Learning & Retaining Information",
     blurb:
       "Effectively learning new skills and retaining that knowledge. Taking ownership of one's educational journey through disciplined study and self-management.",
@@ -218,7 +218,7 @@ export const COMPETENCIES = [
   },
   {
     id: "transparent-communication",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Timely and Transparent Communication",
     blurb:
       "Managing professional obligations through timely, transparent updates regarding status and responsibilities.",
@@ -261,7 +261,7 @@ export const COMPETENCIES = [
   },
   {
     id: "presence-participation",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Presence & Participation",
     blurb:
       "Demonstrating reliability and commitment through high attendance and participation rates.",
@@ -297,7 +297,7 @@ export const COMPETENCIES = [
   },
   {
     id: "collaboration",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Collaboration",
     blurb:
       "Working harmoniously within a team to achieve shared objectives through mutual support.",
@@ -336,7 +336,7 @@ export const COMPETENCIES = [
   },
   {
     id: "leadership",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Leadership",
     blurb:
       "Motivating others and managing project lifecycles by leveraging team strengths and maintaining a positive, goal-oriented attitude.",
@@ -389,7 +389,7 @@ export const COMPETENCIES = [
   },
   {
     id: "ethical-technology-use",
-    group: "PROFESSIONALISM",
+    group: "DURABLE_SKILLS",
     name: "Ethical Technology Use",
     blurb:
       "Leveraging digital tools responsibly and efficiently to solve problems and enhance productivity.",
@@ -440,10 +440,10 @@ export const COMPETENCIES = [
     ],
   },
 
-  // ————— Leadership Seminar —————
+  // ————— Leadership & Development —————
   {
     id: "critical-thinking",
-    group: "LEADERSHIP_SEMINAR",
+    group: "LEADERSHIP_DEVELOPMENT",
     name: "Critical Thinking",
     blurb: "Analyzing information objectively to make reasoned judgments and innovative decisions.",
     indicators: [
@@ -485,7 +485,7 @@ export const COMPETENCIES = [
   },
   {
     id: "career-self-development",
-    group: "LEADERSHIP_SEMINAR",
+    group: "LEADERSHIP_DEVELOPMENT",
     name: "Career & Self-Development",
     blurb:
       "Proactively seeking opportunities for personal growth and long-term professional advancement.",
@@ -536,7 +536,7 @@ export const COMPETENCIES = [
   },
   {
     id: "equity-inclusion",
-    group: "LEADERSHIP_SEMINAR",
+    group: "LEADERSHIP_DEVELOPMENT",
     name: "Equity & Inclusion Lens",
     blurb:
       "Integrating diverse perspectives and fostering an environment where all identities are respected and valued.",
@@ -583,7 +583,7 @@ export const COMPETENCIES = [
   },
   {
     id: "storytelling",
-    group: "LEADERSHIP_SEMINAR",
+    group: "LEADERSHIP_DEVELOPMENT",
     name: "Storytelling",
     blurb:
       "Crafting clear, compelling narratives in writing and speech to effectively communicate complex ideas.",
@@ -630,7 +630,7 @@ export const COMPETENCIES = [
   },
   {
     id: "curiosity",
-    group: "LEADERSHIP_SEMINAR",
+    group: "LEADERSHIP_DEVELOPMENT",
     name: "Curiosity",
     blurb:
       "Maintaining an active desire to learn, explore new concepts, and challenge the status quo.",
@@ -673,10 +673,10 @@ export const COMPETENCIES = [
     ],
   },
 
-  // ————— SWE Technical —————
+  // ————— Software Engineering —————
   {
     id: "technical-communication",
-    group: "SWE_TECHNICAL",
+    group: "SOFTWARE_ENGINEERING",
     name: "Technical Communication",
     blurb:
       "Clearly articulating the “what, how, and why” of technical decisions and product development to diverse audiences, from stakeholders to teammates.",
@@ -719,7 +719,7 @@ export const COMPETENCIES = [
   },
   {
     id: "mental-models",
-    group: "SWE_TECHNICAL",
+    group: "SOFTWARE_ENGINEERING",
     name: "Mental Models",
     blurb:
       "Creating simplified abstractions of complex systems to focus on essential concepts, enabling faster learning and better problem-solving.",
@@ -764,7 +764,7 @@ export const COMPETENCIES = [
   },
   {
     id: "systems-thinking",
-    group: "SWE_TECHNICAL",
+    group: "SOFTWARE_ENGINEERING",
     name: "Systems Thinking",
     blurb:
       "Analyzing how individual components and dependencies interact within a larger framework to design reliable, scalable, and maintainable software.",
@@ -807,7 +807,7 @@ export const COMPETENCIES = [
   },
   {
     id: "methodical-debugging",
-    group: "SWE_TECHNICAL",
+    group: "SOFTWARE_ENGINEERING",
     name: "Methodical Debugging",
     blurb:
       "Applying a structured, methodical approach to identify root causes and implement comprehensive fixes rather than relying on guesswork.",
@@ -859,7 +859,7 @@ export const COMPETENCIES = [
   },
   {
     id: "detail-orientation",
-    group: "SWE_TECHNICAL",
+    group: "SOFTWARE_ENGINEERING",
     name: "Detail Orientation",
     blurb:
       "Taking professional pride in producing clean, well-documented code and error-free materials that adhere to industry best practices and team standards.",

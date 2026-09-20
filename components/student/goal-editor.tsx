@@ -183,7 +183,7 @@ function entryOfGoal(goal: Goal): PickableEntry {
     text: goal.entryText,
     competencyName: goal.competencyName,
     competencyId: current?.competencyId ?? "",
-    group: current?.group ?? "PROFESSIONALISM",
+    group: current?.group ?? "DURABLE_SKILLS",
   };
 }
 

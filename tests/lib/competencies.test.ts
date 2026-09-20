@@ -18,7 +18,11 @@ import {
 
 describe("the groups", () => {
   it("names all three, in presentation order", () => {
-    expect(COMPETENCY_GROUPS).toEqual(["PROFESSIONALISM", "LEADERSHIP_SEMINAR", "SWE_TECHNICAL"]);
+    expect(COMPETENCY_GROUPS).toEqual([
+      "DURABLE_SKILLS",
+      "LEADERSHIP_DEVELOPMENT",
+      "SOFTWARE_ENGINEERING",
+    ]);
   });
 
   it("labels every group", () => {
@@ -28,8 +32,8 @@ describe("the groups", () => {
   });
 
   it("orders the competencies by group, groups in their declared order", () => {
-    const groupOrder = COMPETENCIES.map(
-      (competency) => COMPETENCY_GROUPS.indexOf(competency.group),
+    const groupOrder = COMPETENCIES.map((competency) =>
+      COMPETENCY_GROUPS.indexOf(competency.group),
     );
     expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
   });
@@ -38,9 +42,9 @@ describe("the groups", () => {
 describe("the competencies", () => {
   it("holds all eighteen from the source document", () => {
     expect(COMPETENCIES).toHaveLength(18);
-    expect(COMPETENCIES.filter((c) => c.group === "PROFESSIONALISM")).toHaveLength(8);
-    expect(COMPETENCIES.filter((c) => c.group === "LEADERSHIP_SEMINAR")).toHaveLength(5);
-    expect(COMPETENCIES.filter((c) => c.group === "SWE_TECHNICAL")).toHaveLength(5);
+    expect(COMPETENCIES.filter((c) => c.group === "DURABLE_SKILLS")).toHaveLength(8);
+    expect(COMPETENCIES.filter((c) => c.group === "LEADERSHIP_DEVELOPMENT")).toHaveLength(5);
+    expect(COMPETENCIES.filter((c) => c.group === "SOFTWARE_ENGINEERING")).toHaveLength(5);
   });
 
   it("gives each a slug id, a name, and a one-line definition", () => {
@@ -160,15 +164,11 @@ describe("filterCompetencies", () => {
   });
 
   it("keeps every competency of a group whose label matches", () => {
-    const result = filterCompetencies("leadership seminar");
+    const result = filterCompetencies("durable skills");
 
-    expect(result.map((competency) => competency.group)).toEqual([
-      "LEADERSHIP_SEMINAR",
-      "LEADERSHIP_SEMINAR",
-      "LEADERSHIP_SEMINAR",
-      "LEADERSHIP_SEMINAR",
-      "LEADERSHIP_SEMINAR",
-    ]);
+    expect(result.map((competency) => competency.group)).toEqual(
+      Array.from({ length: 8 }, () => "DURABLE_SKILLS"),
+    );
     expect(result[0].indicators.length).toBeGreaterThan(0);
   });
 
