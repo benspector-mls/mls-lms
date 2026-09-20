@@ -35,7 +35,7 @@ Beyond those two there are no settings. No notification preferences, no email ch
 
 An admin can do everything [an instructor can do](#what-an-instructor-can-do), in **every** program, without being added to it. That is the main thing to understand about the role, and it is the recovery path when an instructor leaves mid-term: an admin can reach their programs, hand them to somebody else, and keep the year running.
 
-Six things are an admin's alone.
+Seven things are an admin's alone.
 
 ### Deciding who is staff
 
@@ -80,6 +80,16 @@ On any program's **Roster** an admin can **add a test student** — a real, work
 
 Two things to expect while you are in that view. Your admin powers are **refused**, because to the application you are a student for the length of the session. And the Profile screen is now the test student's, so saving a name there renames them rather than you; the screen says so.
 
+### Writing the competency list
+
+**Admin → Competencies** is what a fellow chooses a goal from: sections, the competencies under them, and under each one the skills to work toward and the pitfalls to work away from. One list for the school, written here and shared by every program.
+
+**Each competency says which fellowships it is offered to.** The competencies about how somebody works and learns are usually offered to both the software engineering and the data analytics fellowships, and a technical section to one of them — so what the two share is written once rather than kept twice and left to drift apart. A fellow is shown their own programme's discipline and nothing else, and a section left empty by that is not shown at all.
+
+**Editing this cannot damage a goal.** A goal copies its entry's wording the moment it is set and never reads it back, so rewording an entry, moving it, or deleting the whole competency leaves every goal already written exactly as its author wrote it. That is why deleting asks for no confirmation beyond the click: there is nothing of anybody else's to lose.
+
+The one refusal is a **section that still holds competencies**, which says how many and asks you to move or delete them first.
+
 ### Reaching every program
 
 An admin passes every check a program makes about who instructs it. So you can open any program's attendance, roster and settings and any of its courses' triage, gradebook and curriculum, archive either, delete either, transfer who owns a program, and remove an instructor from it, without anybody adding you first.
@@ -110,7 +120,9 @@ This is remembered by your browser, so it is per computer rather than per accoun
 
 ### Starting a program, and adding its courses
 
-**New program** on the Programs screen asks for two things: a name and a **term** — when it starts, in whatever words you use. Both, because a school runs several programs a year and each program runs every year, so either alone would not say which one you meant. A program is created **empty**.
+**New program** on the Programs screen asks for three things: a name, a **term** — when it starts, in whatever words you use — and which **fellowship** it is a run of. The name and the term both, because a school runs several programs a year and each program runs every year, so either alone would not say which one you meant. A program is created **empty**.
+
+**The fellowship decides which competencies its fellows set goals against**, and nothing else. Unlike the name and the term it can be changed later, from the program's Settings screen; goals already set keep the wording they were built on, so nobody's record changes underneath them.
 
 The first thing a new program needs is its roster: who you are expecting, and the join link to send them. The courses come next.
 
@@ -432,7 +444,7 @@ The **Feedback** tab shows every round, oldest first, each with its score and it
 
 ### Your goals
 
-**Goals** sits beside Attendance in your sidebar, and what is on it is yours. Set a goal for something you want to get better at: choose a skill to work toward or a pitfall to work away from, from your program's competencies, then write what success would look like, two objectives, and what you will do before the next coaching session. Say where you are with it — Foundational, Developing, Proficient, Exceeds — or leave that until you have decided.
+**Goals** sits beside Attendance in your sidebar, and what is on it is yours. Set a goal for something you want to get better at: choose a skill to work toward or a pitfall to work away from, from the competencies your fellowship uses, then write what success would look like, two objectives, and what you will do before the next coaching session. Say where you are with it — Foundational, Developing, Proficient, Exceeds — or leave that until you have decided.
 
 **Change any of it whenever you like**, and remove a goal when it stops being what you are working on. You do not need permission and you do not need to wait for a session, though most goals get agreed in one.
 
