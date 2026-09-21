@@ -257,7 +257,9 @@ Open a fellow from the roster and their record has two tabs under their details.
 
 **The goals belong to the fellow, and the session is where you talk them through.** Their goals appear on the form beside your questions, read-only: you guide somebody to set one, or to move where they say they stand, and they do it on their own screen. Nothing on this page writes a goal. If you think somebody has placed themselves too high or too low, say so — that is what the conversation is for.
 
-**Open a goal to read the plan behind it** — what success looks like to them, the skills, habits and mindsets they are after, and what they said they would do before the next session. The same rows, opening the same way, are on the Coaching tab of their record, so preparing for a conversation and having it show you the same words.
+**Open a goal to read the plan behind it** — what success looks like to them, the skills, habits and mindsets they are after, and what they said they would do before the next session — **and the updates they have written under it**: progress notes in their words, with any files they attached, which you can open. The same rows, opening the same way, are on the Coaching tab of their record, so preparing for a conversation and having it show you the same words. A goal is named by the fellow now; the competency it is about, if any, sits beneath the name.
+
+**The form ends with Additional notes**, staff-only like the check-in, for whatever did not fit anywhere above. It saves as you type with the rest.
 
 **Completing a session shares the snapshot.** Until then it is a staff-only draft the fellow cannot see; completing it gives them the dated figures and closes the form to further editing. The temperature check and the check-in answers stay staff-only for good, and their goals are unaffected either way.
 
@@ -450,7 +452,9 @@ The **Feedback** tab shows every round, oldest first, each with its score and it
 
 ### Your goals
 
-**Goals** sits beside Attendance in your sidebar, and what is on it is yours. Set a goal for something you want to get better at: choose a skill to work toward or a pitfall to work away from, from the competencies your fellowship uses, then write what success would look like, two objectives, and what you will do before the next coaching session. Say where you are with it — Foundational, Developing, Proficient, Exceeds — or leave that until you have decided.
+**Goals** sits beside Attendance in your sidebar, and what is on it is yours. Set a goal for something you want to get better at, **in your own words** — specific enough that you would know when you had reached it, which is the point of writing it yourself. If it is about one of the competencies your fellowship uses, choose the skill to work toward or the pitfall to work away from; if it is not, leave that off. Then write what success would look like, the skills, habits and mindsets that would get you there, and what you will do before the next coaching session. Say where you are with it — Foundational, Developing, Proficient, Exceeds — or leave that until you have decided.
+
+**Under each goal, write updates as you go.** An update is how it is going: a few lines in markdown, a link written as `[what it is](https://…)`, and files as evidence — a screenshot, a document — up to ten per update at the same size and kinds as any upload here. Edit or remove an update whenever you like. Your instructors can read them and open the files; nobody else can.
 
 **Change any of it whenever you like**, and remove a goal when it stops being what you are working on. You do not need permission and you do not need to wait for a session, though most goals get agreed in one.
 
