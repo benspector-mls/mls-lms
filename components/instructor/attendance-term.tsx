@@ -12,9 +12,12 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
+  stickyHeader,
+  stickyHeaderContainer,
 } from "@/components/ui/table";
 import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
 import {
+  dailyRates,
   driftList,
   DRIFT_RULE,
   programRate,
@@ -73,12 +76,17 @@ const LETTER_CLASS: Record<AttendanceStatus, string> = {
 };
 
 export function AttendanceTerm({ programId, data }: { programId: string; data: Term }) {
+  /*
+    Nothing has been held yet. It points at Schedule rather than saying only that the tab is empty:
+    a program whose term starts next Monday has done nothing wrong, and the days it will hold are
+    already made and visible one tab away.
+  */
   if (data.sessions.length === 0) {
     return (
       <EmptyState
         icon={<CalendarRange />}
         title="No sessions yet"
-        description="Once you have started a check-in, this is where the term's record builds up."
+        description="Once a day has been held, this is where the term's record builds up. The days still to come are under Schedule."
       />
     );
   }
@@ -236,10 +244,18 @@ function Grid({
   sessions: SummarySession[];
   fellows: FellowSummary[];
 }) {
+  // One figure per column, from the same summaries the letters below come from. See `dailyRates`.
+  const rates = dailyRates(sessions, fellows);
+
+  /*
+    The border's `overflow-hidden` is not a scroller: the container inside `Table` scrolls both
+    axes, and this div's overflow only clips the opaque frozen cells to the rounded corner. The
+    same arrangement `gradebook-grid.tsx` uses, and the note there explains it at length.
+  */
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <Table>
-        <TableHeader>
+    <div className="overflow-hidden rounded-lg border border-border">
+      <Table containerClassName={stickyHeaderContainer}>
+        <TableHeader className={stickyHeader}>
           <TableRow>
             {/*
               Only the name column is pinned. Pinning the summary columns too would leave a phone
@@ -265,6 +281,44 @@ function Grid({
           </TableRow>
         </TableHeader>
         <TableBody>
+          {/*
+            How much of the roster turned up each day, directly under the date and above the
+            fellows.
+
+            **Cells that describe their columns, at the top of the body.** They stay `<th>`s, so
+            each one says what its column is about rather than naming a fellow, and the row takes
+            no hover — a summary sitting among the fellows would read as one.
+
+            **It scrolls away with the fellows rather than staying under the frozen dates**, which
+            is the arrangement `gradebook-grid.tsx` uses for its Completed row and for the same
+            reason. What is held at the top is what each column *is* — a date, true however the
+            table is scrolled. These figures are a reading of the rows beneath them, so they belong
+            with those rows.
+          */}
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
+              Attendance rate
+            </TableHead>
+            <TableHead />
+            <TableHead />
+            <TableHead />
+            <TableHead />
+            <TableHead />
+            {rates.map((rate, index) => (
+              <TableHead
+                key={sessions[index].id}
+                className="text-center text-xs font-medium tabular-nums text-muted-foreground"
+              >
+                {/*
+                  A dash where a fellow's own rate would show one: a day still running or still to
+                  come has settled nothing, and a figure over a moving denominator is worse than
+                  no figure.
+                */}
+                {rate === null ? "—" : formatPercent(rate)}
+              </TableHead>
+            ))}
+          </TableRow>
+
           {fellows.map((summary) => (
             <TableRow key={summary.fellow.enrollmentId}>
               <TableCell className={stickyColumn}>

@@ -56,6 +56,14 @@ export type CalendarDay = {
    */
   open: boolean;
   /**
+   * A day the program will meet that has not come.
+   *
+   * Drawn hollow rather than blank, because a schedule's whole value to a fellow is being able to
+   * see that next Tuesday is a class day. It is not an absence and not an open check-in, and
+   * `kindOf` ranks it behind a status so an excusal set ahead of time still shows.
+   */
+  upcoming: boolean;
+  /**
    * Where the mark came from, already in words: "checked in at 9:02", "marked by Ben Spector".
    *
    * Composed by the caller rather than here, because turning a source and a timestamp into a

@@ -1,16 +1,18 @@
 import { Suspense } from "react";
-import Link from "next/link";
 
+import { AttendanceCalendar } from "@/components/instructor/attendance-calendar";
 import { AttendanceDay } from "@/components/instructor/attendance-day";
+import { ProgramLateness } from "@/components/instructor/program-lateness";
+import { ProgramSchedule } from "@/components/instructor/program-schedule";
 import { AttendanceDownload } from "@/components/instructor/attendance-download";
 import { AttendanceTerm } from "@/components/instructor/attendance-term";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { attendanceCsv, attendanceCsvIsEmpty } from "@/lib/attendance/csv";
-import { attendanceDayHref } from "@/lib/links";
 import { formatSchoolDay } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
+import { stateIsUnsettled } from "@/lib/attendance/window";
 
 /**
  * Attendance: this morning, and the term behind it.
@@ -60,7 +62,7 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
   const sessions = history.sessions.map((session) => ({
     id: session.id,
     day: session.day,
-    open: session.state === "open" || session.state === "pending",
+    unsettled: stateIsUnsettled(session.state),
   }));
 
   /*
@@ -87,8 +89,13 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
   };
 
   const days = sessions.map((session) => session.day);
-  // Newest first, and today is the other tab — so it is not repeated in the list.
-  const past = [...history.sessions].reverse().filter((session) => session.day !== grid.day);
+
+  /*
+    The days behind and including today, for the calendar. It fetches the days ahead itself, from
+    `upcoming` — `history` deliberately carries nothing past today, and the calendar is the one
+    place on this screen that wants both halves.
+  */
+  const throughToday = history.sessions.map((session) => ({ day: session.day, state: session.state }));
 
   return (
     <div className="mx-auto flex w-full flex-col gap-6 p-4 md:p-6">
@@ -98,6 +105,7 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
         <TabsList>
           <TabsTrigger value="today">Today</TabsTrigger>
           <TabsTrigger value="term">The whole term</TabsTrigger>
+          <TabsTrigger value="schedule">Schedule</TabsTrigger>
         </TabsList>
 
         {/*
@@ -153,39 +161,32 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
               arrivals: history.arrivals,
             }}
           />
+        </TabsContent>
 
-          {past.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <div className="flex flex-col gap-0.5">
-                <h2 className="text-sm font-medium">Earlier sessions · {past.length}</h2>
-                <p className="text-xs text-muted-foreground">
-                  The same days the grid above is columned by, as a list — any of them can still be
-                  corrected. A change made now records today&apos;s date as when it was made, which
-                  is the fact an audit asks about.
-                </p>
-              </div>
+        {/*
+          When the program meets, and the days that rule produced.
 
-              <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-                {past.map((session) => (
-                  <li key={session.id}>
-                    <Link
-                      href={attendanceDayHref(programId, session.day)}
-                      className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-muted/50"
-                    >
-                      <span className="font-medium">{formatSchoolDay(session.day)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {session.state === "open"
-                          ? "Still open"
-                          : session.state === "lapsed"
-                            ? "Closed on its own"
-                            : "Ended"}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          **The rule and its exceptions on one screen**, which is the whole reason this tab exists.
+          The rule was on the program's settings screen and the exceptions were under the term
+          grid, so maintaining the calendar meant two screens — and cancelling tomorrow's class
+          meant a detour past the button that deletes the program.
+
+          Last of the three because it is the least visited. Taking attendance happens every
+          morning and reading the record happens weekly; this is opened at the start of a term and
+          on the days it snows.
+        */}
+        <TabsContent value="schedule" className="mt-4">
+          <div className="flex w-full max-w-5xl flex-col gap-6">
+            <ProgramSchedule program={grid.program} />
+            <ProgramLateness program={grid.program} />
+            <AttendanceCalendar
+              programId={programId}
+              throughToday={throughToday}
+              today={grid.day}
+              hasSchedule={grid.program.hasSchedule}
+              startsAt={grid.program.attendanceStartsAt}
+            />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -7,6 +7,8 @@ import {
   schoolDayFromColumn,
   schoolDayOf,
   schoolDaySchema,
+  formatSchoolClock,
+  formatSchoolTime,
 } from "@/lib/school-time";
 
 /**
@@ -185,5 +187,32 @@ describe("formatSchoolDay", () => {
     // 2026-09-14 is a Monday. Formatted through a local `Date` this would read as Sunday on any
     // machine west of UTC — the same bug the storage rules exist to prevent, in the display half.
     expect(formatSchoolDay("2026-09-14")).toBe("Monday, Sep 14");
+  });
+});
+
+describe("formatSchoolClock", () => {
+  /*
+    The companion to `schoolClockOf`, which writes the 24-hour string a time input reads and
+    writes. This reads it back out the way every other time on a screen is printed.
+  */
+  it("prints a morning time the way the rest of the application does", () => {
+    expect(formatSchoolClock("09:30")).toBe("9:30 AM");
+  });
+
+  it("and an afternoon one", () => {
+    expect(formatSchoolClock("13:05")).toBe("1:05 PM");
+  });
+
+  // The two a twelve-hour clock gets wrong when it is written by hand.
+  it("calls midnight and noon by their right names", () => {
+    expect(formatSchoolClock("00:00")).toBe("12:00 AM");
+    expect(formatSchoolClock("12:00")).toBe("12:00 PM");
+  });
+
+  // It formats a wall clock, so no date and no timezone enter into it — the same reason
+  // `formatClockMinutes` does not go through `formatSchoolTime`.
+  it("round-trips whatever schoolClockOf writes", () => {
+    const at = new Date("2026-09-14T13:02:00Z");
+    expect(formatSchoolClock(schoolClockOf(at))).toBe(formatSchoolTime(at));
   });
 });

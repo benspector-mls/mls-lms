@@ -25,11 +25,12 @@ import {
   DISCIPLINE_META,
   type Discipline,
 } from "@/lib/competencies";
-import { competenciesHref, programsHref, triageHref } from "@/lib/links";
+import { attendanceHref, competenciesHref, programsHref, triageHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
+import { ProgramInstructors } from "@/components/instructor/program-instructors";
 
 /**
  * The program itself: what it is, its courses, when a fellow counts as late, and how it is
@@ -71,10 +72,17 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
         </div>
       )}
 
+      {/*
+        Ordered by how often somebody comes for each. What the program is and what it teaches are
+        read in the first week of a term; who instructs it is read when somebody joins or leaves;
+        where attendance lives is read once, by whoever went looking for it here; and ending the
+        year is read at the end of the year.
+      */}
       <IdentityCard data={data} />
       <DisciplineCard data={data} />
       <CoursesCard data={data} courses={courses} />
-      <AttendanceCard data={data} />
+      <ProgramInstructors data={data} />
+      <AttendancePointer data={data} />
       <ArchiveCard data={data} />
       {/*
         Only on an archived program, and only for whoever owns it — the same two conditions the
@@ -260,82 +268,28 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
 }
 
 /**
- * How long after check-in opens a fellow still counts as on time.
+ * Where attendance is set up, said once on the screen somebody will look first.
  *
- * The program's own number, because it is one: a program that starts with fifteen minutes of
- * standup and one that starts with a quiz disagree about when the door closes, and neither is wrong.
- * **One value rather than one per course**, which is the duplication attendance moving up removed —
- * there is one morning, so there is one answer.
+ * **Everything about attendance moved to the Attendance screen**, and this line is the cost of
+ * that move. When the program meets, what time class starts, and when somebody counts as late
+ * were three cards here, among the program's name and its courses — a settings screen holding two
+ * unrelated subjects. They belong beside the calendar they produce, and the calendar belongs where
+ * an instructor already is on the morning it snows.
  *
- * **It applies to sessions started from now on and rewrites nothing.** Each session copies this when
- * it starts, which is what makes the setting editable at all — read live, changing it in November
- * would silently convert a term of recorded lateness and no report would agree with any report
- * printed before it. The sentence below says so, because somebody about to change it is exactly the
- * person who needs to know.
+ * A sentence rather than a redirect: somebody who opens this screen looking for the lateness rule
+ * is not wrong to have looked, and telling them where it went costs one line.
  */
-function AttendanceCard({ data }: { data: Data }) {
-  const trpc = useTRPC();
-  const settled = useServerMutation();
-
-  const [minutes, setMinutes] = React.useState(String(data.program.attendanceLateAfterMinutes));
-
-  const save = useMutation(
-    trpc.programs.setAttendanceLateAfter.mutationOptions(
-      settled({
-        onSuccess: (result) =>
-          toast.success(
-            result.attendanceLateAfterMinutes === 0
-              ? "Arriving after check-in opens now counts as late."
-              : `The first ${result.attendanceLateAfterMinutes} minutes now count as on time.`,
-          ),
-      }),
-    ),
-  );
-
-  const parsed = Number(minutes);
-  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 120;
-  const changed = parsed !== data.program.attendanceLateAfterMinutes;
-
+function AttendancePointer({ data }: { data: Data }) {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Attendance</h2>
-        <p className="text-xs text-muted-foreground">
-          One check-in a day for the whole program, however many courses somebody is taking.
-          Check-in runs until you end it, or for eight hours — whichever comes first, and you can
-          extend it while it is open.
-        </p>
-      </div>
-
-      <form
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) save.mutate({ programId: data.program.id, minutes: parsed });
-        }}
-      >
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium">Minutes that still count as on time</span>
-          <Input
-            value={minutes}
-            onChange={(event) => setMinutes(event.target.value.replace(/\D/g, "").slice(0, 3))}
-            inputMode="numeric"
-            className="w-24"
-          />
-        </label>
-        <Button
-          type="submit"
-          size="sm"
-          variant="outline"
-          disabled={!valid || !changed || save.isPending}
-        >
-          Save
-        </Button>
-      </form>
-
+    <section className="flex flex-col gap-1 rounded-lg border border-border p-4">
+      <h2 className="text-sm font-medium">Attendance</h2>
       <p className="text-xs text-muted-foreground">
-        Applies to sessions started from now on. Nothing already recorded changes — to correct a
-        morning that was taken with the wrong number, open that day from the attendance screen.
+        When this program meets, what time class starts, when somebody counts as late, and the
+        calendar of its days are all on the{" "}
+        <Link href={attendanceHref(data.program.id)} className="font-medium underline-offset-4 hover:underline">
+          Attendance screen
+        </Link>
+        , under Schedule.
       </p>
     </section>
   );

@@ -10,7 +10,7 @@ import { CELL, isMarked, kindOf, LATE_WEDGE_CLASS } from "@/lib/attendance/cells
 import { weekdayInitial } from "@/lib/attendance/calendar";
 import { myAttendanceHref } from "@/lib/links";
 import { formatPercent } from "@/lib/status";
-import { formatSchoolDay } from "@/lib/school-time";
+import { formatSchoolDay, formatSchoolTime } from "@/lib/school-time";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -164,6 +164,12 @@ function ProgramWeek({
         phone without pushing the week off the side. It is also the row that is absent for most of
         the day, once check-in has closed, which is why the two above it are self-contained.
       */}
+      {row.opensAt && (
+        <span className="text-xs text-muted-foreground">
+          Check-in opens at {formatSchoolTime(new Date(row.opensAt))}
+        </span>
+      )}
+
       {row.open &&
         (row.open.checkedIn ? (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

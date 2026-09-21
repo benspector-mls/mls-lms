@@ -246,6 +246,23 @@ export function formatClockMinutes(minutes: number): string {
   return `${hours12}:${String(mins).padStart(2, "0")} ${suffix}`;
 }
 
+/**
+ * A `SchoolClock` as a person would say it. `"09:30"` becomes "9:30 AM".
+ *
+ * **The companion to `schoolClockOf`**, which writes the 24-hour string a `<input type="time">`
+ * reads. A screen that has the program's start time as a setting rather than as an instant — the
+ * dialog offering to make a day, for one — has a string and no date to turn it into, and printing
+ * the raw `"09:30"` would be the one time on the screen not written like the others.
+ *
+ * Through `formatClockMinutes`, so there is one definition of how a wall clock is printed, and
+ * like it this formats a duration rather than an instant: no date is built and no timezone enters
+ * into it, because a clock time has neither.
+ */
+export function formatSchoolClock(clock: SchoolClock): string {
+  const [hours, minutes] = clock.split(":").map(Number);
+  return formatClockMinutes(hours * 60 + minutes);
+}
+
 /** The same, without the weekday, for a column heading where the day is one of many. */
 export function formatSchoolDayShort(day: SchoolDay): string {
   return dateColumnFor(day).toLocaleDateString("en-US", {

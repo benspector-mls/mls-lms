@@ -96,9 +96,12 @@ export function AttendanceDay({ data }: { data: Grid }) {
     refetchInterval: (query) => {
       const session = query.state.data?.session;
 
-      // Slowly while a code exists and check-in has not opened, because the thing worth noticing
-      // then is a co-teacher pressing start — which changes every control on this screen.
-      if (session?.state === "pending") return POLL_SLOW_MS;
+      /*
+        Slowly while a code exists and check-in has not opened. For a prepared day the thing worth
+        noticing is a co-teacher pressing start; for a scheduled one it is the window opening on
+        its own, which changes every control on this screen with nobody having touched it.
+      */
+      if (session?.state === "pending" || session?.state === "scheduled") return POLL_SLOW_MS;
       if (session?.state !== "open") return false;
 
       const arrivalEndsAt = session.startedAt.getTime() + ARRIVAL_MINUTES * 60 * 1000;
@@ -217,10 +220,12 @@ export function AttendanceDay({ data }: { data: Grid }) {
         <StartCard
           day={view.day}
           isToday={view.isToday}
+          isPast={view.isPast}
           archived={view.program.archived}
+          hasSchedule={view.program.hasSchedule}
           busy={busy}
           onStart={() => start.mutate({ programId, day: view.day })}
-          onPrepare={() => prepare.mutate({ programId })}
+          onPrepare={() => prepare.mutate({ programId, day: view.day })}
         />
       )}
 
@@ -288,14 +293,18 @@ export function AttendanceDay({ data }: { data: Grid }) {
 function StartCard({
   day,
   isToday,
+  isPast,
   archived,
+  hasSchedule,
   busy,
   onStart,
   onPrepare,
 }: {
   day: string;
   isToday: boolean;
+  isPast: boolean;
   archived: boolean;
+  hasSchedule: boolean;
   busy: boolean;
   onStart: () => void;
   onPrepare: () => void;
@@ -307,6 +316,33 @@ function StartCard({
         title="This program has finished"
         description="Its attendance stays readable and exportable, but no new session can be started."
       />
+    );
+  }
+
+  /*
+    A scheduled program reaching this card means the day was removed, or it falls outside the
+    program's dates. Either way there is one thing to do and no choice to offer.
+
+    **Except in the past, where the one thing is a different thing.** `prepare` refuses a day that
+    has been and gone — a code for it is useless — so offering it there was a button whose only
+    outcome was a refusal. Writing such a day up by hand is `start`, exactly as it is for a program
+    with no schedule.
+  */
+  if (hasSchedule && !isPast) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-4">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-sm font-medium">{formatSchoolDay(day)} is not a class day</span>
+          <span className="text-xs text-muted-foreground">
+            It was removed, or it falls outside the dates on the settings screen. Making it gives it
+            the program&rsquo;s usual start time, and its code works from two hours before that.
+          </span>
+        </div>
+        <Button size="sm" disabled={busy} onClick={onPrepare}>
+          <KeyRound data-icon="inline-start" />
+          Make a session for this day
+        </Button>
+      </div>
     );
   }
 
@@ -374,6 +410,8 @@ function SessionHeader({
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const open = session.state === "open";
   const pending = session.state === "pending";
+  /** Made from the schedule, with its start still more than two hours away. */
+  const scheduled = session.state === "scheduled";
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
@@ -385,6 +423,17 @@ function SessionHeader({
               <>
                 The code is ready and check-in has not started. Fellows cannot check in yet, and
                 being on time is measured from when you start it.
+              </>
+            ) : scheduled && session.opensAt ? (
+              /*
+                All three times, which is what a scheduled day has and a prepared one does not.
+                Nobody presses anything: the sentence exists so an instructor reading the screen
+                at 8:15 knows the code is not broken, it is early.
+              */
+              <>
+                Check-in opens at {formatSchoolTime(new Date(session.opensAt))} · class starts{" "}
+                {formatSchoolTime(new Date(session.startedAt))} · the code stops working at{" "}
+                {formatSchoolTime(new Date(session.endsAt))}. Nobody needs to press anything.
               </>
             ) : open ? (
               <>
@@ -420,6 +469,25 @@ function SessionHeader({
             </>
           )}
 
+          {/*
+            A scheduled day has no Start and no End: it opens and closes on its own, and ending it
+            before the window would mark the whole roster absent, which the server refuses. What is
+            left is putting the code on a screen for the room that is already filling up.
+          */}
+          {scheduled && (
+            <Button
+              size="sm"
+              variant="outline"
+              render={
+                <a href={attendancePresentHref(programId)} target="_blank" rel="noreferrer" />
+              }
+            >
+              <MonitorPlay data-icon="inline-start" />
+              Project the code
+              <ExternalLink className="ml-1 size-3" />
+            </Button>
+          )}
+
           {open && (
             <>
               {/*
@@ -448,7 +516,7 @@ function SessionHeader({
             </>
           )}
 
-          {!open && !pending && !archived && (
+          {!open && !pending && !scheduled && !archived && (
             <Button size="sm" variant="outline" disabled={busy} onClick={onReopen}>
               <RotateCcw data-icon="inline-start" />
               Reopen
@@ -457,7 +525,9 @@ function SessionHeader({
         </div>
       </div>
 
-      {(open || pending) && <CodeCard sessionId={session.id} endsAt={session.endsAt} />}
+      {(open || pending || scheduled) && (
+        <CodeCard sessionId={session.id} endsAt={session.endsAt} />
+      )}
 
       {/*
         Inline rather than a dialog, in the manner of the join link's replace confirmation, and it
@@ -494,7 +564,7 @@ function SessionHeader({
           onClick={() => setConfirmingDelete(true)}
         >
           <Trash2 className="mr-1 inline size-3" />
-          {pending ? "Made this by mistake?" : "Started this by mistake?"}
+          {pending || scheduled ? "Made this by mistake?" : "Started this by mistake?"}
         </button>
       )}
     </div>

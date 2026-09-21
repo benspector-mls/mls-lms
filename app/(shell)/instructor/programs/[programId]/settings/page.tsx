@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 
-import { ProgramInstructors } from "@/components/instructor/program-instructors";
 import { ProgramSettings } from "@/components/instructor/program-settings";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
@@ -52,12 +51,6 @@ async function Settings({ params }: { params: Promise<{ programId: string }> }) 
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <PageHeader title="Settings" description={`${data.program.name} · ${data.program.term}`} />
       <ProgramSettings data={data} courses={courses} />
-      {/*
-        Below the settings rather than above them, because the order is how often somebody comes for
-        each. The lateness rule and the course list are read in the first week of a term and the
-        instructor list is read when somebody joins or leaves, which is rarer.
-      */}
-      <ProgramInstructors data={data} />
     </div>
   );
 }

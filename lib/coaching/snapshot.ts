@@ -19,7 +19,7 @@ import type { Tx } from "@/lib/prisma";
 
 import { SNAPSHOT_VERSION, type CoachingSnapshot } from "../coaching";
 import { summarize } from "../attendance/summary";
-import { sessionStateOf } from "../attendance/window";
+import { isUnsettled } from "../attendance/window";
 import { schoolDayFromColumn, schoolDayOf } from "../school-time";
 
 /**
@@ -181,14 +181,11 @@ export async function assembleSnapshot(
     }),
   ]);
 
-  const summarySessions = sessions.map((session) => {
-    const state = sessionStateOf(session, at);
-    return {
-      id: session.id,
-      day: schoolDayFromColumn(session.date),
-      open: state === "open" || state === "pending",
-    };
-  });
+  const summarySessions = sessions.map((session) => ({
+    id: session.id,
+    day: schoolDayFromColumn(session.date),
+    unsettled: isUnsettled(session, at),
+  }));
 
   const [summary] = summarize(
     summarySessions,

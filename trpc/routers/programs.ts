@@ -1,18 +1,32 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { inTransaction } from "@/lib/prisma";
+import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { arrivalAverages } from "@/lib/attendance/arrival";
 import { courseFiguresFor } from "@/lib/coaching/snapshot";
 import { DISCIPLINES } from "@/lib/competencies";
 import { summarize } from "@/lib/attendance/summary";
-import { sessionStateOf } from "@/lib/attendance/window";
+import { newSessionSecret } from "@/lib/attendance/code";
+import {
+  SCHEDULE_MAX_DAYS,
+  scheduleDiff,
+  scheduleOf,
+  type Schedule,
+} from "@/lib/attendance/schedule";
+import { defaultEndsAt, isUnsettled } from "@/lib/attendance/window";
 import { newJoinToken } from "@/lib/courses/join-token";
 import { displayNameSchema } from "@/lib/people";
 import { assertOwnsProgram, ownerOf } from "@/lib/programs/ownership";
-import { schoolDayFromColumn, schoolDayOf } from "@/lib/school-time";
+import {
+  dateColumnFor,
+  instantAtSchoolClock,
+  schoolDayFromColumn,
+  schoolDayOf,
+  schoolDaySchema,
+  type SchoolDay,
+} from "@/lib/school-time";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
 
 import {
@@ -52,6 +66,117 @@ const attendanceSessionSelect = {
   endedAt: true,
   lateAfterMinutes: true,
 } as const;
+
+/** The four columns a schedule lives in, as every read of one selects them. */
+const scheduleSelect = {
+  attendanceStartsOn: true,
+  attendanceEndsOn: true,
+  attendanceWeekdays: true,
+  attendanceStartsAt: true,
+} as const;
+
+/**
+ * What saving a schedule would do, resolved against the sessions that exist.
+ *
+ * `scheduleDiff` answers which days *changed their meeting status*; this answers which of those
+ * days there is actually work to do about. Three lists come out, and the third is the one worth
+ * having on a screen: a day the new schedule drops but somebody has already checked into is kept
+ * rather than deleted, because deleting it would destroy a record a fellow created.
+ *
+ * **Read-only.** Both the preview and the save call it, which is what stops the sentence above the
+ * button from being computed by different arithmetic from the button.
+ */
+async function resolveScheduleChange(
+  db: Tx,
+  programId: string,
+  previous: Schedule | null,
+  next: Schedule | null,
+  today: SchoolDay,
+): Promise<{ make: SchoolDay[]; remove: SchoolDay[]; blocked: SchoolDay[] }> {
+  const candidates = scheduleDiff(previous, next, today);
+
+  const existing = await db.attendanceSession.findMany({
+    where: { programId, date: { gte: dateColumnFor(today) } },
+    select: { id: true, date: true },
+  });
+
+  const haveADay = new Set(existing.map((session) => schoolDayFromColumn(session.date)));
+
+  // A day that already has a session needs no second one. `@@unique([programId, date])` would
+  // refuse it anyway; filtering here is what makes the count above the button honest.
+  const make = candidates.make.filter((day) => !haveADay.has(day));
+  const removable = candidates.remove.filter((day) => haveADay.has(day));
+
+  const withCheckIns = await db.attendanceRecord.findMany({
+    where: {
+      source: "SELF_CHECK_IN",
+      session: { programId, date: { in: removable.map(dateColumnFor) } },
+    },
+    select: { session: { select: { date: true } } },
+  });
+
+  const blockedDays = new Set(
+    withCheckIns.map((record) => schoolDayFromColumn(record.session.date)),
+  );
+
+  return {
+    make,
+    remove: removable.filter((day) => !blockedDays.has(day)),
+    blocked: removable.filter((day) => blockedDays.has(day)),
+  };
+}
+
+/**
+ * The four fields, validated together.
+ *
+ * All four or none of them, matching the `_schedule_is_whole` CHECK, so a half-filled form is
+ * refused in a sentence rather than by a constraint violation. The two-year bound is what stops a
+ * mistyped year building a list of a hundred thousand days.
+ */
+const scheduleInput = z
+  .object({
+    startsOn: schoolDaySchema.nullable(),
+    endsOn: schoolDaySchema.nullable(),
+    weekdays: z.array(z.number().int().min(0).max(6)).max(7),
+    startsAt: z
+      .string()
+      .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "A start time looks like 09:30.")
+      .nullable(),
+  })
+  .refine(
+    (value) =>
+      (value.startsOn === null) === (value.endsOn === null) &&
+      (value.startsOn === null) === (value.startsAt === null) &&
+      (value.startsOn === null) === (value.weekdays.length === 0),
+    "A schedule needs a first day, a last day, at least one weekday, and a start time.",
+  )
+  .refine(
+    (value) => value.startsOn === null || value.endsOn! >= value.startsOn,
+    "A program cannot finish before it begins.",
+  )
+  .refine((value) => {
+    if (value.startsOn === null) return true;
+    const span =
+      (Date.parse(`${value.endsOn}T00:00:00Z`) - Date.parse(`${value.startsOn}T00:00:00Z`)) /
+      86_400_000;
+    return span <= SCHEDULE_MAX_DAYS;
+  }, `A schedule cannot run longer than ${SCHEDULE_MAX_DAYS} days.`);
+
+/** The schedule as the input gives it, or null when the input clears it. */
+function scheduleFromInput(input: {
+  startsOn: string | null;
+  endsOn: string | null;
+  weekdays: number[];
+  startsAt: string | null;
+}): Schedule | null {
+  if (input.startsOn === null || input.endsOn === null || input.startsAt === null) return null;
+  return {
+    startsOn: input.startsOn,
+    endsOn: input.endsOn,
+    weekdays: input.weekdays,
+    startsAt: input.startsAt,
+  };
+}
 
 const programName = z.string().trim().min(1, "A program needs a name.").max(200);
 const term = z.string().trim().min(1, "A program needs a term.").max(120);
@@ -327,11 +452,10 @@ export const programsRouter = createTRPCRouter({
         today's code at 8:30 would drop this fellow's rate until somebody pressed start.
       */
       const summarySessions = sessions.map((session) => {
-        const state = sessionStateOf(session, now);
         return {
           id: session.id,
           day: schoolDayFromColumn(session.date),
-          open: state === "open" || state === "pending",
+          unsettled: isUnsettled(session, now),
         };
       });
 
@@ -464,7 +588,6 @@ export const programsRouter = createTRPCRouter({
         term: true,
         archivedAt: true,
         createdAt: true,
-        attendanceLateAfterMinutes: true,
         discipline: true,
         joinToken: true,
         instructorToken: true,
@@ -500,6 +623,11 @@ export const programsRouter = createTRPCRouter({
     const ownerId =
       ownerOf(program.instructors.map((row) => ({ ...row, userId: row.user.id })))?.userId ?? null;
 
+    /*
+      No attendance here. When the program meets, what time class starts and when somebody counts
+      as late are read from `attendance.grid`, because the screen that sets them is the Attendance
+      screen — see `AttendancePointer` in `program-settings.tsx` for why they moved.
+    */
     return {
       program,
       /** Which of the instructors is the caller, so the screen never offers to remove them by surprise. */
@@ -603,15 +731,204 @@ export const programsRouter = createTRPCRouter({
    * Instructor-gated rather than owner-only, unlike archiving. It changes what a future session
    * records, not what any fellow can already see.
    */
+  /**
+   * How long after the day starts a fellow still counts as on time.
+   *
+   * **It reaches the days that have not begun.** Under a schedule the sessions for the rest of the
+   * term already exist, each holding a copy of this number, so a change that only affected days
+   * made after it would never reach any of them. Days already begun keep what they ran under,
+   * which is the whole reason the column is copied rather than read through.
+   */
   setAttendanceLateAfter: programProcedure
     .input(z.object({ minutes: z.number().int().min(0).max(120) }))
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.program.update({
+    .mutation(async ({ ctx, input }) => {
+      const today = schoolDayOf(new Date());
+
+      return inTransaction(ctx.db, async (tx) => {
+        const program = await tx.program.update({
+          where: { id: input.programId },
+          data: { attendanceLateAfterMinutes: input.minutes },
+          select: { id: true, attendanceLateAfterMinutes: true },
+        });
+
+        await tx.attendanceSession.updateMany({
+          where: { programId: input.programId, date: { gt: dateColumnFor(today) } },
+          data: { lateAfterMinutes: input.minutes },
+        });
+
+        return program;
+      });
+    }),
+
+  /**
+   * What saving this schedule would make and remove, without saving it.
+   *
+   * A query rather than a flag on the mutation, so the settings screen can recompute the sentence
+   * above the button as somebody types without anything being written by a keystroke.
+   */
+  attendanceSchedulePreview: programProcedure
+    .input(scheduleInput)
+    .query(async ({ ctx, input }) => {
+      const program = await ctx.db.program.findUniqueOrThrow({
         where: { id: input.programId },
-        data: { attendanceLateAfterMinutes: input.minutes },
-        select: { id: true, attendanceLateAfterMinutes: true },
-      }),
-    ),
+        select: scheduleSelect,
+      });
+
+      return resolveScheduleChange(
+        ctx.db,
+        input.programId,
+        scheduleOf(program),
+        scheduleFromInput(input),
+        schoolDayOf(new Date()),
+      );
+    }),
+
+  /**
+   * Declare when this program meets, and make the days.
+   *
+   * **The save changes exactly the days whose meeting status changed**, which is what lets it be
+   * run twice, and what keeps a holiday an instructor removed removed: that day meets under both
+   * the old schedule and the new, so neither list mentions it. See `scheduleDiff`.
+   *
+   * Three things happen, in one transaction:
+   *
+   * 1. A session is made for every meeting day from today that did not meet before and has no
+   *    session, each with its own day's start time and the backstop eight hours later.
+   * 2. Every session after today whose day no longer meets is deleted — unless a fellow checked
+   *    themselves into it, which `resolveScheduleChange` reports separately rather than
+   *    destroying.
+   * 3. Every remaining session after today has its clock rewritten to the new start time and its
+   *    lateness threshold re-copied.
+   *
+   * **Today is made but never rewritten and never removed.** It may already hold check-ins
+   * measured against the clock it has, and the rule that a recorded morning is never silently
+   * restated is the same one `AttendanceSession.lateAfterMinutes` exists for. An instructor who
+   * needs today moved edits it on the day screen, which recomputes statuses as it does now.
+   */
+  setAttendanceSchedule: programProcedure
+    .input(scheduleInput)
+    .mutation(async ({ ctx, input }) => {
+      const today = schoolDayOf(new Date());
+
+      const program = await ctx.db.program.findUniqueOrThrow({
+        where: { id: input.programId },
+        select: {
+          id: true,
+          name: true,
+          archivedAt: true,
+          attendanceLateAfterMinutes: true,
+          ...scheduleSelect,
+        },
+      });
+
+      if (program.archivedAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${program.name} has finished, so its attendance schedule cannot be changed.`,
+        });
+      }
+
+      const next = scheduleFromInput(input);
+
+      return inTransaction(ctx.db, async (tx) => {
+        const change = await resolveScheduleChange(
+          tx,
+          input.programId,
+          scheduleOf(program),
+          next,
+          today,
+        );
+
+        await tx.program.update({
+          where: { id: input.programId },
+          data: {
+            attendanceStartsOn: next ? dateColumnFor(next.startsOn) : null,
+            attendanceEndsOn: next ? dateColumnFor(next.endsOn) : null,
+            attendanceWeekdays: next ? next.weekdays : [],
+            attendanceStartsAt: next ? next.startsAt : null,
+          },
+          select: { id: true },
+        });
+
+        if (next && change.make.length > 0) {
+          await tx.attendanceSession.createMany({
+            data: change.make.map((day) => {
+              const startedAt = instantAtSchoolClock(day, next.startsAt);
+              return {
+                programId: input.programId,
+                date: dateColumnFor(day),
+                startedAt,
+                endsAt: defaultEndsAt(startedAt),
+                lateAfterMinutes: program.attendanceLateAfterMinutes,
+                codeSecret: newSessionSecret(),
+                // The schedule opened this day, not a person, and the column means who.
+                startedById: null,
+                note: null,
+              };
+            }),
+            // Belt and braces against one save racing another: the unique index settles it and
+            // this transaction survives, for the reason `attendance.start` explains at length.
+            skipDuplicates: true,
+          });
+        }
+
+        if (change.remove.length > 0) {
+          await tx.attendanceSession.deleteMany({
+            where: {
+              programId: input.programId,
+              date: { in: change.remove.map(dateColumnFor) },
+            },
+          });
+        }
+
+        /*
+          Rewrite the clock of every day still standing after today. One statement per day rather
+          than one for all of them, because each day's 9:30 is a different instant — and across a
+          daylight-saving change two days' 9:30 differ by an hour, which a single `SET` could not
+          express.
+        */
+        if (next) {
+          const standing = await tx.attendanceSession.findMany({
+            where: { programId: input.programId, date: { gt: dateColumnFor(today) } },
+            select: { id: true, date: true },
+          });
+
+          for (const session of standing) {
+            const startedAt = instantAtSchoolClock(
+              schoolDayFromColumn(session.date),
+              next.startsAt,
+            );
+            await tx.attendanceSession.update({
+              where: { id: session.id },
+              data: {
+                startedAt,
+                endsAt: defaultEndsAt(startedAt),
+                lateAfterMinutes: program.attendanceLateAfterMinutes,
+              },
+              select: { id: true },
+            });
+          }
+        }
+
+        await recordEvent(tx, {
+          action: "PROGRAM_ATTENDANCE_SCHEDULE_SET",
+          actor: auditActor(ctx),
+          subject: { id: program.id, label: program.name },
+          program: { id: program.id, label: program.name },
+          detail: {
+            startsOn: next?.startsOn ?? null,
+            endsOn: next?.endsOn ?? null,
+            weekdays: next?.weekdays ?? [],
+            startsAt: next?.startsAt ?? null,
+            made: change.make.length,
+            removed: change.remove,
+            keptBecauseAttended: change.blocked,
+          },
+        });
+
+        return change;
+      });
+    }),
 
   /**
    * Which fellowship this run is, and so which competencies its fellows are offered.

@@ -26,12 +26,18 @@ export type SummarySession = {
   id: string;
   day: SchoolDay;
   /**
-   * Still accepting check-ins.
+   * Nothing about this session is settled yet.
    *
-   * An open session counts for a fellow who already has a record in it and for nobody else — see
-   * `summarize`.
+   * True while check-in is open, while a code is prepared and not yet opened, and for every day
+   * the schedule has made that has not come. An unsettled session counts for a fellow who already
+   * has a record in it and for nobody else — see `summarize`.
+   *
+   * **The name is the guard.** It was `open` while a session existed only because somebody pressed
+   * a button, and the two meant the same thing. A program that declares nine months of meeting
+   * days has a row for every one of them from the day its schedule is saved, and a flag that asked
+   * "is check-in live" would have reported the whole roster absent until June.
    */
-  open: boolean;
+  unsettled: boolean;
 };
 
 export type SummaryFellow = {
@@ -115,11 +121,12 @@ export function summarize(
       if (!enrolled) continue;
 
       /*
-        **An open session counts once there is a record, and not before.** A fellow who checked in
-        this morning should watch the figure move rather than wait until the evening for a day they
-        have already finished with — that is the whole reason this is not simply `session.open`. A
-        fellow who has not checked in is skipped, because the day is still running and counting
-        them would be reporting an absence that has not happened yet.
+        **An unsettled session counts once there is a record, and not before.** A fellow who
+        checked in this morning should watch the figure move rather than wait until the evening for
+        a day they have already finished with — that is the whole reason this is not simply
+        `session.unsettled`. A fellow who has not checked in is skipped, because the day is still
+        running, or has not begun, and counting them would be reporting an absence that has not
+        happened yet.
 
         The cost is that on a day still in progress two fellows are measured against different
         denominators, and it is the right cost to pay: what separates them is a record, which only
@@ -128,7 +135,7 @@ export function summarize(
         the instructor meant by making it. The difference disappears the moment the day closes and
         everybody is counted.
       */
-      if (session.open && !record) continue;
+      if (session.unsettled && !record) continue;
 
       summary.eligible += 1;
       if (!record) summary.unrecorded += 1;
@@ -146,15 +153,15 @@ export function summarize(
   });
 }
 
-/** How many of the last `window` closed sessions this fellow missed. */
+/** How many of the last `window` settled sessions this fellow missed. */
 function recentMisses(summary: FellowSummary, sessions: SummarySession[], window: number): number {
-  const closedIndexes = sessions
+  const settledIndexes = sessions
     .map((session, index) => ({ session, index }))
-    .filter(({ session }) => !session.open)
+    .filter(({ session }) => !session.unsettled)
     .slice(-window);
 
   let missed = 0;
-  for (const { session, index } of closedIndexes) {
+  for (const { session, index } of settledIndexes) {
     if (session.day < summary.fellow.enrolledFrom) continue;
     const status = summary.cells[index];
     if (status === null || !countsAsAttended(status)) missed += 1;
@@ -163,14 +170,14 @@ function recentMisses(summary: FellowSummary, sessions: SummarySession[], window
   return missed;
 }
 
-/** How many of the last `window` closed sessions this fellow arrived late to. */
+/** How many of the last `window` settled sessions this fellow arrived late to. */
 function recentLates(summary: FellowSummary, sessions: SummarySession[], window: number): number {
-  const closedIndexes = sessions
+  const settledIndexes = sessions
     .map((session, index) => ({ session, index }))
-    .filter(({ session }) => !session.open)
+    .filter(({ session }) => !session.unsettled)
     .slice(-window);
 
-  return closedIndexes.filter(({ index }) => summary.cells[index] === "LATE").length;
+  return settledIndexes.filter(({ index }) => summary.cells[index] === "LATE").length;
 }
 
 /**
@@ -189,7 +196,7 @@ export const DRIFT_RULE = {
   missedAtLeast: 2,
   lateOf: 10,
   lateAtLeast: 3,
-  /** Below this many closed sessions, a fellow is too new to be judged by either clause. */
+  /** Below this many settled sessions, a fellow is too new to be judged by either clause. */
   needsAtLeast: 5,
 } as const;
 
@@ -222,6 +229,50 @@ export function driftList(summaries: FellowSummary[], sessions: SummarySession[]
   return drifting.sort(
     (a, b) => b.missedRecently - a.missedRecently || b.lateRecently - a.lateRecently,
   );
+}
+
+/**
+ * How much of the roster turned up, one figure per day, in the order the sessions came.
+ *
+ * **The heading of each column of the term grid.** A grid of letters answers "who", and reading a
+ * column of twenty-five letters to work out "how many" is the arithmetic a reader should not be
+ * doing — one bad morning in a term is exactly the thing that ought to be visible without counting.
+ *
+ * **Computed from the summaries the grid already holds, rather than from the records.** It is the
+ * same `cells` array each row draws its letters from, so the figure above a column and the letters
+ * beneath it cannot disagree. A second pass over the records would be a second definition of what
+ * a missing row means, and that is the one thing the two would come to differ about.
+ *
+ * The three rules `summarize` applies apply here unchanged: late counts as attendance and excused
+ * does not, a fellow counts only from the day they enrolled, and test students are in no figure.
+ * A day with nothing settled has no rate, and neither does a day nobody was enrolled for.
+ */
+export function dailyRates(
+  sessions: SummarySession[],
+  summaries: FellowSummary[],
+): (number | null)[] {
+  const counted = summaries.filter((summary) => summary.fellow.testStudentNumber === null);
+
+  return sessions.map((session, index) => {
+    // Nothing is settled on a morning still running or still to come. `summarize` skips exactly
+    // these for a fellow with no record, so a figure here would be dividing by a moving number.
+    if (session.unsettled) return null;
+
+    let enrolled = 0;
+    let attended = 0;
+
+    for (const summary of counted) {
+      if (session.day < summary.fellow.enrolledFrom) continue;
+      enrolled += 1;
+
+      // A null cell on a settled day is a fellow nobody recorded, which is a fellow who missed it
+      // — the same reading `summarize` gives it through `unrecorded`.
+      const status = summary.cells[index];
+      if (status !== null && countsAsAttended(status)) attended += 1;
+    }
+
+    return enrolled === 0 ? null : attended / enrolled;
+  });
 }
 
 /** The whole roster's figure, over the fellows who count. */

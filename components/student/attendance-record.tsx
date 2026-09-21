@@ -50,6 +50,7 @@ export function StudentAttendanceRecord({ data, today }: { data: Record; today: 
     day: day.day,
     status: day.status,
     open: day.state === "open",
+    upcoming: day.state === "scheduled",
     // Keyed on there being a record rather than on the day being closed: a fellow who checked in
     // this morning is owed "checked in at 9:02" now, not this evening.
     detail: day.status ? provenance(day) : null,

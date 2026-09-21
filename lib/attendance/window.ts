@@ -5,8 +5,9 @@
  * project and this feature is not the right reason to introduce one. A session closes on its
  * eight-hour backstop the same way a due date passes: nothing runs, the answer to the question
  * simply changes. The rows that record who was absent are written afterwards, by whoever next
- * loads the grid or starts the following session — see `lib/attendance/grid.ts` for the state that
- * covers the gap.
+ * writes anything — the first fellow to check in the following morning, or an instructor making or
+ * removing a day. See `lib/attendance/grid.ts` for the state that covers the gap, which is what
+ * lets a screen be right about a lapsed session before anybody has written its absences down.
  *
  * Pure, and takes `now` as an argument in the manner of `formatRelative`. That is what lets the
  * boundary cases be tested against fixed instants instead of a mocked clock.
@@ -27,6 +28,20 @@ export const EXTEND_MINUTES = 30;
 
 /** Where `Program.attendanceLateAfterMinutes` starts, and what most programs will leave it at. */
 export const DEFAULT_LATE_AFTER_MINUTES = 5;
+
+/**
+ * How long before class a session starts accepting check-ins.
+ *
+ * **Two hours, because the alternative to a bound is no bound at all.** A session made a fortnight
+ * ahead holds a working code from the moment it is made, and without this a photographed sheet of
+ * the term's codes would let somebody mark themselves present at three in the morning for a day
+ * they then slept through. Two hours is longer than anybody arrives before class and short enough
+ * that a code is worth one early check-in on one day rather than a term of them.
+ *
+ * It costs nothing for a session an instructor started by hand: its start is the moment of the
+ * press, so the window opened two hours before that and the rule is never the thing that refuses.
+ */
+export const OPENS_BEFORE_START_MINUTES = 120;
 
 /** The parts of a session these functions read. */
 export type WindowSession = {
@@ -55,8 +70,18 @@ export type SessionState =
    * The phase that exists so a code can go on a whiteboard before class. The session holds a
    * secret and therefore a code; it accepts nothing, measures no lateness, and has no closing time
    * to print, because none of those begin until somebody presses start.
+   *
+   * A program with a schedule never produces one: every day it makes has a clock.
    */
   | "pending"
+  /**
+   * Made from the schedule, with a start still more than two hours away.
+   *
+   * Unlike `pending` it has all three times to print — when check-in opens, when class starts,
+   * when the code dies — which is why it is a state of its own rather than a reuse. A screen
+   * drawing one can tell a room exactly when the code will begin to work.
+   */
+  | "scheduled"
   /** A person pressed end. */
   | "ended"
   /** Nobody pressed end and the backstop passed. Behaves as closed; says something different. */
@@ -64,11 +89,20 @@ export type SessionState =
   | "open";
 
 export function sessionStateOf(session: WindowSession, now: Date): SessionState {
-  // First, because a session that never started cannot have ended or lapsed — there is no instant
-  // for either to be measured against.
+  // First, because a session that never started cannot have ended, lapsed, or been scheduled —
+  // there is no instant for any of them to be measured against.
   if (session.startedAt === null || session.endsAt === null) return "pending";
   if (session.endedAt !== null) return "ended";
   if (now.getTime() >= session.endsAt.getTime()) return "lapsed";
+
+  /*
+    Last of the three closed answers, and deliberately after the other two. A day removed from the
+    schedule and then reopened, or one whose backstop somebody dragged backwards, must read as
+    closed rather than as "not yet" — a screen saying check-in opens at 7:30 about a morning that
+    already finished is worse than one saying it is closed.
+  */
+  if (now.getTime() < opensAt(session as StartedSession).getTime()) return "scheduled";
+
   return "open";
 }
 
@@ -82,9 +116,39 @@ export function isAcceptingCheckIns(session: WindowSession, now: Date): boolean 
   return sessionStateOf(session, now) === "open";
 }
 
+/**
+ * Whether nothing about this session is settled yet.
+ *
+ * **What `summarize` divides by.** An unsettled session counts for a fellow who already has a
+ * record in it and for nobody else, so a morning still running does not read as a morning
+ * everybody missed — and neither does a day in March that the schedule made in September.
+ *
+ * Three states rather than one, and the reason to have the predicate here rather than the
+ * disjunction at each call site: there are five of them, they must agree, and the last time a
+ * state was added every one of them had to be found by hand.
+ */
+export function isUnsettled(session: WindowSession, now: Date): boolean {
+  return stateIsUnsettled(sessionStateOf(session, now));
+}
+
+/**
+ * The same question asked of a state that has already been worked out.
+ *
+ * For the callers holding a `publicSession` payload rather than the row it came from — a server
+ * component, a screen — which have the state as a string and no `Date` to re-derive it from.
+ */
+export function stateIsUnsettled(state: SessionState): boolean {
+  return state === "open" || state === "pending" || state === "scheduled";
+}
+
 /** The moment after which arriving counts as late. */
 export function lateFrom(session: StartedSession): Date {
   return new Date(session.startedAt.getTime() + session.lateAfterMinutes * 60 * 1000);
+}
+
+/** The moment this session begins accepting check-ins. */
+export function opensAt(session: StartedSession): Date {
+  return new Date(session.startedAt.getTime() - OPENS_BEFORE_START_MINUTES * 60 * 1000);
 }
 
 /**

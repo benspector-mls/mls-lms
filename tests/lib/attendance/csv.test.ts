@@ -17,8 +17,8 @@ import {
 function data(overrides: Partial<AttendanceCsvData> = {}): AttendanceCsvData {
   return {
     sessions: [
-      { id: "s1", day: "2026-09-14", open: false },
-      { id: "s2", day: "2026-09-15", open: false },
+      { id: "s1", day: "2026-09-14", unsettled: false },
+      { id: "s2", day: "2026-09-15", unsettled: false },
     ],
     fellows: [
       {
@@ -98,7 +98,7 @@ describe("attendanceCsv", () => {
 
   it("says nothing is settled about a session still in progress", () => {
     const lines = rows(
-      attendanceCsv(data({ sessions: [{ id: "s1", day: "2026-09-14", open: true }] })),
+      attendanceCsv(data({ sessions: [{ id: "s1", day: "2026-09-14", unsettled: true }] })),
     );
     expect(lines[1]).toContain("In progress");
     expect(lines[1]).not.toContain("ABSENT");

@@ -1,6 +1,7 @@
 import {
   programRate,
   countsAsAttended,
+  dailyRates,
   driftList,
   DRIFT_RULE,
   summarize,
@@ -23,7 +24,7 @@ function sessions(count: number, openTail = 0): SummarySession[] {
     // Sequential September days. Only the ordering and the comparison against `enrolledFrom`
     // matter, so consecutive dates are enough.
     day: `2026-09-${String(index + 1).padStart(2, "0")}`,
-    open: index >= count - openTail,
+    unsettled: index >= count - openTail,
   }));
 }
 
@@ -331,5 +332,186 @@ describe("programRate", () => {
 
   it("is null when nothing has closed yet", () => {
     expect(programRate(summarize(sessions(2, 2), [fellow()], []))).toBeNull();
+  });
+});
+
+describe("a day that has not happened yet", () => {
+  /*
+    The failure this guards against is the one the date-range schedule introduced: a program that
+    declares nine months of meeting days has a session row for every one of them from the day the
+    schedule is saved. Counting an unsettled session as missed would drop every fellow's rate to
+    a few percent the moment their instructor filled in the settings screen.
+  */
+  const fellows = [fellow()];
+
+  it("counts for nobody who has no record in it", () => {
+    const [summary] = summarize(
+      [
+        { id: "past", day: "2026-09-07", unsettled: false },
+        { id: "ahead", day: "2026-12-07", unsettled: true },
+      ],
+      fellows,
+      [{ enrollmentId: "e1", sessionId: "past", status: "PRESENT" }],
+    );
+
+    expect(summary.eligible).toBe(1);
+    expect(summary.rate).toBe(1);
+    expect(summary.unrecorded).toBe(0);
+  });
+
+  // An instructor can excuse somebody ahead of time, and the moment they do the day is settled
+  // for that fellow — the same rule an open session already follows.
+  it("counts once a record exists", () => {
+    const [summary] = summarize([{ id: "ahead", day: "2026-12-07", unsettled: true }], fellows, [
+      { enrollmentId: "e1", sessionId: "ahead", status: "EXCUSED" },
+    ]);
+
+    expect(summary.eligible).toBe(1);
+    expect(summary.excused).toBe(1);
+    expect(summary.rate).toBe(0);
+  });
+
+  // The drift list reads the last few settled days. A term of days ahead must not push every real
+  // morning out of that window.
+  it("is outside the drift window", () => {
+    const settled: SummarySession[] = Array.from({ length: 5 }, (_, index) => ({
+      id: `d${index + 1}`,
+      day: `2026-09-0${index + 1}`,
+      unsettled: false,
+    }));
+    const ahead: SummarySession[] = Array.from({ length: 5 }, (_, index) => ({
+      id: `ahead${index + 1}`,
+      day: `2026-12-0${index + 1}`,
+      unsettled: true,
+    }));
+    const all = [...settled, ...ahead];
+
+    const summaries = summarize(all, fellows, [
+      { enrollmentId: "e1", sessionId: "d1", status: "ABSENT" },
+      { enrollmentId: "e1", sessionId: "d2", status: "ABSENT" },
+      { enrollmentId: "e1", sessionId: "d3", status: "PRESENT" },
+      { enrollmentId: "e1", sessionId: "d4", status: "PRESENT" },
+      { enrollmentId: "e1", sessionId: "d5", status: "PRESENT" },
+    ]);
+
+    expect(driftList(summaries, all)).toHaveLength(1);
+  });
+});
+
+describe("dailyRates", () => {
+  /*
+    The figure at the head of each column of the term grid. Computed from the same summaries the
+    grid draws its letters from, so the number above a column and the letters under it cannot
+    disagree — which they would the moment a second implementation counted a null cell differently.
+  */
+  const day1 = { id: "s1", day: "2026-09-07", unsettled: false };
+  const day2 = { id: "s2", day: "2026-09-08", unsettled: false };
+
+  function summariesFor(records: SummaryRecord[], fellows: SummaryFellow[]) {
+    return summarize([day1, day2], fellows, records);
+  }
+
+  const ada = fellow({ enrollmentId: "e1", studentId: "p1" });
+  const bo = fellow({ enrollmentId: "e2", studentId: "p2", displayName: "Bo" });
+
+  it("is attended over enrolled, per day", () => {
+    const rates = dailyRates(
+      [day1, day2],
+      summariesFor(
+        [
+          { enrollmentId: "e1", sessionId: "s1", status: "PRESENT" },
+          { enrollmentId: "e2", sessionId: "s1", status: "ABSENT" },
+          { enrollmentId: "e1", sessionId: "s2", status: "PRESENT" },
+          { enrollmentId: "e2", sessionId: "s2", status: "LATE" },
+        ],
+        [ada, bo],
+      ),
+    );
+
+    expect(rates).toEqual([0.5, 1]);
+  });
+
+  // The same rule the rate beside each fellow uses: late is attendance, excused is not.
+  it("counts late as attended and excused as missed", () => {
+    const rates = dailyRates(
+      [day1, day2],
+      summariesFor(
+        [
+          { enrollmentId: "e1", sessionId: "s1", status: "LATE" },
+          { enrollmentId: "e1", sessionId: "s2", status: "EXCUSED" },
+        ],
+        [ada],
+      ),
+    );
+
+    expect(rates).toEqual([1, 0]);
+  });
+
+  // A fellow with no record on a settled day missed it. That is what ending a session writes.
+  it("counts a fellow with no record as missing the day", () => {
+    const rates = dailyRates([day1], summariesFor([], [ada, bo]));
+    expect(rates).toEqual([0]);
+  });
+
+  // Somebody who joined on the 8th cannot have missed the 7th, so they are in neither half of it.
+  it("leaves a fellow out of the days before they enrolled", () => {
+    const joinedLate = fellow({
+      enrollmentId: "e2",
+      studentId: "p2",
+      enrolledFrom: "2026-09-08",
+    });
+
+    const rates = dailyRates(
+      [day1, day2],
+      summariesFor(
+        [
+          { enrollmentId: "e1", sessionId: "s1", status: "PRESENT" },
+          { enrollmentId: "e1", sessionId: "s2", status: "PRESENT" },
+          { enrollmentId: "e2", sessionId: "s2", status: "ABSENT" },
+        ],
+        [ada, joinedLate],
+      ),
+    );
+
+    // The 7th is one of one; the 8th is one of two.
+    expect(rates).toEqual([1, 0.5]);
+  });
+
+  // Every other figure on the screen leaves them out, and a column heading that did not would be
+  // the one number on the page that disagreed with the rest.
+  it("leaves test students out", () => {
+    const tester = fellow({ enrollmentId: "e2", studentId: "p2", testStudentNumber: 1 });
+
+    const rates = dailyRates(
+      [day1],
+      summariesFor(
+        [
+          { enrollmentId: "e1", sessionId: "s1", status: "PRESENT" },
+          { enrollmentId: "e2", sessionId: "s1", status: "ABSENT" },
+        ],
+        [ada, tester],
+      ),
+    );
+
+    expect(rates).toEqual([1]);
+  });
+
+  /*
+    Nothing is settled on a day still running or still to come, so there is no rate to print. The
+    grid prints a dash, the same as it does for a fellow whose own rate has no denominator yet.
+  */
+  it("has no figure for a day that is not settled", () => {
+    const ahead = { id: "s3", day: "2026-12-07", unsettled: true };
+    const rates = dailyRates(
+      [ahead],
+      summarize([ahead], [ada], [{ enrollmentId: "e1", sessionId: "s3", status: "PRESENT" }]),
+    );
+
+    expect(rates).toEqual([null]);
+  });
+
+  it("has no figure for a day nobody was enrolled for", () => {
+    const early = fellow({ enrolledFrom: "2027-01-01" });
+    expect(dailyRates([day1], summariesFor([], [early]))).toEqual([null]);
   });
 });

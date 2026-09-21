@@ -67,6 +67,16 @@ export function attendancePresentHref(programId: string): string {
   return `/present/attendance/${programId}`;
 }
 
+/**
+ * The fortnight of codes, laid out to be printed and left at the front desk.
+ *
+ * Beside the projector page and outside the shell for the same reason: what comes out of a printer
+ * should be the sheet and nothing else.
+ */
+export function attendanceCodesHref(programId: string): string {
+  return `/present/attendance/${programId}/codes`;
+}
+
 /** A fellow's own attendance record for one program. */
 export function myAttendanceHref(programId: string): string {
   return `/programs/${programId}/attendance`;

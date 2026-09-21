@@ -57,6 +57,8 @@ export function CheckInCard({ programId, initial }: { programId: string; initial
 function CourseCheckIn({ entry }: { entry: Today[number] }) {
   const record = entry.record;
   const open = entry.session.state === "open";
+  /** Today's day exists and its code does not work yet. Two hours before class, at most. */
+  const scheduled = entry.session.state === "scheduled";
 
   if (record) {
     return (
@@ -75,6 +77,29 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
                 : "Recorded by your instructor."}
             {record.status === "LATE" &&
               " If you were here on time, tell your instructor — they can change this."}
+          </span>
+        </div>
+      </Shell>
+    );
+  }
+
+  /*
+    **Before the window opens, say when — not that check-in is closed.** Falling through to the
+    branch below told a fellow who opened their phone at eight in the morning that they were not
+    marked in and should speak to their instructor, about a day that had not started. The box
+    appears on its own, so the only thing worth saying is what time.
+  */
+  if (scheduled && entry.session.opensAt) {
+    return (
+      <Shell tone="closed">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <Clock className="size-4 text-muted-foreground" />
+            {entry.programName}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Check-in opens at {formatSchoolTime(new Date(entry.session.opensAt))}. Nothing to do
+            until then.
           </span>
         </div>
       </Shell>

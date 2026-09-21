@@ -72,10 +72,13 @@ export function gridRows(
 ): GridRow[] {
   const byEnrollment = new Map(records.map((record) => [record.enrollmentId, record]));
   const state: SessionState | null = session ? sessionStateOf(session, now) : null;
-  // A prepared session reads as "not yet" for the same reason an open one does: nobody has missed
-  // anything. It is the stronger case, in fact — no fellow could have checked in even if they tried.
+  /*
+    A prepared or scheduled session reads as "not yet" for the same reason an open one does: nobody
+    has missed anything. Both are the stronger case, in fact — no fellow could have checked in even
+    if they tried, because the session is not accepting codes yet.
+  */
   const pending: PendingReason =
-    state === "open" || state === "pending" ? "not-yet" : "no-check-in";
+    state === "open" || state === "pending" || state === "scheduled" ? "not-yet" : "no-check-in";
 
   return enrollments.map((enrollment) => {
     const record = byEnrollment.get(enrollment.enrollmentId) ?? null;

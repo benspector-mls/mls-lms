@@ -38,8 +38,14 @@ export type AttendanceCsvPerson = {
 export type AttendanceCsvSession = {
   id: string;
   day: SchoolDay;
-  /** Still open. Reported, but with no status, because nothing about it is settled yet. */
-  open: boolean;
+  /**
+   * Nothing about this day is settled. Reported, but with no status.
+   *
+   * Check-in open, a code prepared, or a day the schedule made that has not come — see
+   * `isUnsettled`. Only today can be any of those in an export, because `history` carries no day
+   * ahead of today.
+   */
+  unsettled: boolean;
 };
 
 export type AttendanceCsvFellow = {
@@ -128,10 +134,12 @@ export function attendanceCsv(data: AttendanceCsvData): string {
           fellow.enrollment,
           session.day,
           weekdayOf(session.day),
-          // An open session has settled nothing. Saying "absent" for a morning still in progress
-          // would be a claim the application cannot support, so the cell says what is true.
-          session.open ? "In progress" : (record?.status ?? "ABSENT"),
-          session.open ? "" : recordedBy(record?.source ?? null),
+          // An unsettled session has settled nothing. Saying "absent" for a morning still in
+          // progress would be a claim the application cannot support, so the cell says what is
+          // true. It reads a little loosely for the two hours before a scheduled day opens, which
+          // is the only way an export can hold a day that has not started.
+          session.unsettled ? "In progress" : (record?.status ?? "ABSENT"),
+          session.unsettled ? "" : recordedBy(record?.source ?? null),
           checkedInTime(record?.checkedInAt ?? null),
           record?.note ?? null,
         ]),

@@ -21,29 +21,29 @@ describe("kindOf", () => {
   });
 
   it("is blank before a fellow enrolled, whatever the day holds", () => {
-    expect(kindOf({ status: "ABSENT", open: false }, "2026-08-31", ENROLLED_FROM)).toBe(
+    expect(kindOf({ status: "ABSENT", open: false, upcoming: false }, "2026-08-31", ENROLLED_FROM)).toBe(
       "not-enrolled",
     );
-    expect(kindOf({ status: null, open: true }, "2026-08-31", ENROLLED_FROM)).toBe("not-enrolled");
+    expect(kindOf({ status: null, open: true, upcoming: false }, "2026-08-31", ENROLLED_FROM)).toBe("not-enrolled");
   });
 
   it("draws a stored status even while check-in is still open", () => {
-    expect(kindOf({ status: "PRESENT", open: true }, DAY, ENROLLED_FROM)).toBe("PRESENT");
-    expect(kindOf({ status: "LATE", open: true }, DAY, ENROLLED_FROM)).toBe("LATE");
-    expect(kindOf({ status: "EXCUSED", open: true }, DAY, ENROLLED_FROM)).toBe("EXCUSED");
+    expect(kindOf({ status: "PRESENT", open: true, upcoming: false }, DAY, ENROLLED_FROM)).toBe("PRESENT");
+    expect(kindOf({ status: "LATE", open: true, upcoming: false }, DAY, ENROLLED_FROM)).toBe("LATE");
+    expect(kindOf({ status: "EXCUSED", open: true, upcoming: false }, DAY, ENROLLED_FROM)).toBe("EXCUSED");
   });
 
   it("is open only when nothing has been recorded yet", () => {
-    expect(kindOf({ status: null, open: true }, DAY, ENROLLED_FROM)).toBe("open");
+    expect(kindOf({ status: null, open: true, upcoming: false }, DAY, ENROLLED_FROM)).toBe("open");
   });
 
   it("is unrecorded once a closed day has nothing written down", () => {
     // Not silently present. The distinction is the one an instructor acts on.
-    expect(kindOf({ status: null, open: false }, DAY, ENROLLED_FROM)).toBe("unrecorded");
+    expect(kindOf({ status: null, open: false, upcoming: false }, DAY, ENROLLED_FROM)).toBe("unrecorded");
   });
 
   it("draws a stored status on a closed day", () => {
-    expect(kindOf({ status: "ABSENT", open: false }, DAY, ENROLLED_FROM)).toBe("ABSENT");
+    expect(kindOf({ status: "ABSENT", open: false, upcoming: false }, DAY, ENROLLED_FROM)).toBe("ABSENT");
   });
 });
 
@@ -79,5 +79,38 @@ describe("CELL", () => {
     for (const kind of ["PRESENT", "LATE", "ABSENT", "EXCUSED", "unrecorded", "open"] as const) {
       expect(CELL[kind].label).not.toBe("");
     }
+  });
+});
+
+describe("a day the program will meet", () => {
+  it("is its own square, not an absence and not an open check-in", () => {
+    expect(kindOf({ status: null, open: false, upcoming: true }, "2026-12-07", ENROLLED_FROM)).toBe(
+      "upcoming",
+    );
+  });
+
+  // A status decided ahead of time outranks it: a fellow excused for a day in December should see
+  // the excusal, not a blank square telling them nothing has happened.
+  it("yields to a status already recorded", () => {
+    expect(
+      kindOf({ status: "EXCUSED", open: false, upcoming: true }, "2026-12-07", ENROLLED_FROM),
+    ).toBe("EXCUSED");
+  });
+
+  // Before they joined outranks everything about the day, as it already does.
+  it("yields to not being enrolled yet", () => {
+    expect(kindOf({ status: null, open: false, upcoming: true }, "2026-12-07", "2027-01-01")).toBe(
+      "not-enrolled",
+    );
+  });
+
+  it("is still a square that stands for something", () => {
+    expect(isMarked("upcoming")).toBe(true);
+  });
+
+  // Every kind needs an entry, or a square renders with no class and no label at all.
+  it("has a class and a label like every other kind", () => {
+    expect(CELL.upcoming.className).not.toBe("");
+    expect(CELL.upcoming.label).not.toBe("");
   });
 });

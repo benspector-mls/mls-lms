@@ -58,14 +58,20 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
   React.useEffect(() => setOrigin(window.location.origin), []);
 
   /*
-    A prepared session is handled before the closed branch, and the difference matters on a
-    projector: the code is on screen and correct, but typing it would be refused. So the line under
-    it says what the room needs to know rather than printing a closing time the session does not
-    have yet. This is the state a screen is likely to sit in while the room fills up.
+    A prepared or scheduled session is handled before the closed branch, and the difference matters
+    on a projector: the code is on screen and correct, but typing it would be refused. So the line
+    under it says what the room needs to know rather than printing a closing time. This is the
+    state a screen is likely to sit in while the room fills up.
+
+    **A scheduled day needs naming here or the projector goes blank.** Falling through to the
+    closed branch would take the code off the screen for the two hours before class — which is
+    exactly when the room is arriving and the code is most wanted. It can also say more than a
+    prepared day can, because it knows when the code starts working.
   */
   const pending = view.session.state === "pending";
+  const scheduled = view.session.state === "scheduled";
 
-  if (!pending && view.session.state !== "open") {
+  if (!pending && !scheduled && view.session.state !== "open") {
     return (
       <Shell courseName={view.courseName} day={view.session.day}>
         <p className="text-[6vw] font-semibold text-muted-foreground">Check-in is closed</p>
@@ -92,9 +98,11 @@ export function AttendanceDisplay({ initial }: { initial: CodeView }) {
             is hours away and a projector is not the place to watch it drain.
           */}
           <p className="text-[1.6vw] text-muted-foreground">
-            {view.session.endsAt
-              ? `This code works until ${formatSchoolTime(view.session.endsAt)}`
-              : "Check-in has not started yet — this is the code it will use"}
+            {scheduled && view.session.opensAt
+              ? `This code starts working at ${formatSchoolTime(new Date(view.session.opensAt))}`
+              : view.session.endsAt
+                ? `This code works until ${formatSchoolTime(view.session.endsAt)}`
+                : "Check-in has not started yet — this is the code it will use"}
           </p>
         </>
       ) : (

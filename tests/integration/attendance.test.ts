@@ -33,11 +33,13 @@
  */
 import { MIN_ARRIVALS, arrivalAverages, arrivalSentence } from "@/lib/attendance/arrival";
 import { CODE_DIGITS, codeFor } from "@/lib/attendance/code";
-import { DEFAULT_SESSION_MINUTES } from "@/lib/attendance/window";
+import { DEFAULT_SESSION_MINUTES, defaultEndsAt } from "@/lib/attendance/window";
 import {
   dateColumnFor,
   formatClockMinutes,
+  instantAtSchoolClock,
   minutesAfterMidnight,
+  schoolDayFromColumn,
   schoolDayOf,
   weekdayOf,
 } from "@/lib/school-time";
@@ -58,6 +60,16 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
   } catch (err) {
     const code = (err as { code?: string })?.code;
     return typeof code === "string" ? code : (err as Error).name;
+  }
+}
+
+/** What a call refused with, in words. For the refusals whose wording is the point. */
+async function refusalMessage(work: () => Promise<unknown>): Promise<string> {
+  try {
+    await work();
+    return "accepted";
+  } catch (err) {
+    return (err as Error).message;
   }
 }
 
@@ -1523,5 +1535,1219 @@ describe("what a session's window may claim", () => {
       }),
     );
     expect(endedWithoutStart).not.toBe("accepted");
+  });
+});
+
+/**
+ * A program that declares when it meets, and the days that declaration makes.
+ *
+ * **These run against whatever day the suite runs on**, because the procedures take no clock and
+ * the whole point of a schedule is that it is read against the real day. The dates are therefore
+ * derived from today rather than written down: a fixed September would pass in September and
+ * quietly start creating nothing the following January.
+ *
+ * Every weekday is a meeting day in these groups. Which days fall where is `schedule.test.ts`'s
+ * question, answered there against fixed dates; what these ask is what the procedure writes.
+ */
+describe("a program that declares when it meets", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  /** Every weekday, so a count is a count of days rather than of which weekday today happens to be. */
+  const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
+
+  function daysFromToday(count: number): string {
+    const at = new Date(`${today}T00:00:00Z`);
+    at.setUTCDate(at.getUTCDate() + count);
+    return at.toISOString().slice(0, 10);
+  }
+
+  function scheduleFor(programId: string, lastDay: number, startsAt = "09:30") {
+    return {
+      programId,
+      startsOn: today,
+      endsOn: daysFromToday(lastDay),
+      weekdays: EVERY_DAY,
+      startsAt,
+    };
+  }
+
+  describe("saving it the first time", () => {
+    let world: World;
+    let saved: { make: string[]; remove: string[]; blocked: string[] };
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      saved = await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 6),
+      );
+    });
+
+    it("makes one session for every meeting day from today", () => {
+      expect(saved.make).toHaveLength(7);
+      expect(saved.remove).toEqual([]);
+    });
+
+    it("and that is how many sessions the program has", async () => {
+      const count = await tx().attendanceSession.count({ where: { programId: world.programId } });
+      expect(count).toBe(7);
+    });
+
+    // Each day's 9:30, not one instant repeated. Across a daylight-saving change two days' 9:30
+    // differ by an hour, which a single instant could not express.
+    it("each carries its own day's start time", async () => {
+      const sessions = await tx().attendanceSession.findMany({
+        where: { programId: world.programId },
+        orderBy: { date: "asc" },
+      });
+
+      for (const session of sessions) {
+        const day = schoolDayFromColumn(session.date);
+        expect(session.startedAt?.toISOString()).toBe(
+          instantAtSchoolClock(day, "09:30").toISOString(),
+        );
+      }
+    });
+
+    it("and its backstop eight hours after that", async () => {
+      const sessions = await tx().attendanceSession.findMany({
+        where: { programId: world.programId },
+        orderBy: { date: "asc" },
+      });
+
+      for (const session of sessions) {
+        const day = schoolDayFromColumn(session.date);
+        expect(session.endsAt?.toISOString()).toBe(
+          defaultEndsAt(instantAtSchoolClock(day, "09:30")).toISOString(),
+        );
+      }
+    });
+
+    // The column means who opened check-in. The schedule is not a person.
+    it("and nobody as the person who started it", async () => {
+      const started = await tx().attendanceSession.findMany({
+        where: { programId: world.programId },
+        select: { startedById: true, endedAt: true },
+      });
+
+      expect(started.every((session) => session.startedById === null)).toBe(true);
+      expect(started.every((session) => session.endedAt === null)).toBe(true);
+    });
+
+    it("writes one audit event for the whole save", async () => {
+      const events = await tx().auditEvent.count({
+        where: { action: "PROGRAM_ATTENDANCE_SCHEDULE_SET", programId: world.programId },
+      });
+      expect(events).toBe(1);
+    });
+
+    // The common case, and the one that must cost nothing.
+    it("saving the same schedule again changes nothing", async () => {
+      const again = await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 6),
+      );
+
+      expect(again.make).toEqual([]);
+      expect(again.remove).toEqual([]);
+      expect(
+        await tx().attendanceSession.count({ where: { programId: world.programId } }),
+      ).toBe(7);
+    });
+  });
+
+  describe("changing it", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 3),
+      );
+    });
+
+    it("moving the last day out makes only the new stretch", async () => {
+      const longer = await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 6),
+      );
+
+      expect(longer.make).toEqual([daysFromToday(4), daysFromToday(5), daysFromToday(6)]);
+      expect(longer.remove).toEqual([]);
+    });
+
+    it("moving it back in removes the days now outside it", async () => {
+      const shorter = await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 2),
+      );
+
+      expect(shorter.remove).toEqual([
+        daysFromToday(3),
+        daysFromToday(4),
+        daysFromToday(5),
+        daysFromToday(6),
+      ]);
+      expect(
+        await tx().attendanceSession.count({ where: { programId: world.programId } }),
+      ).toBe(3);
+    });
+
+    /*
+      Today is made but never removed. Its session may already hold check-ins measured against the
+      clock it has, and a removal would destroy them.
+    */
+    it("but never removes today", async () => {
+      const cleared = await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+        programId: world.programId,
+        startsOn: null,
+        endsOn: null,
+        weekdays: [],
+        startsAt: null,
+      });
+
+      expect(cleared.remove).not.toContain(today);
+      expect(
+        await tx().attendanceSession.count({
+          where: { programId: world.programId, date: dateColumnFor(today) },
+        }),
+      ).toBe(1);
+    });
+
+    it("and clearing it leaves the program with no schedule", async () => {
+      const program = await tx().program.findUniqueOrThrow({ where: { id: world.programId } });
+
+      expect(program.attendanceStartsOn).toBeNull();
+      expect(program.attendanceEndsOn).toBeNull();
+      expect(program.attendanceStartsAt).toBeNull();
+      expect(program.attendanceWeekdays).toEqual([]);
+    });
+  });
+
+  describe("moving the start time partway through the year", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const caller = createCaller(tx(), world.instructorId);
+      await caller.programs.setAttendanceSchedule(scheduleFor(world.programId, 3, "09:30"));
+      await caller.programs.setAttendanceSchedule(scheduleFor(world.programId, 3, "10:00"));
+    });
+
+    it("makes and removes nothing, because the same days still meet", async () => {
+      expect(
+        await tx().attendanceSession.count({ where: { programId: world.programId } }),
+      ).toBe(4);
+    });
+
+    // Today keeps the clock it ran under. Fellows may already have checked in against it, and the
+    // rule that a recorded morning is never silently restated is why lateAfterMinutes is copied.
+    it("leaves today's clock alone", async () => {
+      const session = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(today) },
+      });
+
+      expect(session.startedAt?.toISOString()).toBe(
+        instantAtSchoolClock(today, "09:30").toISOString(),
+      );
+    });
+
+    it("and moves every day after it", async () => {
+      const sessions = await tx().attendanceSession.findMany({
+        where: { programId: world.programId, date: { gt: dateColumnFor(today) } },
+        orderBy: { date: "asc" },
+      });
+
+      expect(sessions).toHaveLength(3);
+      for (const session of sessions) {
+        const day = schoolDayFromColumn(session.date);
+        expect(session.startedAt?.toISOString()).toBe(
+          instantAtSchoolClock(day, "10:00").toISOString(),
+        );
+      }
+    });
+
+    // The codes are already printed and handed to the front desk. A code depends only on the
+    // session's secret and its id, neither of which a clock change touches.
+    it("without changing a single code", async () => {
+      const session = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(2)) },
+      });
+      const before = codeFor(session);
+
+      await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 3, "11:00"),
+      );
+
+      const after = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(2)) },
+      });
+      expect(codeFor(after)).toBe(before);
+    });
+  });
+
+  /*
+    The claim the whole diff exists to make good. A holiday an instructor deleted is a meeting day
+    under both the old schedule and the new, so a later save has no opinion about it.
+  */
+  describe("a holiday somebody removed", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const caller = createCaller(tx(), world.instructorId);
+      await caller.programs.setAttendanceSchedule(scheduleFor(world.programId, 6));
+
+      const holiday = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(3)) },
+      });
+      await caller.attendance.deleteSession({ sessionId: holiday.id });
+    });
+
+    it("is not brought back by saving the schedule again", async () => {
+      const again = await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+        scheduleFor(world.programId, 6, "10:00"),
+      );
+
+      expect(again.make).toEqual([]);
+      expect(
+        await tx().attendanceSession.count({
+          where: { programId: world.programId, date: dateColumnFor(daysFromToday(3)) },
+        }),
+      ).toBe(0);
+    });
+
+    it("and the days either side of it are untouched", async () => {
+      expect(
+        await tx().attendanceSession.count({ where: { programId: world.programId } }),
+      ).toBe(6);
+    });
+  });
+
+  describe("a day somebody has already checked into", () => {
+    let world: World;
+    let shorter: { make: string[]; remove: string[]; blocked: string[] };
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const caller = createCaller(tx(), world.instructorId);
+      await caller.programs.setAttendanceSchedule(scheduleFor(world.programId, 3));
+
+      const ahead = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(2)) },
+      });
+      await tx().attendanceRecord.create({
+        data: {
+          sessionId: ahead.id,
+          programId: world.programId,
+          enrollmentId: world.students[0]!.id,
+          status: "PRESENT",
+          source: "SELF_CHECK_IN",
+          checkedInAt: new Date(),
+        },
+      });
+
+      shorter = await caller.programs.setAttendanceSchedule(scheduleFor(world.programId, 1));
+    });
+
+    it("is kept rather than destroyed", () => {
+      expect(shorter.blocked).toEqual([daysFromToday(2)]);
+    });
+
+    it("and the days beside it still go", () => {
+      expect(shorter.remove).toEqual([daysFromToday(3)]);
+    });
+
+    it("so the record a fellow made survives", async () => {
+      const records = await tx().attendanceRecord.count({
+        where: { programId: world.programId, source: "SELF_CHECK_IN" },
+      });
+      expect(records).toBe(1);
+    });
+  });
+
+  describe("the preview above the button", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+    });
+
+    it("counts what saving would do", async () => {
+      const preview = await createCaller(
+        tx(),
+        world.instructorId,
+      ).programs.attendanceSchedulePreview(scheduleFor(world.programId, 6));
+
+      expect(preview.make).toHaveLength(7);
+    });
+
+    it("and writes nothing", async () => {
+      expect(
+        await tx().attendanceSession.count({ where: { programId: world.programId } }),
+      ).toBe(0);
+    });
+  });
+
+  describe("what it refuses", () => {
+    let world: World;
+    let outsiderId: string;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      outsiderId = await makeAccount(tx(), { role: "INSTRUCTOR" });
+    });
+
+    it("an instructor who does not instruct this program", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), outsiderId).programs.setAttendanceSchedule(
+          scheduleFor(world.programId, 6),
+        ),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+
+    it("a fellow on the roster", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).programs.setAttendanceSchedule(
+          scheduleFor(world.programId, 6),
+        ),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+
+    // A mistyped year would otherwise build a list of a hundred thousand days.
+    it("a range longer than two years", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).programs.setAttendanceSchedule(
+          scheduleFor(world.programId, 900),
+        ),
+      );
+      expect(code).not.toBe("accepted");
+    });
+
+    it("a last day before the first", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+          programId: world.programId,
+          startsOn: daysFromToday(6),
+          endsOn: today,
+          weekdays: EVERY_DAY,
+          startsAt: "09:30",
+        }),
+      );
+      expect(code).not.toBe("accepted");
+    });
+
+    // Half a schedule is not a state this design has a name for: days to make and no clock.
+    it("a schedule with no start time", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+          programId: world.programId,
+          startsOn: today,
+          endsOn: daysFromToday(6),
+          weekdays: EVERY_DAY,
+          startsAt: null,
+        }),
+      );
+      expect(code).not.toBe("accepted");
+    });
+
+    it("a schedule with no weekdays", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+          programId: world.programId,
+          startsOn: today,
+          endsOn: daysFromToday(6),
+          weekdays: [],
+          startsAt: "09:30",
+        }),
+      );
+      expect(code).not.toBe("accepted");
+    });
+
+    it("a start time that is not a clock time", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+          programId: world.programId,
+          startsOn: today,
+          endsOn: daysFromToday(6),
+          weekdays: EVERY_DAY,
+          startsAt: "9:30",
+        }),
+      );
+      expect(code).not.toBe("accepted");
+    });
+
+    /*
+      The database refuses half a schedule too, through `_schedule_is_whole`. It is not asserted
+      here: a statement Postgres rejects aborts the whole transaction this group runs in, so the
+      check would pass and then break every test after it. The constraint is defence against a
+      future write path rather than against this procedure, which the refusals above cover.
+    */
+  });
+
+  describe("the lateness rule, once days are already made", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const caller = createCaller(tx(), world.instructorId);
+      await caller.programs.setAttendanceSchedule(scheduleFor(world.programId, 3));
+      await caller.programs.setAttendanceLateAfter({ programId: world.programId, minutes: 20 });
+    });
+
+    /*
+      Under a schedule the sessions for the rest of the term already exist, each holding a copy of
+      this number. A change that only reached days made after it would never reach any of them.
+    */
+    it("reaches every day that has not begun", async () => {
+      const ahead = await tx().attendanceSession.findMany({
+        where: { programId: world.programId, date: { gt: dateColumnFor(today) } },
+        select: { lateAfterMinutes: true },
+      });
+
+      expect(ahead).toHaveLength(3);
+      expect(ahead.every((session) => session.lateAfterMinutes === 20)).toBe(true);
+    });
+
+    // Today ran under the old number and keeps it, which is the whole reason the column is copied.
+    it("and leaves today under the rule it started with", async () => {
+      const session = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(today) },
+        select: { lateAfterMinutes: true },
+      });
+
+      expect(session.lateAfterMinutes).toBe(5);
+    });
+  });
+});
+
+/**
+ * Making one day of a scheduled program by hand.
+ *
+ * The schedule makes the term's days in one act; these are the two ways a single day still gets
+ * made afterwards — putting back a holiday that turned out not to be one, and an instructor
+ * pressing Start on a program that has a schedule anyway.
+ */
+describe("making one day of a scheduled program", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  function daysFromToday(count: number): string {
+    const at = new Date(`${today}T00:00:00Z`);
+    at.setUTCDate(at.getUTCDate() + count);
+    return at.toISOString().slice(0, 10);
+  }
+
+  async function scheduledWorld() {
+    const world = await makeWorld(tx(), { students: 2 });
+    await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+      programId: world.programId,
+      startsOn: today,
+      endsOn: daysFromToday(6),
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      startsAt: "09:30",
+    });
+    return world;
+  }
+
+  describe("putting back a day that was removed", () => {
+    let world: World;
+    let remade: { prepared: boolean; state: string; day: string };
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      const caller = createCaller(tx(), world.instructorId);
+
+      const session = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(2)) },
+      });
+      await caller.attendance.deleteSession({ sessionId: session.id });
+
+      remade = await caller.attendance.prepare({
+        programId: world.programId,
+        day: daysFromToday(2),
+      });
+    });
+
+    it("makes it", () => {
+      expect(remade.prepared).toBe(true);
+      expect(remade.day).toBe(daysFromToday(2));
+    });
+
+    // Not pending. A program with a schedule has a clock to give every day it makes.
+    it("with a clock rather than as a bare code", () => {
+      expect(remade.state).toBe("scheduled");
+    });
+
+    it("and that clock is the schedule's, on that day", async () => {
+      const row = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(2)) },
+      });
+
+      expect(row.startedAt?.toISOString()).toBe(
+        instantAtSchoolClock(daysFromToday(2), "09:30").toISOString(),
+      );
+    });
+  });
+
+  describe("what prepare refuses", () => {
+    let scheduled: World;
+    let plain: World;
+
+    beforeAll(async () => {
+      scheduled = await scheduledWorld();
+      plain = await makeWorld(tx(), { students: 2 });
+    });
+
+    // A code made for a morning that has been and gone is useless; `start` writes those up.
+    it("a day that has already happened", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), scheduled.instructorId).attendance.prepare({
+          programId: scheduled.programId,
+          day: daysFromToday(-1),
+        }),
+      );
+      expect(code).toBe("BAD_REQUEST");
+    });
+
+    // Without a schedule there is no start time to give a day ahead, so the row could not be made.
+    it("a day ahead, when the program has no schedule", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), plain.instructorId).attendance.prepare({
+          programId: plain.programId,
+          day: daysFromToday(2),
+        }),
+      );
+      expect(code).toBe("PRECONDITION_FAILED");
+    });
+
+    it("but still makes today's bare code for that program", async () => {
+      const pending = await createCaller(tx(), plain.instructorId).attendance.prepare({
+        programId: plain.programId,
+      });
+      expect(pending.state).toBe("pending");
+    });
+  });
+
+  /*
+    Pressing Start at 9:40 on a program whose class starts at 9:30 must not restart the clock:
+    everybody who arrived at 9:35 would become on time and everybody at 9:31 would stop being late.
+  */
+  describe("pressing Start on a program that has a schedule", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      const caller = createCaller(tx(), world.instructorId);
+
+      const session = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(today) },
+      });
+      await caller.attendance.deleteSession({ sessionId: session.id });
+      await caller.attendance.start({ programId: world.programId });
+    });
+
+    it("writes the scheduled time rather than this moment", async () => {
+      const row = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(today) },
+      });
+
+      expect(row.startedAt?.toISOString()).toBe(
+        instantAtSchoolClock(today, "09:30").toISOString(),
+      );
+    });
+  });
+});
+
+/**
+ * Checking into a day that opens itself.
+ *
+ * Two things are asked here that the rest of the suite cannot ask. **Arriving before class is on
+ * time**, which is the whole feature and was impossible while a session began when somebody
+ * pressed a button. And **check-in is what closes the previous day's books**, which it has to be:
+ * a scheduled program presses neither prepare nor start, and the grid is a pure read, so without
+ * this nothing would ever write the absences a lapsed day leaves implicit.
+ *
+ * The clocks are moved by editing `startedAt`, which is exactly what an instructor correcting a
+ * day does, so every row here is one the application could have produced.
+ */
+describe("checking into a day that opens itself", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  function dayFromToday(count: number): string {
+    const at = new Date(`${today}T00:00:00Z`);
+    at.setUTCDate(at.getUTCDate() + count);
+    return at.toISOString().slice(0, 10);
+  }
+
+  /** Move a session's start, and its backstop with it. */
+  async function moveStartTo(sessionId: string, startedAt: Date) {
+    await tx().attendanceSession.update({
+      where: { id: sessionId },
+      data: { startedAt, endsAt: defaultEndsAt(startedAt) },
+    });
+  }
+
+  const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60 * 1000);
+
+  describe("arriving before class", () => {
+    let world: World;
+    let checked: { status: string; checkedInAt: Date | null };
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const session = await createCaller(tx(), world.instructorId).attendance.start({
+        programId: world.programId,
+      });
+      // Class is ninety minutes away, so the window has been open for half an hour.
+      await moveStartTo(session.id, inMinutes(90));
+
+      const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: session.id } });
+      checked = await createCaller(tx(), world.students[0]!.studentId).attendance.checkIn({
+        programId: world.programId,
+        code: codeFor(row),
+      });
+    });
+
+    it("is accepted", () => {
+      expect(checked.checkedInAt).not.toBeNull();
+    });
+
+    // The rule already existed for instructors correcting a start time. It is the normal case now.
+    it("and counts as present, not early and not late", () => {
+      expect(checked.status).toBe("PRESENT");
+    });
+  });
+
+  describe("arriving before the window opens", () => {
+    let world: World;
+    let sessionId: string;
+    let code: string;
+    let refused: string;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const session = await createCaller(tx(), world.instructorId).attendance.start({
+        programId: world.programId,
+      });
+      sessionId = session.id;
+      // Class is three hours away. The window opens two hours before it.
+      await moveStartTo(sessionId, inMinutes(180));
+
+      const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
+      code = codeFor(row);
+      refused = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).attendance.checkIn({
+          programId: world.programId,
+          code,
+        }),
+      );
+    });
+
+    it("is refused", () => {
+      expect(refused).toBe("PRECONDITION_FAILED");
+    });
+
+    it("and records nothing", async () => {
+      expect(await tx().attendanceRecord.count({ where: { sessionId } })).toBe(0);
+    });
+
+    /*
+      A room typing the right code off a printed sheet forty minutes early are not guessing.
+      Counting them against the twenty-per-session ceiling would lock out exactly the people who
+      were paying attention.
+    */
+    it("and is not counted as a wrong code", async () => {
+      const failures = await tx().auditEvent.count({
+        where: { action: "ATTENDANCE_CHECK_IN_FAILED", programId: world.programId },
+      });
+      expect(failures).toBe(0);
+    });
+
+    /*
+      The wording is the point, and it is why `scheduled` is a state of its own rather than a reuse
+      of the closed branch. "Check-in closed on its own, ask your instructor to mark you in" is
+      what a fellow forty minutes early used to be told: false, and it sends them to interrupt
+      somebody over a problem that solves itself in forty minutes.
+    */
+    it("and is told when to come back rather than to find an instructor", async () => {
+      const message = await refusalMessage(() =>
+        createCaller(tx(), world.students[1]!.studentId).attendance.checkIn({
+          programId: world.programId,
+          code,
+        }),
+      );
+
+      expect(message).toMatch(/opens at/i);
+      expect(message).not.toMatch(/closed/i);
+      expect(message).not.toMatch(/mark you in/i);
+    });
+  });
+
+  describe("the first check-in of the morning", () => {
+    let world: World;
+    let staleId: string;
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const caller = createCaller(tx(), world.instructorId);
+
+      const stale = await caller.attendance.start({
+        programId: world.programId,
+        day: dayFromToday(-1),
+      });
+      staleId = stale.id;
+
+      const todaySession = await caller.attendance.start({ programId: world.programId });
+
+      /*
+        `start` sweeps as well, so undo what it did. What is being asked here is whether *check-in*
+        closes the books, which is the only write a scheduled program performs on a normal morning.
+      */
+      await tx().attendanceSession.update({ where: { id: staleId }, data: { endedAt: null } });
+      await tx().attendanceRecord.deleteMany({ where: { sessionId: staleId } });
+
+      const row = await tx().attendanceSession.findUniqueOrThrow({
+        where: { id: todaySession.id },
+      });
+      await createCaller(tx(), world.students[0]!.studentId).attendance.checkIn({
+        programId: world.programId,
+        code: codeFor(row),
+      });
+    });
+
+    it("ends yesterday", async () => {
+      const closed = await tx().attendanceSession.findUniqueOrThrow({ where: { id: staleId } });
+      expect(closed.endedAt).not.toBeNull();
+    });
+
+    it("and writes an absence for everybody who missed it", async () => {
+      const absences = await tx().attendanceRecord.count({
+        where: { sessionId: staleId, status: "ABSENT", source: "FINALIZED" },
+      });
+      expect(absences).toBe(world.students.length);
+    });
+
+    it("and the next fellow through writes nothing more", async () => {
+      const before = await tx().attendanceRecord.count();
+
+      const row = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(today) },
+      });
+      await createCaller(tx(), world.students[1]!.studentId).attendance.checkIn({
+        programId: world.programId,
+        code: codeFor(row),
+      });
+
+      // Exactly one row: the second fellow's own. The sweep found nothing left to do.
+      expect(await tx().attendanceRecord.count()).toBe(before + 1);
+    });
+  });
+});
+
+/**
+ * What happened, and what is coming: two questions, two procedures.
+ *
+ * A scheduled program has a session row for every meeting day to June. `history` is what the term
+ * grid, the drift list and the export are built from, and every one of them is about days that
+ * have happened — so it stops at today rather than stretching a hundred and ninety empty columns
+ * into next summer. `upcoming` answers the other half, per day rather than per fellow, for the two
+ * screens that show no fellow at all.
+ */
+describe("the days ahead", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  function daysFromToday(count: number): string {
+    const at = new Date(`${today}T00:00:00Z`);
+    at.setUTCDate(at.getUTCDate() + count);
+    return at.toISOString().slice(0, 10);
+  }
+
+  async function scheduledWorld(lastDay = 6) {
+    const world = await makeWorld(tx(), { students: 2 });
+    await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+      programId: world.programId,
+      startsOn: today,
+      endsOn: daysFromToday(lastDay),
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      startsAt: "09:30",
+    });
+    return world;
+  }
+
+  describe("reading them", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+    });
+
+    it("history carries nothing ahead of today", async () => {
+      const term = await createCaller(tx(), world.instructorId).attendance.history({
+        programId: world.programId,
+      });
+
+      expect(term.sessions).toHaveLength(1);
+      expect(term.sessions[0]!.day).toBe(today);
+    });
+
+    // The failure this guards: a term of days ahead counted as missed would put every fellow at
+    // one seventh of their real rate the moment the schedule was saved.
+    it("and every fellow's rate is unmoved by the days ahead", async () => {
+      const term = await createCaller(tx(), world.instructorId).attendance.history({
+        programId: world.programId,
+      });
+
+      expect(term.active.every((row) => row.eligible === 0)).toBe(true);
+      expect(term.active.every((row) => row.rate === null)).toBe(true);
+    });
+
+    it("upcoming carries today and everything after it", async () => {
+      const ahead = await createCaller(tx(), world.instructorId).attendance.upcoming({
+        programId: world.programId,
+      });
+
+      expect(ahead.days).toHaveLength(7);
+      expect(ahead.days[0]!.day).toBe(today);
+      expect(ahead.days[6]!.day).toBe(daysFromToday(6));
+    });
+
+    it("with the program's name, so the printable sheet needs nothing else", async () => {
+      const ahead = await createCaller(tx(), world.instructorId).attendance.upcoming({
+        programId: world.programId,
+      });
+
+      expect(ahead.program.name).not.toBe("");
+      expect(ahead.program.term).not.toBe("");
+    });
+
+    // Derived here rather than read back, so the sheet at the front desk and the fellow's phone
+    // cannot disagree about what today's four digits are.
+    it("and the code each day will actually accept", async () => {
+      const ahead = await createCaller(tx(), world.instructorId).attendance.upcoming({
+        programId: world.programId,
+      });
+
+      const row = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(3)) },
+      });
+      expect(ahead.days[3]!.code).toBe(codeFor(row));
+    });
+
+    it("and when that code starts working", async () => {
+      const ahead = await createCaller(tx(), world.instructorId).attendance.upcoming({
+        programId: world.programId,
+      });
+
+      expect(ahead.days[3]!.state).toBe("scheduled");
+      expect(ahead.days[3]!.opensAt?.toISOString()).toBe(
+        new Date(
+          instantAtSchoolClock(daysFromToday(3), "09:30").getTime() - 120 * 60 * 1000,
+        ).toISOString(),
+      );
+    });
+
+    it("never the secret the code came from", async () => {
+      const ahead = await createCaller(tx(), world.instructorId).attendance.upcoming({
+        programId: world.programId,
+      });
+      expect(containsKey(ahead, "codeSecret")).toBe(false);
+    });
+  });
+
+  describe("who may read them", () => {
+    let world: World;
+    let outsiderId: string;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      outsiderId = await makeAccount(tx(), { role: "INSTRUCTOR" });
+    });
+
+    it("not a fellow on the roster", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).attendance.upcoming({
+          programId: world.programId,
+        }),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+
+    it("and not an instructor of another program", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), outsiderId).attendance.upcoming({ programId: world.programId }),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+  });
+
+  describe("removing a stretch of them", () => {
+    let world: World;
+    let removed: { removed: string[]; kept: string[] };
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      removed = await createCaller(tx(), world.instructorId).attendance.removeDays({
+        programId: world.programId,
+        from: daysFromToday(2),
+        to: daysFromToday(4),
+      });
+    });
+
+    it("takes every day between the two", () => {
+      expect(removed.removed).toEqual([daysFromToday(2), daysFromToday(3), daysFromToday(4)]);
+      expect(removed.kept).toEqual([]);
+    });
+
+    it("and leaves the rest standing", async () => {
+      expect(
+        await tx().attendanceSession.count({ where: { programId: world.programId } }),
+      ).toBe(4);
+    });
+
+    it("writing one audit event that names them", async () => {
+      const events = await tx().auditEvent.findMany({
+        where: { action: "ATTENDANCE_SESSIONS_REMOVED", programId: world.programId },
+      });
+
+      expect(events).toHaveLength(1);
+      expect((events[0]!.detail as { removed: string[] }).removed).toEqual([
+        daysFromToday(2),
+        daysFromToday(3),
+        daysFromToday(4),
+      ]);
+    });
+  });
+
+  describe("what removing a stretch will not do", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      const ahead = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(3)) },
+      });
+      await tx().attendanceRecord.create({
+        data: {
+          sessionId: ahead.id,
+          programId: world.programId,
+          enrollmentId: world.students[0]!.id,
+          status: "PRESENT",
+          source: "SELF_CHECK_IN",
+          checkedInAt: new Date(),
+        },
+      });
+    });
+
+    it("destroy a day somebody checked into, and it says which", async () => {
+      const removed = await createCaller(tx(), world.instructorId).attendance.removeDays({
+        programId: world.programId,
+        from: daysFromToday(2),
+        to: daysFromToday(4),
+      });
+
+      expect(removed.removed).toEqual([daysFromToday(2), daysFromToday(4)]);
+      expect(removed.kept).toEqual([daysFromToday(3)]);
+    });
+
+    // A day behind today is the record the whole feature exists to keep.
+    it("touch a day that has already happened", async () => {
+      await createCaller(tx(), world.instructorId).attendance.start({
+        programId: world.programId,
+        day: daysFromToday(-2),
+      });
+
+      const removed = await createCaller(tx(), world.instructorId).attendance.removeDays({
+        programId: world.programId,
+        from: daysFromToday(-5),
+        to: daysFromToday(-1),
+      });
+
+      expect(removed.removed).toEqual([]);
+      expect(
+        await tx().attendanceSession.count({
+          where: { programId: world.programId, date: dateColumnFor(daysFromToday(-2)) },
+        }),
+      ).toBe(1);
+    });
+
+    it("or accept a stretch that runs backwards", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).attendance.removeDays({
+          programId: world.programId,
+          from: daysFromToday(4),
+          to: daysFromToday(2),
+        }),
+      );
+      expect(code).toBe("BAD_REQUEST");
+    });
+
+    it("or let a fellow call it", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).attendance.removeDays({
+          programId: world.programId,
+          from: daysFromToday(5),
+          to: daysFromToday(6),
+        }),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+  });
+});
+
+/**
+ * What an instructor may do to a day before its check-in opens.
+ *
+ * The two answers differ, and the difference is the point. **Ending is refused**, because ending
+ * writes an ABSENT row for every active fellow and none of them could have checked in yet.
+ * **Setting a status is allowed**, because unlike a prepared session a scheduled day is never
+ * deleted by the sweep, so a record written on one is safe.
+ */
+describe("acting on a day that has not opened", () => {
+  const tx = withRollback(180_000);
+
+  let world: World;
+  let sessionId: string;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 2 });
+    const session = await createCaller(tx(), world.instructorId).attendance.start({
+      programId: world.programId,
+    });
+    sessionId = session.id;
+
+    // Class is three hours away, so the window has not opened.
+    const startedAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    await tx().attendanceSession.update({
+      where: { id: sessionId },
+      data: { startedAt, endsAt: defaultEndsAt(startedAt) },
+    });
+  });
+
+  it("ending it is refused", async () => {
+    const code = await refusal(() =>
+      createCaller(tx(), world.instructorId).attendance.endSession({ sessionId }),
+    );
+    expect(code).toBe("PRECONDITION_FAILED");
+  });
+
+  // The cost of getting this wrong is a day of absences in a report, against a roster that had
+  // done nothing but turn up on time.
+  it("and marks nobody absent", async () => {
+    expect(await tx().attendanceRecord.count({ where: { sessionId } })).toBe(0);
+  });
+
+  it("and it points at removing the day instead", async () => {
+    const message = await refusalMessage(() =>
+      createCaller(tx(), world.instructorId).attendance.endSession({ sessionId }),
+    );
+    expect(message).toMatch(/remove the day/i);
+  });
+
+  // Excusing somebody for a day next week is a real thing an instructor wants to do.
+  it("but a status can still be set on it", async () => {
+    const set = await createCaller(tx(), world.instructorId).attendance.setStatus({
+      sessionId,
+      enrollmentId: world.students[0]!.id,
+      status: "EXCUSED",
+      note: "Hospital appointment",
+    });
+
+    expect(set.status).toBe("EXCUSED");
+  });
+});
+
+/**
+ * The code of a day that has not opened yet.
+ *
+ * **A scheduled day holds a code from the moment its row exists**, derived from the row's own
+ * secret, and every screen that puts a code in front of a room has to be able to read it before
+ * check-in opens — that is what the whole prepared phase was invented for, and a scheduled day is
+ * the same case arriving by a different route. What the state decides is whether typing the code
+ * would be *accepted*, which is `checkIn`'s question and not `sessionCode`'s.
+ */
+describe("reading the code of a day still to come", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  let world: World;
+  let sessionId: string;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 2 });
+    const session = await createCaller(tx(), world.instructorId).attendance.start({
+      programId: world.programId,
+    });
+    sessionId = session.id;
+
+    // Class is three hours away, so the window has not opened and the state is `scheduled`.
+    const startedAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    await tx().attendanceSession.update({
+      where: { id: sessionId },
+      data: { startedAt, endsAt: defaultEndsAt(startedAt) },
+    });
+  });
+
+  /*
+    The failure this guards against: the day screen's code card and the projector are both told to
+    render for a scheduled day, so when this returned null they drew four dashes. A projector
+    showing dashes while the room fills is the exact thing the code is on screen to prevent.
+  */
+  it("the instructor's screens are given the digits", async () => {
+    const view = await createCaller(tx(), world.instructorId).attendance.sessionCode({ sessionId });
+
+    expect(view.session.state).toBe("scheduled");
+    expect(view.code).not.toBeNull();
+  });
+
+  it("and they are the digits that day will accept", async () => {
+    const view = await createCaller(tx(), world.instructorId).attendance.sessionCode({ sessionId });
+    const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
+
+    expect(view.code).toBe(codeFor(row));
+  });
+
+  it("without the secret they came from", async () => {
+    const view = await createCaller(tx(), world.instructorId).attendance.sessionCode({ sessionId });
+    expect(containsKey(view, "codeSecret")).toBe(false);
+  });
+
+  // Holding the code has never been enough. The window is what admits anybody.
+  it("and holding them is still not enough to check in yet", async () => {
+    const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
+    const code = await refusal(() =>
+      createCaller(tx(), world.students[0]!.studentId).attendance.checkIn({
+        programId: world.programId,
+        code: codeFor(row),
+      }),
+    );
+
+    expect(code).toBe("PRECONDITION_FAILED");
+  });
+
+  it("and a fellow cannot read them at all", async () => {
+    const code = await refusal(() =>
+      createCaller(tx(), world.students[0]!.studentId).attendance.sessionCode({ sessionId }),
+    );
+    expect(code).toBe("FORBIDDEN");
+  });
+
+  /*
+    The button the calendar and the day screen offer on a blank square. It is refused in the past,
+    which is why neither screen offers it there — a day that has been and gone is written up with
+    `start`, not given a code nobody can use.
+  */
+  it("a day already behind cannot be made this way", async () => {
+    const yesterday = new Date(`${today}T00:00:00Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+    const code = await refusal(() =>
+      createCaller(tx(), world.instructorId).attendance.prepare({
+        programId: world.programId,
+        day: yesterday.toISOString().slice(0, 10),
+      }),
+    );
+    expect(code).toBe("BAD_REQUEST");
   });
 });

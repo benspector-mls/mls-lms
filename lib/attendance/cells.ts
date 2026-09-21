@@ -13,7 +13,13 @@ import type { SchoolDay } from "@/lib/school-time";
  * Pure, and no `server-only`: both callers are client components.
  */
 
-export type CellKind = AttendanceStatus | "unrecorded" | "open" | "no-session" | "not-enrolled";
+export type CellKind =
+  | AttendanceStatus
+  | "unrecorded"
+  | "open"
+  | "upcoming"
+  | "no-session"
+  | "not-enrolled";
 
 export const CELL: Record<CellKind, { className: string; label: string }> = {
   PRESENT: {
@@ -44,6 +50,15 @@ export const CELL: Record<CellKind, { className: string; label: string }> = {
   open: {
     className: "border border-primary/50 bg-primary/10 text-foreground",
     label: "Check-in is open",
+  },
+  /*
+    A day the program will meet, drawn hollow. It has to be visible — the point of a schedule is
+    that a fellow can see next Tuesday is a class day — and it must not read as anything having
+    happened, so it is an outline where every settled square is filled.
+  */
+  upcoming: {
+    className: "border border-dashed border-muted-foreground/40 text-muted-foreground",
+    label: "Class meets this day",
   },
   // No session that day, and no session before you joined. Both are blank rather than grey:
   // a coloured square for a morning the cohort never met is the calendar inventing an absence.
@@ -83,15 +98,23 @@ export function isMarked(kind: CellKind): boolean {
  * only case where nothing is settled: there is still time to fix it, so it must not read as an
  * absence. Once the day closes with nothing written down it becomes `unrecorded` rather than
  * silently present.
+ *
+ * **`upcoming` is a day the schedule has made that has not come.** It sits between a status and
+ * `open` because it is a fact about the calendar rather than about the fellow: there is nothing to
+ * record yet and nothing missing.
  */
 export function kindOf(
-  entry: { status: AttendanceStatus | null; open: boolean } | undefined,
+  entry: { status: AttendanceStatus | null; open: boolean; upcoming: boolean } | undefined,
   day: SchoolDay,
   enrolledFrom: SchoolDay,
 ): CellKind {
   if (!entry) return "no-session";
   if (day < enrolledFrom) return "not-enrolled";
   if (entry.status) return entry.status;
+  // Ahead of `open`, because the two are never both true and a day that has not come is the more
+  // specific thing to say. Behind `status`, because a fellow excused for a day in December has
+  // been told a fact about themselves that outranks the calendar.
+  if (entry.upcoming) return "upcoming";
   if (entry.open) return "open";
   return "unrecorded";
 }

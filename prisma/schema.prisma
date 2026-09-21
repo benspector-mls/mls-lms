@@ -200,11 +200,10 @@ model Program {
 
   /// When this run of the program begins, as a person says it — "Fall 2026".
   ///
-  /// **Free text, and nothing parses it.** There are no term dates and no record of which weekdays
-  /// the program meets, so a morning nobody opened stays indistinguishable from a morning the
-  /// program did not meet, and no warning fires about a forgotten Tuesday. It is displayed, it is
-  /// half of the identity, and it is an input to a course's suggested short name. See
-  /// `AttendanceSession` for what the absence of a calendar costs and why the cost is accepted.
+  /// **Free text, and nothing parses it.** "Fall 2026" is a label, not a date range: when the
+  /// program actually meets is `attendanceStartsOn` and the three columns beside it, which exist
+  /// precisely because nothing could be read out of this one. It is displayed, it is half of the
+  /// identity, and it is an input to a course's suggested short name.
   term String
 
   /// Which fellowship this is a run of, and so which competencies its fellows pick goals from.
@@ -250,6 +249,40 @@ model Program {
   /// one per course. Copied onto each session when it starts rather than read at grading time — see
   /// `AttendanceSession.lateAfterMinutes` for why editing this must never rewrite a past morning.
   attendanceLateAfterMinutes Int @default(5) @map("attendance_late_after_minutes")
+
+  /// When this program meets: the first day, the last day, and which weekdays in between.
+  ///
+  /// **A range with exceptions removed, rather than a list of days.** A program meets nearly every
+  /// weekday for nine months, so declaring the 190 days would be the burden this replaces. Saving
+  /// these makes one `AttendanceSession` per meeting day from today onward, each carrying its own
+  /// clock, and an instructor deletes the holidays.
+  ///
+  /// **All four are set together or none of them is**, which `_schedule_is_whole` asserts. Null
+  /// throughout means the program has no schedule and attendance behaves as it did before: an
+  /// instructor presses Start and the session measures from the press.
+  ///
+  /// Never send these to a browser as a `Date` — see `lib/school-time.ts`. The `Date` objects
+  /// Prisma returns here are UTC midnight of a bare date.
+  attendanceStartsOn DateTime? @map("attendance_starts_on") @db.Date
+  attendanceEndsOn   DateTime? @map("attendance_ends_on") @db.Date
+
+  /// Which weekdays it meets, Sunday 0 through Saturday 6, as `weekdayOf` numbers them.
+  ///
+  /// An array rather than seven booleans or a bitmask, because it is read into
+  /// `Schedule.weekdays` and compared with `includes`. Empty exactly while the other three are
+  /// null, which is how the CHECK expresses "no schedule" for a column that cannot be null.
+  attendanceWeekdays Int[] @map("attendance_weekdays")
+
+  /// What time class starts, in Brooklyn, written "09:30" on the 24-hour clock.
+  ///
+  /// **A `SchoolClock` string rather than minutes or a time column**, matching how a due date's
+  /// time is held: it is what an `<input type="time">` reads and writes, and
+  /// `instantAtSchoolClock` turns it into the instant a session's `startedAt` is set to.
+  ///
+  /// This is what lateness is measured from on every day the schedule makes. Changing it rewrites
+  /// the clock of every session dated after today and leaves every earlier one alone, for the
+  /// reason `AttendanceSession.lateAfterMinutes` gives.
+  attendanceStartsAt String? @map("attendance_starts_at")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1867,6 +1900,14 @@ enum AuditAction {
   /// worth being able to answer at all.
   ATTENDANCE_CHECK_IN_FAILED
 
+  /// A program declared when it meets. One event for the whole save, with the days made and
+  /// removed in its detail, rather than one per session: a first save touches nearly two hundred
+  /// days and two hundred rows would bury every other event of that afternoon.
+  PROGRAM_ATTENDANCE_SCHEDULE_SET
+  /// A stretch of days removed at once. `ATTENDANCE_SESSION_DELETED` stays the value for removing
+  /// one day by hand, where the session id is the subject and worth having.
+  ATTENDANCE_SESSIONS_REMOVED
+
   /// Coaching: staff writing about a fellow the fellow does not see, which is exactly the act
   /// that wants a record of who wrote and when. The note events carry no body text and never
   /// will — this table is append-only, so an event holding the body would be a permanent copy
@@ -2084,14 +2125,19 @@ model AttendanceSession {
   programId String   @map("program_id") @db.Uuid
   date      DateTime @db.Date
 
-  /// When check-in opened. Also what lateness is measured from, which is why editing it after the
+  /// When the day starts. Also what lateness is measured from, which is why editing it after the
   /// fact recomputes every self check-in's status.
   ///
+  /// **Written two ways.** An instructor pressing Start writes this moment. A program with a
+  /// schedule writes it in advance, as that day at the program's start time — which is what lets a
+  /// morning open itself, and what makes an arrival before it count as on time rather than early.
+  /// `startedById` is null in the second case, because no person opened it.
+  ///
   /// **Null means the session is prepared but not started**, which is the phase that exists so an
-  /// instructor can write the code on a whiteboard before class. The row already holds a secret and
-  /// therefore a code, but no fellow can check in against it: every rule that admits one reads this
-  /// column, and a null start is not an open session. Both window columns are null together — see
-  /// the `_pending_is_paired` constraint.
+  /// instructor can write the code on a whiteboard before class. A program with a schedule never
+  /// produces one. The row already holds a secret and therefore a code, but no fellow can check in
+  /// against it: every rule that admits one reads this column, and a null start is not an open
+  /// session. Both window columns are null together — see the `_pending_is_paired` constraint.
   startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
   startedById String?   @map("started_by_id") @db.Uuid
 
@@ -2134,7 +2180,7 @@ model AttendanceSession {
   ///
   /// **Never selected into a payload.** The same rule as `Program.joinToken` and sharper — that one
   /// admits somebody to a roster, this one lets them mark themselves present from bed. Only
-  /// `lib/attendance/code.ts` reads it.
+  /// `lib/attendance/code.ts` reads it, for `checkIn`, `sessionCode`, and `upcoming`.
   codeSecret String @map("code_secret")
 
   /// Free text about the day — "guest speaker", "half day". Not matched on.

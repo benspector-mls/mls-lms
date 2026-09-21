@@ -1,10 +1,12 @@
 import {
   DEFAULT_SESSION_MINUTES,
+  OPENS_BEFORE_START_MINUTES,
   defaultEndsAt,
   extendedEndsAt,
   isAcceptingCheckIns,
   isEndingSoon,
   lateFrom,
+  opensAt,
   sessionStateOf,
   statusForCheckIn,
   type StartedSession,
@@ -156,5 +158,51 @@ describe("isEndingSoon", () => {
   it("says nothing about a session that is already closed", () => {
     expect(isEndingSoon(session(), at(DEFAULT_SESSION_MINUTES + 1))).toBe(false);
     expect(isEndingSoon(session({ endedAt: at(20) }), at(21))).toBe(false);
+  });
+});
+
+describe("a session whose start is still ahead", () => {
+  /*
+    A session made from a schedule carries a start in the future, so `now` here runs *before* the
+    fixture's `STARTED` rather than after it. `at()` takes negatives for exactly this.
+  */
+  it("is scheduled until two hours before the start", () => {
+    expect(sessionStateOf(session(), at(-OPENS_BEFORE_START_MINUTES - 1))).toBe("scheduled");
+    expect(sessionStateOf(session(), at(-121))).toBe("scheduled");
+  });
+
+  // On the boundary the window is open, matching `statusForCheckIn`, which decides the other
+  // boundary in the fellow's favour.
+  it("is open exactly at the two-hour mark", () => {
+    expect(sessionStateOf(session(), at(-OPENS_BEFORE_START_MINUTES))).toBe("open");
+    expect(sessionStateOf(session(), at(-119))).toBe("open");
+  });
+
+  it("accepts no check-in before the window opens", () => {
+    expect(isAcceptingCheckIns(session(), at(-121))).toBe(false);
+    expect(isAcceptingCheckIns(session(), at(-120))).toBe(true);
+  });
+
+  /*
+    An instructor pressing Start makes a session whose start is this moment, so the window opened
+    two hours ago and the press is never refused by its own rule.
+  */
+  it("is open at once when a person started it", () => {
+    expect(sessionStateOf(session(), STARTED)).toBe("open");
+  });
+
+  // Somebody arriving during the window, before class, is on time. That is the feature.
+  it("counts an arrival before the start as present", () => {
+    expect(statusForCheckIn(session(), at(-90))).toBe("PRESENT");
+  });
+
+  // A person's decision and the backstop both outrank the window, or a removed day could be
+  // reopened into a state that accepts nobody.
+  it("reports ended rather than scheduled once somebody ended it", () => {
+    expect(sessionStateOf(session({ endedAt: at(-150) }), at(-160))).toBe("ended");
+  });
+
+  it("says when the window opens", () => {
+    expect(opensAt(session()).toISOString()).toBe(at(-120).toISOString());
   });
 });
