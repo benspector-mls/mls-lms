@@ -1,4 +1,5 @@
 import {
+  addSchoolDays,
   dateColumnFor,
   END_OF_DAY,
   formatSchoolDay,
@@ -214,5 +215,28 @@ describe("formatSchoolClock", () => {
   it("round-trips whatever schoolClockOf writes", () => {
     const at = new Date("2026-09-14T13:02:00Z");
     expect(formatSchoolClock(schoolClockOf(at))).toBe(formatSchoolTime(at));
+  });
+});
+
+describe("addSchoolDays", () => {
+  it("counts forward and backward", () => {
+    expect(addSchoolDays("2026-09-07", 20)).toBe("2026-09-27");
+    expect(addSchoolDays("2026-09-07", -1)).toBe("2026-09-06");
+    expect(addSchoolDays("2026-09-07", 0)).toBe("2026-09-07");
+  });
+
+  it("crosses a month and a year", () => {
+    expect(addSchoolDays("2026-09-30", 1)).toBe("2026-10-01");
+    expect(addSchoolDays("2026-12-31", 1)).toBe("2027-01-01");
+  });
+
+  /*
+    The 8th of March 2026 is when the clocks go forward in Brooklyn. Arithmetic in local time would
+    land back on the 8th, so a three-week window printed in early March would be a day short.
+  */
+  it("is unmoved by daylight saving", () => {
+    expect(addSchoolDays("2026-03-07", 1)).toBe("2026-03-08");
+    expect(addSchoolDays("2026-03-08", 1)).toBe("2026-03-09");
+    expect(addSchoolDays("2026-03-01", 20)).toBe("2026-03-21");
   });
 });

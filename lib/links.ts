@@ -68,7 +68,7 @@ export function attendancePresentHref(programId: string): string {
 }
 
 /**
- * The fortnight of codes, laid out to be printed and left at the front desk.
+ * Three weeks of codes, laid out to be printed and left at the front desk.
  *
  * Beside the projector page and outside the shell for the same reason: what comes out of a printer
  * should be the sheet and nothing else.

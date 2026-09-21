@@ -1,4 +1,10 @@
-import { schoolDayFromColumn, weekdayOf, type SchoolClock, type SchoolDay } from "@/lib/school-time";
+import {
+  addSchoolDays,
+  schoolDayFromColumn,
+  weekdayOf,
+  type SchoolClock,
+  type SchoolDay,
+} from "@/lib/school-time";
 
 /**
  * When a program meets, and what changing that costs.
@@ -43,17 +49,9 @@ export type Schedule = {
  */
 export const SCHEDULE_MAX_DAYS = 800;
 
-/**
- * The day after this one.
- *
- * Built on UTC parts of a bare date, for the reason `schoolDayFromColumn` reads UTC parts: this is
- * a civil date with no zone, and stepping it through local time would repeat or skip a day at
- * each daylight-saving change.
- */
+/** The day after this one. See `addSchoolDays` for why it is arithmetic on UTC parts. */
 export function nextSchoolDay(day: SchoolDay): SchoolDay {
-  const at = new Date(`${day}T00:00:00Z`);
-  at.setUTCDate(at.getUTCDate() + 1);
-  return at.toISOString().slice(0, 10);
+  return addSchoolDays(day, 1);
 }
 
 /** The four columns as Prisma returns them, which is the shape every read of a program has. */

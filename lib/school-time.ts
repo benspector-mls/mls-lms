@@ -132,6 +132,20 @@ export function instantAtSchoolClock(day: SchoolDay, clock: SchoolClock): Date {
 }
 
 /**
+ * A school day shifted by a whole number of days. Negative counts go backwards.
+ *
+ * **UTC parts of a bare date, never local ones**, for the reason `schoolDayFromColumn` reads them:
+ * a school day is a civil date with no zone, and stepping it through local time would repeat or
+ * skip a day at each daylight-saving change — `"2026-03-08"` is the Sunday the clocks go forward
+ * in Brooklyn, and a naive `+24 hours` lands back on the 8th.
+ */
+export function addSchoolDays(day: SchoolDay, count: number): SchoolDay {
+  const at = new Date(`${day}T00:00:00Z`);
+  at.setUTCDate(at.getUTCDate() + count);
+  return at.toISOString().slice(0, 10);
+}
+
+/**
  * The value to hand Prisma for a `@db.Date` column.
  *
  * UTC midnight of that civil date, which is how Prisma and Postgres represent a bare date. It is
