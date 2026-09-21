@@ -7,7 +7,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
-import { GoalMarkerBadge } from "@/components/status-badge";
+import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -250,7 +250,10 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           stand — and they do the typing on their own screen, during the conversation or after
           it.
         */}
-        <FellowGoals goals={data.goals} />
+        <FellowGoals
+          goals={data.goals}
+          empty="They have not set any goals yet — a good thing to spend this session on."
+        />
       </section>
 
       {!completed && (
@@ -445,39 +448,5 @@ function SectionHeading({
         </Badge>
       )}
     </div>
-  );
-}
-
-/** The fellow's goals as they stand, for talking through. Nothing here is a control. */
-function FellowGoals({ goals }: { goals: SessionData["goals"] }) {
-  if (goals.length === 0) {
-    return (
-      <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-        They have not set any goals yet — a good thing to spend this session on.
-      </p>
-    );
-  }
-
-  return (
-    <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
-      {goals.map((goal) => (
-        <li key={goal.id} className="flex flex-col gap-1 px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">{goal.competencyName}</span>
-            {goal.entryKind === "PITFALL" && (
-              <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
-                Pitfall
-              </Badge>
-            )}
-            <span className="ml-auto" />
-            <GoalMarkerBadge marker={goal.marker} />
-          </div>
-          <p className="text-sm">“{goal.entryText}”</p>
-          {goal.successCriteria !== "" && (
-            <p className="text-sm text-muted-foreground">{goal.successCriteria}</p>
-          )}
-        </li>
-      ))}
-    </ul>
   );
 }

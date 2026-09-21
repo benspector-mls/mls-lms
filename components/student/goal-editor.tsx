@@ -110,7 +110,7 @@ export function GoalEditor({
         onChange={setSuccessCriteria}
       />
       <Part
-        label="Objectives"
+        label="Skills, Habits, & Mindsets"
         hint="What skills, habits or mindsets would help you get there? What do you want to be doing differently in a few weeks?"
         value={objectives}
         onChange={setObjectives}

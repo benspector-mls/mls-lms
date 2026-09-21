@@ -183,7 +183,9 @@ function GoalRow({
           {goal.successCriteria !== "" && (
             <GoalPart label="What success looks like" text={goal.successCriteria} />
           )}
-          {goal.objectives !== "" && <GoalPart label="Objectives" text={goal.objectives} />}
+          {goal.objectives !== "" && (
+            <GoalPart label="Skills, Habits, & Mindsets" text={goal.objectives} />
+          )}
           {goal.actionPlan !== "" && <GoalPart label="Action plan" text={goal.actionPlan} />}
           {!hasPlan && (
             <p className="text-sm text-muted-foreground">

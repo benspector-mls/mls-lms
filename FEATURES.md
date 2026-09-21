@@ -257,6 +257,8 @@ Open a fellow from the roster and their record has two tabs under their details.
 
 **The goals belong to the fellow, and the session is where you talk them through.** Their goals appear on the form beside your questions, read-only: you guide somebody to set one, or to move where they say they stand, and they do it on their own screen. Nothing on this page writes a goal. If you think somebody has placed themselves too high or too low, say so — that is what the conversation is for.
 
+**Open a goal to read the plan behind it** — what success looks like to them, the skills, habits and mindsets they are after, and what they said they would do before the next session. The same rows, opening the same way, are on the Coaching tab of their record, so preparing for a conversation and having it show you the same words.
+
 **Completing a session shares the snapshot.** Until then it is a staff-only draft the fellow cannot see; completing it gives them the dated figures and closes the form to further editing. The temperature check and the check-in answers stay staff-only for good, and their goals are unaffected either way.
 
 **Started one on the wrong person?** **Discard** it. A draft goes entirely, the fellow never saw any of it, and their goals are untouched. It is offered on drafts only — once a session is completed the fellow has read its snapshot, and taking that back is a different thing from throwing away a form nobody saw.

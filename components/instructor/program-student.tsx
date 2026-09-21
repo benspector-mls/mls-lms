@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Archive, ArrowRight, CircleCheck, EyeOff, GitBranch, UserMinus } from "lucide-react";
 
+import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { ArrivalAveragesPanel } from "@/components/arrival-averages";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
 import { RenameStudent } from "@/components/instructor/rename-student";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
-import { GoalMarkerBadge } from "@/components/status-badge";
 import { coachingSessionHref, studentHref } from "@/lib/links";
 import { formatDate } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -341,34 +341,12 @@ export function ProgramStudent({
               </p>
             </div>
 
-            {coaching.goals.length === 0 ? (
-              <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-                They have not set any goals yet.
-              </p>
-            ) : (
-              <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
-                {coaching.goals.map((goal) => (
-                  <li key={goal.id} className="flex flex-col gap-1 px-3 py-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {goal.competencyName}
-                      </span>
-                      {goal.entryKind === "PITFALL" && (
-                        <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
-                          Pitfall
-                        </Badge>
-                      )}
-                      <span className="ml-auto" />
-                      <GoalMarkerBadge marker={goal.marker} />
-                    </div>
-                    <p className="text-sm">“{goal.entryText}”</p>
-                    <span className="text-xs text-muted-foreground">
-                      Agreed {formatDate(goal.createdAt)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {/*
+              A client island on an otherwise server-rendered record, for the reason the fellow's
+              own goals page is a client component: the rows open. Reading "what are they working
+              on" wants the list, and the plan behind one goal is a paragraph read on purpose.
+            */}
+            <FellowGoals goals={coaching.goals} empty="They have not set any goals yet." />
           </section>
 
           <section className="flex flex-col gap-2">
