@@ -10,6 +10,7 @@ import { DISCIPLINES } from "@/lib/competencies";
 import { summarize } from "@/lib/attendance/summary";
 import { sessionStateOf } from "@/lib/attendance/window";
 import { newJoinToken } from "@/lib/courses/join-token";
+import { displayNameSchema } from "@/lib/people";
 import { assertOwnsProgram, ownerOf } from "@/lib/programs/ownership";
 import { schoolDayFromColumn, schoolDayOf } from "@/lib/school-time";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
@@ -382,6 +383,68 @@ export const programsRouter = createTRPCRouter({
         courses,
         gcf,
       };
+    }),
+
+  /**
+   * Change what a fellow is called.
+   *
+   * **The one write on a fellow's record that reaches outside the program it is made from**, and
+   * that is the thing to hold in view rather than the size of the change. A display name is one
+   * column on a profile, so a correction made here is what this person is called in every other
+   * program, in every gradebook, and on their own Profile screen — and it replaces a name they may
+   * have typed themselves when they joined.
+   *
+   * Allowed anyway, and to any instructor of the program rather than to admins alone, because the
+   * names that need correcting are found by the people teaching the fellow: a signup that filled
+   * the column from a GitHub login, a misspelling, a fellow who typed their name in lower case and
+   * now appears that way at the top of a gradebook column. Sending that to an admin makes a
+   * five-second fix a message to somebody else.
+   *
+   * **The enrollment is the access check as well as the reason for the screen.** `programProcedure`
+   * has already established that the caller instructs *this program*; this establishes that the
+   * person they named is on its roster, so an instructor cannot rename an arbitrary account by
+   * knowing its id. Any enrollment status, deliberately: a fellow who has left still has a record
+   * that renders, and a name misspelled on it is exactly as wrong as one on an active fellow.
+   *
+   * `displayNameSchema` rather than a rule written here, so this and the fellow's own Profile
+   * screen cannot come to accept different names — and, as there, there is no way to *clear* a
+   * name, because the signup trigger fills the column for everybody and an empty one would mean
+   * being listed on a roster as an email address.
+   *
+   * Deliberately not `updateDisplayName` on the root router with the id made into an input. That
+   * procedure takes the id from the verified session and never from input, which is the property
+   * that makes it safe for `role` to sit on the same table; widening it would take the property
+   * away from the caller that has it right.
+   */
+  renameStudent: programProcedure
+    .input(z.object({ studentId: z.string().uuid(), displayName: displayNameSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollment = await ctx.db.enrollment.findUnique({
+        where: {
+          programId_studentId: { programId: input.programId, studentId: input.studentId },
+        },
+        select: { id: true },
+      });
+
+      /*
+        The same refusal, in the same words, that `student` above gives for the same person. The
+        two are read one after the other by the screen this serves, and an instructor who followed
+        a stale link should not be told two different things about the same fellow.
+      */
+      if (!enrollment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That person is not on this program's roster.",
+        });
+      }
+
+      return ctx.db.profile.update({
+        where: { id: input.studentId },
+        // One column, named explicitly. Nothing else on a profile is this screen's to touch, and
+        // `role` in particular sits on the same table.
+        data: { displayName: input.displayName },
+        select: { id: true, displayName: true },
+      });
     }),
 
   /**

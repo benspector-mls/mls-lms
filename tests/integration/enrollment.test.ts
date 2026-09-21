@@ -1497,6 +1497,146 @@ describe("one fellow across the whole program", () => {
   });
 });
 
+// ---- Renaming a fellow -----------------------------------------------------------------------
+//
+// **The one write on the record that reaches outside the program it is made from.** A display name
+// is a single column on a profile, so a rename here is what the fellow is called in every other
+// program, in every gradebook, and on their own Profile screen. The guard is therefore most of the
+// feature: an instructor of this program may, nobody else may, and the person has to be on this
+// roster rather than merely exist.
+describe("renaming a fellow", () => {
+  const tx = withRollback();
+
+  let built: World;
+  /** On no roster at all, so "is enrolled here" is checked rather than "is a real account". */
+  let outsiderId: string;
+  let outsiderNameBefore: string | null;
+  /** Staff, but of no program — which is the account a role check alone would let through. */
+  let otherInstructorId: string;
+
+  const asInstructor = () => createCaller(tx(), built.instructorId);
+
+  const nameOf = async (studentId: string) =>
+    (
+      await tx().profile.findUniqueOrThrow({
+        where: { id: studentId },
+        select: { displayName: true },
+      })
+    ).displayName;
+
+  beforeAll(async () => {
+    built = await world(tx(), { students: 2 });
+    outsiderId = await account(tx());
+    otherInstructorId = await account(tx(), { role: "INSTRUCTOR" });
+    outsiderNameBefore = await nameOf(outsiderId);
+  });
+
+  it("an instructor of the program renames a fellow on it", async () => {
+    const renamed = await asInstructor().programs.renameStudent({
+      programId: built.programId,
+      studentId: built.student.studentId,
+      displayName: "Ada Lovelace",
+    });
+    expect(renamed.displayName).toBe("Ada Lovelace");
+  });
+
+  it("...and their record reads back the new name", async () => {
+    const person = await asInstructor().programs.student({
+      programId: built.programId,
+      studentId: built.student.studentId,
+    });
+    expect(person.student.displayName).toBe("Ada Lovelace");
+  });
+
+  // `displayNameSchema` trims before it measures, which is what makes the two checks below
+  // disagree about the same string: "  Ada  " is a name and "   " is not one.
+  it("...with the surrounding whitespace taken off", async () => {
+    const renamed = await asInstructor().programs.renameStudent({
+      programId: built.programId,
+      studentId: built.student.studentId,
+      displayName: "  Ada Lovelace  ",
+    });
+    expect(renamed.displayName).toBe("Ada Lovelace");
+  });
+
+  it("a name of one character is refused", async () => {
+    const code = await refusal(() =>
+      asInstructor().programs.renameStudent({
+        programId: built.programId,
+        studentId: built.student.studentId,
+        displayName: "A",
+      }),
+    );
+    expect(code).toBe("BAD_REQUEST");
+  });
+
+  it("...and so is a name of nothing but spaces", async () => {
+    const code = await refusal(() =>
+      asInstructor().programs.renameStudent({
+        programId: built.programId,
+        studentId: built.student.studentId,
+        displayName: "   ",
+      }),
+    );
+    expect(code).toBe("BAD_REQUEST");
+  });
+
+  it("an instructor of no program cannot rename somebody on this one", async () => {
+    const code = await refusal(() =>
+      createCaller(tx(), otherInstructorId).programs.renameStudent({
+        programId: built.programId,
+        studentId: built.student.studentId,
+        displayName: "Renamed By A Stranger",
+      }),
+    );
+    expect(code).toBe("FORBIDDEN");
+  });
+
+  it("a fellow cannot rename a fellow, not even themselves", async () => {
+    const code = await refusal(() =>
+      createCaller(tx(), built.student.studentId).programs.renameStudent({
+        programId: built.programId,
+        studentId: built.student.studentId,
+        displayName: "Renamed By Themselves",
+      }),
+    );
+    expect(code).toBe("FORBIDDEN");
+  });
+
+  it("somebody who is not on the roster is refused", async () => {
+    const code = await refusal(() =>
+      asInstructor().programs.renameStudent({
+        programId: built.programId,
+        studentId: outsiderId,
+        displayName: "Renamed From Elsewhere",
+      }),
+    );
+    expect(code).toBe("NOT_FOUND");
+  });
+
+  // The half the refusal above does not assert. A guard that threw after writing would pass every
+  // check on the code and still have renamed somebody an instructor has no connection to.
+  it("...and nothing was written to them", async () => {
+    expect(await nameOf(outsiderId)).toBe(outsiderNameBefore);
+  });
+
+  it("a fellow who has left the program can still be renamed", async () => {
+    const leaver = required("a second fellow", built.students[1]);
+    const enrollment = await tx().enrollment.findUniqueOrThrow({
+      where: { programId_studentId: { programId: built.programId, studentId: leaver.studentId } },
+      select: { id: true },
+    });
+    await asInstructor().enrollments.remove({ enrollmentId: enrollment.id });
+
+    const renamed = await asInstructor().programs.renameStudent({
+      programId: built.programId,
+      studentId: leaver.studentId,
+      displayName: "Grace Hopper",
+    });
+    expect(renamed.displayName).toBe("Grace Hopper");
+  });
+});
+
 /*
   ---- Everybody on the roster, for the record's own switcher -------------------------------------
 

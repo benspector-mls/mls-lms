@@ -4,6 +4,7 @@ import { Archive, ArrowRight, CircleCheck, EyeOff, GitBranch, UserMinus } from "
 import { ArrivalAveragesPanel } from "@/components/arrival-averages";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
+import { RenameStudent } from "@/components/instructor/rename-student";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
 import { GoalMarkerBadge } from "@/components/status-badge";
 import { coachingSessionHref, studentHref } from "@/lib/links";
@@ -72,6 +73,16 @@ export function ProgramStudent({
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">{name}</h2>
+            {/*
+              Beside the name rather than among the actions on the right, because it is about the
+              name and not about the record: the picker over there moves to another fellow, and a
+              rename sitting next to it would read as something done to the program.
+            */}
+            <RenameStudent
+              programId={data.program.id}
+              studentId={data.student.id}
+              displayName={data.student.displayName}
+            />
             {data.student.testStudentNumber !== null && <TestStudentBadge />}
             {/*
               Said here rather than only implied by a lower rate. Removal is a status rather than a
