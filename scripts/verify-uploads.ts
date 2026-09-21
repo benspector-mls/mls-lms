@@ -49,7 +49,7 @@ import {
   signedUploadUrl,
   storageClient,
   submissionUploadExists,
-  submissionUploadPath,
+  uploadPath,
   SUBMISSION_UPLOAD_BUCKET,
 } from "../lib/uploads/storage";
 import { createChecker, loadEnvironment } from "./verify/harness";
@@ -130,7 +130,7 @@ async function main() {
   // --- a real round trip ----------------------------------------------------
   const body = Buffer.from("%PDF-1.4 verify:uploads round trip\n");
   const stored = await uploadAsBrowser(
-    submissionUploadPath({ submissionId: `verify-${Date.now()}`, extension: ".pdf" }),
+    uploadPath({ folder: `verify-${Date.now()}`, extension: ".pdf" }),
     "application/pdf",
     body,
   );
@@ -233,7 +233,7 @@ async function main() {
 
     try {
       object = await uploadAsBrowser(
-        submissionUploadPath({ submissionId: `verify-${Date.now()}`, extension }),
+        uploadPath({ folder: `verify-${Date.now()}`, extension }),
         contentType,
         bytes,
       );

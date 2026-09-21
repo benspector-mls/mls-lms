@@ -90,17 +90,20 @@ export function storageClient(): StorageClient {
 /**
  * The object key for one upload.
  *
- * Keyed by submission id, so a stored file is traceable back to the row that describes it
- * with no lookup table and no trust placed in a filename. **The student's own filename is
- * never part of the path** — it is theirs to choose, it can contain anything, and a path is
- * not the place to find out. It is kept in `submission_artifacts.upload_filename` instead, which is
- * what the instructor sees and what their browser calls the download.
+ * Keyed by the id of the row that owns it — a submission's, or a goal update's — so a stored file
+ * is traceable back to the row that describes it with no lookup table and no trust placed in a
+ * filename. **The uploader's own filename is never part of the path** — it is theirs to choose, it
+ * can contain anything, and a path is not the place to find out. It is kept on the row instead
+ * (`upload_filename`), which is what a reader sees and what their browser calls the download.
+ *
+ * One folder level and one object level, always: `listStoredUploads` and the reconciler walk the
+ * bucket exactly that deep, and a path shaped any other way would be invisible to them.
  *
  * A generated segment rather than a fixed name, so re-uploading writes a new object instead of
- * overwriting the one an instructor may be part-way through reading.
+ * overwriting the one somebody may be part-way through reading.
  */
-export function submissionUploadPath(params: { submissionId: string; extension: string }): string {
-  return `${params.submissionId}/${randomUUID()}${params.extension}`;
+export function uploadPath(params: { folder: string; extension: string }): string {
+  return `${params.folder}/${randomUUID()}${params.extension}`;
 }
 
 /**
@@ -247,7 +250,7 @@ export async function submissionUploadExists(path: string): Promise<boolean> {
  * Every object in the bucket, with the two facts that decide whether it is still wanted.
  *
  * For `reconcile:uploads`, and shaped by what that has to decide rather than by what the storage
- * API returns. The bucket is two levels deep by construction — `submissionUploadPath` writes
+ * API returns. The bucket is two levels deep by construction — `uploadPath` writes
  * `<submission id>/<generated>.<extension>` and nothing else writes here — so this lists the
  * folders and then the objects inside each, which is the whole of the traversal.
  *

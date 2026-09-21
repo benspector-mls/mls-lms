@@ -6,20 +6,20 @@
  * bucket. These four cases came from that script, where they needed neither the bucket nor the
  * database and so ran every time it was run rather than every time the file changed.
  */
-import { submissionUploadPath } from "@/lib/uploads/storage";
+import { uploadPath } from "@/lib/uploads/storage";
 
-describe("submissionUploadPath", () => {
+describe("uploadPath", () => {
   const submissionId = "11111111-2222-3333-4444-555555555555";
 
   it("starts with the submission the file belongs to", () => {
     // Keyed by submission id, so a stored file is traceable back to the row describing it with no
     // lookup table and no trust placed in a filename.
-    const path = submissionUploadPath({ submissionId, extension: ".pdf" });
+    const path = uploadPath({ folder: submissionId, extension: ".pdf" });
     expect(path.startsWith(`${submissionId}/`)).toBe(true);
   });
 
   it("...and ends in the extension the check accepted", () => {
-    expect(submissionUploadPath({ submissionId, extension: ".pdf" }).endsWith(".pdf")).toBe(true);
+    expect(uploadPath({ folder: submissionId, extension: ".pdf" }).endsWith(".pdf")).toBe(true);
   });
 
   /*
@@ -28,7 +28,7 @@ describe("submissionUploadPath", () => {
     what the instructor's browser calls the download.
   */
   it("holds no part of the student's own filename", () => {
-    expect(submissionUploadPath({ submissionId, extension: ".pdf" })).not.toContain("resume");
+    expect(uploadPath({ folder: submissionId, extension: ".pdf" })).not.toContain("resume");
   });
 
   /*
@@ -36,8 +36,8 @@ describe("submissionUploadPath", () => {
     overwriting the one an instructor may be part-way through reading.
   */
   it("gives two uploads of one submission different paths", () => {
-    expect(submissionUploadPath({ submissionId, extension: ".pdf" })).not.toBe(
-      submissionUploadPath({ submissionId, extension: ".pdf" }),
+    expect(uploadPath({ folder: submissionId, extension: ".pdf" })).not.toBe(
+      uploadPath({ folder: submissionId, extension: ".pdf" }),
     );
   });
 });

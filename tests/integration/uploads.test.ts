@@ -52,60 +52,21 @@ import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
 import { makeWorld, type World } from "./fixtures";
+import type { StoredObjects } from "./storage-double";
 import { withRollback, type Tx } from "./transaction";
 
-/** One stored object: the bytes, and the type they were stored under. */
-type StoredObject = { bytes: Buffer; contentType: string };
-
 /**
- * The bucket, as a map held for the length of this file.
- *
- * Declared through `jest.mock` so that every module reaching storage reaches this one — the two
- * halves of an upload in `lib/uploads/submit.ts` and the two read procedures in
- * `trpc/routers/submissions.ts` — rather than each being handed its own double.
- *
- * `submissionUploadPath` and everything else pure is the real thing, which is the point of spreading
- * the actual module: what is replaced is the four calls that would otherwise cross the network, and
- * each behaves the way Supabase does, including refusing to sign a link for an object that is not
- * there.
+ * The bucket, as a map held for the length of this file — see `storage-double.ts` for what it
+ * stands in for and what it cannot. Declared through `jest.mock` so that every module reaching
+ * storage reaches this one rather than each being handed its own double.
  */
-jest.mock("../../lib/uploads/storage", () => {
-  const actual = jest.requireActual<typeof import("@/lib/uploads/storage")>(
-    "../../lib/uploads/storage",
-  );
-  const objects = new Map<string, StoredObject>();
-
-  return {
-    ...actual,
-    /** Reached from the tests as `bucket`, which is the only thing it is used as. */
-    __objects: objects,
-    signedUploadUrl: async ({ path }: { path: string }) => ({ url: `memory://upload/${path}` }),
-    uploadedObjectInfo: async (path: string) => {
-      const held = objects.get(path);
-      return held ? { sizeBytes: held.bytes.byteLength, contentType: held.contentType } : null;
-    },
-    signedDownloadUrl: async ({ path }: { path: string }) => {
-      if (!objects.has(path)) {
-        throw new actual.UploadStorageError(`Could not sign a download link for ${path}`);
-      }
-      return `memory://download/${path}?token=signed-for-${encodeURIComponent(path)}`;
-    },
-    readSubmissionUpload: async (path: string) => {
-      const held = objects.get(path);
-      if (!held) throw new actual.UploadStorageError(`Could not read ${path}`);
-      return held.bytes;
-    },
-    submissionUploadExists: async (path: string) => objects.has(path),
-    removeSubmissionUpload: async (path: string) => {
-      objects.delete(path);
-    },
-  };
-});
+jest.mock("../../lib/uploads/storage", () =>
+  jest.requireActual<typeof import("./storage-double")>("./storage-double").storageDouble(),
+);
 
 /** The map the double holds, which every "is it in the bucket" question below is asked of. */
-const bucket = (
-  jest.requireMock("../../lib/uploads/storage") as { __objects: Map<string, StoredObject> }
-).__objects;
+const bucket = (jest.requireMock("../../lib/uploads/storage") as { __objects: StoredObjects })
+  .__objects;
 
 /**
  * What a student's browser does between the two procedures: PUT the bytes at the address it was
@@ -584,9 +545,10 @@ describe("handing in a file", () => {
 
       it("attaching the link is what enters the queue", async () => {
         const held = await artifactsOf(linkSubmitted.id);
-        expect([linkSubmitted.status, held.map((artifact) => [artifact.kind, artifact.url])]).toEqual(
-          ["SUBMITTED", [["LINK", "https://www.canva.com/design/DAF123/view"]]],
-        );
+        expect([
+          linkSubmitted.status,
+          held.map((artifact) => [artifact.kind, artifact.url]),
+        ]).toEqual(["SUBMITTED", [["LINK", "https://www.canva.com/design/DAF123/view"]]]);
       });
 
       it("and it waits on a person, like every hand-graded kind", async () => {
@@ -931,12 +893,12 @@ describe("handing in a file", () => {
 
     it("both are on the one submission, in the order they were attached", async () => {
       const held = await artifactsOf(bothSubmissionId);
-      expect(held.map((artifact) => [artifact.kind, artifact.url ?? artifact.uploadFilename])).toEqual(
-        [
-          ["LINK", "https://docs.google.com/document/d/write-up/edit"],
-          ["FILE", "whiteboard.pdf"],
-        ],
-      );
+      expect(
+        held.map((artifact) => [artifact.kind, artifact.url ?? artifact.uploadFilename]),
+      ).toEqual([
+        ["LINK", "https://docs.google.com/document/d/write-up/edit"],
+        ["FILE", "whiteboard.pdf"],
+      ]);
     });
 
     /*
@@ -952,7 +914,6 @@ describe("handing in a file", () => {
       expect(row?.artifacts.map((artifact) => artifact.kind)).toEqual(["FILE", "LINK"]);
     });
   });
-
 });
 
 /*

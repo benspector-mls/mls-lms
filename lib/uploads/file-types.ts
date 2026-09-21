@@ -304,7 +304,7 @@ export function formatBytes(bytes: number): string {
 /**
  * A filename safe to hand back in a `Content-Disposition`.
  *
- * The stored path never contains a student's filename — see `submissionUploadPath` — so this
+ * The stored path never contains a student's filename — see `uploadPath` — so this
  * is only about what the instructor's browser calls the file it downloads. Slashes, quotes,
  * and control characters come out; everything else is kept, because a student's name for
  * their own work is worth preserving.

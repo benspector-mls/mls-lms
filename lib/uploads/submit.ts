@@ -16,12 +16,7 @@ import {
   type ResolvedTeam,
 } from "../submissions/team";
 import { MAX_SUBMISSION_ARTIFACTS, checkUpload, extensionOf } from "./file-types";
-import {
-  removeSubmissionUpload,
-  signedUploadUrl,
-  submissionUploadPath,
-  uploadedObjectInfo,
-} from "./storage";
+import { removeSubmissionUpload, signedUploadUrl, uploadPath, uploadedObjectInfo } from "./storage";
 
 /**
  * Handing in work that has no repository.
@@ -450,7 +445,7 @@ export async function beginUpload(
   // limit is told now instead of after spending an upload on a file that cannot be recorded.
   await assertRoomForArtifact(db, submission.id);
 
-  const path = submissionUploadPath({ submissionId: submission.id, extension: check.extension });
+  const path = uploadPath({ folder: submission.id, extension: check.extension });
   const { url } = await signedUploadUrl({ path });
 
   /*
@@ -463,6 +458,76 @@ export async function beginUpload(
     this extension means, and refuses the pair that do not match.
   */
   return { uploadUrl: url, path, contentType: check.contentType };
+}
+
+/**
+ * What the bucket really holds at a path, and whether it is the kind of file the caller claims.
+ *
+ * **Nothing the browser says about the file is taken on trust**, which is the whole of this
+ * function. The object must be there; its size and extension are re-checked against what the
+ * caller may store, put this time to the file that actually exists rather than to the browser's
+ * description of it; the filename must end in the extension the object was stored under; and the
+ * type it was stored as must be the one that extension means.
+ *
+ * Shared by everything that records an upload — a submission's attachment, a goal update's — so
+ * the rule about what may be recorded has one home. The caller has already checked that the path
+ * is under the row it owns, because which row that is differs between them.
+ */
+export async function verifyStoredUpload(params: {
+  path: string;
+  filename: string;
+  acceptedTypes: readonly string[];
+}): Promise<{ sizeBytes: number; contentType: string }> {
+  const stored = await uploadedObjectInfo(params.path);
+
+  if (!stored) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That file did not finish uploading. Try again.",
+    });
+  }
+
+  /*
+    Asked of the path rather than of the filename, because the path is what the bucket holds: its
+    extension is the one the signed token was minted for, and it cannot have changed since. The
+    size is the object's own. So this is the same question the browser was asked before the upload,
+    put this time to the file that actually exists — and it is asked again at all because the
+    accepted types may have narrowed while the upload was in flight.
+  */
+  const check = checkUpload({
+    filename: params.path,
+    sizeBytes: stored.sizeBytes,
+    acceptedTypes: params.acceptedTypes,
+  });
+
+  if (!check.ok) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+  }
+
+  /*
+    The two ways the browser could describe the object as something it is not, closed together.
+
+    A filename ending in `.pdf` on a `.png` object would give the reader a download named for a
+    kind of file it is not. A content type outside what the extension means would be stored on the
+    object and handed to the browser on the way back, which is what decides whether a file is
+    displayed or offered as a download. The bucket refuses a type that is on no list at all; these
+    refuse the ones that are on the list but not on this file's.
+  */
+  if (extensionOf(params.filename) !== check.extension) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That file was not stored as the kind of file you named. Upload it again.",
+    });
+  }
+
+  if (stored.contentType !== check.contentType) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That file was not stored as the kind of file it is. Upload it again.",
+    });
+  }
+
+  return { sizeBytes: stored.sizeBytes, contentType: check.contentType };
 }
 
 /**
@@ -512,54 +577,11 @@ export async function recordUpload(
     });
   }
 
-  const stored = await uploadedObjectInfo(params.path);
-
-  if (!stored) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "That file did not finish uploading. Try again.",
-    });
-  }
-
-  /*
-    Asked of the path rather than of the filename, because the path is what the bucket holds: its
-    extension is the one `beginUpload` signed a token for, and it cannot have changed since. The
-    size is the object's own. So this is the same question the browser was asked before the upload,
-    put this time to the file that actually exists — and it is asked again at all because an
-    instructor may have narrowed the accepted types while the upload was in flight.
-  */
-  const check = checkUpload({
-    filename: params.path,
-    sizeBytes: stored.sizeBytes,
+  const stored = await verifyStoredUpload({
+    path: params.path,
+    filename: params.filename,
     acceptedTypes: params.assignment.acceptedFileTypes,
   });
-
-  if (!check.ok) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
-  }
-
-  /*
-    The two ways the browser could describe the object as something it is not, closed together.
-
-    A filename ending in `.pdf` on a `.png` object would give the instructor a download named for a
-    kind of file it is not. A content type outside what the extension means would be stored on the
-    object and handed to the browser on the way back, which is what decides whether a file is
-    displayed or offered as a download. The bucket refuses a type that is on no list at all; these
-    refuse the ones that are on the list but not on this file's.
-  */
-  if (extensionOf(params.filename) !== check.extension) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "That file was not stored as the kind of file you named. Upload it again.",
-    });
-  }
-
-  if (stored.contentType !== check.contentType) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "That file was not stored as the kind of file it is. Upload it again.",
-    });
-  }
 
   const now = new Date();
 
@@ -590,7 +612,7 @@ export async function recordUpload(
       uploadPath: params.path,
       uploadFilename: params.filename,
       uploadSizeBytes: stored.sizeBytes,
-      uploadContentType: check.contentType,
+      uploadContentType: stored.contentType,
     },
   });
 
