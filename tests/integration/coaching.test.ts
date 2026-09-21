@@ -539,6 +539,33 @@ describe("goals belong to the fellow", () => {
     await asFellow().coaching.deleteGoal({ programId: world.programId, goalId: bare.id });
   });
 
+  /*
+    A goal set while the competency list lived in code holds a slug where a uuid now goes, and a
+    goal whose entry an admin deleted holds an id naming no row. Neither stops the fellow rewording
+    their own goal: what is not sent is not checked, and the stored id is left exactly as it was.
+  */
+  it("rewording a goal leaves an old or orphaned competency id untouched", async () => {
+    await tx().goal.update({
+      where: { id: goalId },
+      data: { entryId: "growth-mindset/asks-for-help" },
+    });
+
+    const reworded = await asFellow().coaching.updateGoal({
+      programId: world.programId,
+      goalId,
+      title: "Ask for help before the end of the hour.",
+    });
+
+    expect(reworded.title).toBe("Ask for help before the end of the hour.");
+    expect(reworded.entryId).toBe("growth-mindset/asks-for-help");
+    expect(reworded.entryText).toBe("Asks for help when stuck rather than struggling in silence.");
+
+    await tx().goal.update({
+      where: { id: goalId },
+      data: { entryId: INDICATOR, title: "Ask for help within half an hour of being stuck." },
+    });
+  });
+
   it("...and their instructor sees it at once, with nothing to release", async () => {
     const seen = await asInstructor().coaching.forStudent({
       programId: world.programId,

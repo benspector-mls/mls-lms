@@ -96,19 +96,27 @@ export function GoalEditor({
     event.preventDefault();
     if (!named || busy) return;
 
-    const fields = {
-      title: title.trim(),
-      entryId: entry?.entryId ?? null,
-      successCriteria,
-      objectives,
-      actionPlan,
-      marker,
-    };
+    const fields = { title: title.trim(), successCriteria, objectives, actionPlan, marker };
+    const chosen = entry?.entryId ?? null;
+
     if (goal === null) {
-      set.mutate({ programId, ...fields });
-    } else {
-      update.mutate({ programId, goalId: goal.id, ...fields });
+      set.mutate({ programId, entryId: chosen, ...fields });
+      return;
     }
+
+    /*
+      The competency goes only when it changed. A goal set before the list lived in the database
+      holds a slug where a uuid now goes, and a goal whose entry an admin has since deleted holds
+      an id that no longer names a row — either would be refused if it were sent back, and
+      neither is any reason a fellow cannot reword their own title. What the fellow did not touch
+      is left alone, which is exactly what the procedure's absent `entryId` means.
+    */
+    update.mutate({
+      programId,
+      goalId: goal.id,
+      ...fields,
+      ...(chosen === goal.entryId ? {} : { entryId: chosen }),
+    });
   }
 
   return (
