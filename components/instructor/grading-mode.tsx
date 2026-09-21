@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 import { ChevronLeft, ChevronRight, List, Maximize2, Minimize2 } from "lucide-react";
 
@@ -120,6 +121,7 @@ export function GradingModeBar({
   submissions,
   currentId,
   currentLabel,
+  currentHref,
   listLabel,
   badges,
   onSelect,
@@ -133,6 +135,15 @@ export function GradingModeBar({
   currentId: string | null;
   /** The open row's own name — a team's, a student's, an assignment's — shown beside its badges. */
   currentLabel: string | null;
+  /**
+   * Where that name leads — the same address the row in the list carries.
+   *
+   * This mode puts the list away, so the bar holds the only name on the screen, and the way
+   * through to what that name is about has to be here or nowhere. A fellow's name leads to their
+   * record in the course, an assignment's title to that assignment's queue. A team's name leads
+   * nowhere, because a team has no screen of its own, and that caller passes nothing.
+   */
+  currentHref?: string;
   /** What the list is currently showing, in the words its own tab uses. */
   listLabel: string;
   /**
@@ -186,11 +197,20 @@ export function GradingModeBar({
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
         {badges}
-        {currentLabel && (
-          <span className="truncate text-sm font-medium" title={currentLabel}>
-            {currentLabel}
-          </span>
-        )}
+        {currentLabel &&
+          (currentHref ? (
+            <Link
+              href={currentHref}
+              className="truncate text-sm font-medium hover:underline"
+              title={currentLabel}
+            >
+              {currentLabel}
+            </Link>
+          ) : (
+            <span className="truncate text-sm font-medium" title={currentLabel}>
+              {currentLabel}
+            </span>
+          ))}
       </div>
 
       {/* Worded where there is room, arrows alone where there is not. */}

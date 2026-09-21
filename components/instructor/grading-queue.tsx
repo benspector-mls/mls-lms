@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { Inbox, MessageSquare, UserMinus, Users } from "lucide-react";
@@ -430,6 +431,17 @@ export function GradingQueue({
                     primary={
                       row.team ? row.team.name : displayNameOf(row.student, "Unknown student")
                     }
+                    /*
+                      The name leads to the fellow's record in this course, which answers the
+                      question a name in a queue prompts: what else has this person handed in,
+                      and how did it go. A team's row is headed by the team, and a team has no
+                      record of its own — sending it to whichever member claimed the work would
+                      name somebody the work is not about — so that row's heading stays plain
+                      text and the members are linked from the review pane instead.
+                    */
+                    primaryHref={
+                      row.team ? undefined : studentHref(data.assignment.courseId, row.student.id)
+                    }
                     active={selected?.id === row.id}
                     onSelect={() => select(row.id)}
                     now={now}
@@ -452,20 +464,33 @@ export function GradingQueue({
                   them together at the bottom rather than scattered through the roster.
                 */}
                 {notStarted.map((student) => (
-                  <li key={student.id}>
+                  <li key={student.id} className="relative">
+                    {/*
+                      Selecting behind, the name linking above — the arrangement `SubmissionRow`
+                      uses, and for the same reason: a link inside a button is not valid HTML.
+                      A fellow with nothing on record is the one most worth reading up on, so
+                      their name leads to their record here as it does on every row above.
+                    */}
                     <button
                       type="button"
                       onClick={() => selectFellow(student.id)}
+                      aria-label={`Open ${displayNameOf(student, "Unknown student")}`}
                       className={cn(
-                        "flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left transition-colors",
+                        "absolute inset-0 rounded-md transition-colors",
                         selectedFellow?.id === student.id ? "bg-muted" : "hover:bg-muted/60",
                       )}
-                    >
+                    />
+                    <div className="pointer-events-none relative flex flex-col items-start gap-0.5 px-3 py-2 text-left">
                       <span className="text-sm font-medium">
-                        {displayNameOf(student, "Unknown student")}
+                        <Link
+                          href={studentHref(data.assignment.courseId, student.id)}
+                          className="pointer-events-auto hover:underline"
+                        >
+                          {displayNameOf(student, "Unknown student")}
+                        </Link>
                       </span>
                       <span className="text-xs text-muted-foreground">Not marked</span>
-                    </button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -499,6 +524,21 @@ export function GradingQueue({
                 : selectedFellow
                   ? displayNameOf(selectedFellow, "Unknown student")
                   : null
+            }
+            /*
+                The same record the rows in the list link to, which is why it is here at all: in
+                this mode the list is put away, so the bar carries the only name on the screen and
+                has to carry the way to that name's record with it. A team name leads nowhere, as
+                in the list.
+              */
+            currentHref={
+              selected
+                ? selected.team
+                  ? undefined
+                  : studentHref(data.assignment.courseId, selected.student.id)
+                : selectedFellow
+                  ? studentHref(data.assignment.courseId, selectedFellow.id)
+                  : undefined
             }
             /*
                 The pane below draws no header — the list this bar stands in for is what named the

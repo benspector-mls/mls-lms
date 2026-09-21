@@ -29,7 +29,7 @@ import {
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
-import { courseHref, studentHref } from "@/lib/links";
+import { courseHref, gradingQueueHref, programStudentHref, studentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { initials } from "@/lib/people";
 import { cn } from "@/lib/utils";
@@ -296,6 +296,19 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                       row={row.submission}
                       primary={row.assignment.title}
                       /*
+                        The title leads to this assignment's own queue, which is the same work
+                        read across the cohort instead of down one fellow — the question a title
+                        prompts here is how everybody else did on it. The submission is carried
+                        along so the queue opens on the piece of work being read rather than on
+                        an empty pane: the pane holds still and the list beside it turns from
+                        this fellow's assignments into this assignment's fellows.
+                      */
+                      primaryHref={gradingQueueHref(
+                        data.course.id,
+                        row.assignment.id,
+                        row.submission.id,
+                      )}
+                      /*
                         The module, and the project or assessment where there is one. Reading a
                         student's record down the page, a deliverable named on its own is missing
                         what explains it — that it is one part of a larger piece of work.
@@ -313,6 +326,8 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                     <NotStartedRow
                       key={row.assignment.id}
                       row={row}
+                      // Nothing handed in, so the queue opens on no one in particular.
+                      href={gradingQueueHref(data.course.id, row.assignment.id)}
                       active={selected?.assignment.id === row.assignment.id}
                       /*
                         Openable only as a task, where "nobody has touched this" is exactly the row
@@ -349,6 +364,15 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             )}
             currentId={selected?.submission?.id ?? null}
             currentLabel={selected?.assignment.title ?? null}
+            /*
+                The same address the rows in the list carry, here because this mode put the list
+                away and the bar is the only place the open assignment is named.
+              */
+            currentHref={
+              selected
+                ? gradingQueueHref(data.course.id, selected.assignment.id, selected.submission?.id)
+                : undefined
+            }
             // The pane below draws no header — the list this bar stands in for is what showed the
             // open assignment's state, so the state stands here beside the name.
             badges={
@@ -494,6 +518,11 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
  * The email and GitHub username are the point of the header rather than decoration: they are what
  * an instructor needs when a repository name does not match the person they expected, and there
  * was previously nowhere in the application to look them up.
+ *
+ * The name leads out of the course to the fellow's record on the program's roster, which is the
+ * screen about the person rather than about their work: their attendance, their cohort, their
+ * coaching history, and a line per course. This screen answers "how are they doing in this
+ * course"; that one answers "how are they doing", and the name is the way between the two.
  */
 function StudentHeader({ data, name }: { data: Data; name: string }) {
   const router = useRouter();
@@ -507,7 +536,14 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
         </span>
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-base font-semibold">{name}</h1>
+            <h1 className="truncate text-base font-semibold">
+              <Link
+                href={programStudentHref(data.program.id, data.student.id)}
+                className="hover:underline"
+              >
+                {name}
+              </Link>
+            </h1>
             {removed && (
               <Badge variant="outline" className="gap-1 font-normal">
                 <UserMinus className="size-3" />
@@ -610,17 +646,24 @@ function StudentHeader({ data, name }: { data: Data; name: string }) {
  */
 function NotStartedRow({
   row,
+  href,
   active = false,
   onSelect,
 }: {
   row: Row;
+  /** This assignment's queue, which the title leads to as it does on every row above. */
+  href: string;
   active?: boolean;
   onSelect?: () => void;
 }) {
   const body = (
     <>
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm">{row.assignment.title}</span>
+        <span className="truncate text-sm">
+          <Link href={href} className="pointer-events-auto hover:underline">
+            {row.assignment.title}
+          </Link>
+        </span>
         <span className="truncate text-xs text-muted-foreground">
           {secondaryLine(row.assignment)}
         </span>
@@ -636,23 +679,33 @@ function NotStartedRow({
   );
 
   return (
-    <li>
-      {onSelect ? (
+    <li className="group relative">
+      {/*
+        Where the row can be opened at all, the selecting button is a layer behind the content
+        rather than wrapped around it — the arrangement `SubmissionRow` uses, and for the same
+        reason: a link inside a button is not valid HTML. The content above it is transparent to
+        the pointer, so only the title takes its own clicks.
+      */}
+      {onSelect && (
         <button
           type="button"
           onClick={onSelect}
+          aria-label={`Open ${row.assignment.title}`}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 text-left transition-colors",
-            active ? "bg-muted" : "opacity-60 hover:bg-muted/60 hover:opacity-100",
+            "absolute inset-0 rounded-md transition-colors",
+            active ? "bg-muted" : "hover:bg-muted/60",
           )}
-        >
-          {body}
-        </button>
-      ) : (
-        <div className="flex items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 opacity-60">
-          {body}
-        </div>
+        />
       )}
+      <div
+        className={cn(
+          "relative flex items-center gap-2.5 rounded-md border border-transparent px-3 py-2.5 text-left transition-opacity",
+          onSelect && "pointer-events-none",
+          active ? undefined : onSelect ? "opacity-60 group-hover:opacity-100" : "opacity-60",
+        )}
+      >
+        {body}
+      </div>
     </li>
   );
 }
