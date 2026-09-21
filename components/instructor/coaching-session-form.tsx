@@ -244,6 +244,32 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         </div>
       </section>
 
+      {/*
+        After the check-in and before the goals: the instructor's own half of the form ends here,
+        and what follows is the fellow's. Stored among the answers under its own prompt id — see
+        `ADDITIONAL_NOTES_PROMPT` — so it saves, copies its label, and stays staff-only exactly as
+        the check-in does.
+      */}
+      <section className="flex flex-col gap-3">
+        <SectionHeading title="Additional notes" audience="staff" />
+        {completed ? (
+          <p className={cn("text-sm", !storedNotes && "text-muted-foreground")}>
+            {storedNotes?.answer || "Nothing further was noted."}
+          </p>
+        ) : (
+          <Textarea
+            id={`coaching-${ADDITIONAL_NOTES_PROMPT.id}`}
+            aria-label="Additional notes"
+            value={answers[ADDITIONAL_NOTES_PROMPT.id] ?? ""}
+            onChange={(event) => editAnswer(ADDITIONAL_NOTES_PROMPT.id, event.target.value)}
+            onBlur={flush}
+            rows={3}
+            maxLength={20_000}
+            placeholder="Anything else from this conversation worth writing down."
+          />
+        )}
+      </section>
+
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-medium">
@@ -264,31 +290,6 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           programId={programId}
           empty="They have not set any goals yet — a good thing to spend this session on."
         />
-      </section>
-
-      {/*
-        Last, after the goals, because "additional" means what did not fit anywhere above. Stored
-        among the answers under its own prompt id — see `ADDITIONAL_NOTES_PROMPT` — so it saves,
-        copies its label, and stays staff-only exactly as the check-in does.
-      */}
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Additional notes" audience="staff" />
-        {completed ? (
-          <p className={cn("text-sm", !storedNotes && "text-muted-foreground")}>
-            {storedNotes?.answer || "Nothing further was noted."}
-          </p>
-        ) : (
-          <Textarea
-            id={`coaching-${ADDITIONAL_NOTES_PROMPT.id}`}
-            aria-label="Additional notes"
-            value={answers[ADDITIONAL_NOTES_PROMPT.id] ?? ""}
-            onChange={(event) => editAnswer(ADDITIONAL_NOTES_PROMPT.id, event.target.value)}
-            onBlur={flush}
-            rows={3}
-            maxLength={20_000}
-            placeholder="Anything else from this conversation worth writing down."
-          />
-        )}
       </section>
 
       {!completed && (

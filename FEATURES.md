@@ -259,7 +259,7 @@ Open a fellow from the roster and their record has two tabs under their details.
 
 **Open a goal to read the plan behind it** — what success looks like to them, the skills, habits and mindsets they are after, and what they said they would do before the next session — **and the updates they have written under it**: progress notes in their words, with any files they attached, which you can open. The same rows, opening the same way, are on the Coaching tab of their record, so preparing for a conversation and having it show you the same words. A goal is named by the fellow now; the competency it is about, if any, sits beneath the name.
 
-**The form ends with Additional notes**, staff-only like the check-in, for whatever did not fit anywhere above. It saves as you type with the rest.
+**Additional notes** sits between the check-in and the fellow's goals, staff-only like the check-in, for whatever did not fit the prompts. It saves as you type with the rest.
 
 **Completing a session shares the snapshot.** Until then it is a staff-only draft the fellow cannot see; completing it gives them the dated figures and closes the form to further editing. The temperature check and the check-in answers stay staff-only for good, and their goals are unaffected either way.
 

@@ -49,13 +49,13 @@ export type CheckInPromptId = (typeof CHECK_IN_PROMPTS)[number]["id"];
  * reader depends on tomorrow without anything having decided it.
  */
 /**
- * The free-form field at the bottom of the session form, stored among the answers under its own
- * id rather than in a column of its own.
+ * The free-form field that closes the instructor's half of the session form, stored among the
+ * answers under its own id rather than in a column of its own.
  *
  * The answers column already holds labelled, staff-only prose on a draft session, autosaved and
  * with the label copied in at save — which is everything this field needs. Kept apart from
- * `CHECK_IN_PROMPTS` so that the check-in list renders unchanged and the form can place this last,
- * after the goals, which is where "additional" belongs.
+ * `CHECK_IN_PROMPTS` so that the check-in list renders unchanged and the form can give this a
+ * section of its own, after the check-in and before the fellow's goals.
  */
 export const ADDITIONAL_NOTES_PROMPT = {
   id: "additional-notes",
