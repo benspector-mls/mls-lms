@@ -414,7 +414,7 @@ The grade and the feedback arrive on everybody's own page at the same moment, an
 
 **Handing in everything else.** A Drive assignment takes a link. A link or file assignment takes whichever your instructor allowed — and where they allowed both, you get both forms: **Add a link** and **Add a file**, one above the other.
 
-**Everything you attach is part of what you handed in.** A submission can hold several things at once — a write-up as a Google Doc link and a photograph of your whiteboard as a file, say — and your instructor sees all of them, in the order you attached them. A submission holds up to ten attachments.
+**Everything you attach is part of what you handed in.** A submission can hold several things at once — a write-up as a Google Doc link and a photograph of your whiteboard as a file, say — and your instructor sees all of them. The list on your own page is in the order you attached them; your instructor reads it with the most recent at the top, each card saying when it arrived, so work you resubmit is the work they open first. A submission holds up to ten attachments.
 
 Adding something never replaces anything. What is already attached is listed above the forms, each with a **Remove** button, and removing is how you take something off: if you pasted the wrong link, add the right one and remove the wrong one. Your place in your instructor's queue is kept either way — correcting your work does not put you at the back.
 

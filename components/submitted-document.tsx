@@ -36,6 +36,7 @@ export function SubmittedDocumentRow({
   url,
   label,
   lateness = "onTime",
+  addedAt,
   previewByDefault = false,
   className,
 }: {
@@ -44,6 +45,8 @@ export function SubmittedDocumentRow({
   label: string;
   /** On time, extended, or late — see `lateness` in lib/submissions/hand-in.ts. */
   lateness?: Lateness;
+  /** When it was attached — see `SubmittedLinkHeading`, which draws it. */
+  addedAt?: Date | null;
   /**
    * Open the document without being asked. True on the review screen, where reading the work is
    * the whole reason the instructor is there, and false on the student's own page, where they
@@ -65,7 +68,15 @@ export function SubmittedDocumentRow({
     to show it, which is the one failure with nothing on screen to explain it.
   */
   if (!ref) {
-    return <SubmittedLinkRow url={url} label={label} lateness={lateness} className={className} />;
+    return (
+      <SubmittedLinkRow
+        url={url}
+        label={label}
+        lateness={lateness}
+        addedAt={addedAt}
+        className={className}
+      />
+    );
   }
 
   return (
@@ -76,7 +87,13 @@ export function SubmittedDocumentRow({
           heading holds the **Open** anchor, and an anchor inside a button is invalid markup and
           unreachable by keyboard.
         */}
-        <SubmittedLinkHeading url={url} label={label} lateness={lateness} icon={FileText} />
+        <SubmittedLinkHeading
+          url={url}
+          label={label}
+          lateness={lateness}
+          addedAt={addedAt}
+          icon={FileText}
+        />
 
         {/*
           **"Hide the document", in those words.** It is the documented way an instructor takes the

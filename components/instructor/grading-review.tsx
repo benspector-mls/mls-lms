@@ -209,13 +209,24 @@ export function GradingReview({
     ) : null;
 
   /*
-    Everything the student attached, in the order they attached it.
+    Everything the student attached, newest first.
 
     Reading it is what an instructor came to this screen to do, and every card below is about it —
     so on a graded submission the work is above, or beside, the grade it was given.
 
     Outside the grading form rather than inside it, because the form is replaced by the editor the
     moment a round is opened and the work is most needed while the feedback is being written.
+
+    **Newest first, because a second attachment is almost always a resubmission.** A fellow asked
+    to fix something attaches the corrected document beside the one they were told to fix, and the
+    grade is about the one that arrived last — so it leads the column and it is the one that
+    opens. Each card says when it was added, which is the only thing that tells two drafts of the
+    same document apart.
+
+    The number in the label counts the other way, from when the work was attached: the card at the
+    top of a resubmission reads "Attachment 2 of 2". Position says what to read first and the
+    number says what it is, and a fellow's own page — which lists their attachments in the order
+    they made them — numbers the same document the same way.
 
     **Only the first opens by itself.** Ten auto-opened previews would mint ten signed URLs for
     documents nobody has scrolled to; the rest carry their own "Show" trigger. With one attachment
@@ -228,10 +239,17 @@ export function GradingReview({
     URL.
   */
   const attachments = submission.artifacts.map((artifact, index) => {
-    const label =
-      submission.artifacts.length === 1
-        ? "What the student handed in"
-        : `Attachment ${index + 1} of ${submission.artifacts.length}`;
+    const single = submission.artifacts.length === 1;
+    const label = single
+      ? "What the student handed in"
+      : `Attachment ${submission.artifacts.length - index} of ${submission.artifacts.length}`;
+
+    /*
+      Said only where there is another attachment to tell this one apart from. On the one card a
+      single hand-in draws, the date would answer a question nobody reading it has — there is
+      nothing else it could be confused with, and the submission's own state is said above.
+    */
+    const addedAt = single ? null : artifact.createdAt;
 
     return artifact.kind === "FILE" ? (
       <UploadedFileRow
@@ -241,6 +259,7 @@ export function GradingReview({
         sizeBytes={artifact.uploadSizeBytes}
         lateness={lateness({ ...submission, dueAt: assignmentDueAt })}
         label={label}
+        addedAt={addedAt}
         previewByDefault={index === 0}
       />
     ) : (
@@ -249,6 +268,7 @@ export function GradingReview({
         url={artifact.url ?? ""}
         label={label}
         lateness={lateness({ ...submission, dueAt: assignmentDueAt })}
+        addedAt={addedAt}
         previewByDefault={index === 0}
       />
     );

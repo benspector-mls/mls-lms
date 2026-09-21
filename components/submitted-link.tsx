@@ -2,7 +2,7 @@ import { ExternalLink, Link2 } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { panelSurface } from "@/components/ui/card";
-import { LATENESS_META, linkHost } from "@/lib/status";
+import { formatDateTime, LATENESS_META, linkHost } from "@/lib/status";
 import type { Lateness } from "@/lib/submissions/hand-in";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +35,7 @@ export function SubmittedLinkHeading({
   url,
   label,
   lateness = "onTime",
+  addedAt,
   icon: Icon = Link2,
 }: {
   url: string;
@@ -48,6 +49,12 @@ export function SubmittedLinkHeading({
    * fellow should be shown for it. `lateness` in lib/submissions/hand-in.ts is what decides.
    */
   lateness?: Lateness;
+  /**
+   * When this link was attached, shown beside the label. See `UploadedFileRow`, which draws the
+   * same line for the same reason: on a resubmission the attachment worth reading is the last
+   * one to arrive, and nothing else on the card says which that is.
+   */
+  addedAt?: Date | null;
   /** Overridden where the link turns out to be a document, so the row is headed like one. */
   icon?: React.ElementType;
 }) {
@@ -58,9 +65,16 @@ export function SubmittedLinkHeading({
       <div className="flex min-w-0 items-start gap-2">
         <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-sm font-medium">
-            {label}
-            {lateness === "onTime" ? "" : ` (${LATENESS_META[lateness].label.toLowerCase()})`}
+          <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium">
+            <span>
+              {label}
+              {lateness === "onTime" ? "" : ` (${LATENESS_META[lateness].label.toLowerCase()})`}
+            </span>
+            {addedAt && (
+              <span className="text-xs font-normal text-muted-foreground">
+                Added {formatDateTime(addedAt)}
+              </span>
+            )}
           </span>
           {/*
             `break-all` rather than truncation. A URL is read left to right and a wrong one
@@ -111,6 +125,7 @@ export function SubmittedLinkRow({
   url,
   label,
   lateness = "onTime",
+  addedAt,
   className,
 }: {
   url: string;
@@ -123,13 +138,15 @@ export function SubmittedLinkRow({
    * fellow should be shown for it. `lateness` in lib/submissions/hand-in.ts is what decides.
    */
   lateness?: Lateness;
+  /** When it was attached — see `SubmittedLinkHeading`, which draws it. */
+  addedAt?: Date | null;
   className?: string;
 }) {
   const host = linkHost(url);
 
   return (
     <div className={cn(panelSurface, "flex flex-col gap-3 p-4", className)}>
-      <SubmittedLinkHeading url={url} label={label} lateness={lateness} />
+      <SubmittedLinkHeading url={url} label={label} lateness={lateness} addedAt={addedAt} />
 
       {host ? (
         <p className="text-xs text-muted-foreground">

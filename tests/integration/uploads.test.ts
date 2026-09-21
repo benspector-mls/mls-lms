@@ -939,12 +939,17 @@ describe("handing in a file", () => {
       );
     });
 
-    it("and the instructor's review screen is handed both", async () => {
+    /*
+      Newest first, which is the opposite of the order they were attached in above. A submission
+      holding more than one attachment is usually a resubmission, and the grade is about the one
+      that arrived last — so the review screen leads with it and opens it for reading.
+    */
+    it("and the instructor's review screen is handed both, the most recent first", async () => {
       const queue = await asInstructor().submissions.listForAssignment({
         assignmentId: bothAssignmentId,
       });
       const row = queue.submissions.find((entry) => entry.id === bothSubmissionId);
-      expect(row?.artifacts.map((artifact) => artifact.kind)).toEqual(["LINK", "FILE"]);
+      expect(row?.artifacts.map((artifact) => artifact.kind)).toEqual(["FILE", "LINK"]);
     });
   });
 

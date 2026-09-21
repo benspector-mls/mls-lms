@@ -9,7 +9,7 @@ import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { UploadedCode } from "@/components/uploaded-code";
 import { useTRPC } from "@/trpc/client";
-import { LATENESS_META } from "@/lib/status";
+import { formatDateTime, LATENESS_META } from "@/lib/status";
 import type { Lateness } from "@/lib/submissions/hand-in";
 import { formatBytes, previewKindOf } from "@/lib/uploads/file-types";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ export function UploadedFileRow({
   sizeBytes,
   lateness = "onTime",
   label = "The file you submitted",
+  addedAt,
   previewByDefault = false,
 }: {
   /** The attachment these bytes belong to, which is what both procedures below authorize. */
@@ -55,6 +56,16 @@ export function UploadedFileRow({
    */
   lateness?: Lateness;
   label?: string;
+  /**
+   * When this file arrived, shown beside the label.
+   *
+   * Passed where a submission can hold more than one attachment, which in practice means a
+   * resubmission: two documents with similar names, and the only thing that says which one the
+   * grade is about is which of them came second. An absolute time rather than "4 days ago",
+   * because a fellow who fixes something the same afternoon produces two attachments that are
+   * both "4 days ago" and are told apart by the hour.
+   */
+  addedAt?: Date | null;
   /**
    * Open the preview without being asked. True on the review screen, where reading the work is
    * the whole reason the instructor is there, and false on the student's own page, where they
@@ -124,9 +135,16 @@ export function UploadedFileRow({
       <div className="flex min-w-0 items-center gap-2">
         <FileUp className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex min-w-0 flex-col">
-          <span className="text-sm font-medium">
-            {label}
-            {lateness === "onTime" ? "" : ` (${LATENESS_META[lateness].label.toLowerCase()})`}
+          <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium">
+            <span>
+              {label}
+              {lateness === "onTime" ? "" : ` (${LATENESS_META[lateness].label.toLowerCase()})`}
+            </span>
+            {addedAt && (
+              <span className="text-xs font-normal text-muted-foreground">
+                Added {formatDateTime(addedAt)}
+              </span>
+            )}
           </span>
           <span className="truncate text-xs text-muted-foreground">
             {filename}

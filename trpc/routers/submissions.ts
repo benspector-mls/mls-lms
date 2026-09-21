@@ -139,9 +139,17 @@ const reviewableSubmissionSelect = {
   prUrl: true,
   prNumber: true,
   headSha: true,
-  // Everything the student attached, oldest first, which is what the instructor opens when there
-  // is no pull request. Hand grading needs somewhere to read the work from.
-  artifacts: { orderBy: { createdAt: "asc" as const }, select: artifactSelect },
+  /*
+    Everything the student attached, which is what the instructor opens when there is no pull
+    request. Hand grading needs somewhere to read the work from.
+
+    **Newest first.** A fellow told to fix something attaches the corrected document beside the
+    one they were told to fix, so a submission with several attachments is usually a resubmission
+    — and the piece of work being graded is the last one to arrive. Oldest first put it at the
+    bottom of the column and opened the superseded one for reading, which is the wrong document
+    read first and the right one out of sight.
+  */
+  artifacts: { orderBy: { createdAt: "desc" as const }, select: artifactSelect },
   submittedAt: true,
   // Read with the two above by `lateness`, so a badge says "Extended" where one was agreed.
   extendedDueAt: true,
@@ -195,9 +203,10 @@ const reviewableSubmissionSelect = {
       /*
         And the team's attachments, for the same reason: they hang off the row holding the work,
         so a mirror opened from the aside list would otherwise show a graded submission with
-        nothing to read.
+        nothing to read. Newest first, as above — a mirror and the row it mirrors are read on the
+        same screen and cannot order the same attachments differently.
       */
-      artifacts: { orderBy: { createdAt: "asc" as const }, select: artifactSelect },
+      artifacts: { orderBy: { createdAt: "desc" as const }, select: artifactSelect },
     },
   },
   /*
