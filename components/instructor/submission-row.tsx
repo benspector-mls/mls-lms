@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Loader2, MessageSquare } from "lucide-react";
 
-import { DraftStatusBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { DraftStatusBadge, LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { completionMeta, draftStatusAddsSomething, formatRelative } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ type QueueRow = RouterOutputs["submissions"]["listForAssignment"]["submissions"]
 
 export function SubmissionRow({
   row,
+  dueAt,
   primary,
   primaryHref,
   secondary,
@@ -35,6 +36,15 @@ export function SubmissionRow({
   pending = false,
 }: {
   row: QueueRow;
+  /**
+   * The deadline this row's work is measured against — the assignment's own, not the fellow's
+   * agreed one.
+   *
+   * A separate prop because it is a fact about the assignment rather than a column on the
+   * submission, and each of the two screens holds it somewhere different: the grading queue has
+   * one assignment for the whole list, a fellow's record has a different one on every row.
+   */
+  dueAt: Date | string | null;
   /** Who or what this row is about — a student's name, or an assignment's title. */
   primary: string;
   /**
@@ -130,6 +140,14 @@ export function SubmissionRow({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <SubmissionStatusBadge status={row.status} />
+          {/*
+            Late, or handed in by a date agreed with an instructor — and nothing at all for work
+            that arrived on time, which is most rows. Beside the status here for the same reason
+            it sits beside the status in the grading mode bar: the two together are the state of
+            the work, and a list that named one without the other would disagree with the bar
+            that replaces it.
+          */}
+          <LatenessBadge dueAt={dueAt} submission={row} />
           {pending && (
             <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
               <Loader2 className="size-3 animate-spin" />

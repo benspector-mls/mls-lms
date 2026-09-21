@@ -17,7 +17,7 @@ import { SubmissionRow } from "@/components/instructor/submission-row";
 import { TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { Badge } from "@/components/ui/badge";
-import { LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { DraftStatusBadge, LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import {
   Select,
   SelectContent,
@@ -32,6 +32,7 @@ import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import { courseHref, gradingQueueHref, programStudentHref, studentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { initials } from "@/lib/people";
+import { draftStatusAddsSomething } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -294,6 +295,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                     <SubmissionRow
                       key={row.assignment.id}
                       row={row.submission}
+                      dueAt={row.assignment.dueAt}
                       primary={row.assignment.title}
                       /*
                         The title leads to this assignment's own queue, which is the same work
@@ -377,12 +379,22 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             // open assignment's state, so the state stands here beside the name.
             badges={
               selected?.submission ? (
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-2">
                   <SubmissionStatusBadge status={selected.submission.status} />
                   <LatenessBadge
                     dueAt={selected.assignment.dueAt}
                     submission={selected.submission}
                   />
+                  {/*
+                      The draft's own state, on the same rule the hidden row applies: shown only
+                      where it says something the submission's status does not. Writing a report
+                      does not move the submission, so a draft waiting for approval is a fact
+                      this bar would otherwise leave to a list that is no longer on the screen.
+                    */}
+                  {selected.submission.activeDraft &&
+                    draftStatusAddsSomething(selected.submission.activeDraft.status) && (
+                      <DraftStatusBadge status={selected.submission.activeDraft.status} />
+                    )}
                   {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the

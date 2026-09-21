@@ -17,13 +17,14 @@ import { TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
-import { LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
+import { DraftStatusBadge, LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { studentHref } from "@/lib/links";
 import type { CohortChoice } from "@/lib/programs/cohorts";
 import { displayNameOf } from "@/lib/people";
+import { draftStatusAddsSomething } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -421,6 +422,7 @@ export function GradingQueue({
                   <SubmissionRow
                     key={row.id}
                     row={row}
+                    dueAt={data.assignment.dueAt}
                     /*
                       A team's row is headed by the team, because that is what the pile is a pile
                       of: one piece of work per team, not one per member. Who is on it is left to
@@ -547,9 +549,19 @@ export function GradingQueue({
               */
             badges={
               selected && !isTask ? (
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-2">
                   <SubmissionStatusBadge status={selected.status} />
                   <LatenessBadge dueAt={data.assignment.dueAt} submission={selected} />
+                  {/*
+                      The draft's own state, on the same rule the hidden row applies: shown only
+                      where it says something the submission's status does not. Writing a report
+                      does not move the submission, so a draft waiting for approval is a fact
+                      this bar would otherwise leave to a list that is no longer on the screen.
+                    */}
+                  {selected.activeDraft &&
+                    draftStatusAddsSomething(selected.activeDraft.status) && (
+                      <DraftStatusBadge status={selected.activeDraft.status} />
+                    )}
                   {/*
                       The conversation, said the way the hidden row says it: teal while somebody
                       is owed an answer, muted once nobody is. This mode put the list away, so the

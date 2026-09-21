@@ -147,10 +147,12 @@ export function GradingModeBar({
   /** What the list is currently showing, in the words its own tab uses. */
   listLabel: string;
   /**
-   * The open submission's state — its status badge, and Late where it applies. In this bar
-   * because the pane below has no header of its own: this is where the open row's state stands
-   * beside its name. Whichever list this bar fronts decides what state means for its rows, so the
-   * badges come in rather than being read off a submission here.
+   * The open submission's state — its status, whether it was late, whether a draft is waiting,
+   * and the conversation on it. In this bar because the pane below has no header of its own:
+   * this is where the open row's state stands beside its name, and it is the same set of pills
+   * the row in the list carries, so putting the list away loses nothing. Whichever list this bar
+   * fronts decides what state means for its rows, so the badges come in rather than being read
+   * off a submission here.
    */
   badges?: React.ReactNode;
   onSelect: (id: string) => void;
@@ -173,67 +175,96 @@ export function GradingModeBar({
   const next = at >= 0 && at < submissions.length - 1 ? submissions[at + 1] : null;
 
   return (
+    /*
+      One line from `md` up, two below it.
+
+      A submission in the middle of being graded can carry four pills — its status, Late, Feedback
+      drafted, and the count of comments — and on a narrow window those sit between a name that
+      has to stay readable and the two buttons the sitting is driven by. So below `md` the pills
+      drop to a line of their own and the line above keeps the controls: getting to the list, the
+      name of what is open, and the way either side of it.
+
+      The controls are wrapped so that they stay one line below `md`, and the wrapper is
+      `contents` from `md` up — its children become items of this row directly, and `order`
+      arranges them around the pills, which have no wrapper to sit inside at that width.
+    */
     <div
       className={cn(
-        "flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2",
+        "flex shrink-0 flex-col gap-2 border-b border-border bg-card px-3 py-2 md:flex-row md:items-center",
         className,
       )}
     >
-      <Button variant="outline" size="sm" onClick={onOpenList}>
-        <List data-icon="inline-start" />
-        {listLabel}
-        <span className="text-muted-foreground tabular-nums">({submissions.length})</span>
-      </Button>
+      <div className="flex min-w-0 items-center gap-2 md:contents">
+        <Button variant="outline" size="sm" onClick={onOpenList}>
+          <List data-icon="inline-start" />
+          {listLabel}
+          <span className="text-muted-foreground tabular-nums">({submissions.length})</span>
+        </Button>
 
-      {/*
-        With the movement, not with the name: leaving the mode is the last move of the sitting.
-        Only where the wider layout exists to go back to — below `lg` the bar and the sheet are
-        the layout, so there is nothing to exit.
-      */}
-      <Button variant="ghost" size="sm" onClick={onExit} className="max-lg:hidden">
-        <Minimize2 data-icon="inline-start" />
-        Exit
-      </Button>
+        {/*
+          With the movement, not with the name: leaving the mode is the last move of the sitting.
+          Only where the wider layout exists to go back to — below `lg` the bar and the sheet are
+          the layout, so there is nothing to exit.
+        */}
+        <Button variant="ghost" size="sm" onClick={onExit} className="max-lg:hidden">
+          <Minimize2 data-icon="inline-start" />
+          Exit
+        </Button>
 
-      <div className="ml-auto flex min-w-0 items-center gap-2">
-        {badges}
-        {currentLabel &&
-          (currentHref ? (
-            <Link
-              href={currentHref}
-              className="truncate text-sm font-medium hover:underline"
-              title={currentLabel}
-            >
-              {currentLabel}
-            </Link>
-          ) : (
-            <span className="truncate text-sm font-medium" title={currentLabel}>
-              {currentLabel}
-            </span>
-          ))}
+        {/*
+          Everything after this is right-aligned, and an element that grows says so at both widths
+          — an `ml-auto` on the name would compete with one on the pills for the same free space
+          and leave the two of them adrift in the middle of the bar.
+        */}
+        <div aria-hidden="true" className="flex-1 md:order-2" />
+
+        <div className="flex min-w-0 items-center gap-2 md:order-4">
+          {currentLabel &&
+            (currentHref ? (
+              <Link
+                href={currentHref}
+                className="truncate text-sm font-medium hover:underline"
+                title={currentLabel}
+              >
+                {currentLabel}
+              </Link>
+            ) : (
+              <span className="truncate text-sm font-medium" title={currentLabel}>
+                {currentLabel}
+              </span>
+            ))}
+        </div>
+
+        {/* Worded where there is room, arrows alone where there is not. */}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={previous === null}
+          onClick={() => previous && onSelect(previous.id)}
+          aria-label="Previous"
+          className="md:order-5"
+        >
+          <ChevronLeft data-icon="inline-start" />
+          <span className="max-lg:hidden">Previous</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={next === null}
+          onClick={() => next && onSelect(next.id)}
+          aria-label="Next"
+          className="md:order-6"
+        >
+          <span className="max-lg:hidden">Next</span>
+          <ChevronRight data-icon="inline-end" />
+        </Button>
       </div>
 
-      {/* Worded where there is room, arrows alone where there is not. */}
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={previous === null}
-        onClick={() => previous && onSelect(previous.id)}
-        aria-label="Previous"
-      >
-        <ChevronLeft data-icon="inline-start" />
-        <span className="max-lg:hidden">Previous</span>
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={next === null}
-        onClick={() => next && onSelect(next.id)}
-        aria-label="Next"
-      >
-        <span className="max-lg:hidden">Next</span>
-        <ChevronRight data-icon="inline-end" />
-      </Button>
+      {/*
+        Wrapping rather than truncating, because a pill half drawn says nothing: four of them on a
+        narrow window take two lines and the bar grows by one line to hold them.
+      */}
+      {badges && <div className="flex flex-wrap items-center gap-2 md:order-3">{badges}</div>}
     </div>
   );
 }
