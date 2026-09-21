@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
 
+import { GoalUpdates } from "@/components/goal-updates";
 import { GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/status";
@@ -21,10 +22,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * the form added the success criteria alone — which meant preparing for a conversation and having
  * it showed different halves of what somebody wrote.
  *
- * Closed shows what the goal is about and where they stand, which is what a list of goals is
- * scanned for. Open adds the three parts of the plan, in the fellow's own words and under the
- * headings they wrote them against, so the session form and the fellow's screen say the same
- * things in the same order. The whole row is the trigger, because on a list where every row opens,
+ * Closed shows the goal in the fellow's own words, the competency it is about if it is about one,
+ * and where they stand, which is what a list of goals is scanned for. Open adds the three parts of
+ * the plan and the updates written under it — progress notes with files attached — in the fellow's
+ * own words and under the headings they wrote them against, so the session form and the fellow's
+ * screen say the same things in the same order. The whole row is the trigger, because on a list where every row opens,
  * a chevron nobody hits is the failure mode.
  */
 
@@ -32,9 +34,12 @@ type Goal = RouterOutputs["coaching"]["forStudent"]["goals"][number];
 
 export function FellowGoals({
   goals,
+  programId,
   empty,
 }: {
   goals: readonly Goal[];
+  /** The program the goals sit in, which is what authorizes opening a file attached to one. */
+  programId: string;
   /** What to say when there are none. The record and the session form say it differently. */
   empty: string;
 }) {
@@ -49,13 +54,13 @@ export function FellowGoals({
   return (
     <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
       {goals.map((goal) => (
-        <GoalCard key={goal.id} goal={goal} />
+        <GoalCard key={goal.id} goal={goal} programId={programId} />
       ))}
     </ul>
   );
 }
 
-function GoalCard({ goal }: { goal: Goal }) {
+function GoalCard({ goal, programId }: { goal: Goal; programId: string }) {
   const [open, setOpen] = React.useState(false);
   const hasPlan = goal.successCriteria !== "" || goal.objectives !== "" || goal.actionPlan !== "";
 
@@ -74,15 +79,18 @@ function GoalCard({ goal }: { goal: Goal }) {
         )}
 
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">{goal.competencyName}</span>
-            {goal.entryKind === "PITFALL" && (
-              <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
-                Pitfall
-              </Badge>
-            )}
-          </span>
-          <span className="text-sm">“{goal.entryText}”</span>
+          <span className="text-sm font-medium">{goal.title}</span>
+          {goal.entryText !== null && (
+            <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium">{goal.competencyName}</span>
+              <span>“{goal.entryText}”</span>
+              {goal.entryKind === "PITFALL" && (
+                <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+                  Pitfall
+                </Badge>
+              )}
+            </span>
+          )}
         </span>
 
         <GoalMarkerBadge marker={goal.marker} className="mt-0.5 shrink-0" />
@@ -107,6 +115,8 @@ function GoalCard({ goal }: { goal: Goal }) {
               They have not written a plan beside this one yet.
             </p>
           )}
+
+          <GoalUpdates goal={goal} programId={programId} editable={false} />
 
           <span className="text-xs text-muted-foreground">Set {formatDate(goal.createdAt)}</span>
         </div>

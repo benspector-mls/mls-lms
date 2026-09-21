@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { CompetencyEntryField } from "@/components/competency-picker";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -27,7 +28,8 @@ type Goal = RouterOutputs["coaching"]["myGoals"]["goals"][number];
 /**
  * Setting and changing one of your own goals.
  *
- * **The whole of it is the fellow's.** They choose the competency entry, write the three parts,
+ * **The whole of it is the fellow's.** They name the goal, choose a competency if it is about one,
+ * write the three parts,
  * say where they stand, and delete it when it stops being what they are working on — usually
  * agreed with an instructor in a coaching session, but nothing here waits on one or asks
  * permission. An instructor reads the result and writes none of it; if they think an assessment
@@ -53,6 +55,7 @@ export function GoalEditor({
   const trpc = useTRPC();
   const settled = useServerMutation();
 
+  const [title, setTitle] = React.useState(goal?.title ?? "");
   const [entry, setEntry] = React.useState<PickableEntry | null>(
     goal === null ? null : entryOfGoal(goal),
   );
@@ -87,11 +90,20 @@ export function GoalEditor({
 
   const busy = set.isPending || update.isPending || remove.isPending;
 
+  const named = title.trim() !== "";
+
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (entry === null || busy) return;
+    if (!named || busy) return;
 
-    const fields = { entryId: entry.entryId, successCriteria, objectives, actionPlan, marker };
+    const fields = {
+      title: title.trim(),
+      entryId: entry?.entryId ?? null,
+      successCriteria,
+      objectives,
+      actionPlan,
+      marker,
+    };
     if (goal === null) {
       set.mutate({ programId, ...fields });
     } else {
@@ -101,7 +113,27 @@ export function GoalEditor({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4 rounded-lg border border-border p-4">
-      <CompetencyEntryField value={entry} groups={groups} onChange={setEntry} />
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="goal-title" className="text-sm font-medium">
+          Your goal
+        </Label>
+        <Input
+          id="goal-title"
+          autoFocus={goal === null}
+          value={title}
+          maxLength={200}
+          placeholder="By the end of the module, I will ask for help within thirty minutes of being stuck."
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          In your own words, and specific enough that you would know when you had reached it.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label className="text-sm font-medium">Which competency is this about? (optional)</Label>
+        <CompetencyEntryField value={entry} groups={groups} onChange={setEntry} />
+      </div>
 
       <Part
         label="What does success look like?"
@@ -145,7 +177,7 @@ export function GoalEditor({
         <Button type="button" variant="ghost" disabled={busy} onClick={onDone} className="ml-auto">
           Cancel
         </Button>
-        <Button type="submit" disabled={entry === null || busy}>
+        <Button type="submit" disabled={!named || busy}>
           {goal === null ? "Set goal" : "Save changes"}
         </Button>
       </div>
@@ -191,12 +223,13 @@ export function AddGoal({
  * reworded or deleted opens the editor reading exactly as it did the day it was set — and the
  * picker, which does know the current list, simply highlights nothing when it opens.
  */
-function entryOfGoal(goal: Goal): PickableEntry {
+function entryOfGoal(goal: Goal): PickableEntry | null {
+  if (goal.entryId === null || goal.entryKind === null) return null;
   return {
     entryId: goal.entryId,
     kind: goal.entryKind,
-    text: goal.entryText,
-    competencyName: goal.competencyName,
+    text: goal.entryText ?? "",
+    competencyName: goal.competencyName ?? "",
   };
 }
 

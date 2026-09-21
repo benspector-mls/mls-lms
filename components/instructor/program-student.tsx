@@ -346,7 +346,11 @@ export function ProgramStudent({
               own goals page is a client component: the rows open. Reading "what are they working
               on" wants the list, and the plan behind one goal is a paragraph read on purpose.
             */}
-            <FellowGoals goals={coaching.goals} empty="They have not set any goals yet." />
+            <FellowGoals
+              goals={coaching.goals}
+              programId={data.program.id}
+              empty="They have not set any goals yet."
+            />
           </section>
 
           <section className="flex flex-col gap-2">

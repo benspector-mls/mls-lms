@@ -1,10 +1,12 @@
 import {
+  ADDITIONAL_NOTES_PROMPT,
+  ALL_PROMPTS,
   CHECK_IN_PROMPTS,
   DEVELOPMENT_MARKERS,
   MARKER_META,
-  SNAPSHOT_VERSION,
   parseSnapshot,
   sessionAnswersSchema,
+  SNAPSHOT_VERSION,
   type CoachingSnapshot,
 } from "@/lib/coaching";
 
@@ -41,9 +43,7 @@ describe("sessionAnswersSchema", () => {
   });
 
   it("accepts an empty answer, because an unanswered prompt is ordinary", () => {
-    expect(
-      sessionAnswersSchema.safeParse([{ ...stored[0], answer: "" }]).success,
-    ).toBe(true);
+    expect(sessionAnswersSchema.safeParse([{ ...stored[0], answer: "" }]).success).toBe(true);
   });
 
   /*
@@ -105,5 +105,13 @@ describe("the development markers", () => {
       expect(MARKER_META[marker].label.length).toBeGreaterThan(0);
       expect(MARKER_META[marker].description.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("the additional-notes prompt", () => {
+  it("has an id no check-in prompt uses, and is the last of every prompt", () => {
+    expect(CHECK_IN_PROMPTS.map((prompt) => prompt.id)).not.toContain(ADDITIONAL_NOTES_PROMPT.id);
+    expect(ALL_PROMPTS.at(-1)).toBe(ADDITIONAL_NOTES_PROMPT);
+    expect(ALL_PROMPTS).toHaveLength(CHECK_IN_PROMPTS.length + 1);
   });
 });

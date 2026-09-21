@@ -2577,16 +2577,30 @@ model Goal {
   programId    String @map("program_id") @db.Uuid
   enrollmentId String @map("enrollment_id") @db.Uuid
 
-  /// The chosen `CompetencyEntry`'s id, with the text and the competency's name copied as they
-  /// read at selection. **Copies rather than lookups, and no foreign key**: an admin rewords,
-  /// moves, and deletes entries, and a goal has to survive all three holding the words somebody
-  /// set out to work on. `entryKind` is stored for the same reason — an entry that no longer
-  /// exists must not stop a pitfall-goal rendering as one. Goals set while the list lived in code
-  /// hold a slug here that names no row, which reads exactly like a deleted entry.
-  entryId        String              @map("entry_id")
-  entryKind      CompetencyEntryKind @map("entry_kind")
-  entryText      String              @map("entry_text")
-  competencyName String              @map("competency_name")
+  /// What the fellow calls this goal, in their own words — the thing a list of goals is scanned
+  /// by, and the place to practise writing one well.
+  ///
+  /// **The default is permanent, not a migration crutch.** It is what lets a release that does not
+  /// know this column keep creating goals while a deploy is in flight, and after a rollback. Every
+  /// write this release makes requires words here; the zod input says so, and a CHECK does not,
+  /// because a CHECK would refuse exactly those older writes.
+  title String @default("")
+
+  /// The competency this goal is about, if it is about one: the chosen `CompetencyEntry`'s id,
+  /// with the text and the competency's name copied as they read at selection. **Copies rather
+  /// than lookups, and no foreign key**: an admin rewords, moves, and deletes entries, and a goal
+  /// has to survive all three holding the words somebody set out to work on. `entryKind` is stored
+  /// for the same reason — an entry that no longer exists must not stop a pitfall-goal rendering
+  /// as one. Goals set while the list lived in code hold a slug here that names no row, which
+  /// reads exactly like a deleted entry.
+  ///
+  /// **All four written together, or all four null**, which the migration's
+  /// `goals_competency_all_or_none` CHECK holds to. A goal with no competency is a goal the fellow
+  /// chose to write without one; it is not a goal missing data.
+  entryId        String?              @map("entry_id")
+  entryKind      CompetencyEntryKind? @map("entry_kind")
+  entryText      String?              @map("entry_text")
+  competencyName String?              @map("competency_name")
 
   /// The three prose parts, in the coaching structure's own terms. The fellow's to rewrite
   /// whenever they like — a goal is a thing being worked on, not a contract.
@@ -2603,9 +2617,65 @@ model Goal {
 
   /// No author column: the enrollment is the author. A goal belongs to the fellow whose record it
   /// is on, and there is no second person who could have written one.
-  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+  enrollment Enrollment   @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+  updates    GoalUpdate[]
 
   @@index([enrollmentId, createdAt(sort: Desc)])
   @@map("goals")
+  @@schema("public")
+}
+
+/// One progress note a fellow writes under a goal: how it is going, in markdown, with files
+/// attached as evidence. Theirs to write, rewrite and remove, like the goal; instructors read it
+/// on the record and in the session form and write nothing.
+///
+/// **No program, enrollment, or author column.** Ownership is one join through the goal, and the
+/// goal's enrollment is the author — the same reasoning as `Goal` itself. Links are written in the
+/// body as markdown, which the renderer already makes clickable, so an attachment is always a file.
+model GoalUpdate {
+  id     String @id @default(uuid()) @db.Uuid
+  goalId String @map("goal_id") @db.Uuid
+
+  /// Markdown. May be empty: an update can be a screenshot and nothing else. Capped by the
+  /// migration's CHECK as well as by zod, because a script does not run the application's code.
+  body String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  goal        Goal                   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  attachments GoalUpdateAttachment[]
+
+  @@index([goalId, createdAt(sort: Desc)])
+  @@map("goal_updates")
+  @@schema("public")
+}
+
+/// One file attached to a goal update, stored in the same private bucket as submission uploads
+/// at `{updateId}/{uuid}{ext}` — the same two-level shape, so `listStoredUploads` and the
+/// reconciler see these objects and the reconciler knows this table names them.
+///
+/// The four upload columns are all NOT NULL, unlike `SubmissionArtifact`'s: there is no link kind
+/// here, so a row is always a file. `uploadPath` never reaches a browser; reading is a signed URL
+/// minted by `coaching.updateAttachmentUrl` for a caller it authorized.
+///
+/// Rows go first and objects after: whatever deletes this row — the fellow, the goal going, the
+/// program going — harvests `uploadPath` beforehand and removes the object afterwards, and the
+/// reconciler removes anything a failed removal leaves behind once it is a day old.
+model GoalUpdateAttachment {
+  id       String @id @default(uuid()) @db.Uuid
+  updateId String @map("update_id") @db.Uuid
+
+  uploadPath        String @map("upload_path")
+  uploadFilename    String @map("upload_filename")
+  uploadSizeBytes   Int    @map("upload_size_bytes")
+  uploadContentType String @map("upload_content_type")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  update GoalUpdate @relation(fields: [updateId], references: [id], onDelete: Cascade)
+
+  @@index([updateId])
+  @@map("goal_update_attachments")
   @@schema("public")
 }

@@ -34,17 +34,26 @@ import { cn } from "@/lib/utils";
  * colours it — which means no signed URL is minted for it, and the effect below is skipped. The
  * download button is the same button either way.
  */
+/**
+ * Whose bytes these are, which decides which procedure signs the link.
+ *
+ * A submission's attachment or a goal update's, never both. Two ids rather than one callback,
+ * because the minting stays inside the component that already owns it and the callers hand over
+ * nothing but a row's id — the `VerdictMark` precedent for one component two screens render.
+ */
+type Source =
+  | { artifactId: string; attachmentId?: undefined; programId?: undefined }
+  | { attachmentId: string; programId: string; artifactId?: undefined };
+
 export function UploadedFileRow({
-  artifactId,
   filename,
   sizeBytes,
   lateness = "onTime",
   label = "The file you submitted",
   addedAt,
   previewByDefault = false,
-}: {
-  /** The attachment these bytes belong to, which is what both procedures below authorize. */
-  artifactId: string;
+  ...source
+}: Source & {
   filename: string;
   sizeBytes: number | null;
   /**
@@ -77,7 +86,27 @@ export function UploadedFileRow({
   const [error, setError] = React.useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
 
-  const previewKind = previewKindOf(filename);
+  /*
+    Code is read as text through `submissions.uploadText`, which has no counterpart for a goal
+    update's file and is not worth one: screenshots and documents are what gets attached to a
+    goal. So a `.py` on an update is offered as a download, like a file with no viewer at all.
+  */
+  const kind = previewKindOf(filename);
+  const previewKind = source.artifactId === undefined && kind === "code" ? null : kind;
+
+  const viaSubmission = useMutation(trpc.submissions.uploadUrl.mutationOptions());
+  const viaAttachment = useMutation(trpc.coaching.updateAttachmentUrl.mutationOptions());
+  const minting = viaSubmission.isPending || viaAttachment.isPending;
+
+  /** A signed link to the bytes, from whichever procedure owns them. */
+  const mint = (disposition: "attachment" | "inline") =>
+    source.artifactId !== undefined
+      ? viaSubmission.mutateAsync({ artifactId: source.artifactId, disposition })
+      : viaAttachment.mutateAsync({
+          programId: source.programId,
+          attachmentId: source.attachmentId,
+          disposition,
+        });
 
   /*
     Whether a link to the bytes is what shows this file. A PDF and an image are handed to the
@@ -88,47 +117,50 @@ export function UploadedFileRow({
 
   const [open, setOpen] = React.useState(previewByDefault && previewKind !== null);
 
-  const download = useMutation(
-    trpc.submissions.uploadUrl.mutationOptions({
-      onSuccess: ({ url }) => {
-        setError(null);
-        /*
-          An anchor clicked from script rather than assigning `location`. The signed URL answers
-          with `Content-Disposition: attachment`, so this saves the file without navigating away
-          from a report the instructor is part-way through writing — and unlike `window.open` it
-          is not treated as a popup, which Safari blocks when it happens after an await.
-        */
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.rel = "noreferrer";
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-      },
-      onError: (err) => setError(err.message),
-    }),
-  );
+  const [downloading, setDownloading] = React.useState(false);
 
-  const preview = useMutation(
-    trpc.submissions.uploadUrl.mutationOptions({
-      onSuccess: ({ url }) => setPreviewUrl(url),
-      onError: (err) => setError(err.message),
-    }),
-  );
+  const download = async () => {
+    setDownloading(true);
+    try {
+      const { url } = await mint("attachment");
+      setError(null);
+      /*
+        An anchor clicked from script rather than assigning `location`. The signed URL answers
+        with `Content-Disposition: attachment`, so this saves the file without navigating away
+        from a report the instructor is part-way through writing — and unlike `window.open` it
+        is not treated as a popup, which Safari blocks when it happens after an await.
+      */
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.rel = "noreferrer";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That link could not be made.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   /*
     Fetched when the preview is first opened and then kept, rather than re-signed on every
     toggle. Collapsing and expanding a document is not a new request for it, and a fresh URL
     each time would restart a large PDF's loading.
   */
+  const sourceKey = source.artifactId ?? source.attachmentId;
   React.useEffect(() => {
     if (!open || !framed) return;
-    if (previewUrl !== null || preview.isPending) return;
-    preview.mutate({ artifactId, disposition: "inline" });
-    // Deliberately keyed on what decides whether a fetch is owed, not on the mutation object,
-    // which is a new reference on every render.
+    if (previewUrl !== null || minting) return;
+    mint("inline")
+      .then(({ url }) => setPreviewUrl(url))
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : "That preview could not be opened."),
+      );
+    // Deliberately keyed on what decides whether a fetch is owed, not on the mutation objects,
+    // which are new references on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, framed, previewUrl, artifactId]);
+  }, [open, framed, previewUrl, sourceKey]);
 
   const heading = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -153,18 +185,13 @@ export function UploadedFileRow({
         </div>
       </div>
 
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={download.isPending}
-        onClick={() => download.mutate({ artifactId, disposition: "attachment" })}
-      >
-        {download.isPending ? (
+      <Button variant="outline" size="sm" disabled={downloading} onClick={download}>
+        {downloading ? (
           <Loader2 data-icon="inline-start" className="animate-spin" />
         ) : (
           <Download data-icon="inline-start" />
         )}
-        {download.isPending ? "Preparing…" : "Download"}
+        {downloading ? "Preparing…" : "Download"}
       </Button>
     </div>
   );
@@ -196,8 +223,8 @@ export function UploadedFileRow({
 
           <CollapsibleContent>
             <div className="mt-2">
-              {previewKind === "code" ? (
-                <UploadedCode artifactId={artifactId} filename={filename} />
+              {previewKind === "code" && source.artifactId !== undefined ? (
+                <UploadedCode artifactId={source.artifactId} filename={filename} />
               ) : previewUrl === null ? (
                 <div className="flex h-24 items-center justify-center rounded-md border border-border text-sm text-muted-foreground">
                   <Loader2 className="mr-2 size-4 animate-spin" />

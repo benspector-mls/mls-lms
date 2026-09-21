@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Target } from "lucide-react";
 import * as React from "react";
 
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
+import { GoalUpdates } from "@/components/goal-updates";
 import { EmptyState } from "@/components/list-states";
 import { AddGoal, GoalEditor } from "@/components/student/goal-editor";
 import { GoalMarkerBadge } from "@/components/status-badge";
@@ -117,9 +118,10 @@ export function GoalsRecord({
 /**
  * One goal, closed to what it is and open to the plan behind it.
  *
- * Closed shows the competency, the skill or pitfall in the words it was chosen in, and where the
- * fellow says they stand — enough to answer "what am I working on" down a list. Open adds the
- * three parts of the plan, when it was set, and the way to change any of it.
+ * Closed shows the goal in the fellow's own words, the competency it is about if it is about one,
+ * and where they say they stand — enough to answer "what am I working on" down a list. Open adds
+ * the three parts of the plan, the updates they have written under it, when it was set, and the
+ * way to change any of it.
  *
  * The whole row is the trigger, because on a list where every row opens, a chevron nobody hits is
  * the failure mode. Editing is a button inside the opened row rather than a second thing to hit
@@ -153,15 +155,18 @@ function GoalRow({
         )}
 
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">{goal.competencyName}</span>
-            {goal.entryKind === "PITFALL" && (
-              <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
-                Working away from a pitfall
-              </Badge>
-            )}
-          </span>
-          <span className="text-sm font-medium">“{goal.entryText}”</span>
+          <span className="text-sm font-medium">{goal.title}</span>
+          {goal.entryText !== null && (
+            <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium">{goal.competencyName}</span>
+              <span>“{goal.entryText}”</span>
+              {goal.entryKind === "PITFALL" && (
+                <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+                  Working away from a pitfall
+                </Badge>
+              )}
+            </span>
+          )}
         </span>
 
         <GoalMarkerBadge marker={goal.marker} className="mt-0.5 shrink-0" />
@@ -192,6 +197,8 @@ function GoalRow({
               You have not written a plan beside this one yet.
             </p>
           )}
+          <GoalUpdates goal={goal} programId={programId} editable />
+
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-xs text-muted-foreground">Set {formatDate(goal.createdAt)}</span>
             <Button

@@ -48,6 +48,23 @@ export type CheckInPromptId = (typeof CHECK_IN_PROMPTS)[number]["id"];
  * beside its answer. Strict, because a key that passes through silently today is a key some
  * reader depends on tomorrow without anything having decided it.
  */
+/**
+ * The free-form field at the bottom of the session form, stored among the answers under its own
+ * id rather than in a column of its own.
+ *
+ * The answers column already holds labelled, staff-only prose on a draft session, autosaved and
+ * with the label copied in at save — which is everything this field needs. Kept apart from
+ * `CHECK_IN_PROMPTS` so that the check-in list renders unchanged and the form can place this last,
+ * after the goals, which is where "additional" belongs.
+ */
+export const ADDITIONAL_NOTES_PROMPT = {
+  id: "additional-notes",
+  prompt: "Additional notes",
+} as const;
+
+/** Every prompt an answer may be stored under: the check-ins, and the notes. */
+export const ALL_PROMPTS = [...CHECK_IN_PROMPTS, ADDITIONAL_NOTES_PROMPT] as const;
+
 export const sessionAnswersSchema = z.array(
   z
     .object({

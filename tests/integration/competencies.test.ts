@@ -437,6 +437,7 @@ describe("editing the list leaves goals alone", () => {
 
     const goal = await createCaller(tx(), world.student.studentId).coaching.setGoal({
       programId: world.programId,
+      title: "Ask for help within half an hour of being stuck.",
       entryId: group.entryId,
       successCriteria: "Asks in the channel within half an hour.",
       objectives: "One question a week.",

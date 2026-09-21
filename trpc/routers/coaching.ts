@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { auditActor, recordEvent, type AuditReference } from "@/lib/audit/record";
 import {
-  CHECK_IN_PROMPTS,
+  ALL_PROMPTS,
   DEVELOPMENT_MARKERS,
   SNAPSHOT_VERSION,
   TEMPERATURE_MAX,
@@ -13,19 +13,33 @@ import {
 import { assembleSnapshot } from "@/lib/coaching/snapshot";
 import { assertActiveInProgram, assertProgramMember } from "@/lib/courses/membership";
 import { inTransaction } from "@/lib/prisma";
+import {
+  MAX_SUBMISSION_ARTIFACTS,
+  UPLOAD_FILE_TYPE_KEYS,
+  checkUpload,
+} from "@/lib/uploads/file-types";
+import {
+  removeSubmissionUploads,
+  signedDownloadUrl,
+  signedUploadUrl,
+  uploadPath,
+} from "@/lib/uploads/storage";
+import { verifyStoredUpload } from "@/lib/uploads/submit";
 
 import { createTRPCRouter, profileProcedure, programProcedure } from "../init";
 import { displayNameOf, personNameSelect, personSelect } from "../selects";
 
 /**
- * Coaching records: instructor notes, coaching sessions, and the goals they release.
+ * Coaching records: instructor notes, coaching sessions, and the fellow's goals and updates.
  *
  * **Two ownerships, opposite ways round, and every guard on the file follows from which.** A note,
  * a session's answers and the temperature score are the instructor's and staff-only forever: they
  * are read by `programProcedure`-guarded procedures and by nothing else, so the fields do not
  * exist in any fellow-facing payload type. A **goal is the fellow's** — they write it, edit it,
  * say where they stand on it and delete it — so every procedure that touches one is guarded by
- * `assertActiveInProgram`, which refuses instructors as firmly as it refuses strangers. An
+ * `assertActiveInProgram`, which refuses instructors as firmly as it refuses strangers. The
+ * same is true of the **updates** beneath a goal — progress notes with files attached — which the
+ * fellow writes and an instructor reads on the record and in the session form. An
  * instructor who thinks a fellow has placed themselves wrongly says so in the session; there is no
  * procedure here for writing it down.
  *
@@ -50,7 +64,7 @@ import { displayNameOf, personNameSelect, personSelect } from "../selects";
 type Ctx = Parameters<Parameters<typeof programProcedure.mutation>[0]>[0]["ctx"];
 type FellowCtx = Parameters<Parameters<typeof profileProcedure.mutation>[0]>[0]["ctx"];
 
-const prompts = new Map<string, string>(CHECK_IN_PROMPTS.map((entry) => [entry.id, entry.prompt]));
+const prompts = new Map<string, string>(ALL_PROMPTS.map((entry) => [entry.id, entry.prompt]));
 
 const temperatureInput = z.number().int().min(TEMPERATURE_MIN).max(TEMPERATURE_MAX).nullable();
 const markerInput = z.enum(DEVELOPMENT_MARKERS).nullable();
@@ -65,6 +79,19 @@ const markerInput = z.enum(DEVELOPMENT_MARKERS).nullable();
  */
 const fellowGoalProcedure = profileProcedure.input(z.object({ programId: z.string().uuid() }));
 const proseInput = z.string().max(10_000);
+/** Words are required here and nowhere in the database — see `Goal.title` for why the column defaults. */
+const goalTitle = z.string().trim().min(1, "Give the goal a name.").max(200);
+/** May be empty: an update can be a screenshot alone. The migration's CHECK holds the same cap. */
+const updateBody = z.string().max(20_000);
+const attachmentDisposition = z.enum(["attachment", "inline"]);
+
+/** A goal written without a competency: the four copy columns, cleared together. */
+const NO_COMPETENCY = {
+  entryId: null,
+  entryKind: null,
+  entryText: null,
+  competencyName: null,
+} as const;
 const noteBody = z.string().trim().min(1, "A note needs words in it.").max(50_000);
 
 /** What every enrollment-scoped act needs: the key, and the names the audit log writes. */
@@ -152,8 +179,26 @@ function assertDraft(session: { endedAt: Date | null }) {
   }
 }
 
+/** What every reader of an attachment sees. Never `uploadPath`: the bucket's address stays server-side. */
+const attachmentSelect = {
+  id: true,
+  uploadFilename: true,
+  uploadSizeBytes: true,
+  uploadContentType: true,
+  createdAt: true,
+} as const;
+
+const updateSelect = {
+  id: true,
+  body: true,
+  createdAt: true,
+  updatedAt: true,
+  attachments: { orderBy: { createdAt: "asc" }, select: attachmentSelect },
+} as const;
+
 const goalSelect = {
   id: true,
+  title: true,
   entryId: true,
   entryKind: true,
   entryText: true,
@@ -164,6 +209,11 @@ const goalSelect = {
   marker: true,
   createdAt: true,
   updatedAt: true,
+  /*
+    Every update rides along with its goal, newest first. One read answers both screens, and a
+    fellow's goals are few enough that nothing here wants paging.
+  */
+  updates: { orderBy: { createdAt: "desc" }, select: updateSelect },
 } as const;
 
 /**
@@ -179,6 +229,51 @@ async function assertOwnGoal(ctx: FellowCtx, enrollmentId: string, goalId: strin
 
   if (!goal) {
     throw new TRPCError({ code: "NOT_FOUND", message: "No such goal of yours." });
+  }
+}
+
+/** The same refusal for an update: to anybody but its owner, the id names nothing. */
+async function assertOwnUpdate(ctx: FellowCtx, enrollmentId: string, updateId: string) {
+  const update = await ctx.db.goalUpdate.findFirst({
+    where: { id: updateId, goal: { enrollmentId } },
+    select: { id: true },
+  });
+
+  if (!update) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "No such update of yours." });
+  }
+}
+
+/**
+ * Refuses an eleventh file. Asked before the address is minted and again before the row is
+ * written, for the reason `assertRoomForArtifact` asks twice of a submission.
+ */
+async function assertRoomForAttachment(ctx: FellowCtx, updateId: string) {
+  const held = await ctx.db.goalUpdateAttachment.count({ where: { updateId } });
+
+  if (held >= MAX_SUBMISSION_ARTIFACTS) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `This update already holds ${MAX_SUBMISSION_ARTIFACTS} files, which is the most it can. ` +
+        `Remove one to add another.`,
+    });
+  }
+}
+
+/**
+ * The stored objects behind rows that have just been deleted, removed best-effort.
+ *
+ * After the rows and never thrown, the rule every deletion path here follows: the database is the
+ * authoritative act, a bucket that refuses must not leave it half done, and `reconcile:uploads`
+ * removes after a day whatever this could not. The paths that would not go are logged, which is
+ * the only way anybody could find them.
+ */
+async function discardStoredObjects(paths: string[]) {
+  if (paths.length === 0) return;
+  const { leftBehind } = await removeSubmissionUploads(paths);
+  if (leftBehind.length > 0) {
+    console.error(`Could not remove ${leftBehind.length} goal update attachment(s):`, leftBehind);
   }
 }
 
@@ -428,7 +523,9 @@ export const coachingRouter = createTRPCRouter({
   setGoal: fellowGoalProcedure
     .input(
       z.object({
-        entryId: z.string().uuid(),
+        title: goalTitle,
+        /** The competency this is about, or null for a goal written without one. */
+        entryId: z.string().uuid().nullable(),
         successCriteria: proseInput,
         objectives: proseInput,
         actionPlan: proseInput,
@@ -442,7 +539,10 @@ export const coachingRouter = createTRPCRouter({
         data: {
           enrollmentId,
           programId: input.programId,
-          ...(await copiesOf(ctx, input.programId, input.entryId)),
+          title: input.title,
+          ...(input.entryId === null
+            ? NO_COMPETENCY
+            : await copiesOf(ctx, input.programId, input.entryId)),
           successCriteria: input.successCriteria,
           objectives: input.objectives,
           actionPlan: input.actionPlan,
@@ -466,7 +566,9 @@ export const coachingRouter = createTRPCRouter({
     .input(
       z.object({
         goalId: z.string().uuid(),
-        entryId: z.string().uuid().optional(),
+        title: goalTitle.optional(),
+        /** Absent leaves the competency alone; null clears it; an id re-copies. */
+        entryId: z.string().uuid().nullable().optional(),
         successCriteria: proseInput.optional(),
         objectives: proseInput.optional(),
         actionPlan: proseInput.optional(),
@@ -480,9 +582,12 @@ export const coachingRouter = createTRPCRouter({
       return ctx.db.goal.update({
         where: { id: input.goalId },
         data: {
+          ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.entryId === undefined
             ? {}
-            : await copiesOf(ctx, input.programId, input.entryId)),
+            : input.entryId === null
+              ? NO_COMPETENCY
+              : await copiesOf(ctx, input.programId, input.entryId)),
           ...(input.successCriteria === undefined
             ? {}
             : { successCriteria: input.successCriteria }),
@@ -494,14 +599,237 @@ export const coachingRouter = createTRPCRouter({
       });
     }),
 
-  /** The fellow dropping one of their own. Theirs to set, theirs to drop. */
+  /**
+   * The fellow dropping one of their own. Theirs to set, theirs to drop.
+   *
+   * The files attached to its updates go too — harvested before the delete, because once the rows
+   * cascade there is nothing left that knows where the objects are, and removed after it.
+   */
   deleteGoal: fellowGoalProcedure
     .input(z.object({ goalId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const enrollmentId = await assertActiveInProgram(ctx, input.programId);
       await assertOwnGoal(ctx, enrollmentId, input.goalId);
 
+      const attachments = await ctx.db.goalUpdateAttachment.findMany({
+        where: { update: { goalId: input.goalId } },
+        select: { uploadPath: true },
+      });
+
       await ctx.db.goal.delete({ where: { id: input.goalId }, select: { id: true } });
+
+      await discardStoredObjects(attachments.map((row) => row.uploadPath));
+    }),
+
+  /*
+    ---- Updates: the fellow's progress notes under a goal -------------------------------------
+
+    The same ownership as the goal, and the same refusals: `assertActiveInProgram` first, then
+    the row must be theirs or it is not found. Nothing here is audited, for the reason nothing a
+    fellow does to their own goals is.
+  */
+
+  /** A new note under one of their goals. May be words, files, or both; the files come next. */
+  addUpdate: fellowGoalProcedure
+    .input(z.object({ goalId: z.string().uuid(), body: updateBody }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnGoal(ctx, enrollmentId, input.goalId);
+
+      return ctx.db.goalUpdate.create({
+        data: { goalId: input.goalId, body: input.body },
+        select: updateSelect,
+      });
+    }),
+
+  /** Rewriting the words of one. The files are added and removed by their own procedures. */
+  editUpdate: fellowGoalProcedure
+    .input(z.object({ updateId: z.string().uuid(), body: updateBody }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnUpdate(ctx, enrollmentId, input.updateId);
+
+      return ctx.db.goalUpdate.update({
+        where: { id: input.updateId },
+        data: { body: input.body },
+        select: updateSelect,
+      });
+    }),
+
+  /** Dropping one, files and all — harvested first, removed after, like a goal. */
+  deleteUpdate: fellowGoalProcedure
+    .input(z.object({ updateId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnUpdate(ctx, enrollmentId, input.updateId);
+
+      const attachments = await ctx.db.goalUpdateAttachment.findMany({
+        where: { updateId: input.updateId },
+        select: { uploadPath: true },
+      });
+
+      await ctx.db.goalUpdate.delete({ where: { id: input.updateId }, select: { id: true } });
+
+      await discardStoredObjects(attachments.map((row) => row.uploadPath));
+    }),
+
+  /**
+   * The first of the two calls that attach a file: permission, and an address in the bucket.
+   *
+   * The shape of `submissions.beginUpload`, and the same reasons: the bytes never come through
+   * this application, so the browser is handed a signed address for one object and PUTs there
+   * itself, and `recordUpdateUpload` believes nothing it says afterwards. The accepted types are
+   * the bucket's own allow-list — every type it stores — because narrowing it for evidence of a
+   * goal is a decision nobody has made.
+   */
+  beginUpdateUpload: fellowGoalProcedure
+    .input(
+      z.object({
+        updateId: z.string().uuid(),
+        filename: z.string().min(1).max(255),
+        /** What the browser says the file is. A claim, checked properly once the bytes are there. */
+        sizeBytes: z.number().int().positive(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnUpdate(ctx, enrollmentId, input.updateId);
+
+      const check = checkUpload({
+        filename: input.filename,
+        sizeBytes: input.sizeBytes,
+        acceptedTypes: UPLOAD_FILE_TYPE_KEYS,
+      });
+
+      if (!check.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+      }
+
+      await assertRoomForAttachment(ctx, input.updateId);
+
+      const path = uploadPath({ folder: input.updateId, extension: check.extension });
+      const { url } = await signedUploadUrl({ path });
+
+      return { uploadUrl: url, path, contentType: check.contentType };
+    }),
+
+  /**
+   * The second call: the row, once the bytes are in the bucket.
+   *
+   * The path must be under this update's own folder — `beginUpdateUpload` signed a token for
+   * exactly that object — and `verifyStoredUpload` reads the object's real size and type from
+   * storage rather than from the request. Between the browser's PUT and this call there is a
+   * window where an object exists and no row names it; `reconcile:uploads` clears up after it,
+   * which is why it knows this table.
+   */
+  recordUpdateUpload: fellowGoalProcedure
+    .input(
+      z.object({
+        updateId: z.string().uuid(),
+        path: z.string().min(1).max(300),
+        filename: z.string().min(1).max(255),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnUpdate(ctx, enrollmentId, input.updateId);
+
+      if (!input.path.startsWith(`${input.updateId}/`)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "That file does not belong to this update. Attach it again.",
+        });
+      }
+
+      const stored = await verifyStoredUpload({
+        path: input.path,
+        filename: input.filename,
+        acceptedTypes: UPLOAD_FILE_TYPE_KEYS,
+      });
+
+      await assertRoomForAttachment(ctx, input.updateId);
+
+      return ctx.db.goalUpdateAttachment.create({
+        data: {
+          updateId: input.updateId,
+          uploadPath: input.path,
+          uploadFilename: input.filename,
+          uploadSizeBytes: stored.sizeBytes,
+          uploadContentType: stored.contentType,
+        },
+        select: attachmentSelect,
+      });
+    }),
+
+  /** Taking one file off an update. Row first, object after, best effort. */
+  deleteUpdateAttachment: fellowGoalProcedure
+    .input(z.object({ attachmentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+
+      const attachment = await ctx.db.goalUpdateAttachment.findFirst({
+        where: { id: input.attachmentId, update: { goal: { enrollmentId } } },
+        select: { id: true, uploadPath: true },
+      });
+
+      if (!attachment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such file of yours." });
+      }
+
+      await ctx.db.goalUpdateAttachment.delete({ where: { id: attachment.id } });
+
+      await discardStoredObjects([attachment.uploadPath]);
+    }),
+
+  /**
+   * A link to one attached file, for the two kinds of reader an update has.
+   *
+   * **The bucket is private, so this procedure is the whole of who may open a file.** A fellow
+   * may open their own; an instructor or admin of the program may open any fellow's — the same
+   * two readers `forStudent` and `myGoals` already serve. `assertProgramMember` rather than
+   * `assertActiveInProgram`, so a fellow who has left the program can still open the evidence on
+   * their own goals, as they can still read the goals.
+   *
+   * A mutation, like `submissions.uploadUrl`: minting a signed link is an act with an expiry,
+   * not a fact to be cached.
+   */
+  updateAttachmentUrl: profileProcedure
+    .input(
+      z.object({
+        programId: z.string().uuid(),
+        attachmentId: z.string().uuid(),
+        disposition: attachmentDisposition,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const attachment = await ctx.db.goalUpdateAttachment.findFirst({
+        where: { id: input.attachmentId, update: { goal: { programId: input.programId } } },
+        select: {
+          uploadPath: true,
+          uploadFilename: true,
+          update: { select: { goal: { select: { enrollment: { select: { studentId: true } } } } } },
+        },
+      });
+
+      if (!attachment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such file." });
+      }
+
+      const membership = await assertProgramMember(ctx, input.programId);
+      if (
+        membership.as === "student" &&
+        attachment.update.goal.enrollment.studentId !== ctx.profile.id
+      ) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such file." });
+      }
+
+      return {
+        url: await signedDownloadUrl({
+          path: attachment.uploadPath,
+          filename: attachment.uploadFilename,
+          disposition: input.disposition,
+        }),
+      };
     }),
 
   addNote: programProcedure

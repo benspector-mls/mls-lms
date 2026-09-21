@@ -242,6 +242,10 @@ export function CompetencyPicker({
  * The chosen entry, or the button that chooses one. Owns the picker and its open state, so a form
  * needing "one competency entry" renders this and holds only the value.
  *
+ * Optional, from the goal's side: a goal has a title of its own now and the competency is one
+ * fact about it, so a chosen entry can be taken off again with Remove and the field goes back to
+ * offering the choice.
+ *
  * The caption under a chosen entry states the copy rule in the fellow's terms, because the fellow
  * will read this wording on their own goals page: what was agreed stays as it was agreed.
  */
@@ -252,7 +256,8 @@ export function CompetencyEntryField({
 }: {
   value: PickableEntry | null;
   groups: readonly CompetencyGroup[];
-  onChange: (entry: PickableEntry) => void;
+  /** Null when the fellow takes the competency off: a goal need not be about one. */
+  onChange: (entry: PickableEntry | null) => void;
 }) {
   const [open, setOpen] = React.useState(false);
 
@@ -278,15 +283,14 @@ export function CompetencyEntryField({
                 Pitfall
               </Badge>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => setOpen(true)}
-              className="ml-auto"
-            >
-              Change
-            </Button>
+            <span className="ml-auto flex items-center gap-1">
+              <Button type="button" variant="ghost" size="xs" onClick={() => setOpen(true)}>
+                Change
+              </Button>
+              <Button type="button" variant="ghost" size="xs" onClick={() => onChange(null)}>
+                Remove
+              </Button>
+            </span>
           </div>
           <p className="text-sm">“{value.text}”</p>
           <p className="text-xs text-muted-foreground">

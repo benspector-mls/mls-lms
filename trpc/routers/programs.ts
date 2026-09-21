@@ -1229,6 +1229,12 @@ export const programsRouter = createTRPCRouter({
       const courses = await ctx.db.course.count({ where: { programId: program.id } });
       const enrollments = await ctx.db.enrollment.count({ where: { programId: program.id } });
 
+      // The files fellows attached to their goal updates, for the same reason as the submissions'.
+      const goalAttachments = await ctx.db.goalUpdateAttachment.findMany({
+        where: { update: { goal: { programId: program.id } } },
+        select: { uploadPath: true },
+      });
+
       await ctx.db.program.delete({ where: { id: program.id } });
 
       /*
@@ -1241,7 +1247,8 @@ export const programsRouter = createTRPCRouter({
       */
       const uploadPaths = submissions
         .flatMap((row) => row.artifacts.map((artifact) => artifact.uploadPath))
-        .filter((path): path is string => path !== null);
+        .filter((path): path is string => path !== null)
+        .concat(goalAttachments.map((row) => row.uploadPath));
 
       let uploadsRemoved = 0;
       let uploadsLeftBehind: string[] = [];

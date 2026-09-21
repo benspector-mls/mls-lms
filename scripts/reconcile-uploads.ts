@@ -27,19 +27,23 @@
  * after two hours, so nothing older than that can still be waiting for its `recordUpload` — a day
  * is that bound with room to spare, and it means a student uploading while this runs is in no
  * danger from it.
+ *
+ * **Goal update attachments live in the same bucket**, under the update's id, and this reads both
+ * tables before judging anything. The rule itself is `judgeStoredObjects` in
+ * `lib/uploads/reconcile.ts`, where it has a test. **Do not run an older checkout of this script
+ * once fellows have attached files to their goals**: a version that knows only the submissions
+ * table would judge every one of those files "no submission row" and remove it.
  */
 import { config as loadEnv } from "dotenv";
 
-import { listStoredUploads, removeSubmissionUploads } from "../lib/uploads/storage";
 import { formatBytes } from "../lib/uploads/file-types";
+import { judgeStoredObjects } from "../lib/uploads/reconcile";
+import { listStoredUploads, removeSubmissionUploads } from "../lib/uploads/storage";
 
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
 
-/** Long enough that nothing in flight can be caught by it. See the note above. */
-const MINIMUM_AGE_MS = 24 * 60 * 60 * 1000;
-
-/** The folder name is a submission id, and anything else in the bucket was not put there by us. */
+/** A folder name is a submission's or a goal update's id, and anything else in the bucket was not put there by us. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function main() {
@@ -58,57 +62,49 @@ async function main() {
   const now = Date.now();
 
   /*
-    The rows for every folder that could be a submission, read in one query.
+    The rows for every folder that could be a submission or a goal update, one query per table.
 
-    Filtered to UUID-shaped names first, because the column is `uuid` and Postgres refuses a
+    Filtered to UUID-shaped names first, because both id columns are `uuid` and Postgres refuses a
     comparison against a string that is not one — a single stray folder would otherwise fail the
     whole run rather than being reported as the stray it is.
   */
-  const folders = [...new Set(objects.map((object) => object.path.split("/")[0]))];
-  const rows = await db.submission.findMany({
-    where: { id: { in: folders.filter((folder) => UUID.test(folder)) } },
-    select: {
-      id: true,
-      gradedAt: true,
-      // Every path this submission still names. A submission holds any number of attachments, so
-      // "the file it points at" is a set rather than a column.
-      artifacts: { where: { uploadPath: { not: null } }, select: { uploadPath: true } },
-    },
-  });
-  const bySubmission = new Map(rows.map((row) => [row.id, row]));
-  const attached = new Set(
-    rows.flatMap((row) => row.artifacts.map((artifact) => artifact.uploadPath)),
+  const folders = [...new Set(objects.map((object) => object.path.split("/")[0]))].filter((name) =>
+    UUID.test(name),
   );
 
-  /** Why one object is being kept or removed, in the words the summary prints. */
-  const verdictFor = (object: (typeof objects)[number]) => {
-    const row = bySubmission.get(object.path.split("/")[0]);
+  const [submissions, updates] = await Promise.all([
+    db.submission.findMany({
+      where: { id: { in: folders } },
+      select: {
+        id: true,
+        gradedAt: true,
+        // Every path this submission still names. A submission holds any number of attachments,
+        // so "the file it points at" is a set rather than a column.
+        artifacts: { where: { uploadPath: { not: null } }, select: { uploadPath: true } },
+      },
+    }),
+    db.goalUpdate.findMany({
+      where: { id: { in: folders } },
+      select: { id: true, attachments: { select: { uploadPath: true } } },
+    }),
+  ]);
 
-    /*
-      What the object *is* comes before how old it is, so the summary says something worth
-      reading. Both orders keep the same files — a submission's current file is not removable at
-      any age — but asking about the age first would report every file handed in today as "less
-      than a day old", which tells nobody whether the rule is working.
-    */
-    if (attached.has(object.path)) return { keep: true, reason: "handed in" };
-    if (row?.gradedAt) return { keep: true, reason: "a grade was written on this work" };
-
-    // Not knowing how old something is, is not the same as it being old. An object the API
-    // reports no timestamp for is left alone and said out loud, rather than quietly swept up.
-    if (object.createdAt === null) {
-      return { keep: true, reason: "no creation time to judge its age by" };
-    }
-
-    if (now - object.createdAt.getTime() < MINIMUM_AGE_MS) {
-      return { keep: true, reason: "less than a day old" };
-    }
-
-    if (!row) return { keep: false, reason: "no submission row" };
-
-    return { keep: false, reason: "taken off the submission or never recorded" };
-  };
-
-  const judged = objects.map((object) => ({ ...object, ...verdictFor(object) }));
+  const judged = judgeStoredObjects(
+    objects,
+    {
+      submissions: new Map(
+        submissions.map((row) => [row.id, { graded: row.gradedAt !== null }] as const),
+      ),
+      updates: new Set(updates.map((row) => row.id)),
+      attached: new Set([
+        ...submissions.flatMap((row) =>
+          row.artifacts.flatMap((artifact) => (artifact.uploadPath ? [artifact.uploadPath] : [])),
+        ),
+        ...updates.flatMap((row) => row.attachments.map((attachment) => attachment.uploadPath)),
+      ]),
+    },
+    now,
+  );
   const orphans = judged.filter((object) => !object.keep);
   const kept = judged.filter((object) => object.keep);
 
