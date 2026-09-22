@@ -348,6 +348,12 @@ Integration tests against the test database, through `npm run test:integration`,
 
 **When not to ship this.** The code is safe at any hour — it adds a route nothing else calls and touches no fellow's path through the application. Make's first run is the part to time: a backfill of several thousand records consumes a large share of a monthly operation allowance in one go.
 
+## Deferred: storing Salesforce Ids here
+
+The sync never needs a Salesforce Id on this side, and none is stored. What a stored Id would buy is a roster badge saying whether a fellow has reached Salesforce, and a link from a grade or an attendance record to the Salesforce record it became, because a Salesforce Id is a URL.
+
+If either is wanted, it is an addition rather than a change: a nullable `salesforce_id` column on the row-backed tables that want it, and a write endpoint Make posts each new record's Id back through after an upsert. The External Id stays the mechanism — the upsert remains idempotent and parents still resolve by identifier — and the stored Id is read only by the screen drawing the badge or the link. It is deferred because the two collections with no row, Class Registrations and unstarted Assignment Submissions, have nowhere to hold an Id, and because nothing about the first version needs it.
+
 ## What is still open on the Salesforce side
 
 None of these blocks the work described above, and all of them block the integration actually working:
