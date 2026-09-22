@@ -24,7 +24,7 @@ Make.com sits between the two systems. On a schedule it calls this application, 
 | Artifact | `gcf_attempts` | this application |
 | Coaching Conversation | `coaching_sessions` — a later addition | this application |
 
-The tree in Salesforce: a Program holds Classes; a Class holds Class Registrations, Assignments, and Sessions; an Assignment holds Assignment Submissions, each linked to a Class Registration; a Session holds Attendances; a Program Enrollment holds Artifacts and Coaching Conversations.
+The tree in Salesforce: a Program holds Classes; a Class holds Class Registrations, Assignments, and Sessions; an Assignment holds Assignment Submissions, each linked to a Class Registration; a Session holds Attendances; a Program Enrollment holds Artifacts and Coaching Conversations, and an Artifact also names its Contact directly.
 
 ## One rule for linking
 
@@ -101,7 +101,7 @@ Every record carries `externalId` — the value to upsert on — and names each 
 | `sessions` | `attendance_sessions` | the program's Attendance class | `attendance_sessions.id` |
 | `attendance` | `attendance_records` | session, program enrollment | `attendance_records.id` |
 | `submissions` | assignments × registrations, with the row when there is one | assignment, class registration | `<assignmentId>:<enrollmentId>` |
-| `gcf-attempts` | `gcf_attempts` | program enrollment | `gcf_attempts.id` |
+| `gcf-attempts` | `gcf_attempts` | program enrollment, contact | `gcf_attempts.id` |
 
 The order is the dependency order: a child upsert fails in Salesforce when its parent is not there yet.
 
@@ -120,13 +120,14 @@ programs
 enrollments
   externalId      enrollments.id
   programId       the program's externalId
+  studentId       profiles.id — what the Contact is stamped with
   studentEmail    profiles.email
   studentName     profiles.display_name
   status          ACTIVE | REMOVED
   updatedAt
 ```
 
-`studentEmail` appears here and nowhere else in the feed. It is what the setup scenario matches a Program Enrollment on, once. Every other collection names a fellow only through an identifier.
+`studentEmail` appears here and nowhere else in the feed. It is what the setup scenario matches a Program Enrollment on, once. Every other collection names a fellow only through an identifier: `enrollmentId` where the Salesforce parent is a Program Enrollment, `contactId` where it is the Contact. The Contact is stamped with `studentId` rather than the enrollment's identifier because a fellow who repeats a term has two enrollments and one Contact.
 
 ### Records: classes
 
@@ -243,11 +244,12 @@ A grade is present only once released: `status = GRADED` with `gradedAt` set, wh
 
 ### Records: GCF attempts
 
-One per attempt, both kinds, as an Artifact under a Program Enrollment.
+One per attempt, both kinds, as an Artifact under a Program Enrollment that also names the fellow's Contact. The Contact is the person and never changes; the Program Enrollment is the choice described below.
 
 ```
 externalId          gcf_attempts.id
 enrollmentId        the fellow's most recent enrollment's externalId
+contactId           profiles.id, the fellow's Contact
 kind                PROCTORED | MOCK
 score               gcf_attempts.score
 scorePossible       gcf_attempts.score_possible, null on every PROCTORED row
@@ -287,7 +289,7 @@ The design adds no column and no table. Every identifier it needs is a primary k
 
 Two scenarios.
 
-**Setup, run once per program and again whenever the roster changes.** Read `programs`; for each, find the Salesforce Program by name and term and write the program's `externalId` into its External Id field. Read `enrollments`; for each, find the Program Enrollment whose Program carries that `programId` and whose Contact has that `studentEmail`, and write the enrollment's `externalId` into the Program Enrollment's External Id field and the Contact's. A fellow with no match goes to an error branch that produces a list for somebody to resolve by hand — a fellow whose Salesforce email differs from the one they sign in with, most likely. This is the only place in the integration that matches on a name or an address.
+**Setup, run once per program and again whenever the roster changes.** Read `programs`; for each, find the Salesforce Program by name and term and write the program's `externalId` into its External Id field. Read `enrollments`; for each, find the Program Enrollment whose Program carries that `programId` and whose Contact has that `studentEmail`, and write the enrollment's `externalId` into the Program Enrollment's External Id field and the `studentId` into the Contact's. A fellow with no match goes to an error branch that produces a list for somebody to resolve by hand — a fellow whose Salesforce email differs from the one they sign in with, most likely. This is the only place in the integration that matches on a name or an address.
 
 **Sync, on a schedule.** Walk the collections in the order listed, each from its own stored cursor, upserting every record by `externalId` and naming parents by theirs. The cursor for a collection advances only after the whole page has been written; a page with a failed record stops the run, leaves the cursor where it was, and lands in Make's incomplete executions for retry — where the upsert makes replaying the page harmless. The failure to expect is a parent not yet written, which the ordering prevents within a run and the retry heals across runs.
 
