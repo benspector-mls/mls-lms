@@ -21,13 +21,18 @@ import {
   isCollectionName,
   type Collection,
 } from "@/lib/integrations/salesforce/collections";
-import { attendanceClassId, registrationKey } from "@/lib/integrations/salesforce/records";
+import {
+  attendanceClassId,
+  registrationKey,
+  submissionKey,
+} from "@/lib/integrations/salesforce/records";
 
 import {
   enroll,
   makeAccount,
   makeAssignment,
   makeCourse,
+  makeSubmission,
   makeUnit,
   makeWorld,
   type World,
@@ -429,6 +434,97 @@ describe("the Salesforce feed", () => {
       expect(removed.enrollmentStatus).toBe("REMOVED");
       expect(removed.classId).toBe(world.courseId);
       expect(removed.enrollmentId).toBe(removedEnrollmentId);
+    });
+  });
+
+  describe("the submissions grid", () => {
+    let assignmentId: string;
+    let removedEnrollment: { id: string; studentId: string };
+
+    beforeAll(async () => {
+      const assignment = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: world.unitId,
+        kind: "REPO",
+        pointValue: 40,
+        dueAt: new Date("2026-02-01T05:00:00Z"),
+      });
+      assignmentId = assignment.id;
+
+      // The first fellow has a released grade, handed in late; the second has never started.
+      await makeSubmission(tx(), {
+        assignmentId,
+        studentId: world.students[0].studentId,
+        submittedAt: new Date("2026-02-02T12:00:00Z"),
+        graded: { score: 34, possible: 40, isComplete: true },
+      });
+
+      // A removed fellow with a real row: the row is sent, no notStarted is invented for them.
+      const removedStudentId = await makeAccount(tx());
+      const removed = await enroll(tx(), {
+        programId: world.programId,
+        studentId: removedStudentId,
+        status: "REMOVED",
+      });
+      removedEnrollment = { id: removed.id, studentId: removedStudentId };
+      await makeSubmission(tx(), {
+        assignmentId,
+        studentId: removedStudentId,
+        status: "SUBMITTED",
+      });
+
+      // A second assignment the removed fellow never touched: no record for them at all.
+      await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: world.unitId,
+        kind: "TASK",
+      });
+    });
+
+    it("holds one record per active fellow per assignment, real rows for removed fellows, and nothing for the test student", async () => {
+      const records = await walkAll<
+        Positioned & {
+          status: string;
+          score: number | null;
+          lateness: string | null;
+          registrationId: string;
+        }
+      >(tx(), COLLECTIONS.submissions, 2);
+
+      const graded = submissionKey(assignmentId, world.students[0].id);
+      const unstarted = submissionKey(assignmentId, world.students[1].id);
+      const removedReal = submissionKey(assignmentId, removedEnrollment.id);
+      const ofTestStudent = submissionKey(assignmentId, testStudent.id);
+
+      const seen = oursAmong(records, new Set([graded, unstarted, removedReal, ofTestStudent]));
+      expect(seen.sort()).toEqual([graded, unstarted, removedReal].sort());
+
+      const gradedRecord = records.find((record) => record.externalId === graded)!;
+      expect(gradedRecord.status).toBe("graded");
+      expect(gradedRecord.score).toBe(34);
+      expect(gradedRecord.lateness).toBe("late");
+      expect(gradedRecord.registrationId).toBe(
+        registrationKey(world.courseId, world.students[0].id),
+      );
+
+      const unstartedRecord = records.find((record) => record.externalId === unstarted)!;
+      expect(unstartedRecord.status).toBe("notStarted");
+      expect(unstartedRecord.score).toBeNull();
+      expect(unstartedRecord.lateness).toBeNull();
+
+      const removedRecord = records.find((record) => record.externalId === removedReal)!;
+      expect(removedRecord.status).toBe("submitted");
+    });
+
+    it("invents no notStarted record for a removed fellow", async () => {
+      const records = await walkAll(tx(), COLLECTIONS.submissions, 50);
+      const forRemoved = records.filter((record) =>
+        record.externalId.endsWith(`:${removedEnrollment.id}`),
+      );
+      // Exactly the one real row from the first assignment; nothing for the second.
+      expect(forRemoved.map((record) => record.externalId)).toEqual([
+        submissionKey(assignmentId, removedEnrollment.id),
+      ]);
     });
   });
 });

@@ -13,6 +13,8 @@ import {
   programRecord,
   registrationRecord,
   sessionRecord,
+  submissionRecord,
+  type SubmissionRecord,
 } from "./records";
 
 /**
@@ -237,11 +239,92 @@ const registrations: Collection = async (tx, query) => {
   return walk(records, query);
 };
 
-const notBuiltYet =
-  (name: CollectionName): Collection =>
-  async () => {
-    throw new Error(`${name} is not built yet`);
-  };
+/**
+ * One record per active fellow per distributed assignment, with the `submissions` row overlaid
+ * where there is one.
+ *
+ * Salesforce has always held an Assignment Submission for every fellow on every assignment, and
+ * reports there read a missing row as an error rather than as "not started". This keeps the grid
+ * complete. A fellow has a `submissions` row only once they accept or hand in, so the pairs are
+ * formed here from the assignments and the enrollments, and the rows are laid on top by
+ * `(assignmentId, studentId)` — which is what `submissions` is unique on.
+ *
+ * **Every row is loaded, not only the changed ones.** A pair's synthesised record must be
+ * replaced by its real row even when that row is old, or a page produced by an assignment's
+ * `updatedAt` moving would say `notStarted` about somebody who was graded in February. At a few
+ * thousand narrow rows that is milliseconds, and the day it is not, the answer is a materialised
+ * table rather than a cleverer query.
+ *
+ * **Only active enrollments are synthesised.** A removed fellow's real rows are sent — the work
+ * happened — but no `notStarted` is invented for assignments distributed after they left.
+ */
+const submissions: Collection = async (tx, query) => {
+  const [assignmentRows, enrollmentRows, submissionRows] = await Promise.all([
+    tx.assignment.findMany({
+      where: { distributedAt: { not: null } },
+      select: {
+        id: true,
+        courseId: true,
+        dueAt: true,
+        updatedAt: true,
+        course: { select: { programId: true } },
+      },
+    }),
+    tx.enrollment.findMany({
+      where: NOT_A_TEST_STUDENT,
+      select: { id: true, programId: true, studentId: true, status: true, updatedAt: true },
+    }),
+    tx.submission.findMany({
+      where: { ...NOT_A_TEST_STUDENT, assignment: { distributedAt: { not: null } } },
+      select: {
+        assignmentId: true,
+        studentId: true,
+        status: true,
+        submittedAt: true,
+        finalScore: true,
+        finalScorePossible: true,
+        isComplete: true,
+        gradedAt: true,
+        feedbackMarkdown: true,
+        extendedDueAt: true,
+        updatedAt: true,
+      },
+    }),
+  ]);
+
+  const activeByProgram = new Map<string, typeof enrollmentRows>();
+  const enrollmentOf = new Map<string, (typeof enrollmentRows)[number]>();
+  for (const enrollment of enrollmentRows) {
+    enrollmentOf.set(`${enrollment.programId}:${enrollment.studentId}`, enrollment);
+    if (enrollment.status !== "ACTIVE") continue;
+    const list = activeByProgram.get(enrollment.programId) ?? [];
+    list.push(enrollment);
+    activeByProgram.set(enrollment.programId, list);
+  }
+
+  const records = new Map<string, SubmissionRecord>();
+
+  for (const assignment of assignmentRows) {
+    for (const enrollment of activeByProgram.get(assignment.course.programId) ?? []) {
+      const record = submissionRecord({ assignment, enrollment }, null);
+      records.set(record.externalId, record);
+    }
+  }
+
+  const assignmentById = new Map(assignmentRows.map((assignment) => [assignment.id, assignment]));
+  for (const row of submissionRows) {
+    const assignment = assignmentById.get(row.assignmentId);
+    if (!assignment) continue;
+    const enrollment = enrollmentOf.get(`${assignment.course.programId}:${row.studentId}`);
+    // A row for somebody not enrolled in the program cannot name a registration. Not reachable
+    // through the application, which reaches every submission through an enrollment.
+    if (!enrollment) continue;
+    const record = submissionRecord({ assignment, enrollment }, row);
+    records.set(record.externalId, record);
+  }
+
+  return walk([...records.values()], query);
+};
 
 export const COLLECTIONS: Record<CollectionName, Collection> = {
   programs,
@@ -251,6 +334,6 @@ export const COLLECTIONS: Record<CollectionName, Collection> = {
   assignments,
   sessions,
   attendance,
-  submissions: notBuiltYet("submissions"),
+  submissions,
   "gcf-attempts": gcfAttempts,
 };
