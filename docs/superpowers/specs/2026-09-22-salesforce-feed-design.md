@@ -66,12 +66,16 @@ One route file serves every collection:
 
 ```
 app/api/integrations/salesforce/[collection]/route.ts
-lib/integrations/salesforce/feed.ts
+lib/integrations/salesforce/feed.ts          — request to response
+lib/integrations/salesforce/collections.ts   — the nine named queries
+lib/integrations/salesforce/records.ts       — identifiers and row-to-record mappers
+lib/integrations/salesforce/cursor.ts        — position, page, and the two walks
+lib/integrations/salesforce/token.ts         — the bearer comparison
 ```
 
 `GET /api/integrations/salesforce/{collection}?since=&after=&limit=`
 
-The route handler checks the token, parses the cursor, looks the collection up in a table, runs its query, and writes the envelope. Each entry in that table holds a function producing ordered records after a cursor and nothing else. Authorization, cursor parsing, paging, the envelope, and error shapes are written once in `feed.ts`. Adding Coaching Conversations later is one more entry.
+The route handler checks the token, parses the cursor, looks the collection up in a table, runs its query, and writes the envelope. Each entry in that table holds a function producing ordered records after a cursor and nothing else. Authorization, cursor parsing, paging, the envelope, and error shapes are written once, in `feed.ts` and `cursor.ts`; the three pure modules are unit-tested on every save and the two that touch the database are covered by the integration suite. Adding Coaching Conversations later is one more entry.
 
 `limit` defaults to 200 and is capped at 500. An unknown collection is a 404. `since` may be sent alone; `after` sent without `since` is a 400, because a tiebreaker with nothing to break the tie against is a caller mistake rather than a position.
 

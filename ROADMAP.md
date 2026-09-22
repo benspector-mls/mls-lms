@@ -482,92 +482,18 @@ Three things are left, none of them scheduled:
 
 ## Salesforce synchronization
 
-The whole of what this application owes a system of record outside itself.
+**Built: the feed.** This application serves nine collections over one token-protected route, and Make.com reads them and writes Salesforce. The design is [the spec](docs/superpowers/specs/2026-09-22-salesforce-feed-design.md), the code is `lib/integrations/salesforce/`, and [ARCHITECTURE.md](ARCHITECTURE.md#salesforce-feed) says how it is put together.
 
-**The consultants have replied, and what they answered is in [its own section](#what-came-back-from-idlewild).** Enough is now known to stop guessing about the object and the environment; what remains is a Salesforce developer for the integration's shape, and three decisions that only Marcy can make. The field mapping is still not written down here because it is a reading exercise against a real org rather than something to invent.
+**What remains is configuration on two sides**, listed in full in the spec's last section. In Salesforce: an External Id field on each of ten objects — Contact, Program, and Program Enrollment among them, since those exist first and are stamped rather than created — the picklist spellings for submission status and assignment type, a nullable Max Score on Artifact with `kind` reportable, and a pass over the existing Flows and validation rules on the objects the feed writes. In Make: the setup scenario that matches Programs by name and term and Program Enrollments by fellow email, once, and stamps this application's identifiers onto them; and the sync scenario that walks the nine collections in dependency order from a stored cursor. Before the first run, the row counts, because Make bills per operation and the first walk is the whole history.
 
-**What already exists here.** `submissions` carries three dormant columns — `salesforceSyncStatus` (`PENDING`, `SYNCED`, `FAILED`), `salesforceRecordId`, and `salesforceSyncedAt` — and approving a grade sets the status to `PENDING`. Nothing reads them. They exist so that a synchronization job can query `WHERE salesforce_sync_status = 'PENDING'` without needing a migration at that point.
+**Standing facts from the Salesforce side.** Marcy can create up to 30 developer sandboxes and a System Administrator can make one at any time; develop against a developer sandbox with invented data rather than the partial copy. The API ceiling is 127,000 calls per 24 hours, visible at Setup → System Overview, which is not a limit worth designing around at this volume. Make's Salesforce connection wants a dedicated integration user with a restricted profile, with permissions set at both object and field level.
 
-**What is already settled.** Salesforce tracks grades **per assignment**, on assignment submission objects. That confirms the grain the dormant columns assume: one Salesforce record per submission, keyed from a column on `submissions`, rather than a rollup computed per module or per course. Nothing needs to move.
-
-It also widens the feature past what those columns cover. Managing assignment *and* assignment submission objects means an authored assignment has a counterpart record in Salesforce, which is a second thing to create, key, and keep in step — and `assignments` has no Salesforce columns at all today. Two consequences worth carrying into the conversation:
-
-- **The ordering is forced.** A submission record presumably cannot exist without its assignment record, so authoring an assignment has to create the Salesforce side before any grade for it can sync. That makes this feature depend on assignment authoring rather than merely following it.
-- **`assignments` and `courses` both need the same three columns** `submissions` already has. Correct assumption: only `submissions` has them, because it was the only table whose sync was being thought about when they were added. A course is presumably a program record on their end and an assignment hangs off it, so all three levels need to hold their Salesforce id and sync state. One small migration once the objects' shapes are known — deliberately not written until then, on the same reasoning that left the field mapping un-guessed.
-
-### What came back from Idlewild
-
-They answered the questions a System Administrator can answer, sorted the rest into two piles, and gave a recommendation on the whole approach.
-
-**Their recommendation is not to build this now.** The stated reasons are internal capacity to maintain a custom integration over the long term, the team's inexperience with the Salesforce platform specifically, and an October target for building, testing, and integrating. Their suggested first step if it goes ahead anyway is to bring in a Salesforce developer in at least an advisory capacity, before the build rather than during it. Their own scope explicitly excludes code review, testing, external connection practices, and monitoring API versions over time — so the parts of this that are code are ours regardless.
-
-**Answered, and they remove work:**
-
-- **The object exists and is called Assignment Submission.** Its complete field list, with types and API names, is at Setup → Object Manager → Assignment Submission → Fields & Relationships, and shows every field regardless of page layout or profile visibility. So the field mapping stops being a guess and becomes a reading exercise.
-- **Sandboxes are not a constraint.** Marcy can create up to 30 developer sandboxes — three are in use — plus one partial copy, and a System Administrator can make one at any time. Develop against a developer sandbox with invented data rather than the partial copy, which would put real student information in a looser environment.
-- **The API ceiling is 127,000 calls per 24 hours**, visible at Setup → System Overview, and more can be bought. At one write per approved grade this is not a limit worth designing around.
-- **Validation rules, flows, and dependencies are discoverable rather than mysterious.** They are in Setup, per object; the "Where is this used?" button on a field answers what reads it. Salesforce has a documented order of operations for how validations and automations fire, which they recommend reading before designing the write.
-- **A dedicated integration user with a restricted profile is the right shape**, which is what was already assumed. It likely needs a paid licence, and its permissions should be set at both object and field level.
-
-**Still needs a Salesforce developer**, and these are the ones that decide the integration's shape: which API endpoints exist for these objects, what the reliable student identifier is, whether REST or sObject Collections or Bulk fits one write per grade, and who creates the Connected App and issues the certificate for the JWT bearer flow.
-
-**Ours to decide, and nobody else can:** whether the sync also runs updates rather than only first writes, whether it is one-way or two-way, and — the one that changes the most code — whether a grade corrected here may overwrite Salesforce, or whether Salesforce becomes the system of record once written.
-
-### Questions I need answered
-
-**What a record represents.** This decides everything else, so it is first:
-
-- What object does a grade live on? What is its exact API name?
-- I would like to be able to have my application manage assignment and assignment submission objects (CRUD). What objects do assignments and assignment submissions live on? What are their API names?
-- What is the most relevant object relationship between a student and their assignments/submissions? Program Enrollment?
-- What is the manual process today, and which field does someone fill in by hand? I want to replace exactly that, not something adjacent to it.
-
-**How a student is identified.** What I hold is an email address and a GitHub numeric user ID, and the GitHub ID is meaningless on your end:
-
-- What is the reliable key for a student — the Contact Id, an email, or a student ID number we assign?
-- If it is email: is it guaranteed to match the email they sign in to our application with? What should happen when it does not?
-- Can I be given the Salesforce Id for each student once, to store against their profile, rather than matching on email every time?
-
-**The fields, and the shape they expect.** I have a raw score, a maximum, a complete/incomplete determination at 75 percent, a graded-at timestamp, a late flag, and the feedback text itself:
-
-- Which of those do you actually want, and what are the exact API names and types?
-- Is the grade a number, a percentage, or a picklist? If a picklist, what are the valid values, exactly as spelled?
-- Do you want the feedback text at all? It is markdown and can run to several hundred words, so I need to know whether to send it, and whether to strip the formatting.
-- Are there required fields on that object that I have no way to supply?
-
-**API access.** I need server-to-server access with no human in the loop. Sandboxes, the request ceiling, and the integration user are [already settled](#what-came-back-from-idlewild); what is left is for a Salesforce developer:
-
-- Which API should I use — REST, sObject Collections, or Bulk? Volume is small: one write per approved grade, so roughly 25 per assignment per roster.
-- Can we set up a Connected App with the OAuth JWT bearer flow, and who creates it and issues the certificate?
-- What exactly goes in the integration user's permission set, at object and field level, for a user that only writes a handful of fields on one object?
-
-**Re-syncing without creating duplicates.** A grade can be corrected after it has been sent, and a student can resubmit and be graded again:
-
-- Can you add an External Id field to that object — unique, holding our submission's UUID — so I can upsert against it? Without one I have to store the record Id and hope it does not change, and any retry risks a duplicate row.
-- On a resubmission, do you want the existing record updated, or a second record so the history is visible? Our side keeps every round of feedback, so either is possible.
-- If a grade is corrected here after it has synced, may I overwrite what is in Salesforce, or is Salesforce the system of record once written?
-
-**What else fires when I write.** This is the part I cannot see and am most likely to break:
-
-- Which validation rules, triggers, flows, and required-field rules actually exist on that object? They are discoverable in Setup, so this is a lookup rather than a question — but it has to be done before the first write, alongside Salesforce's documented order of operations for how they fire.
-- Does anything downstream read those fields — reports, dashboards, a program-completion calculation, anything that emails a student or a funder?
-- Could someone edit a grade directly in Salesforce? If so, we need to agree which side wins.
-
-### What may need to be built on the Salesforce end
-
-Worth flagging in the same conversation, since some of it is their work rather than mine: a unique External Id field for idempotent upserts; the object or the fields themselves if per-assignment grades are not currently modelled; a Connected App and a least-privilege integration user; agreed picklist values; sandbox access; and confirmation that no existing automation reacts badly to an integration writing these fields.
-
-### The shape of the work here, once those are answered
-
-A job that reads `PENDING` submissions, writes them, and records `SYNCED` with the record Id or `FAILED` with the reason. Deliberately not part of the approval transaction: approving already posts a pull request comment best-effort for the same reason, because a grade must not fail to be recorded because a third party is unavailable. That makes the sync retryable and makes a failed sync visible as a state rather than a lost write, which is the same shape as the undelivered-comment triage bucket.
-
-**Each write gets an audit event, and the log is already there for it.** [`audit_events`](ARCHITECTURE.md#data-model) is append-only and records `GRADE_APPROVED` today, which is the act a Salesforce record mirrors — so what is missing is one more action for the write itself, carrying the payload sent and the result. That record is what makes "may I overwrite what is in Salesforce" answerable afterwards instead of theoretical: without it, a corrected grade and the question of which side wrote last are reconstructed from mutable rows.
-
-**The student identifier should be stored, not matched on.** If the integration resolves a student by email at write time, it needs read access on Contact and it breaks when an address changes. Storing the Salesforce record Id against the profile once, at enrollment, means the running integration writes to an id it already holds — no lookup by personal information, and a narrower permission set for the integration user. That is worth proposing rather than asking about.
+**Coaching Conversations are the tenth collection**, added once the first nine are running: `coaching_sessions` under a Program Enrollment, behind a second token, because a note a fellow cannot read is more sensitive than a grade they can.
 
 ### Deferred: Salesforce
 
-- **Attendance in Salesforce.** `submissions` carries the three dormant columns; `attendance_sessions` and `attendance_records` carry none, deliberately. Adding them before there is a syncer would mean shipping a `PENDING` flag on roughly 1,800 rows a term with nothing to move them. It is the same one-migration change described above, and it wants doing at the same time as the assignment and course columns rather than before them.
+- **Stored Salesforce Ids.** The feed never needs one, and none is stored. What one would buy is a roster badge saying whether a fellow has reached Salesforce, and a link from a grade or an attendance record to the Salesforce record it became. If either is wanted, it is an addition: a nullable `salesforce_id` on the row-backed tables that want it, and a write endpoint Make posts each new record's Id back through. The External Id stays the mechanism; the stored Id is read only by the screen drawing the badge.
+- **Dropping the dormant columns.** `submissions.salesforce_sync_status`, `salesforce_record_id`, and `salesforce_synced_at` are unread. `sharedAfterGrade`, `taskVerdict`, and `taskReset` still write the first, harmlessly. One migration removes all three, and it wants the schema deployed before the `DROP` for the same reason the legacy submission columns did.
 
 ---
 

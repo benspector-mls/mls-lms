@@ -52,6 +52,7 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 | `DATABASE_URL`, `DIRECT_URL`                                                                     | pooled connection for the app, direct for migrations                         |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALLATION_ID` | the App that provisions repositories and receives webhooks                   |
 | `GITHUB_WEBHOOK_PROXY_URL`                                                                       | development only: the smee.io channel `dev:webhook` listens on               |
+| `SALESFORCE_FEED_TOKEN`                                                                          | the bearer token Make.com presents to read the Salesforce feed               |
 | `E2B_API_KEY`                                                                                    | sandbox                                                                      |
 | `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GRADING_LLM_EFFORT`                                | report generation                                                            |
 | `ANTHROPIC_MODEL`                                                                                | optional: overrides the model, which defaults to `claude-sonnet-5`           |

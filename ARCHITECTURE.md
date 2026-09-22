@@ -581,6 +581,18 @@ Reading and writing split by role rather than by row. `competencies.forProgram` 
 
 ---
 
+## Salesforce feed
+
+Marcy's system of record is Salesforce, and Make.com carries records there from here. This application's part is one read-only route, `GET /api/integrations/salesforce/{collection}`, serving nine collections that Make polls on a schedule and upserts into Salesforce by an External Id holding this application's identifier. The design is [the spec](docs/superpowers/specs/2026-09-22-salesforce-feed-design.md); what follows is where it lives.
+
+- **`lib/integrations/salesforce/`** — `cursor.ts` parses `since`, `after`, and `limit`, and cuts a page after a `(updatedAt, externalId)` position; `token.ts` compares the bearer token over SHA-256 digests; `records.ts` spells the identifiers and maps a row to the flat record Make upserts; `collections.ts` holds the nine named queries; `feed.ts` turns a request into a response. The first three are pure and unit-tested; the last two touch the database and are covered by `tests/integration/salesforce-feed.test.ts`.
+- **Change detection is `updatedAt`.** Every source table carries one that Prisma writes on every update, so no synchronization column exists and no write path has to remember to set one. Make sends back the position it reached; the collection returns what is strictly after it.
+- **Two collections have no table.** Class Registrations are every published course paired with every enrollment in its program, by the rule in `lib/assignments/scope.ts`. Assignment Submissions are every active fellow on every distributed assignment, keyed `<assignmentId>:<enrollmentId>`, with the `submissions` row laid on top where there is one — so Salesforce holds a `notStarted` record before a fellow begins and the same record carries their grade afterwards.
+- **Test students appear in no collection.** Every query that reaches a profile filters `testStudentNumber: null`.
+- **One token, in `SALESFORCE_FEED_TOKEN`, checked before the collection name.** Unset, the route refuses everything. A refusal is one terse line, as the calendar feed's is.
+
+---
+
 ## Test execution
 
 The output is a stored, trustworthy answer to one question: **what do the instructor's tests say about this student's code at this commit?** No model is involved and nothing is posted to GitHub. It is separate from report generation because the two fail in unrelated ways.
