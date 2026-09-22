@@ -26,6 +26,81 @@ import { db } from "@/lib/prisma";
 export type Tx = Prisma.TransactionClient;
 
 /**
+ * One connection, one query at a time.
+ *
+ * **What this exists for is a warning that becomes a failure.** A group's transaction is a single
+ * `pg` client, and every caller in the group is bound to it. Several query procedures read
+ * independent things at once — `attendance.history` fetches the program, the sessions and the
+ * enrollments in one `Promise.all` — which is right in a request, where `ctx.db` is the pool and
+ * each of those reads gets a connection of its own. Bound to one transaction they arrive at one
+ * client while it is still busy, and `pg` queues them and prints "Calling client.query() when the
+ * client is already executing a query is deprecated and will be removed in pg@9.0". The queueing
+ * is what is being removed, so the same suites would then fail rather than warn.
+ *
+ * So the harness makes the tests do what the connection was going to do anyway: each call waits
+ * for the one before it. Nothing about the application changes — the parallel reads stay parallel
+ * where they run on the pool — and no test loses anything, because the three `Promise.all` calls
+ * in the integration suites are there to save a line rather than to measure a race.
+ *
+ * A failed call does not stop the queue: the next one runs regardless, because a great many of
+ * these checks are assertions that a call is refused, and a rejection is the expected result.
+ */
+function oneAtATime(tx: Tx): Tx {
+  let queue: Promise<unknown> = Promise.resolve();
+
+  const behind = <T,>(run: () => PromiseLike<T>): Promise<T> => {
+    const next = queue.then(run, run);
+    queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  };
+
+  /** A method of the client or of one of its models, queued rather than called at once. */
+  const queued =
+    (owner: object, method: (...args: never[]) => PromiseLike<unknown>) =>
+    (...args: never[]) =>
+      behind(() => method.apply(owner, args));
+
+  const models = new Map<string, unknown>();
+
+  return new Proxy(tx, {
+    get(target, property, receiver) {
+      const value: unknown = Reflect.get(target, property, receiver);
+      if (typeof property === "symbol") return value;
+
+      // `$queryRaw`, `$executeRaw` and their unsafe forms. `$transaction` is not among them: a
+      // transaction client carries it at runtime, and `lib/prisma.ts` says at length why nothing
+      // may call it.
+      if (typeof value === "function") {
+        return queued(target, value as (...args: never[]) => PromiseLike<unknown>);
+      }
+
+      // A model delegate — `tx.enrollment`, `tx.attendanceSession`. Wrapped once and kept, so a
+      // test holding on to one gets the same object every time it reads it.
+      if (value !== null && typeof value === "object") {
+        const already = models.get(property);
+        if (already) return already;
+
+        const model = new Proxy(value as object, {
+          get(delegate, name, self) {
+            const method: unknown = Reflect.get(delegate, name, self);
+            if (typeof name === "symbol" || typeof method !== "function") return method;
+            return queued(delegate, method as (...args: never[]) => PromiseLike<unknown>);
+          },
+        });
+
+        models.set(property, model);
+        return model;
+      }
+
+      return value;
+    },
+  });
+}
+
+/**
  * Opens the transaction for the surrounding `describe` and returns a getter for it.
  *
  * A getter rather than the client itself, because `beforeAll` has not run at the moment the
@@ -55,7 +130,7 @@ export function withRollback(timeout = 120_000): () => Tx {
       settled = db
         .$transaction(
           async (client) => {
-            tx = client;
+            tx = oneAtATime(client);
             open();
             await new Promise<void>((done) => {
               release = done;
