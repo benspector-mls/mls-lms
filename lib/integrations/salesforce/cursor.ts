@@ -16,8 +16,10 @@
  * these collections read is written by Prisma's `@updatedAt` — a JavaScript `Date`, so also to the
  * millisecond — and compares equal to its own cursor. A value written by the database's `now()`
  * would carry microseconds, compare *greater* than the truncated cursor, and sit at the top of
- * every page forever. No collection reads such a column; the integration suite's walk at `limit=1`
- * is what would notice if one ever did.
+ * every page forever. No collection reads such a column. `lib/courses/order.ts` writes
+ * `updated_at = now()` in raw SQL for the tables in its `SEQUENCES`, none of which the feed reads —
+ * adding one would break this, and a note there says so. The integration suite's walk at `limit=1`
+ * is what would notice.
  */
 
 export type Cursor = { since: Date; after: string } | null;

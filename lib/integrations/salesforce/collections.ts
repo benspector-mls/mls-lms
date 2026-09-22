@@ -21,8 +21,9 @@ import {
  * The nine collections the Salesforce feed serves, and the queries behind them.
  *
  * This is the only module in the feed that runs a query. Each collection is a function from a
- * client and a parsed query to a page; `feed.ts` looks the name up here and calls it. Seven read
+ * client and a parsed query to a page; `feed.ts` looks the name up here and calls it. Six read
  * one table each, adding `cursorWhere` to their own conditions and letting Postgres order and cut.
+ * `classes` reads two small tables and walks them in memory, for the reason its own comment gives.
  * Two — `registrations` and `submissions` — have no table, so they load the small tables they are
  * made from and hand the computed records to `walk`.
  *
@@ -113,10 +114,14 @@ const classes: Collection = async (tx, query) => {
   return walk([...courses.map(classRecord), ...programRows.map(attendanceClassRecord)], query);
 };
 
-/** Distributed only. An undistributed assignment is a draft no fellow has seen. */
+/** Distributed, in a published course. A draft no fellow has seen has no place here, and an assignment whose course is unpublished has no Class in Salesforce to hang from. */
 const assignments: Collection = async (tx, query) => {
   const rows = await tx.assignment.findMany({
-    where: { ...cursorWhere(query.cursor), distributedAt: { not: null } },
+    where: {
+      ...cursorWhere(query.cursor),
+      distributedAt: { not: null },
+      course: { publishedAt: { not: null } },
+    },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
     select: {
@@ -251,9 +256,10 @@ const registrations: Collection = async (tx, query) => {
  *
  * **Every row is loaded, not only the changed ones.** A pair's synthesised record must be
  * replaced by its real row even when that row is old, or a page produced by an assignment's
- * `updatedAt` moving would say `notStarted` about somebody who was graded in February. At a few
- * thousand narrow rows that is milliseconds, and the day it is not, the answer is a materialised
- * table rather than a cleverer query.
+ * `updatedAt` moving would say `notStarted` about somebody who was graded in February. Without the
+ * report text the rows are narrow, and at a few thousand of them that is milliseconds;
+ * `attachFeedback` below is why the text is not among them. The day the row count itself is the
+ * problem, the answer is a materialised table rather than a cleverer query.
  *
  * **Only active enrollments are synthesised.** A removed fellow's real rows are sent — the work
  * happened — but no `notStarted` is invented for assignments distributed after they left.
@@ -261,7 +267,7 @@ const registrations: Collection = async (tx, query) => {
 const submissions: Collection = async (tx, query) => {
   const [assignmentRows, enrollmentRows, submissionRows] = await Promise.all([
     tx.assignment.findMany({
-      where: { distributedAt: { not: null } },
+      where: { distributedAt: { not: null }, course: { publishedAt: { not: null } } },
       select: {
         id: true,
         courseId: true,
@@ -275,7 +281,10 @@ const submissions: Collection = async (tx, query) => {
       select: { id: true, programId: true, studentId: true, status: true, updatedAt: true },
     }),
     tx.submission.findMany({
-      where: { ...NOT_A_TEST_STUDENT, assignment: { distributedAt: { not: null } } },
+      where: {
+        ...NOT_A_TEST_STUDENT,
+        assignment: { distributedAt: { not: null }, course: { publishedAt: { not: null } } },
+      },
       select: {
         assignmentId: true,
         studentId: true,
@@ -285,7 +294,6 @@ const submissions: Collection = async (tx, query) => {
         finalScorePossible: true,
         isComplete: true,
         gradedAt: true,
-        feedbackMarkdown: true,
         extendedDueAt: true,
         updatedAt: true,
       },
@@ -312,6 +320,8 @@ const submissions: Collection = async (tx, query) => {
   }
 
   const assignmentById = new Map(assignmentRows.map((assignment) => [assignment.id, assignment]));
+  /** Which records carry a released grade, and the row to fetch its text from. */
+  const released = new Map<string, { assignmentId: string; studentId: string }>();
   for (const row of submissionRows) {
     const assignment = assignmentById.get(row.assignmentId);
     if (!assignment) continue;
@@ -319,12 +329,48 @@ const submissions: Collection = async (tx, query) => {
     // A row for somebody not enrolled in the program cannot name a registration. Not reachable
     // through the application, which reaches every submission through an enrollment.
     if (!enrollment) continue;
-    const record = submissionRecord({ assignment, enrollment }, row);
+    const record = submissionRecord({ assignment, enrollment }, { ...row, feedbackMarkdown: null });
     records.set(record.externalId, record);
+    if (row.status === "GRADED" && row.gradedAt !== null) {
+      released.set(record.externalId, { assignmentId: row.assignmentId, studentId: row.studentId });
+    }
   }
 
-  return walk([...records.values()], query);
+  const page = walk([...records.values()], query);
+  await attachFeedback(tx, page.records, released);
+  return page;
 };
+
+/**
+ * The feedback text, fetched for the page and not for the grid.
+ *
+ * `feedbackMarkdown` is the one wide column the feed touches — a graded report runs to several
+ * hundred words — and the grid query loads every row on every page, for the reason its comment
+ * gives. Loading the text with them would fetch a term's worth of reports and discard all but one
+ * page's, once per page. So the grid leaves it out and this fills it in for the records actually
+ * being returned: at most `limit` of them, and only those whose grade is released.
+ */
+async function attachFeedback(
+  tx: Tx,
+  page: SubmissionRecord[],
+  released: Map<string, { assignmentId: string; studentId: string }>,
+): Promise<void> {
+  const wanted = page.filter((record) => released.has(record.externalId));
+  if (wanted.length === 0) return;
+
+  const rows = await tx.submission.findMany({
+    where: { OR: wanted.map((record) => released.get(record.externalId)!) },
+    select: { assignmentId: true, studentId: true, feedbackMarkdown: true },
+  });
+  const text = new Map(
+    rows.map((row) => [`${row.assignmentId}:${row.studentId}`, row.feedbackMarkdown]),
+  );
+
+  for (const record of wanted) {
+    const key = released.get(record.externalId)!;
+    record.feedbackMarkdown = text.get(`${key.assignmentId}:${key.studentId}`) ?? null;
+  }
+}
 
 export const COLLECTIONS: Record<CollectionName, Collection> = {
   programs,

@@ -232,6 +232,24 @@ describe("the Salesforce feed", () => {
       expect(assessment.type).toBe("assessment");
       expect(assessment.pointValue).toBe(40);
     });
+
+    it("sends nothing for a distributed assignment whose course is unpublished", async () => {
+      const hidden = await makeCourse(tx(), { programId: world.programId, published: false });
+      const hiddenUnit = await makeUnit(tx(), { courseId: hidden.id });
+      const orphan = await makeAssignment(tx(), {
+        courseId: hidden.id,
+        courseUnitId: hiddenUnit.id,
+        kind: "TASK",
+      });
+
+      const assignments = await walkAll(tx(), COLLECTIONS.assignments, 50);
+      expect(assignments.map((record) => record.externalId)).not.toContain(orphan.id);
+
+      const submissions = await walkAll(tx(), COLLECTIONS.submissions, 50);
+      expect(submissions.some((record) => record.externalId.startsWith(`${orphan.id}:`))).toBe(
+        false,
+      );
+    });
   });
 
   describe("sessions and attendance", () => {
@@ -488,6 +506,7 @@ describe("the Salesforce feed", () => {
           score: number | null;
           lateness: string | null;
           registrationId: string;
+          feedbackMarkdown: string | null;
         }
       >(tx(), COLLECTIONS.submissions, 2);
 
@@ -506,11 +525,13 @@ describe("the Salesforce feed", () => {
       expect(gradedRecord.registrationId).toBe(
         registrationKey(world.courseId, world.students[0].id),
       );
+      expect(gradedRecord.feedbackMarkdown).toBe("Integration fixture feedback.");
 
       const unstartedRecord = records.find((record) => record.externalId === unstarted)!;
       expect(unstartedRecord.status).toBe("notStarted");
       expect(unstartedRecord.score).toBeNull();
       expect(unstartedRecord.lateness).toBeNull();
+      expect(unstartedRecord.feedbackMarkdown).toBeNull();
 
       const removedRecord = records.find((record) => record.externalId === removedReal)!;
       expect(removedRecord.status).toBe("submitted");

@@ -25,6 +25,11 @@ import type { Tx } from "../prisma";
  *
  * Takes a `Tx` rather than a client, because callers may be running inside a transaction that is
  * not theirs — see `inTransaction` in lib/prisma.ts.
+ *
+ * Not a table the Salesforce feed reads. Each of these gets `updated_at = now()` from Postgres, at
+ * microsecond precision, where Prisma's `@updatedAt` writes milliseconds; `lib/integrations/salesforce/cursor.ts`
+ * relies on the latter for the tables it walks by `updatedAt`, and a table added here that the feed
+ * also reads would make its cursor return the same page forever.
  */
 const SEQUENCES = {
   courseUnits: { table: "course_units", scope: "course_id" },

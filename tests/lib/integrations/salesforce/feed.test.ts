@@ -1,3 +1,4 @@
+import { COLLECTIONS } from "@/lib/integrations/salesforce/collections";
 import { serveFeed } from "@/lib/integrations/salesforce/feed";
 
 /**
@@ -48,5 +49,28 @@ describe("serveFeed refusals", () => {
   it("is 400 for after without since", async () => {
     const response = await serveFeed(request("programs?after=b", `Bearer ${TOKEN}`), "programs");
     expect(response.status).toBe(400);
+  });
+
+  it("answers a known collection with the page as JSON, uncached, dates as ISO 8601", async () => {
+    const updatedAt = new Date("2026-09-22T14:02:11.482Z");
+    const spy = jest.spyOn(COLLECTIONS, "programs").mockResolvedValue({
+      records: [{ externalId: "p1", updatedAt }],
+      hasMore: false,
+      cursor: null,
+    });
+
+    try {
+      const response = await serveFeed(request("programs", `Bearer ${TOKEN}`), "programs");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({
+        records: [{ externalId: "p1", updatedAt: "2026-09-22T14:02:11.482Z" }],
+        hasMore: false,
+        cursor: null,
+      });
+      expect(spy).toHaveBeenCalledWith(expect.anything(), { cursor: null, limit: 200 });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

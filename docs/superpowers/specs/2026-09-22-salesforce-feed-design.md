@@ -101,7 +101,7 @@ Every record carries `externalId` — the value to upsert on — and names each 
 | `enrollments` | `enrollments` | program | `enrollments.id` |
 | `classes` | `courses`, plus one per program | program | `courses.id`, or `attendance:<programId>` |
 | `registrations` | courses × enrollments | class, program enrollment | `<courseId>:<enrollmentId>` |
-| `assignments` | `assignments` where distributed | class | `assignments.id` |
+| `assignments` | `assignments` where distributed, in a published course | class | `assignments.id` |
 | `sessions` | `attendance_sessions` | the program's Attendance class | `attendance_sessions.id` |
 | `attendance` | `attendance_records` | session, program enrollment | `attendance_records.id` |
 | `submissions` | assignments × registrations, with the row when there is one | assignment, class registration | `<assignmentId>:<enrollmentId>` |
@@ -167,7 +167,7 @@ updatedAt           the later of courses.updated_at and enrollments.updated_at
 
 ### Records: assignments
 
-One per distributed assignment. An undistributed one is a draft that no fellow has seen.
+One per distributed assignment in a published course. An undistributed one is a draft that no fellow has seen, and an assignment whose course is unpublished has no Class in Salesforce to hang from, so it waits until the course is published.
 
 ```
 externalId      assignments.id
@@ -234,7 +234,7 @@ updatedAt
 
 **The identifier is the pair, not the row.** A `submissions` row is created when a fellow first accepts or hands in (`lib/assignments/accept.ts`), so a fellow who has not started has no row and no UUID. What this application does consider unique is the pair of assignment and student — `submissions` has one row per `(assignment_id, student_id)` — and the pair exists from the moment the assignment is distributed. Keying on it means the record Salesforce holds for a fellow who has not started is the same record that later carries their grade, with no re-keying when the row appears.
 
-**How the grid is built.** The collection loads every distributed assignment and every active enrollment, forms the pairs where the enrollment's program is the assignment's course's program, and overlays the `submissions` rows on top by `(assignmentId, studentId)`. A pair with a row takes the row's status, grade fields, and `updatedAt`. A pair without one is `notStarted` with every grade field null, and its `updatedAt` is the later of the assignment's and the enrollment's — so a newly distributed assignment produces a page of new records, and a fellow joining late produces one record per assignment already out.
+**How the grid is built.** The collection loads every distributed assignment in a published course and every active enrollment, forms the pairs where the enrollment's program is the assignment's course's program, and overlays the `submissions` rows on top by `(assignmentId, studentId)`. A pair with a row takes the row's status, grade fields, and `updatedAt`. A pair without one is `notStarted` with every grade field null, and its `updatedAt` is the later of the assignment's and the enrollment's — so a newly distributed assignment produces a page of new records, and a fellow joining late produces one record per assignment already out.
 
 **Only active enrollments are synthesised.** A removed fellow's real rows are sent — the work they did happened — but no `notStarted` records are invented for assignments distributed after they left.
 
@@ -252,7 +252,7 @@ One per attempt, both kinds, as an Artifact under a Program Enrollment that also
 
 ```
 externalId          gcf_attempts.id
-enrollmentId        the fellow's most recent enrollment's externalId
+enrollmentId        the fellow's most recent enrollment's externalId, null for a fellow with none
 contactId           profiles.id, the fellow's Contact
 kind                PROCTORED | MOCK
 score               gcf_attempts.score
@@ -270,6 +270,16 @@ updatedAt
 ### Test students are excluded from every collection
 
 Every query filters on `profiles.test_student_number IS NULL`. Test students exist so staff can see the application as a fellow sees it; their enrollments, registrations, grades, attendance, and assessment results are fabrications and must never reach a system of record. Screens that draw a whole roster already filter on this column, and the feed does the same — including in `enrollments`, so a test student is never stamped onto a Contact.
+
+## What the feed cannot say
+
+The feed describes what exists and has changed. It has no way to say that a record should stop existing, and three ordinary acts produce records in Salesforce that this application no longer emits:
+
+- **A fellow is removed from a roster.** Their synthesised `notStarted` submissions stop being generated; Salesforce keeps the ones it already holds, still reading `notStarted`.
+- **A course is unpublished, or an assignment is un-distributed.** Its Class, Class Registrations, Assignment, and Assignment Submissions leave the feed and stay in Salesforce.
+- **A deadline is moved after work was handed in.** `lateness` is computed on read here, but a submission record's position is its row's `updatedAt`, which a change to the assignment does not move — so Salesforce keeps the verdict as of the last time the row changed.
+
+Whoever builds the Salesforce reports needs to know that the grid can hold rows this application would no longer produce, and that a late verdict there is as of the row's last change. A collection of deletions is the addition that would close this, and it is deliberately not part of the first version.
 
 ## Authentication
 
