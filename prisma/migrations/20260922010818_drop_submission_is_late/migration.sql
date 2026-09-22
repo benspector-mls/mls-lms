@@ -1,0 +1,26 @@
+-- Lateness is computed rather than stored, so the column that stored it goes.
+--
+-- `lateness` in lib/submissions/hand-in.ts compares when the work arrived against the assignment's
+-- own deadline and then against any deadline agreed with that fellow. Nothing reads `is_late` and
+-- nothing writes it: the release before this one took it out of schema.prisma, so the generated
+-- client stopped asking for it, and `handInState`, `taskVerdict` and the team mirror all stopped
+-- setting it.
+--
+-- Why a column at all was wrong: it was written once, at hand-in, against the deadline as it stood
+-- that minute. An assignment due the 1st — one fellow hands in on the 3rd and is recorded late; an
+-- instructor then decides the original was not enough time and moves the deadline to the 10th; a
+-- second fellow hands in on the 5th and is recorded on time. The fellow who was closer to the
+-- original deadline read as the worse of the two, and the only difference between them was when the
+-- instructor happened to make the edit.
+--
+-- **This is the half that cannot be undone.** Code rolls back in seconds; a dropped column does
+-- not come back with it. Every release before the derived verdict selects `is_late`, so once this
+-- has run, rolling back that far leaves those releases asking for a column that is gone. Run it
+-- only when rolling back past the derived verdict is off the table.
+--
+-- The values are not preserved anywhere, deliberately. They are the wrong answer for any row whose
+-- deadline has moved since, and the right answer is recomputed from `submitted_at`,
+-- `extended_due_at` and the assignment's `due_at` every time anybody looks.
+
+-- AlterTable
+ALTER TABLE "submissions" DROP COLUMN "is_late";
