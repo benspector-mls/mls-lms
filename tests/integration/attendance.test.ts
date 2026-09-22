@@ -2373,6 +2373,21 @@ describe("the days ahead", () => {
       weekdays: [0, 1, 2, 3, 4, 5, 6],
       startsAt: "09:30",
     });
+
+    /*
+      Today's class is three hours away, whatever hour of the day the suite runs at. The schedule
+      writes today's row with a half past nine start and a backstop eight hours later, so a run
+      after half past five in the afternoon would find today's session lapsed — and a lapsed day
+      counts against every fellow who did not check into it, which is the arithmetic these checks
+      are about. Moving a session's clock is what an instructor correcting a day does, so the row
+      is one the application could have produced.
+    */
+    const startedAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    await tx().attendanceSession.updateMany({
+      where: { programId: world.programId, date: dateColumnFor(today) },
+      data: { startedAt, endsAt: defaultEndsAt(startedAt) },
+    });
+
     return world;
   }
 
