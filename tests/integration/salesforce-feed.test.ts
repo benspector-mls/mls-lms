@@ -23,7 +23,15 @@ import {
 } from "@/lib/integrations/salesforce/collections";
 import { attendanceClassId } from "@/lib/integrations/salesforce/records";
 
-import { makeCourse, makeWorld, type World } from "./fixtures";
+import {
+  enroll,
+  makeAccount,
+  makeAssignment,
+  makeCourse,
+  makeUnit,
+  makeWorld,
+  type World,
+} from "./fixtures";
 import { withRollback, type Tx } from "./transaction";
 
 /** A test-student number no seed uses; unique across the deployment, so it must not collide. */
@@ -160,6 +168,224 @@ describe("the Salesforce feed", () => {
       )!;
       expect(attendance.name).toBe("Attendance");
       expect(attendance.programId).toBe(world.programId);
+    });
+  });
+
+  describe("assignments", () => {
+    let distributedId: string;
+    let undistributedId: string;
+    let assessmentId: string;
+
+    beforeAll(async () => {
+      const distributed = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: world.unitId,
+        kind: "TASK",
+        pointValue: 50,
+      });
+      distributedId = distributed.id;
+
+      const undistributed = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: world.unitId,
+        published: false,
+      });
+      undistributedId = undistributed.id;
+
+      const assessmentUnit = await makeUnit(tx(), { courseId: world.courseId });
+      await tx().courseUnit.update({
+        where: { id: assessmentUnit.id },
+        data: { category: "ASSESSMENT" },
+      });
+      const assessment = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: assessmentUnit.id,
+        kind: "REPO",
+        pointValue: 40,
+      });
+      assessmentId = assessment.id;
+    });
+
+    it("emits distributed assignments with type and point value, and no drafts", async () => {
+      const records = await walkAll<
+        Positioned & { classId: string; type: string; pointValue: number }
+      >(tx(), COLLECTIONS.assignments, 1);
+      const ours = new Set([distributedId, undistributedId, assessmentId]);
+      const seen = oursAmong(records, ours);
+
+      expect(seen.sort()).toEqual([distributedId, assessmentId].sort());
+      expect(seen).not.toContain(undistributedId);
+
+      const task = records.find((record) => record.externalId === distributedId)!;
+      expect(task.classId).toBe(world.courseId);
+      expect(task.type).toBe("assignment");
+      expect(task.pointValue).toBe(1);
+
+      const assessment = records.find((record) => record.externalId === assessmentId)!;
+      expect(assessment.type).toBe("assessment");
+      expect(assessment.pointValue).toBe(40);
+    });
+  });
+
+  describe("sessions and attendance", () => {
+    let sessionId: string;
+    let presentRecordId: string;
+    let testStudentRecordId: string;
+
+    beforeAll(async () => {
+      const session = await tx().attendanceSession.create({
+        data: {
+          programId: world.programId,
+          date: new Date("2026-09-14T00:00:00Z"),
+          startedAt: new Date("2026-09-14T13:00:00Z"),
+          endsAt: new Date("2026-09-14T14:00:00Z"),
+          lateAfterMinutes: 5,
+          codeSecret: "0123456789abcdef".repeat(4),
+        },
+        select: { id: true },
+      });
+      sessionId = session.id;
+
+      const present = await tx().attendanceRecord.create({
+        data: {
+          sessionId,
+          programId: world.programId,
+          enrollmentId: world.students[0].id,
+          status: "PRESENT",
+          source: "SELF_CHECK_IN",
+          checkedInAt: new Date("2026-09-14T13:02:00Z"),
+        },
+        select: { id: true },
+      });
+      presentRecordId = present.id;
+
+      const ofTestStudent = await tx().attendanceRecord.create({
+        data: {
+          sessionId,
+          programId: world.programId,
+          enrollmentId: testStudent.id,
+          status: "PRESENT",
+          source: "SELF_CHECK_IN",
+          checkedInAt: new Date("2026-09-14T13:03:00Z"),
+        },
+        select: { id: true },
+      });
+      testStudentRecordId = ofTestStudent.id;
+    });
+
+    it("emits the session under the program's Attendance class with its day as a string", async () => {
+      const records = await walkAll<Positioned & { classId: string; date: string }>(
+        tx(),
+        COLLECTIONS.sessions,
+        1,
+      );
+      const session = records.find((record) => record.externalId === sessionId)!;
+      expect(session.classId).toBe(attendanceClassId(world.programId));
+      expect(session.date).toBe("2026-09-14");
+    });
+
+    it("emits the fellow's record and not the test student's", async () => {
+      const records = await walkAll<
+        Positioned & { sessionId: string; enrollmentId: string; status: string }
+      >(tx(), COLLECTIONS.attendance, 1);
+      const seen = oursAmong(records, new Set([presentRecordId, testStudentRecordId]));
+      expect(seen).toEqual([presentRecordId]);
+
+      const present = records.find((record) => record.externalId === presentRecordId)!;
+      expect(present.sessionId).toBe(sessionId);
+      expect(present.enrollmentId).toBe(world.students[0].id);
+      expect(present.status).toBe("PRESENT");
+    });
+  });
+
+  describe("gcf attempts", () => {
+    let attemptId: string;
+    let testStudentAttemptId: string;
+    /** A fellow enrolled twice, to show the more recent enrollment is the one named. */
+    let repeaterStudentId: string;
+    let repeaterLaterEnrollmentId: string;
+    let repeaterAttemptId: string;
+
+    beforeAll(async () => {
+      const attempt = await tx().gcfAttempt.create({
+        data: {
+          studentId: world.students[0].studentId,
+          kind: "PROCTORED",
+          score: 512,
+          takenOn: new Date("2026-09-10T00:00:00Z"),
+        },
+        select: { id: true },
+      });
+      attemptId = attempt.id;
+
+      const ofTestStudent = await tx().gcfAttempt.create({
+        data: {
+          studentId: testStudent.studentId,
+          kind: "MOCK",
+          score: 600,
+          scorePossible: 900,
+          takenOn: new Date("2026-09-10T00:00:00Z"),
+        },
+        select: { id: true },
+      });
+      testStudentAttemptId = ofTestStudent.id;
+
+      repeaterStudentId = await makeAccount(tx());
+      const earlierEnrollment = await enroll(tx(), {
+        programId: otherProgramId,
+        studentId: repeaterStudentId,
+        status: "REMOVED",
+      });
+      /*
+        Both enrollments are created inside one transaction, and `createdAt` defaults to the
+        database's `now()` — which is the transaction's start, the same instant for both. In the
+        application they are made in separate requests, months apart; here the earlier one has to
+        be moved back by hand or "most recent" is a coin toss.
+      */
+      await tx().enrollment.update({
+        where: { id: earlierEnrollment.id },
+        data: { createdAt: new Date("2025-01-15T12:00:00Z") },
+      });
+      const laterEnrollment = await enroll(tx(), {
+        programId: world.programId,
+        studentId: repeaterStudentId,
+      });
+      repeaterLaterEnrollmentId = laterEnrollment.id;
+      const repeaterAttempt = await tx().gcfAttempt.create({
+        data: {
+          studentId: repeaterStudentId,
+          kind: "PROCTORED",
+          score: 430,
+          takenOn: new Date("2026-03-01T00:00:00Z"),
+        },
+        select: { id: true },
+      });
+      repeaterAttemptId = repeaterAttempt.id;
+    });
+
+    it("names the Contact and the most recent enrollment, emits the day as a string, and leaves the test student out", async () => {
+      const records = await walkAll<
+        Positioned & {
+          contactId: string;
+          enrollmentId: string | null;
+          takenOn: string;
+          kind: string;
+        }
+      >(tx(), COLLECTIONS["gcf-attempts"], 1);
+      const seen = oursAmong(
+        records,
+        new Set([attemptId, testStudentAttemptId, repeaterAttemptId]),
+      );
+      expect(seen.sort()).toEqual([attemptId, repeaterAttemptId].sort());
+
+      const attempt = records.find((record) => record.externalId === attemptId)!;
+      expect(attempt.contactId).toBe(world.students[0].studentId);
+      expect(attempt.enrollmentId).toBe(world.students[0].id);
+      expect(attempt.takenOn).toBe("2026-09-10");
+      expect(attempt.kind).toBe("PROCTORED");
+
+      const repeater = records.find((record) => record.externalId === repeaterAttemptId)!;
+      expect(repeater.enrollmentId).toBe(repeaterLaterEnrollmentId);
     });
   });
 });

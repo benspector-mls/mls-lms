@@ -3,7 +3,16 @@ import "server-only";
 import type { Tx } from "@/lib/prisma";
 
 import { cursorWhere, pageOf, walk, type FeedQuery, type Page, type Positioned } from "./cursor";
-import { attendanceClassRecord, classRecord, enrollmentRecord, programRecord } from "./records";
+import {
+  assignmentRecord,
+  attendanceClassRecord,
+  attendanceRecord,
+  classRecord,
+  enrollmentRecord,
+  gcfAttemptRecord,
+  programRecord,
+  sessionRecord,
+} from "./records";
 
 /**
  * The nine collections the Salesforce feed serves, and the queries behind them.
@@ -101,6 +110,91 @@ const classes: Collection = async (tx, query) => {
   return walk([...courses.map(classRecord), ...programRows.map(attendanceClassRecord)], query);
 };
 
+/** Distributed only. An undistributed assignment is a draft no fellow has seen. */
+const assignments: Collection = async (tx, query) => {
+  const rows = await tx.assignment.findMany({
+    where: { ...cursorWhere(query.cursor), distributedAt: { not: null } },
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+    take: query.limit + 1,
+    select: {
+      id: true,
+      courseId: true,
+      title: true,
+      kind: true,
+      pointValue: true,
+      dueAt: true,
+      updatedAt: true,
+      courseUnit: { select: { category: true } },
+    },
+  });
+  return pageOf(rows.map(assignmentRecord), query.limit);
+};
+
+const sessions: Collection = async (tx, query) => {
+  const rows = await tx.attendanceSession.findMany({
+    where: cursorWhere(query.cursor),
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+    take: query.limit + 1,
+    select: {
+      id: true,
+      programId: true,
+      date: true,
+      startedAt: true,
+      endedAt: true,
+      updatedAt: true,
+    },
+  });
+  return pageOf(rows.map(sessionRecord), query.limit);
+};
+
+const attendance: Collection = async (tx, query) => {
+  const rows = await tx.attendanceRecord.findMany({
+    where: { ...cursorWhere(query.cursor), enrollment: NOT_A_TEST_STUDENT },
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+    take: query.limit + 1,
+    select: {
+      id: true,
+      sessionId: true,
+      enrollmentId: true,
+      status: true,
+      source: true,
+      checkedInAt: true,
+      note: true,
+      updatedAt: true,
+    },
+  });
+  return pageOf(rows.map(attendanceRecord), query.limit);
+};
+
+/**
+ * Both kinds, with the fellow's most recent enrollment read through the student in the same
+ * query. `take: 1` ordered by creation, so the mapper sees at most one and reads it or null.
+ */
+const gcfAttempts: Collection = async (tx, query) => {
+  const rows = await tx.gcfAttempt.findMany({
+    where: { ...cursorWhere(query.cursor), ...NOT_A_TEST_STUDENT },
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+    take: query.limit + 1,
+    select: {
+      id: true,
+      kind: true,
+      score: true,
+      scorePossible: true,
+      takenOn: true,
+      integrityFlagged: true,
+      resultUrl: true,
+      updatedAt: true,
+      student: {
+        select: {
+          id: true,
+          enrollments: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true } },
+        },
+      },
+    },
+  });
+  return pageOf(rows.map(gcfAttemptRecord), query.limit);
+};
+
 const notBuiltYet =
   (name: CollectionName): Collection =>
   async () => {
@@ -112,9 +206,9 @@ export const COLLECTIONS: Record<CollectionName, Collection> = {
   enrollments,
   classes,
   registrations: notBuiltYet("registrations"),
-  assignments: notBuiltYet("assignments"),
-  sessions: notBuiltYet("sessions"),
-  attendance: notBuiltYet("attendance"),
+  assignments,
+  sessions,
+  attendance,
   submissions: notBuiltYet("submissions"),
-  "gcf-attempts": notBuiltYet("gcf-attempts"),
+  "gcf-attempts": gcfAttempts,
 };
