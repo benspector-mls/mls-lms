@@ -20,6 +20,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 
+import { EditSession } from "@/components/instructor/attendance-session-edit";
 import { EmptyState } from "@/components/list-states";
 import { AttendanceStatusBadge } from "@/components/status-badge";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -449,6 +450,23 @@ function SessionHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/*
+            Every state but prepared, which has no clock to edit: its start and its backstop are
+            both null until somebody presses Start, and the server refuses it in those words. A day
+            still to come is the case this is most for — tomorrow's class starting at half past ten
+            is known today, and saying so here changes tomorrow rather than the term.
+          */}
+          {!pending && session.startedAt && session.endsAt && !archived && (
+            <EditSession
+              sessionId={session.id}
+              day={session.day}
+              startedAt={session.startedAt}
+              endsAt={session.endsAt}
+              lateAfterMinutes={session.lateAfterMinutes}
+              busy={busy}
+            />
+          )}
+
           {pending && (
             <>
               <Button

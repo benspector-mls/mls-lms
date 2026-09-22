@@ -884,6 +884,7 @@ export const attendanceRouter = createTRPCRouter({
       z.object({
         sessionId: z.string().uuid(),
         startedAt: z.coerce.date().optional(),
+        endsAt: z.coerce.date().optional(),
         lateAfterMinutes: z.number().int().min(0).max(1440).optional(),
         note: z.string().trim().max(200).nullish(),
       }),
@@ -900,12 +901,18 @@ export const attendanceRouter = createTRPCRouter({
       );
 
       const startedAt = input.startedAt ?? session.startedAt;
+      const endsAt = input.endsAt ?? session.endsAt;
       const lateAfterMinutes = input.lateAfterMinutes ?? session.lateAfterMinutes;
 
-      if (startedAt.getTime() >= session.endsAt.getTime()) {
+      /*
+        Both ends of the window are the instructor's to set, so the comparison is between the two
+        values this call is about to write rather than between one of them and what is stored.
+        The `_pending_is_paired` CHECK keeps them a pair; this keeps them in order.
+      */
+      if (startedAt.getTime() >= endsAt.getTime()) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Check-in cannot start after it ends. Extend the session first.",
+          message: "A day cannot stop taking check-ins before it starts.",
         });
       }
 
@@ -914,6 +921,7 @@ export const attendanceRouter = createTRPCRouter({
           where: { id: session.id },
           data: {
             startedAt,
+            endsAt,
             lateAfterMinutes,
             note: input.note === undefined ? undefined : input.note,
           },
@@ -925,9 +933,9 @@ export const attendanceRouter = createTRPCRouter({
           select: { id: true, status: true, checkedInAt: true },
         });
 
-        // The update above wrote a non-null `startedAt`, and `endsAt` was already non-null on a
-        // started session — so the recomputation below has the window it needs.
-        const after = { ...updated, startedAt, endsAt: session.endsAt };
+        // The update above wrote both halves of the window, and neither may be null on a session
+        // that has started — so the recomputation below has the window it needs.
+        const after = { ...updated, startedAt, endsAt };
 
         let recomputed = 0;
         for (const record of selfRecorded) {
@@ -956,6 +964,10 @@ export const attendanceRouter = createTRPCRouter({
             startedAt:
               input.startedAt && input.startedAt.getTime() !== session.startedAt.getTime()
                 ? [session.startedAt.toISOString(), startedAt.toISOString()]
+                : null,
+            endsAt:
+              input.endsAt && input.endsAt.getTime() !== session.endsAt.getTime()
+                ? [session.endsAt.toISOString(), endsAt.toISOString()]
                 : null,
             lateAfterMinutes:
               lateAfterMinutes !== session.lateAfterMinutes

@@ -2766,3 +2766,241 @@ describe("reading the code of a day still to come", () => {
     expect(code).toBe("BAD_REQUEST");
   });
 });
+
+/**
+ * Correcting the clock of one day, without touching the schedule behind it.
+ *
+ * **The schedule says when the program meets; this says what happened on Tuesday.** Those are two
+ * different statements and conflating them costs the same thing every time: rewriting the schedule
+ * to move one morning moves every morning after it, and a term of recorded days is not a thing an
+ * instructor should have to risk in order to say that yesterday's class started at eleven.
+ *
+ * Three fields, because a day has three facts an instructor can be wrong about — when it started,
+ * when its code stopped working, and how long counts as on time — and correcting one of them
+ * without the others is the common case. `startedAt` and `lateAfterMinutes` together decide who was
+ * late, so moving either recomputes every self check-in; `endsAt` decides only whether the code
+ * still works, so moving it recomputes nothing and the checks below say so in both directions.
+ */
+describe("correcting a day's clock", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  function daysFromToday(count: number): string {
+    const at = new Date(`${today}T00:00:00Z`);
+    at.setUTCDate(at.getUTCDate() + count);
+    return at.toISOString().slice(0, 10);
+  }
+
+  /** A program that meets every day this week at half past nine. */
+  async function scheduledWorld(): Promise<World> {
+    const world = await makeWorld(tx(), { students: 2 });
+    await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+      programId: world.programId,
+      startsOn: today,
+      endsOn: daysFromToday(6),
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      startsAt: "09:30",
+    });
+    return world;
+  }
+
+  const sessionOn = async (programId: string, day: string) =>
+    tx().attendanceSession.findFirstOrThrow({
+      where: { programId, date: dateColumnFor(day) },
+    });
+
+  /**
+   * A day the schedule has made and nobody has reached yet.
+   *
+   * The case this was built for: the schedule says half past nine, tomorrow's class starts at half
+   * past ten, and the instructor knows that today. Moving the program's start time instead would
+   * move every remaining day of the term.
+   */
+  describe("a day still to come", () => {
+    let world: World;
+    let tomorrow: string;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      tomorrow = daysFromToday(1);
+
+      await createCaller(tx(), world.instructorId).attendance.updateSession({
+        sessionId: (await sessionOn(world.programId, tomorrow)).id,
+        startedAt: instantAtSchoolClock(tomorrow, "10:30"),
+        endsAt: instantAtSchoolClock(tomorrow, "16:00"),
+      });
+    });
+
+    it("starts when the instructor said rather than when the schedule did", async () => {
+      const row = await sessionOn(world.programId, tomorrow);
+      expect(row.startedAt?.toISOString()).toBe(
+        instantAtSchoolClock(tomorrow, "10:30").toISOString(),
+      );
+    });
+
+    it("and its code stops working when they said", async () => {
+      const row = await sessionOn(world.programId, tomorrow);
+      expect(row.endsAt?.toISOString()).toBe(instantAtSchoolClock(tomorrow, "16:00").toISOString());
+    });
+
+    // The whole reason this is a day's correction rather than a schedule edit.
+    it("while every other day of the term keeps the schedule's clock", async () => {
+      const row = await sessionOn(world.programId, daysFromToday(2));
+      expect(row.startedAt?.toISOString()).toBe(
+        instantAtSchoolClock(daysFromToday(2), "09:30").toISOString(),
+      );
+    });
+
+    it("and the audit event says what the closing time was before", async () => {
+      const event = await tx().auditEvent.findFirstOrThrow({
+        where: { action: "ATTENDANCE_SESSION_UPDATED", programId: world.programId },
+        orderBy: { occurredAt: "desc" },
+        select: { detail: true },
+      });
+
+      const detail = event.detail as { endsAt: [string, string] | null };
+      expect(detail.endsAt?.[0]).toBe(
+        defaultEndsAt(instantAtSchoolClock(tomorrow, "09:30")).toISOString(),
+      );
+    });
+  });
+
+  /**
+   * A morning that lapsed before anybody took it.
+   *
+   * A schedule saved in the evening makes today with a nine thirty start and a backstop eight hours
+   * later, so the day exists and its code never worked. Writing it up is the same correction the
+   * group above makes, pointed at a day that has already been.
+   */
+  describe("a day that lapsed before anybody used it", () => {
+    let world: World;
+    let sessionId: string;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      const session = await sessionOn(world.programId, today);
+      sessionId = session.id;
+
+      // The state a schedule saved in the evening leaves behind: started this morning, closed by
+      // its own backstop, nobody through the door.
+      await tx().attendanceSession.update({
+        where: { id: sessionId },
+        data: {
+          startedAt: new Date(Date.now() - (DEFAULT_SESSION_MINUTES + 60) * 60 * 1000),
+          endsAt: new Date(Date.now() - 60 * 60 * 1000),
+        },
+      });
+
+      // Two minutes ago, which is inside the default five-minute threshold: a fellow arriving now
+      // is on time against the clock the instructor has just written, not against the one the
+      // schedule gave the morning.
+      await createCaller(tx(), world.instructorId).attendance.updateSession({
+        sessionId,
+        startedAt: new Date(Date.now() - 2 * 60 * 1000),
+        endsAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+    });
+
+    it("takes check-ins again once its window covers now", async () => {
+      const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
+      const checked = await createCaller(
+        tx(),
+        world.students[0]!.studentId,
+      ).attendance.checkIn({ programId: world.programId, code: codeFor(row) });
+
+      expect(checked.status).toBe("PRESENT");
+    });
+  });
+
+  describe("what it will not accept", () => {
+    let world: World;
+    let sessionId: string;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      sessionId = (await sessionOn(world.programId, daysFromToday(1))).id;
+    });
+
+    it("a closing time before the day starts", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).attendance.updateSession({
+          sessionId,
+          endsAt: instantAtSchoolClock(daysFromToday(1), "08:00"),
+        }),
+      );
+      expect(code).toBe("BAD_REQUEST");
+    });
+
+    it("or a closing time at the very moment it starts", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).attendance.updateSession({
+          sessionId,
+          startedAt: instantAtSchoolClock(daysFromToday(1), "09:30"),
+          endsAt: instantAtSchoolClock(daysFromToday(1), "09:30"),
+        }),
+      );
+      expect(code).toBe("BAD_REQUEST");
+    });
+
+    it("and a fellow may not move anybody's clock", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).attendance.updateSession({
+          sessionId,
+          endsAt: instantAtSchoolClock(daysFromToday(1), "16:00"),
+        }),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+
+    it("neither of which left the day changed", async () => {
+      const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
+      expect(row.endsAt?.toISOString()).toBe(
+        defaultEndsAt(instantAtSchoolClock(daysFromToday(1), "09:30")).toISOString(),
+      );
+    });
+  });
+
+  /**
+   * Which of the three fields touch a record that already exists.
+   *
+   * Lateness is measured from the start against the threshold, so those two recompute every self
+   * check-in. The backstop is not in that arithmetic at all, and a day whose closing time moves
+   * must not quietly restate who was on time.
+   */
+  describe("what moving the backstop does to the rows", () => {
+    let world: World;
+    let sessionId: string;
+    let moved: { recomputed: number };
+
+    beforeAll(async () => {
+      world = await makeWorld(tx(), { students: 2 });
+      const session = await createCaller(tx(), world.instructorId).attendance.start({
+        programId: world.programId,
+      });
+      sessionId = session.id;
+
+      const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
+      await createCaller(tx(), world.students[0]!.studentId).attendance.checkIn({
+        programId: world.programId,
+        code: codeFor(row),
+      });
+
+      moved = await createCaller(tx(), world.instructorId).attendance.updateSession({
+        sessionId,
+        endsAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
+      });
+    });
+
+    it("recomputes nothing", () => {
+      expect(moved.recomputed).toBe(0);
+    });
+
+    it("and the fellow who was on time still is", async () => {
+      const record = await tx().attendanceRecord.findFirstOrThrow({
+        where: { sessionId, enrollmentId: world.students[0]!.id },
+        select: { status: true },
+      });
+      expect(record.status).toBe("PRESENT");
+    });
+  });
+});
