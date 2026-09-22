@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { distributedToStudent } from "@/lib/assignments/scope";
 import { teachableAssignment, teachableSubmission } from "@/lib/courses/scope";
 import { displayNameOf } from "@/lib/people";
 import type { Db, Tx } from "@/lib/prisma";
@@ -65,12 +64,28 @@ type ThreadScope = {
  * Who may see this thread, answered by loading it. Each path is a query whose `where` is the
  * check, because Prisma bypasses row level security.
  *
- * A fellow reaches their own work through `distributedToStudent`. Deliberately not
+ * An instructor reaches anybody's through `teachableAssignment`, and the fellow they name must
+ * hold an enrollment on the program — of any status.
+ *
+ * A fellow reaches their own through three conditions written out below. Deliberately not
  * `assertCanHandIn`, which refuses while an instructor has a draft open — being unable to replace
  * your work is not a reason to be unable to ask about it.
  *
- * An instructor reaches anybody's through `teachableAssignment`, and the fellow they name must be
- * on the program's roster.
+ * ## Why enrollment status and archival are absent from both
+ *
+ * **A conversation is part of the record, and the record survives leaving.** `EnrollmentStatus`
+ * keeps a removed fellow's row precisely so their submissions, grades and released feedback are
+ * not destroyed to tidy a roster; the gradebook keeps their work in a table of its own and the
+ * grading queue keeps their submission openable by link. A thread that refuses is the one piece of
+ * that record that goes missing, and it goes missing on both sides at once — the instructor
+ * opening it from the queue, and the fellow reading it from their own assignment panel.
+ *
+ * An archived course is the same question with a different clock, and `assertCourseMember` already
+ * answers it the same way: archiving ends the work, not the reading.
+ *
+ * **What refusing still means.** The enrollment must exist, so an instructor naming somebody who
+ * was never on this roster is refused, and a fellow who is nothing to the program is refused. What
+ * no longer refuses is having left.
  */
 async function resolveThread(
   ctx: { db: Db; profile: { id: string; role: string } },
@@ -87,8 +102,10 @@ async function resolveThread(
       course: { select: { programId: true } },
     });
 
+    // Every status, so a fellow who has left is still somebody this instructor can be answered
+    // about. That they hold a row at all is the whole of the check.
     const enrolled = await ctx.db.enrollment.findFirst({
-      where: { programId: assignment.course.programId, studentId, status: "ACTIVE" },
+      where: { programId: assignment.course.programId, studentId },
       select: { id: true },
     });
 
@@ -101,8 +118,25 @@ async function resolveThread(
 
     teamSetId = assignment.teamSetId;
   } else {
+    /*
+      The three conditions written out rather than borrowed from `distributedToStudent`, which
+      computes something else: the work a fellow is *currently being asked to do*, for the
+      dashboard and the calendar feed. Two of its four conditions are there to stop a deadline list
+      nagging somebody about work that would be refused, and neither belongs to reading.
+
+      What is kept is publication and distribution, which are about whether the assignment is
+      anybody's to see yet: an assignment still being written must not be discoverable by asking
+      about its conversation.
+    */
     const assignment = await ctx.db.assignment.findFirst({
-      where: { id: input.assignmentId, ...distributedToStudent(ctx.profile.id) },
+      where: {
+        id: input.assignmentId,
+        distributedAt: { not: null },
+        course: {
+          publishedAt: { not: null },
+          program: { enrollments: { some: { studentId: ctx.profile.id } } },
+        },
+      },
       select: { teamSetId: true },
     });
 

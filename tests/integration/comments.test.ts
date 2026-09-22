@@ -1194,3 +1194,73 @@ describe("accepting work a comment already made a row for", () => {
     expect(status).toBe("ACCEPTED");
   });
 });
+
+/*
+  ---- A fellow who has left the program ---------------------------------------
+*/
+/**
+ * The conversation survives removal, on both sides of it.
+ *
+ * A removed fellow keeps their submissions, their grades, and the feedback they were given —
+ * `EnrollmentStatus.REMOVED` exists so that leaving a roster does not destroy any of it. The
+ * gradebook keeps their work in its own table, and the grading queue keeps their submission
+ * openable by link. So an instructor opening one and finding the conversation refused is the one
+ * part of that record that goes missing.
+ */
+describe("a fellow removed from the roster", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let assignmentId: string;
+
+  const asAlice = () => createCaller(tx(), world.student.studentId);
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    assignmentId = await soloAssignment(tx(), world);
+
+    // Said while she was still on the roster, which is the whole point: this is a record.
+    await asAlice().submissionComments.post({ assignmentId, body: "Is a dict fine here?" });
+
+    await tx().enrollment.update({
+      where: { id: world.student.id },
+      data: { status: "REMOVED" },
+    });
+  });
+
+  it("an instructor still reads what was said", async () => {
+    const thread = await asInstructor().submissionComments.thread({
+      assignmentId,
+      studentId: world.student.studentId,
+    });
+    expect(thread.comments.map((comment) => comment.body)).toEqual(["Is a dict fine here?"]);
+  });
+
+  it("and can still answer the question", async () => {
+    const replied = await asInstructor().submissionComments.post({
+      assignmentId,
+      studentId: world.student.studentId,
+      body: "A dict is fine.",
+    });
+    expect(replied.comments).toHaveLength(2);
+    expect(replied.comments[1]!.author.isInstructor).toBe(true);
+  });
+
+  it("and the fellow keeps reading their own conversation", async () => {
+    const thread = await asAlice().submissionComments.thread({ assignmentId });
+    expect(thread.comments).toHaveLength(2);
+  });
+
+  // Removal widens who may be *named*, and must not widen who may name them. Somebody who was
+  // never on this roster is still refused.
+  it("somebody who was never on the roster is still refused", async () => {
+    const code = await refusal(() =>
+      asInstructor().submissionComments.thread({
+        assignmentId,
+        studentId: world.instructorId,
+      }),
+    );
+    expect(code).toBe("NOT_FOUND");
+  });
+});
