@@ -162,3 +162,71 @@ describe("splitForCorrection", () => {
     expect(unresolved.length + recorded.length).toBe(rows.length);
   });
 });
+
+/**
+ * The order the three screens reading `attendance.grid` draw their roster in.
+ *
+ * It is settled here rather than by an `orderBy` on the query, because there is no first-name
+ * column to order by: a fellow is drawn under `displayNameOf`'s fallback through display name,
+ * GitHub login, and email, and Postgres cannot express that. Ordering on the string the screen
+ * actually prints is what keeps the list and the page in agreement.
+ */
+describe("gridRows ordering", () => {
+  it("returns the roster in name order whatever order the enrollments arrive in", () => {
+    const rows = gridRows(
+      [enrollment("e2", "Grace"), enrollment("e3", "Alan"), enrollment("e1", "Ada")],
+      [],
+      session(),
+      new Date("2026-09-14T13:05:00Z"),
+    );
+
+    expect(rows.map((row) => row.student.displayName)).toEqual(["Ada", "Alan", "Grace"]);
+  });
+
+  it("orders a fellow with no display name by the login the screen shows, not by their email", () => {
+    const unnamed: GridEnrollment = {
+      enrollmentId: "e9",
+      student: {
+        id: "student-e9",
+        displayName: null,
+        // Sorts first of the three if the email is read, last if the GitHub login is.
+        email: "aaa@example.com",
+        githubUsername: "zoe-codes",
+        testStudentNumber: null,
+      },
+    };
+
+    const rows = gridRows(
+      [unnamed, enrollment("e1", "Ada"), enrollment("e2", "Grace")],
+      [],
+      session(),
+      new Date("2026-09-14T13:05:00Z"),
+    );
+
+    expect(rows.map((row) => row.enrollmentId)).toEqual(["e1", "e2", "e9"]);
+  });
+
+  it("does not split the list on case or accents", () => {
+    const rows = gridRows(
+      [enrollment("e1", "zoe"), enrollment("e2", "Ada"), enrollment("e3", "Émile")],
+      [],
+      session(),
+      new Date("2026-09-14T13:05:00Z"),
+    );
+
+    expect(rows.map((row) => row.student.displayName)).toEqual(["Ada", "Émile", "zoe"]);
+  });
+
+  it("keeps the correction screen's two lists each in name order", () => {
+    const rows = gridRows(
+      [enrollment("e2", "Grace"), enrollment("e3", "Alan"), enrollment("e1", "Ada")],
+      [record("e3")],
+      session(),
+      new Date("2026-09-14T13:05:00Z"),
+    );
+    const { unresolved, recorded } = splitForCorrection(rows);
+
+    expect(unresolved.map((row) => row.student.displayName)).toEqual(["Ada", "Grace"]);
+    expect(recorded.map((row) => row.student.displayName)).toEqual(["Alan"]);
+  });
+});

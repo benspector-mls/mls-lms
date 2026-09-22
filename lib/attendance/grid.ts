@@ -1,4 +1,5 @@
 import type { AttendanceSource, AttendanceStatus } from "@/lib/generated/prisma/enums";
+import { displayNameOf } from "@/lib/people";
 
 import { sessionStateOf, type SessionState, type WindowSession } from "./window";
 
@@ -58,11 +59,23 @@ export type GridCounts = {
 };
 
 /**
- * Compose the roster and the records into the rows a screen draws.
+ * Compose the roster and the records into the rows a screen draws, in name order.
  *
  * Records whose enrollment is not in `enrollments` are dropped rather than appended. They arise
  * legitimately — a removed fellow who was there that day, when the caller asked only for active
  * ones — and a headless row would render as a nameless line in the middle of the grid.
+ *
+ * **The order is settled here rather than by an `orderBy` on the query**, and it has to be: there
+ * is no first-name column to sort on. A fellow is drawn under `displayNameOf`'s fallback through
+ * display name, GitHub login, and email, which SQL cannot express — ordering on `display_name`
+ * would sort somebody who has not set one on a null, landing them at the end of the board while
+ * the screen shows them under their GitHub login. Sorting on the string the screen actually prints
+ * is what keeps the two in agreement.
+ *
+ * Both screens that draw these rows — the Today tab and the single-day correction page — get the
+ * order from here, which is why it is in this module and not in either of them. The projector
+ * board calls the same procedure but reads only `session` from it, to learn whether check-in is
+ * open; it shows the code and no names, so nothing there depends on this.
  */
 export function gridRows(
   enrollments: GridEnrollment[],
@@ -80,10 +93,31 @@ export function gridRows(
   const pending: PendingReason =
     state === "open" || state === "pending" || state === "scheduled" ? "not-yet" : "no-check-in";
 
-  return enrollments.map((enrollment) => {
-    const record = byEnrollment.get(enrollment.enrollmentId) ?? null;
-    return { ...enrollment, record, pending: record ? null : pending };
-  });
+  return enrollments
+    .map((enrollment) => {
+      const record = byEnrollment.get(enrollment.enrollmentId) ?? null;
+      return { ...enrollment, record, pending: record ? null : pending };
+    })
+    .sort((left, right) =>
+      /*
+        `sensitivity: "base"` so that case and accents do not split the list — "ada" beside "Ada",
+        "Émile" among the E's rather than after Z. The roster's own comparator in `lib/roster.ts`
+        reads the same way, and two lists of the same people ordered differently is the thing worth
+        avoiding.
+      */
+      drawnName(left).localeCompare(drawnName(right), undefined, { sensitivity: "base" }),
+    );
+}
+
+/**
+ * What this fellow reads as on the board, which is also what they are sorted by.
+ *
+ * The fallback matches the one `AttendanceDay` passes, so the sort key is the drawn string rather
+ * than something close to it. A fellow with no name at all then sits under U with everyone else
+ * who has none, instead of at the top of the morning's board.
+ */
+function drawnName(row: GridEnrollment): string {
+  return displayNameOf(row.student, "Unnamed");
 }
 
 export function gridCounts(rows: GridRow[]): GridCounts {
