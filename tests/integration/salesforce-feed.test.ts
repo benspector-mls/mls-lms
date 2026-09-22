@@ -527,4 +527,39 @@ describe("the Salesforce feed", () => {
       ]);
     });
   });
+
+  describe("the walk itself", () => {
+    it("returns every record of every collection exactly once at limit 1", async () => {
+      for (const name of COLLECTION_NAMES) {
+        const records = await walkAll(tx(), COLLECTIONS[name], 1);
+        const ids = records.map((record) => record.externalId);
+        expect(new Set(ids).size).toBe(ids.length);
+      }
+    });
+
+    it("returns a record again when it changes mid-walk, because its position moved past the cursor", async () => {
+      // Page one at limit 1 is the earliest program; touch it so it moves to the end.
+      const first = await COLLECTIONS.programs(tx(), { cursor: null, limit: 1 });
+      const touched = first.records[0]!.externalId;
+      await tx().program.update({
+        where: { id: touched },
+        data: { name: `Touched ${Date.now()}` },
+      });
+
+      // Continue from page one's cursor to the end.
+      const rest: Positioned[] = [];
+      let cursor: Cursor = first.hasMore
+        ? { since: new Date(first.cursor!.since), after: first.cursor!.after }
+        : null;
+      while (cursor !== null) {
+        const page = await COLLECTIONS.programs(tx(), { cursor, limit: 1 });
+        rest.push(...page.records);
+        cursor = page.hasMore
+          ? { since: new Date(page.cursor!.since), after: page.cursor!.after }
+          : null;
+      }
+
+      expect(rest.map((record) => record.externalId)).toContain(touched);
+    });
+  });
 });
