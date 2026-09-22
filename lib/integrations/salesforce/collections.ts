@@ -76,38 +76,24 @@ const enrollments: Collection = async (tx, query) => {
 /**
  * Published courses, plus one Attendance class per program.
  *
- * Two queries, merged and cut by `walk`. The course half is cursored exactly in SQL, because a
- * course's identifier is its id. The program half cannot be: the synthetic identifier
- * `attendance:<id>` is not a column, so `after` has nothing to compare against, and a `take` on an
- * inexactly filtered list could push a needed program off the page and skip it for good. Programs
- * number in the tens, ever. So the program half asks only by instant — every program at or after
- * `since`, no `take` — and `walk` applies the real identifier and cuts. The merge is correct
- * because the first `limit + 1` records of the merged order are within the first `limit + 1` of
- * the courses or within the complete list of programs.
+ * Two queries, merged and cut by `walk`. Neither is cursored exactly: the Attendance class's
+ * identifier `attendance:<programId>` is not a column, so `after` has nothing in SQL to compare
+ * against, and on a page boundary that lands on one, a comparison against `courses.id` — a uuid —
+ * is refused by Postgres rather than merely wrong. Both tables run to at most a few hundred rows,
+ * so both halves ask only by instant — everything at or after `since`, no `take` — and `walk`
+ * applies the real identifier and cuts. That costs less than a query that branches on the shape of
+ * `after` to stay exact where it can.
  */
 const classes: Collection = async (tx, query) => {
-  /*
-    `cursorWhere` compares `after` against the `id` column, and `course.id` is a uuid column. A
-    cursor whose last-kept record was an Attendance class carries a synthetic `after` of the form
-    `attendance:<program id>`, which Postgres refuses to cast to uuid — it fails the whole query
-    at bind time, before any row is looked at, whichever side of the OR would have matched. So a
-    boundary of that shape is asked by `since` alone, which asks for one instant's worth of
-    courses at most: the same tolerance already accepted for the program half below.
-  */
-  const courseWhere =
-    query.cursor !== null && query.cursor.after.startsWith("attendance:")
-      ? { updatedAt: { gte: query.cursor.since }, publishedAt: { not: null } }
-      : { ...cursorWhere(query.cursor), publishedAt: { not: null } };
+  const since = query.cursor === null ? {} : { updatedAt: { gte: query.cursor.since } };
 
   const [courses, programRows] = await Promise.all([
     tx.course.findMany({
-      where: courseWhere,
-      orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
-      take: query.limit + 1,
+      where: { ...since, publishedAt: { not: null } },
       select: { id: true, programId: true, name: true, archivedAt: true, updatedAt: true },
     }),
     tx.program.findMany({
-      where: query.cursor === null ? {} : { updatedAt: { gte: query.cursor.since } },
+      where: since,
       select: { id: true, updatedAt: true },
     }),
   ]);
