@@ -21,7 +21,7 @@ import {
   isCollectionName,
   type Collection,
 } from "@/lib/integrations/salesforce/collections";
-import { attendanceClassId } from "@/lib/integrations/salesforce/records";
+import { attendanceClassId, registrationKey } from "@/lib/integrations/salesforce/records";
 
 import {
   enroll,
@@ -73,6 +73,7 @@ describe("the Salesforce feed", () => {
   let world: World;
   /** A second program and its course, so that a check can show a record stays inside its own. */
   let otherProgramId: string;
+  let otherCourseId: string;
   /** The fellow marked as a test student, who must appear nowhere. */
   let testStudent: { id: string; studentId: string };
 
@@ -86,6 +87,7 @@ describe("the Salesforce feed", () => {
 
     const other = await makeWorld(tx(), { students: 1, published: true });
     otherProgramId = other.programId;
+    otherCourseId = other.courseId;
   });
 
   describe("the table of collections", () => {
@@ -386,6 +388,47 @@ describe("the Salesforce feed", () => {
 
       const repeater = records.find((record) => record.externalId === repeaterAttemptId)!;
       expect(repeater.enrollmentId).toBe(repeaterLaterEnrollmentId);
+    });
+  });
+
+  describe("registrations", () => {
+    let removedEnrollmentId: string;
+
+    beforeAll(async () => {
+      const removedStudentId = await makeAccount(tx());
+      const removed = await enroll(tx(), {
+        programId: world.programId,
+        studentId: removedStudentId,
+        status: "REMOVED",
+      });
+      removedEnrollmentId = removed.id;
+    });
+
+    it("pairs every published course with every enrollment in its program, removed included, test students excluded, nothing across programs", async () => {
+      const records = await walkAll<
+        Positioned & { classId: string; enrollmentId: string; enrollmentStatus: string }
+      >(tx(), COLLECTIONS.registrations, 2);
+
+      const expected = [
+        registrationKey(world.courseId, world.students[0].id),
+        registrationKey(world.courseId, world.students[1].id),
+        registrationKey(world.courseId, removedEnrollmentId),
+      ];
+      const excluded = [
+        registrationKey(world.courseId, testStudent.id),
+        // The other program's course paired with this program's fellow: must not exist.
+        registrationKey(otherCourseId, world.students[0].id),
+      ];
+      const seen = oursAmong(records, new Set([...expected, ...excluded]));
+
+      expect(seen.sort()).toEqual(expected.sort());
+
+      const removed = records.find(
+        (record) => record.externalId === registrationKey(world.courseId, removedEnrollmentId),
+      )!;
+      expect(removed.enrollmentStatus).toBe("REMOVED");
+      expect(removed.classId).toBe(world.courseId);
+      expect(removed.enrollmentId).toBe(removedEnrollmentId);
     });
   });
 });

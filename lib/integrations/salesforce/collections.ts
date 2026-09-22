@@ -11,6 +11,7 @@ import {
   enrollmentRecord,
   gcfAttemptRecord,
   programRecord,
+  registrationRecord,
   sessionRecord,
 } from "./records";
 
@@ -195,6 +196,47 @@ const gcfAttempts: Collection = async (tx, query) => {
   return pageOf(rows.map(gcfAttemptRecord), query.limit);
 };
 
+/**
+ * A fellow in a course, for every published course and every enrollment in its program.
+ *
+ * No table holds this pair. The rule in this application is that being on a program's roster
+ * makes somebody a student of every course of it (`lib/assignments/scope.ts`), so the pair is
+ * formed here from the two tables that decide it. Both are small — a few hundred rows between
+ * them — so loading them whole and walking the pairs in memory costs less than a query that could
+ * express the join, and the cursor applies through `walk` exactly as it does in SQL elsewhere.
+ *
+ * Removed fellows keep their registrations: leaving a roster does not unmake the classes they sat
+ * in, and their Assignment Submissions still name these. `enrollmentStatus` travels so a report on
+ * the current roster can exclude them.
+ */
+const registrations: Collection = async (tx, query) => {
+  const [courses, enrollmentRows] = await Promise.all([
+    tx.course.findMany({
+      where: { publishedAt: { not: null } },
+      select: { id: true, programId: true, updatedAt: true },
+    }),
+    tx.enrollment.findMany({
+      where: NOT_A_TEST_STUDENT,
+      select: { id: true, programId: true, status: true, updatedAt: true },
+    }),
+  ]);
+
+  const byProgram = new Map<string, typeof enrollmentRows>();
+  for (const enrollment of enrollmentRows) {
+    const list = byProgram.get(enrollment.programId) ?? [];
+    list.push(enrollment);
+    byProgram.set(enrollment.programId, list);
+  }
+
+  const records = courses.flatMap((course) =>
+    (byProgram.get(course.programId) ?? []).map((enrollment) =>
+      registrationRecord(course, enrollment),
+    ),
+  );
+
+  return walk(records, query);
+};
+
 const notBuiltYet =
   (name: CollectionName): Collection =>
   async () => {
@@ -205,7 +247,7 @@ export const COLLECTIONS: Record<CollectionName, Collection> = {
   programs,
   enrollments,
   classes,
-  registrations: notBuiltYet("registrations"),
+  registrations,
   assignments,
   sessions,
   attendance,
