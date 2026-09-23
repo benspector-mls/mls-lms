@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { displayNameOf } from "@/lib/people";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -48,9 +49,14 @@ import type { RouterOutputs } from "@/trpc/types";
 type Cohorts = RouterOutputs["cohorts"]["listForProgram"];
 type Memberships = RouterOutputs["cohorts"]["membershipsForProgram"];
 
-/** What to call somebody, in the order the rest of this application prefers. */
+/**
+ * What to call somebody, in the order the rest of this application prefers.
+ *
+ * The same chain `membershipsForProgram` sorts by, taken from the same function so the two cannot
+ * drift: a list sorted on one name and printed under another reads as unsorted.
+ */
 function labelFor(student: Memberships[number]["student"]): string {
-  return student.displayName ?? student.githubUsername ?? student.email ?? "Unnamed";
+  return displayNameOf(student, "Unnamed");
 }
 
 /** The value a select uses for "in no cohort". Not a cohort id, so it cannot collide. */

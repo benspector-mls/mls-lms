@@ -46,6 +46,8 @@ import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
 import {
+  addInstructor,
+  enroll,
   makeAccount,
   makeAssignment,
   makeProgram,
@@ -273,6 +275,55 @@ describe("who is in it", () => {
 
   it("and the first cohort's count falls to match", async () => {
     expect(await squadCount()).toBe(1);
+  });
+});
+
+/*
+  The order the two placement screens draw their roster in.
+
+  Both the cohort tab and the teams screen render this list as one select per fellow, and neither
+  sorts it, so whatever order this procedure answers in is the order an instructor reads. Left to
+  the database it is no order at all — Postgres is free to return the rows however it finds them, so
+  the same roster can come back differently between two loads, and a list nobody can predict is a
+  list you have to read every line of to find one person.
+
+  The names are chosen for the two ways an alphabetical sort goes wrong. A lowercase name compared
+  by code unit sorts below every capitalised one, which would file `ada lovelace` after `Zoë Adams`;
+  and an accented letter compared the same way sorts past `z`, which would file `Émile Durand` last
+  of all. `localeCompare` is what puts both where a reader expects them.
+*/
+describe("the order fellows are listed in", () => {
+  const tx = withRollback();
+  let programId: string;
+  let instructorId: string;
+
+  /** Deliberately not alphabetical, so a procedure that did not sort would answer in this order. */
+  const names = ["Zoë Adams", "ada lovelace", "Émile Durand", "Ben Spector"];
+
+  beforeAll(async () => {
+    const program = await makeProgram(tx());
+    programId = program.id;
+
+    instructorId = await makeAccount(tx(), { role: "INSTRUCTOR" });
+    await addInstructor(tx(), { programId, userId: instructorId, isPrimary: true });
+
+    for (const displayName of names) {
+      const studentId = await makeAccount(tx(), { displayName });
+      await enroll(tx(), { programId, studentId });
+    }
+  });
+
+  it("is alphabetical by the name each row shows", async () => {
+    const memberships = await createCaller(tx(), instructorId).cohorts.membershipsForProgram({
+      programId,
+    });
+
+    expect(memberships.map((row) => row.student.displayName)).toEqual([
+      "ada lovelace",
+      "Ben Spector",
+      "Émile Durand",
+      "Zoë Adams",
+    ]);
   });
 });
 

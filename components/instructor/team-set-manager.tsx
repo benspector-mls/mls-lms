@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { displayNameOf } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -53,9 +54,14 @@ type TeamSet = TeamSets["sets"][number];
  */
 type Roster = RouterOutputs["cohorts"]["membershipsForProgram"];
 
-/** What to call somebody, in the order the rest of this application prefers. */
+/**
+ * What to call somebody, in the order the rest of this application prefers.
+ *
+ * The same chain `membershipsForProgram` sorts by, taken from the same function so the two cannot
+ * drift: a list sorted on one name and printed under another reads as unsorted.
+ */
 function labelFor(student: Roster[number]["student"]): string {
-  return student.displayName ?? student.githubUsername ?? student.email ?? "Unnamed";
+  return displayNameOf(student, "Unnamed");
 }
 
 /** The value a select uses for "on no team of this set". Not a team id, so it cannot collide. */

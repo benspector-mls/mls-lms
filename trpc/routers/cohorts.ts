@@ -5,7 +5,7 @@ import { teachableCohort } from "@/lib/courses/scope";
 import { inTransaction } from "@/lib/prisma";
 
 import { createTRPCRouter, instructorProcedure, programProcedure } from "../init";
-import { personSelect } from "../selects";
+import { displayNameOf, personSelect } from "../selects";
 
 /**
  * The cohorts of a program: create, rename, remove, and who is in one.
@@ -114,6 +114,18 @@ export const cohortsRouter = createTRPCRouter({
    * One row per fellow, so an instructor sees who is in nothing without having to compare two
    * lists. Removed fellows are absent — they are not who dividing a roster is about, and the roster
    * shows them in their own table anyway.
+   *
+   * **Sorted by the name each row shows**, because both screens that read this draw a list one
+   * select per fellow long, and a list nobody can predict the order of is a list an instructor has
+   * to read every line of to find one person. Sorted here in JavaScript rather than by the database,
+   * so the order agrees with `displayNameOf` — a fellow who has set no display name is filed under
+   * the GitHub login the row actually prints, rather than dropped to the bottom with the nulls.
+   * `localeCompare` rather than `<`, so accented names file beside their unaccented spelling and a
+   * capital letter does not sort a name above every lowercase one. The locale is named rather than
+   * left to the server's, so the order does not depend on where this runs.
+   *
+   * It is also what makes "distribute evenly" repeatable: that button deals this list round-robin,
+   * so an unordered list would have dealt the same roster differently every time it was pressed.
    */
   membershipsForProgram: programProcedure.query(async ({ ctx, input }) => {
     const enrollments = await ctx.db.enrollment.findMany({
@@ -125,11 +137,18 @@ export const cohortsRouter = createTRPCRouter({
       },
     });
 
-    return enrollments.map((enrollment) => ({
-      enrollmentId: enrollment.id,
-      student: enrollment.student,
-      cohortId: enrollment.cohortId,
-    }));
+    return enrollments
+      .map((enrollment) => ({
+        enrollmentId: enrollment.id,
+        student: enrollment.student,
+        cohortId: enrollment.cohortId,
+      }))
+      .sort((a, b) =>
+        displayNameOf(a.student, "Unnamed").localeCompare(
+          displayNameOf(b.student, "Unnamed"),
+          "en",
+        ),
+      );
   }),
 
   create: programProcedure
