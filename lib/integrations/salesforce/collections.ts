@@ -60,9 +60,25 @@ export function isCollectionName(value: string): value is CollectionName {
 /** Every query that reaches a profile spreads this into its `where`. */
 const NOT_A_TEST_STUDENT = { student: { testStudentNumber: null } } as const;
 
+/**
+ * A program somebody made to try something out, and everything hanging off it, stays here.
+ *
+ * `Program.isTest` and `Course.isTest` say so; these two constants are the rule, written once
+ * because it is a condition on nine queries and the failure mode is one of them being forgotten.
+ * A course is real when it is not a test **and** its program is not one: marking the program
+ * covers a whole rehearsal term, and marking the course covers an assignment tried out inside a
+ * live program.
+ *
+ * Spread into the `where` of every query that reaches a program or a course — including the
+ * enrollment sub-select in `gcfAttempts`, which would otherwise name a Program Enrollment the
+ * feed never sent, and Salesforce refuses a child whose parent never arrived.
+ */
+const IN_A_REAL_PROGRAM = { program: { isTest: false } } as const;
+const A_REAL_COURSE = { isTest: false, program: { isTest: false } } as const;
+
 const programs: Collection = async (tx, query) => {
   const rows = await tx.program.findMany({
-    where: cursorWhere(query.cursor),
+    where: { ...cursorWhere(query.cursor), isTest: false },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
     select: { id: true, name: true, term: true, discipline: true, updatedAt: true },
@@ -72,7 +88,7 @@ const programs: Collection = async (tx, query) => {
 
 const enrollments: Collection = async (tx, query) => {
   const rows = await tx.enrollment.findMany({
-    where: { ...cursorWhere(query.cursor), ...NOT_A_TEST_STUDENT },
+    where: { ...cursorWhere(query.cursor), ...NOT_A_TEST_STUDENT, ...IN_A_REAL_PROGRAM },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
     select: {
@@ -102,11 +118,11 @@ const classes: Collection = async (tx, query) => {
 
   const [courses, programRows] = await Promise.all([
     tx.course.findMany({
-      where: { ...since, publishedAt: { not: null } },
+      where: { ...since, publishedAt: { not: null }, ...A_REAL_COURSE },
       select: { id: true, programId: true, name: true, archivedAt: true, updatedAt: true },
     }),
     tx.program.findMany({
-      where: since,
+      where: { ...since, isTest: false },
       select: { id: true, updatedAt: true },
     }),
   ]);
@@ -120,7 +136,7 @@ const assignments: Collection = async (tx, query) => {
     where: {
       ...cursorWhere(query.cursor),
       distributedAt: { not: null },
-      course: { publishedAt: { not: null } },
+      course: { publishedAt: { not: null }, ...A_REAL_COURSE },
     },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
@@ -140,7 +156,7 @@ const assignments: Collection = async (tx, query) => {
 
 const sessions: Collection = async (tx, query) => {
   const rows = await tx.attendanceSession.findMany({
-    where: cursorWhere(query.cursor),
+    where: { ...cursorWhere(query.cursor), ...IN_A_REAL_PROGRAM },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
     select: {
@@ -157,7 +173,10 @@ const sessions: Collection = async (tx, query) => {
 
 const attendance: Collection = async (tx, query) => {
   const rows = await tx.attendanceRecord.findMany({
-    where: { ...cursorWhere(query.cursor), enrollment: NOT_A_TEST_STUDENT },
+    where: {
+      ...cursorWhere(query.cursor),
+      enrollment: { ...NOT_A_TEST_STUDENT, ...IN_A_REAL_PROGRAM },
+    },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
     select: {
@@ -180,7 +199,20 @@ const attendance: Collection = async (tx, query) => {
  */
 const gcfAttempts: Collection = async (tx, query) => {
   const rows = await tx.gcfAttempt.findMany({
-    where: { ...cursorWhere(query.cursor), ...NOT_A_TEST_STUDENT },
+    where: {
+      ...cursorWhere(query.cursor),
+      /*
+        Not `NOT_A_TEST_STUDENT` alone, because this collection needs a second thing of the same
+        relation and the two cannot both be spread. An attempt is sent only for a fellow who has an
+        enrollment in a real program: an Artifact hangs from a Program Enrollment, so an attempt by
+        somebody who exists only in a rehearsal program would name a parent the feed never sent,
+        and Salesforce refuses a child whose parent never arrived. It is also, simply, test data.
+      */
+      student: {
+        testStudentNumber: null,
+        enrollments: { some: { program: { isTest: false } } },
+      },
+    },
     orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
     select: {
@@ -195,7 +227,20 @@ const gcfAttempts: Collection = async (tx, query) => {
       student: {
         select: {
           id: true,
-          enrollments: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true } },
+          /*
+            A real program's enrollment, not merely the most recent one. An attempt belongs to a
+            person and carries no program, so this picks the enrollment the Artifact hangs from —
+            and picking one in a rehearsal program would name a Program Enrollment the feed never
+            sent. A fellow with nothing but test enrollments gets null here, which is the same
+            answer a fellow with no enrollment at all gets, and Make's error branch already
+            catches it.
+          */
+          enrollments: {
+            where: { program: { isTest: false } },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { id: true },
+          },
         },
       },
     },
@@ -219,11 +264,11 @@ const gcfAttempts: Collection = async (tx, query) => {
 const registrations: Collection = async (tx, query) => {
   const [courses, enrollmentRows] = await Promise.all([
     tx.course.findMany({
-      where: { publishedAt: { not: null } },
+      where: { publishedAt: { not: null }, ...A_REAL_COURSE },
       select: { id: true, programId: true, updatedAt: true },
     }),
     tx.enrollment.findMany({
-      where: NOT_A_TEST_STUDENT,
+      where: { ...NOT_A_TEST_STUDENT, ...IN_A_REAL_PROGRAM },
       select: { id: true, programId: true, status: true, updatedAt: true },
     }),
   ]);
@@ -267,7 +312,10 @@ const registrations: Collection = async (tx, query) => {
 const submissions: Collection = async (tx, query) => {
   const [assignmentRows, enrollmentRows, submissionRows] = await Promise.all([
     tx.assignment.findMany({
-      where: { distributedAt: { not: null }, course: { publishedAt: { not: null } } },
+      where: {
+        distributedAt: { not: null },
+        course: { publishedAt: { not: null }, ...A_REAL_COURSE },
+      },
       select: {
         id: true,
         courseId: true,
@@ -277,13 +325,16 @@ const submissions: Collection = async (tx, query) => {
       },
     }),
     tx.enrollment.findMany({
-      where: NOT_A_TEST_STUDENT,
+      where: { ...NOT_A_TEST_STUDENT, ...IN_A_REAL_PROGRAM },
       select: { id: true, programId: true, studentId: true, status: true, updatedAt: true },
     }),
     tx.submission.findMany({
       where: {
         ...NOT_A_TEST_STUDENT,
-        assignment: { distributedAt: { not: null }, course: { publishedAt: { not: null } } },
+        assignment: {
+          distributedAt: { not: null },
+          course: { publishedAt: { not: null }, ...A_REAL_COURSE },
+        },
       },
       select: {
         assignmentId: true,

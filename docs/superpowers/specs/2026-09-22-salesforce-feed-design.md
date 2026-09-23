@@ -252,7 +252,7 @@ One per attempt, both kinds, as an Artifact under a Program Enrollment that also
 
 ```
 externalId          gcf_attempts.id
-enrollmentId        the fellow's most recent enrollment's externalId, null for a fellow with none
+enrollmentId        the most recent enrollment of the fellow's that is in a real program
 contactId           profiles.id, the fellow's Contact
 kind                PROCTORED | MOCK
 score               gcf_attempts.score
@@ -267,6 +267,14 @@ updatedAt
 
 **The two kinds are different quantities and must never be averaged together.** A proctored attempt reports a scaled score in the 200–600 band, calibrated across correctness, speed, and question weight, with no maximum — the figure shared with employers. A mock reports raw test-case correctness at 300 points per task, so a real export carries maxima of 300, 900, 1200, and 1800. Both arrive in `score`, and `kind` separates them. Two consequences for Salesforce, both to settle before the first run: the Artifact's Max Score field must be nullable, or every proctored row fails validation; and `kind` must be a field reports can filter and group by, because a report that averages Score across both kinds produces a meaningless number.
 
+### Test programs and test courses are excluded from every collection
+
+`Program.isTest` and `Course.isTest` mark something somebody made to try out, and every collection withholds it. A course is real when it is not a test and its program is not one: marking the program covers a whole rehearsal term, and marking the course covers an assignment tried out inside a live program. `IN_A_REAL_PROGRAM` and `A_REAL_COURSE` in `collections.ts` are that rule, written once because the failure it guards against is one of nine queries being forgotten.
+
+This reaches the `gcf-attempts` enrollment sub-select too. An Artifact hangs from a Program Enrollment, so an attempt by somebody who exists only in a rehearsal program would name a parent the feed never sent — and Salesforce refuses a child whose parent never arrived. Such an attempt is withheld entirely rather than sent with a null enrollment.
+
+The marks change the feed and nothing else. A test program still appears in the gradebook, still counts in attendance figures, and is hidden nowhere in the application.
+
 ### Test students are excluded from every collection
 
 Every query filters on `profiles.test_student_number IS NULL`. Test students exist so staff can see the application as a fellow sees it; their enrollments, registrations, grades, attendance, and assessment results are fabrications and must never reach a system of record. Screens that draw a whole roster already filter on this column, and the feed does the same — including in `enrollments`, so a test student is never stamped onto a Contact.
@@ -277,6 +285,7 @@ The feed describes what exists and has changed. It has no way to say that a reco
 
 - **A fellow is removed from a roster.** Their synthesised `notStarted` submissions stop being generated; Salesforce keeps the ones it already holds, still reading `notStarted`.
 - **A course is unpublished, or an assignment is un-distributed.** Its Class, Class Registrations, Assignment, and Assignment Submissions leave the feed and stay in Salesforce.
+- **A program or a course is marked as a test after it has synced.** Its records leave the feed and stay in Salesforce, reading as though nothing had changed.
 - **A deadline is moved after work was handed in.** `lateness` is computed on read here, but a submission record's position is its row's `updatedAt`, which a change to the assignment does not move — so Salesforce keeps the verdict as of the last time the row changed.
 
 Whoever builds the Salesforce reports needs to know that the grid can hold rows this application would no longer produce, and that a late verdict there is as of the row's last change. A collection of deletions is the addition that would close this, and it is deliberately not part of the first version.

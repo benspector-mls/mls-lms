@@ -215,6 +215,25 @@ model Program {
   /// choose.
   discipline Discipline @default(SOFTWARE_ENGINEERING)
 
+  /// Not a real program: somebody made it to try something out.
+  ///
+  /// **What it changes is the Salesforce feed and nothing else.** Everything hanging off a test
+  /// program — its courses, its roster, its assignments, its mornings, its grades — is withheld
+  /// from `lib/integrations/salesforce/`, so a program built to rehearse a term never reaches the
+  /// system of record. Inside this application it behaves like any other: it appears in the
+  /// gradebook, counts in attendance figures, and is not hidden anywhere. Widening that later is
+  /// easy; widening it now would mean auditing every screen for the sake of a flag nobody has
+  /// asked to see.
+  ///
+  /// A boolean rather than a nullable timestamp, unlike `archivedAt` and `publishedAt` beside it.
+  /// Those are read for their instant — how long ago, before or after some other event. Nothing
+  /// asks when a program was marked a rehearsal.
+  ///
+  /// **Marking a real program by mistake is silent.** The feed simply stops carrying it, and
+  /// Salesforce keeps whatever it already holds, because the feed has no way to say a record
+  /// should stop existing. The control that sets this says so; see `programs.setTest`.
+  isTest Boolean @default(false) @map("is_test")
+
   /// The one link that enrolls a fellow in this program, and so in every published course of it.
   ///
   /// Moved up from the course, which is most of what this table is for: a fellow used to be sent one
@@ -466,6 +485,17 @@ model Course {
   /// stays readable to the people who were in it; nothing new can be submitted. Reversible, because
   /// a tidying action that cannot be undone gets avoided instead of used.
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  /// Not a real course: somebody made it to try something out, inside a program that is real.
+  ///
+  /// The companion to `Program.isTest` and the reason both exist. Marking the program covers
+  /// everything in it, which is what a rehearsal term wants; this covers one course, which is what
+  /// an instructor trying an assignment out in a live program wants. A course is withheld from the
+  /// Salesforce feed when either is set — `A_REAL_COURSE` in
+  /// `lib/integrations/salesforce/collections.ts` is that sentence, written once.
+  ///
+  /// Like the program's, it changes the feed and nothing else.
+  isTest Boolean @default(false) @map("is_test")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

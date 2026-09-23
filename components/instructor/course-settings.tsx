@@ -4,7 +4,17 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as React from "react";
-import { Archive, Eye, EyeOff, GitBranch, Loader2, RotateCcw, Trash2, Users } from "lucide-react";
+import {
+  Archive,
+  Eye,
+  EyeOff,
+  FlaskConical,
+  GitBranch,
+  Loader2,
+  RotateCcw,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
@@ -59,6 +69,7 @@ export function CourseSettings({ data }: { data: Data }) {
 
       <NameCard data={data} />
       <PublishCard data={data} />
+      <CourseTestCard data={data} />
       <RepositoryNamingCard data={data} />
       <TeachingCard data={data} />
       <ArchiveCard
@@ -271,6 +282,60 @@ function PublishCard({ data }: { data: Data }) {
  * The example is built with `studentRepoName`, the same function `accept` calls, so what this screen
  * promises and what GitHub receives cannot drift into disagreeing.
  */
+/**
+ * Whether this course is one somebody is trying out.
+ *
+ * **The only thing it changes is the Salesforce feed**, which is why the wording says so rather
+ * than saying "Test". Marking a real course here stops its assignments and its grades reaching the
+ * system of record, and nothing in this application would look any different afterwards — the
+ * mistake is silent, so the control has to be the thing that warns.
+ *
+ * Beside publication because the two are the same kind of decision about the same course: who sees
+ * it, and whether it counts.
+ */
+function CourseTestCard({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+  const isTest = data.course.isTest;
+
+  const setTest = useMutation(
+    trpc.courses.setTest.mutationOptions(
+      settled({
+        onSuccess: (result) =>
+          toast.success(
+            result.isTest
+              ? `${result.name} is a test course. Nothing in it is sent to Salesforce.`
+              : `${result.name} is a real course again, and will be sent to Salesforce.`,
+          ),
+      }),
+    ),
+  );
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">{isTest ? "A test course" : "A real course"}</h2>
+        <p className="text-xs text-muted-foreground">
+          {isTest
+            ? "Nothing in this course reaches Salesforce — not its assignments, not its registrations, not a single grade. Everything else about it works normally."
+            : "This course, its assignments and every grade in it are sent to Salesforce. Mark it as a test if it exists to try something out."}
+        </p>
+      </div>
+
+      <Button
+        size="sm"
+        variant="outline"
+        className="self-start"
+        disabled={setTest.isPending}
+        onClick={() => setTest.mutate({ courseId: data.course.id, isTest: !isTest })}
+      >
+        <FlaskConical data-icon="inline-start" />
+        {isTest ? "This is a real course" : "Mark as a test course"}
+      </Button>
+    </section>
+  );
+}
+
 function RepositoryNamingCard({ data }: { data: Data }) {
   const example = studentRepoName({
     courseSlug: data.course.slug,

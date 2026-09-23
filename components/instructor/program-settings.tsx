@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as React from "react";
-import { Archive, Eye, EyeOff, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Eye, EyeOff, FlaskConical, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
@@ -80,6 +80,7 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
       */}
       <IdentityCard data={data} />
       <DisciplineCard data={data} />
+      <ProgramTestCard data={data} />
       <CoursesCard data={data} courses={courses} />
       <ProgramInstructors data={data} />
       <AttendancePointer data={data} />
@@ -212,6 +213,60 @@ function DisciplineCard({ data }: { data: Data }) {
   );
 }
 
+/**
+ * Whether this program is a rehearsal.
+ *
+ * **It changes the Salesforce feed and nothing else**, and marking a real program by mistake is
+ * silent: the feed simply stops carrying the term, nothing in this application looks any different,
+ * and Salesforce keeps whatever it already holds. So the heading states which of the two a reader
+ * is looking at, and the description names the consequence rather than the setting.
+ *
+ * Under the discipline because both are facts about what the program *is*, where the roster, the
+ * attendance schedule and the archive below are things it *does*.
+ */
+function ProgramTestCard({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+  const isTest = data.program.isTest;
+
+  const setTest = useMutation(
+    trpc.programs.setTest.mutationOptions(
+      settled({
+        onSuccess: (result) =>
+          toast.success(
+            result.isTest
+              ? `${result.name} is a test program. Nothing in it is sent to Salesforce.`
+              : `${result.name} is a real program again, and will be sent to Salesforce.`,
+          ),
+      }),
+    ),
+  );
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">{isTest ? "A test program" : "A real program"}</h2>
+        <p className="text-xs text-muted-foreground">
+          {isTest
+            ? "Nothing in this program reaches Salesforce — not its courses, not its roster, not a morning of attendance or a single grade. Everything else about it works normally: it still appears in the gradebook and still counts in attendance figures."
+            : "This program and everything in it are sent to Salesforce, the school's system of record. Mark it as a test if it exists to rehearse a term rather than to run one."}
+        </p>
+      </div>
+
+      <Button
+        size="sm"
+        variant="outline"
+        className="self-start"
+        disabled={setTest.isPending}
+        onClick={() => setTest.mutate({ programId: data.program.id, isTest: !isTest })}
+      >
+        <FlaskConical data-icon="inline-start" />
+        {isTest ? "This is a real program" : "Mark as a test program"}
+      </Button>
+    </section>
+  );
+}
+
 function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }) {
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
@@ -286,7 +341,10 @@ function AttendancePointer({ data }: { data: Data }) {
       <p className="text-xs text-muted-foreground">
         When this program meets, what time class starts, when somebody counts as late, and the
         calendar of its days are all on the{" "}
-        <Link href={attendanceHref(data.program.id)} className="font-medium underline-offset-4 hover:underline">
+        <Link
+          href={attendanceHref(data.program.id)}
+          className="font-medium underline-offset-4 hover:underline"
+        >
           Attendance screen
         </Link>
         , under Schedule.

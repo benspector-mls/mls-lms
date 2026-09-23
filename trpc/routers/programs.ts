@@ -540,6 +540,29 @@ export const programsRouter = createTRPCRouter({
    * that makes it safe for `role` to sit on the same table; widening it would take the property
    * away from the caller that has it right.
    */
+  /**
+   * Mark this program as one somebody is trying out, or take the mark off.
+   *
+   * **What it changes is the Salesforce feed and nothing else.** Everything hanging off the
+   * program — its courses, its roster, its assignments, its mornings, its grades — stops reaching
+   * the system of record, which is what a rehearsal term wants. Inside this application nothing
+   * changes: it still appears in the gradebook and still counts in attendance figures. See
+   * `Program.isTest`.
+   *
+   * **Marking a real program by mistake is silent**, which is why the control that calls this says
+   * so rather than reading "Test". The feed simply stops carrying it, and Salesforce keeps whatever
+   * it already holds — the feed has no way to say a record should stop existing.
+   */
+  setTest: programProcedure
+    .input(z.object({ isTest: z.boolean() }))
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.program.update({
+        where: { id: input.programId },
+        data: { isTest: input.isTest },
+        select: { id: true, name: true, isTest: true },
+      }),
+    ),
+
   renameStudent: programProcedure
     .input(z.object({ studentId: z.string().uuid(), displayName: displayNameSchema }))
     .mutation(async ({ ctx, input }) => {
@@ -589,6 +612,7 @@ export const programsRouter = createTRPCRouter({
         archivedAt: true,
         createdAt: true,
         discipline: true,
+        isTest: true,
         joinToken: true,
         instructorToken: true,
         instructors: {
@@ -766,22 +790,20 @@ export const programsRouter = createTRPCRouter({
    * A query rather than a flag on the mutation, so the settings screen can recompute the sentence
    * above the button as somebody types without anything being written by a keystroke.
    */
-  attendanceSchedulePreview: programProcedure
-    .input(scheduleInput)
-    .query(async ({ ctx, input }) => {
-      const program = await ctx.db.program.findUniqueOrThrow({
-        where: { id: input.programId },
-        select: scheduleSelect,
-      });
+  attendanceSchedulePreview: programProcedure.input(scheduleInput).query(async ({ ctx, input }) => {
+    const program = await ctx.db.program.findUniqueOrThrow({
+      where: { id: input.programId },
+      select: scheduleSelect,
+    });
 
-      return resolveScheduleChange(
-        ctx.db,
-        input.programId,
-        scheduleOf(program),
-        scheduleFromInput(input),
-        schoolDayOf(new Date()),
-      );
-    }),
+    return resolveScheduleChange(
+      ctx.db,
+      input.programId,
+      scheduleOf(program),
+      scheduleFromInput(input),
+      schoolDayOf(new Date()),
+    );
+  }),
 
   /**
    * Declare when this program meets, and make the days.
@@ -805,130 +827,125 @@ export const programsRouter = createTRPCRouter({
    * restated is the same one `AttendanceSession.lateAfterMinutes` exists for. An instructor who
    * needs today moved edits it on the day screen, which recomputes statuses as it does now.
    */
-  setAttendanceSchedule: programProcedure
-    .input(scheduleInput)
-    .mutation(async ({ ctx, input }) => {
-      const today = schoolDayOf(new Date());
+  setAttendanceSchedule: programProcedure.input(scheduleInput).mutation(async ({ ctx, input }) => {
+    const today = schoolDayOf(new Date());
 
-      const program = await ctx.db.program.findUniqueOrThrow({
+    const program = await ctx.db.program.findUniqueOrThrow({
+      where: { id: input.programId },
+      select: {
+        id: true,
+        name: true,
+        archivedAt: true,
+        attendanceLateAfterMinutes: true,
+        ...scheduleSelect,
+      },
+    });
+
+    if (program.archivedAt !== null) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: `${program.name} has finished, so its attendance schedule cannot be changed.`,
+      });
+    }
+
+    const next = scheduleFromInput(input);
+
+    return inTransaction(ctx.db, async (tx) => {
+      const change = await resolveScheduleChange(
+        tx,
+        input.programId,
+        scheduleOf(program),
+        next,
+        today,
+      );
+
+      await tx.program.update({
         where: { id: input.programId },
-        select: {
-          id: true,
-          name: true,
-          archivedAt: true,
-          attendanceLateAfterMinutes: true,
-          ...scheduleSelect,
+        data: {
+          attendanceStartsOn: next ? dateColumnFor(next.startsOn) : null,
+          attendanceEndsOn: next ? dateColumnFor(next.endsOn) : null,
+          attendanceWeekdays: next ? next.weekdays : [],
+          attendanceStartsAt: next ? next.startsAt : null,
         },
+        select: { id: true },
       });
 
-      if (program.archivedAt !== null) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: `${program.name} has finished, so its attendance schedule cannot be changed.`,
+      if (next && change.make.length > 0) {
+        await tx.attendanceSession.createMany({
+          data: change.make.map((day) => {
+            const startedAt = instantAtSchoolClock(day, next.startsAt);
+            return {
+              programId: input.programId,
+              date: dateColumnFor(day),
+              startedAt,
+              endsAt: defaultEndsAt(startedAt),
+              lateAfterMinutes: program.attendanceLateAfterMinutes,
+              codeSecret: newSessionSecret(),
+              // The schedule opened this day, not a person, and the column means who.
+              startedById: null,
+              note: null,
+            };
+          }),
+          // Belt and braces against one save racing another: the unique index settles it and
+          // this transaction survives, for the reason `attendance.start` explains at length.
+          skipDuplicates: true,
         });
       }
 
-      const next = scheduleFromInput(input);
-
-      return inTransaction(ctx.db, async (tx) => {
-        const change = await resolveScheduleChange(
-          tx,
-          input.programId,
-          scheduleOf(program),
-          next,
-          today,
-        );
-
-        await tx.program.update({
-          where: { id: input.programId },
-          data: {
-            attendanceStartsOn: next ? dateColumnFor(next.startsOn) : null,
-            attendanceEndsOn: next ? dateColumnFor(next.endsOn) : null,
-            attendanceWeekdays: next ? next.weekdays : [],
-            attendanceStartsAt: next ? next.startsAt : null,
+      if (change.remove.length > 0) {
+        await tx.attendanceSession.deleteMany({
+          where: {
+            programId: input.programId,
+            date: { in: change.remove.map(dateColumnFor) },
           },
-          select: { id: true },
         });
+      }
 
-        if (next && change.make.length > 0) {
-          await tx.attendanceSession.createMany({
-            data: change.make.map((day) => {
-              const startedAt = instantAtSchoolClock(day, next.startsAt);
-              return {
-                programId: input.programId,
-                date: dateColumnFor(day),
-                startedAt,
-                endsAt: defaultEndsAt(startedAt),
-                lateAfterMinutes: program.attendanceLateAfterMinutes,
-                codeSecret: newSessionSecret(),
-                // The schedule opened this day, not a person, and the column means who.
-                startedById: null,
-                note: null,
-              };
-            }),
-            // Belt and braces against one save racing another: the unique index settles it and
-            // this transaction survives, for the reason `attendance.start` explains at length.
-            skipDuplicates: true,
-          });
-        }
-
-        if (change.remove.length > 0) {
-          await tx.attendanceSession.deleteMany({
-            where: {
-              programId: input.programId,
-              date: { in: change.remove.map(dateColumnFor) },
-            },
-          });
-        }
-
-        /*
+      /*
           Rewrite the clock of every day still standing after today. One statement per day rather
           than one for all of them, because each day's 9:30 is a different instant — and across a
           daylight-saving change two days' 9:30 differ by an hour, which a single `SET` could not
           express.
         */
-        if (next) {
-          const standing = await tx.attendanceSession.findMany({
-            where: { programId: input.programId, date: { gt: dateColumnFor(today) } },
-            select: { id: true, date: true },
-          });
-
-          for (const session of standing) {
-            const startedAt = instantAtSchoolClock(
-              schoolDayFromColumn(session.date),
-              next.startsAt,
-            );
-            await tx.attendanceSession.update({
-              where: { id: session.id },
-              data: {
-                startedAt,
-                endsAt: defaultEndsAt(startedAt),
-                lateAfterMinutes: program.attendanceLateAfterMinutes,
-              },
-              select: { id: true },
-            });
-          }
-        }
-
-        await recordEvent(tx, {
-          action: "PROGRAM_ATTENDANCE_SCHEDULE_SET",
-          actor: auditActor(ctx),
-          subject: { id: program.id, label: program.name },
-          program: { id: program.id, label: program.name },
-          detail: {
-            startsOn: next?.startsOn ?? null,
-            endsOn: next?.endsOn ?? null,
-            weekdays: next?.weekdays ?? [],
-            startsAt: next?.startsAt ?? null,
-            made: change.make.length,
-            removed: change.remove,
-            keptBecauseAttended: change.blocked,
-          },
+      if (next) {
+        const standing = await tx.attendanceSession.findMany({
+          where: { programId: input.programId, date: { gt: dateColumnFor(today) } },
+          select: { id: true, date: true },
         });
 
-        return change;
+        for (const session of standing) {
+          const startedAt = instantAtSchoolClock(schoolDayFromColumn(session.date), next.startsAt);
+          await tx.attendanceSession.update({
+            where: { id: session.id },
+            data: {
+              startedAt,
+              endsAt: defaultEndsAt(startedAt),
+              lateAfterMinutes: program.attendanceLateAfterMinutes,
+            },
+            select: { id: true },
+          });
+        }
+      }
+
+      await recordEvent(tx, {
+        action: "PROGRAM_ATTENDANCE_SCHEDULE_SET",
+        actor: auditActor(ctx),
+        subject: { id: program.id, label: program.name },
+        program: { id: program.id, label: program.name },
+        detail: {
+          startsOn: next?.startsOn ?? null,
+          endsOn: next?.endsOn ?? null,
+          weekdays: next?.weekdays ?? [],
+          startsAt: next?.startsAt ?? null,
+          made: change.make.length,
+          removed: change.remove,
+          keptBecauseAttended: change.blocked,
+        },
       });
-    }),
+
+      return change;
+    });
+  }),
 
   /**
    * Which fellowship this run is, and so which competencies its fellows are offered.

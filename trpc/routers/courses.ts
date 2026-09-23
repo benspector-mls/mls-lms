@@ -380,6 +380,7 @@ export const coursesRouter = createTRPCRouter({
         publishedAt: true,
         archivedAt: true,
         createdAt: true,
+        isTest: true,
         program: {
           select: {
             id: true,
@@ -988,6 +989,33 @@ export const coursesRouter = createTRPCRouter({
         where: { id: input.courseId },
         data: { publishedAt: input.published ? new Date() : null },
         select: { id: true, name: true, publishedAt: true },
+      });
+    }),
+
+  /**
+   * Mark this course as one somebody is trying out, or take the mark off.
+   *
+   * **What it changes is the Salesforce feed and nothing else.** A course marked this way, and
+   * every assignment, registration and grade inside it, stops reaching the system of record. Within
+   * this application it behaves exactly as before — it still publishes, still grades, still appears
+   * in the gradebook. See `Course.isTest`.
+   *
+   * The same guard as `setPublished` beside it, because it is the same kind of decision about the
+   * same course, and the screen that offers one offers the other.
+   */
+  setTest: instructorProcedure
+    .input(z.object({ courseId: z.string().uuid(), isTest: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwnsProgramOfCourse(
+        ctx,
+        input.courseId,
+        input.isTest ? "mark as a test" : "unmark as a test",
+      );
+
+      return ctx.db.course.update({
+        where: { id: input.courseId },
+        data: { isTest: input.isTest },
+        select: { id: true, name: true, isTest: true },
       });
     }),
 

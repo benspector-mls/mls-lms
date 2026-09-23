@@ -549,6 +549,118 @@ describe("the Salesforce feed", () => {
     });
   });
 
+  /**
+   * A program or a course somebody made to try something out.
+   *
+   * **One block for all nine collections, deliberately.** The rule is a filter repeated in nine
+   * queries, so the failure it guards against is one of them being forgotten — and a check per
+   * collection would pass on eight of them while the ninth quietly carried a rehearsal term into
+   * the system of record. Everything below hangs off a test program or a test course, so a missed
+   * filter anywhere fails this.
+   */
+  describe("programs and courses marked as tests", () => {
+    /** Every identifier that must appear in no collection. */
+    let hidden: Set<string>;
+
+    beforeAll(async () => {
+      // A whole program that is a rehearsal: everything inside it is withheld.
+      const rehearsal = await makeWorld(tx(), { students: 1, published: true });
+      await tx().program.update({ where: { id: rehearsal.programId }, data: { isTest: true } });
+
+      const rehearsalAssignment = await makeAssignment(tx(), {
+        courseId: rehearsal.courseId,
+        courseUnitId: rehearsal.unitId,
+        kind: "REPO",
+      });
+      await makeSubmission(tx(), {
+        assignmentId: rehearsalAssignment.id,
+        studentId: rehearsal.student.studentId,
+        graded: { score: 10, possible: 10, isComplete: true },
+      });
+      const rehearsalSession = await tx().attendanceSession.create({
+        data: {
+          programId: rehearsal.programId,
+          date: new Date("2026-09-16T00:00:00Z"),
+          startedAt: new Date("2026-09-16T13:00:00Z"),
+          endsAt: new Date("2026-09-16T14:00:00Z"),
+          lateAfterMinutes: 5,
+          codeSecret: "fedcba9876543210".repeat(4),
+        },
+        select: { id: true },
+      });
+      const rehearsalAttendance = await tx().attendanceRecord.create({
+        data: {
+          sessionId: rehearsalSession.id,
+          programId: rehearsal.programId,
+          enrollmentId: rehearsal.student.id,
+          status: "PRESENT",
+          source: "SELF_CHECK_IN",
+          checkedInAt: new Date("2026-09-16T13:02:00Z"),
+        },
+        select: { id: true },
+      });
+      const rehearsalAttempt = await tx().gcfAttempt.create({
+        data: {
+          studentId: rehearsal.student.studentId,
+          kind: "PROCTORED",
+          score: 480,
+          takenOn: new Date("2026-09-16T00:00:00Z"),
+        },
+        select: { id: true },
+      });
+
+      // A single course being tried out inside a program that is real.
+      const tryout = await makeCourse(tx(), { programId: world.programId, published: true });
+      await tx().course.update({ where: { id: tryout.id }, data: { isTest: true } });
+      const tryoutUnit = await makeUnit(tx(), { courseId: tryout.id });
+      const tryoutAssignment = await makeAssignment(tx(), {
+        courseId: tryout.id,
+        courseUnitId: tryoutUnit.id,
+        kind: "REPO",
+      });
+
+      hidden = new Set([
+        rehearsal.programId,
+        attendanceClassId(rehearsal.programId),
+        rehearsal.courseId,
+        rehearsal.student.id,
+        registrationKey(rehearsal.courseId, rehearsal.student.id),
+        rehearsalAssignment.id,
+        submissionKey(rehearsalAssignment.id, rehearsal.student.id),
+        rehearsalSession.id,
+        rehearsalAttendance.id,
+        rehearsalAttempt.id,
+        tryout.id,
+        registrationKey(tryout.id, world.students[0].id),
+        tryoutAssignment.id,
+        submissionKey(tryoutAssignment.id, world.students[0].id),
+      ]);
+    });
+
+    it("withholds every one of them from every collection", async () => {
+      const leaked: string[] = [];
+
+      for (const name of COLLECTION_NAMES) {
+        const records = await walkAll(tx(), COLLECTIONS[name], 500);
+        for (const id of oursAmong(records, hidden)) {
+          leaked.push(`${name}: ${id}`);
+        }
+      }
+
+      expect(leaked).toEqual([]);
+    });
+
+    it("leaves the real program's own course and roster alone", async () => {
+      const classes = await walkAll(tx(), COLLECTIONS.classes, 500);
+      const ids = classes.map((record) => record.externalId);
+      expect(ids).toContain(world.courseId);
+      expect(ids).toContain(attendanceClassId(world.programId));
+
+      const programs = await walkAll(tx(), COLLECTIONS.programs, 500);
+      expect(programs.map((record) => record.externalId)).toContain(world.programId);
+    });
+  });
+
   describe("the walk itself", () => {
     it("returns every record of every collection exactly once at limit 1", async () => {
       for (const name of COLLECTION_NAMES) {
@@ -556,6 +668,28 @@ describe("the Salesforce feed", () => {
         const ids = records.map((record) => record.externalId);
         expect(new Set(ids).size).toBe(ids.length);
       }
+    });
+
+    it("accepts a since with no after, on every collection", async () => {
+      /*
+        What a caller sends on its very first poll when it asks for the whole history by date
+        rather than by omitting the cursor — which is what Make.com does. Every other walk in this
+        file starts at `cursor: null` and then follows cursors the feed itself wrote, so `after` is
+        always a real identifier; this is the one shape no other test produces, and the collections
+        that build a SQL cursor compare `after` against a uuid column.
+      */
+      const since = new Date("1970-01-01T00:00:00.000Z");
+      const failures: string[] = [];
+
+      for (const name of COLLECTION_NAMES) {
+        try {
+          await COLLECTIONS[name](tx(), { cursor: { since, after: "" }, limit: 5 });
+        } catch (err) {
+          failures.push(`${name}: ${(err as Error).message.split("\n")[0]}`);
+        }
+      }
+
+      expect(failures).toEqual([]);
     });
 
     it("returns a record again when it changes mid-walk, because its position moved past the cursor", async () => {
