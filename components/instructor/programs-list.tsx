@@ -20,10 +20,10 @@ import type { RouterOutputs } from "@/trpc/types";
  * courses inside the one being read. The two answer different questions — "which term am I working
  * in" and "which course am I opening" — and the sidebar's two groups are the same split.
  *
- * **There is no program home to link to**, which is why each card offers three doors rather than one.
- * A program is not a screen; it is a roster, a set of mornings, and a set of courses, and a card
- * that led to one of them arbitrarily would be choosing for the reader. The roster comes first because
- * it is what everything else is about.
+ * **A program is not one screen**, which is why each card offers three doors: a roster, a set of
+ * mornings, and a set of courses. The roster comes first because it is what everything else is
+ * about, and it is also where the program's name leads — a heading that is the largest thing on the
+ * card and leads nowhere is the first thing a reader presses.
  *
  * Archived programs are in a section beneath the running ones rather than mixed in: a finished
  * year is not something anybody is working in, and a list that made no distinction would put the year
@@ -130,8 +130,19 @@ function ProgramCard({ program }: { program: Program }) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
+              {/*
+                The name leads to the roster, the same place the first of the three doors below
+                leads. Only for somebody who instructs the program: a fellow reading this list
+                would be refused by that screen, so for them the name stays a heading.
+              */}
               <h2 className="text-base font-semibold text-balance text-foreground">
-                {program.name}
+                {program.instructs ? (
+                  <Link href={rosterHref(program.id)} className="hover:underline">
+                    {program.name}
+                  </Link>
+                ) : (
+                  program.name
+                )}
               </h2>
               {archived && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
@@ -164,7 +175,7 @@ function ProgramCard({ program }: { program: Program }) {
         </div>
 
         {/*
-          Three doors rather than one, because a program has no front page — see the note above.
+          Three doors rather than one, because a program is not one screen — see the note above.
           Only for somebody who instructs it: a fellow reading this list has their own attendance page
           and their own course list, and every screen behind these would refuse them.
         */}
