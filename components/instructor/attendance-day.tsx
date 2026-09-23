@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { splitForCorrection, type GridRow } from "@/lib/attendance/grid";
-import { attendancePresentHref, studentHref } from "@/lib/links";
+import { attendancePresentHref, programStudentHref } from "@/lib/links";
 import { displayNameOf, initials } from "@/lib/people";
 import { formatSchoolDay, formatSchoolTime } from "@/lib/school-time";
 import { attendanceSourceLabel, formatDateTime } from "@/lib/status";
@@ -829,7 +829,7 @@ function Row({
             <div className="no-scrollbar flex items-center gap-2 overflow-x-auto">
               {row.student.testStudentNumber !== null && <TestStudentBadge />}
               <a
-                href={studentHref(programId, row.student.id)}
+                href={programStudentHref(programId, row.student.id)}
                 className="text-sm font-medium whitespace-nowrap hover:underline"
               >
                 {name}
