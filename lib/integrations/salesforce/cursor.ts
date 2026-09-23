@@ -132,13 +132,27 @@ export function walk<R extends Positioned>(items: R[], query: FeedQuery): Page<R
  * Empty without a cursor, so a caller can spread it into a `where` alongside its own conditions
  * either way. Typed as the literal shape rather than as any one model's `WhereInput`, because every
  * model here has `updatedAt` and `id` and this fragment fits all of them.
+ *
+ * **A cursor with no `after` asks only by instant, and must.** `since` sent alone means "from the
+ * start of that instant", which `parseFeedQuery` writes as an empty `after` — and since every
+ * identifier sorts after the empty string, the tiebreaker branch would admit everything at that
+ * instant anyway. Spelling it as a comparison is not merely redundant, it is invalid: `id` is a
+ * `uuid` column, Postgres refuses to compare one against `''`, and the query throws
+ * `invalid input syntax for type uuid: ""` instead of returning rows. A caller asking for the
+ * whole history by date rather than by omitting the cursor hits exactly this, which is what a
+ * first poll does.
+ *
+ * The in-memory walks never had the fault, because `isAfter` compares identifiers as strings and
+ * `"" < anything` is simply true. That is why this survived until a caller sent a bare `since`.
  */
 export function cursorWhere(
   cursor: Cursor,
 ):
   | { OR: [{ updatedAt: { gt: Date } }, { updatedAt: Date; id: { gt: string } }] }
+  | { updatedAt: { gte: Date } }
   | Record<string, never> {
   if (cursor === null) return {};
+  if (cursor.after === "") return { updatedAt: { gte: cursor.since } };
   return {
     OR: [
       { updatedAt: { gt: cursor.since } },

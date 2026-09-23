@@ -142,6 +142,16 @@ describe("cursorWhere", () => {
     expect(cursorWhere(null)).toEqual({});
   });
 
+  it("asks only by instant when since arrived without after", () => {
+    /*
+      `after` is the empty string here, and every identifier sorts after it — so the pair reduces
+      to "at or after this instant". Spelling it that way matters: the other branch compares the
+      cursor against `id`, and `id` is a uuid column in Postgres, which cannot be compared with an
+      empty string. Emitting that comparison makes the query throw rather than return nothing.
+    */
+    expect(cursorWhere({ since: T0, after: "" })).toEqual({ updatedAt: { gte: T0 } });
+  });
+
   it("asks for a later instant, or the same instant and a greater id", () => {
     expect(cursorWhere({ since: T0, after: "b" })).toEqual({
       OR: [{ updatedAt: { gt: T0 } }, { updatedAt: T0, id: { gt: "b" } }],
