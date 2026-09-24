@@ -1,24 +1,24 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import * as React from "react";
-import { Pencil, Plus, Shuffle, Trash2, UsersRound } from "lucide-react";
+import { ArrowRightLeft, Eraser, Pencil, Plus, Trash2, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { panelSurface } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { displayNameOf } from "@/lib/people";
+import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -31,14 +31,19 @@ import type { RouterOutputs } from "@/trpc/types";
  * course and are managed beside its curriculum; cohorts belong to the program, because
  * dividing a roster between co-teachers was never a per-course fact.
  *
- * **A cohort is a partition**, held as `Enrollment.cohortId`: a fellow is in at most one, so
- * placement is one select per fellow rather than the checkbox grid a many-to-many membership would
- * need. Every fellow appearing exactly once is also what makes "who has nobody grading them"
- * readable — it is the fellows whose select reads "no cohort".
+ * **A cohort is a partition**, held as `Enrollment.cohortId`: a fellow is in at most one, so the
+ * screen can show each cohort as a card with its members inside and know that no name appears
+ * twice. The first card is No Cohort, which is the reason the partition is drawn this way — the
+ * fellow nobody has placed is the one an instructor opens this tab to find, and a card that is
+ * always present names them at the top instead of leaving them to be noticed by their absence from
+ * four other lists.
  *
- * Placements are staged in the browser and saved together, the way team placements are and for the
- * same reason: `setPlacements` takes the whole placement at once, so it is idempotent, it cannot be
- * left half applied, and "distribute evenly" is then the same act as changing one select.
+ * **Every change is written when it is made.** Moving one fellow sends that one placement and
+ * Reset sends the whole roster; `setPlacements` takes a placement of any size and applies it in one
+ * statement per target cohort, so the two are the same act at different sizes. The card a fellow is
+ * drawn in comes from a local map that the move updates before the request returns, so the count
+ * and the list move together on the click; a refusal puts the map back to what the server last
+ * said.
  *
  * **It is a tab on the roster rather than a screen of its own**, because it is a thing done *to* the
  * roster: the placement is one control the size of the roster, so it cannot sit under the tables,
@@ -47,7 +52,12 @@ import type { RouterOutputs } from "@/trpc/types";
  */
 
 type Cohorts = RouterOutputs["cohorts"]["listForProgram"];
+type Cohort = Cohorts["cohorts"][number];
 type Memberships = RouterOutputs["cohorts"]["membershipsForProgram"];
+type Fellow = Memberships[number];
+
+/** One placement to send: where one fellow goes, with null meaning no cohort. */
+type Placement = { enrollmentId: string; cohortId: string | null };
 
 /**
  * What to call somebody, in the order the rest of this application prefers.
@@ -55,12 +65,9 @@ type Memberships = RouterOutputs["cohorts"]["membershipsForProgram"];
  * The same chain `membershipsForProgram` sorts by, taken from the same function so the two cannot
  * drift: a list sorted on one name and printed under another reads as unsorted.
  */
-function labelFor(student: Memberships[number]["student"]): string {
-  return displayNameOf(student, "Unnamed");
+function labelFor(entry: Fellow): string {
+  return displayNameOf(entry.student, "Unnamed");
 }
-
-/** The value a select uses for "in no cohort". Not a cohort id, so it cannot collide. */
-const UNASSIGNED_VALUE = "unassigned";
 
 export function CohortManager({
   programId,
@@ -73,10 +80,40 @@ export function CohortManager({
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
-  const router = useRouter();
 
   const [creating, setCreating] = React.useState(false);
   const [newName, setNewName] = React.useState("");
+  const [confirmingReset, setConfirmingReset] = React.useState(false);
+
+  /*
+    Where everybody is, as the server last answered. Held here as well as on the server because a
+    move is written immediately: the card a name is drawn in changes on the click, and the round
+    trip only confirms it.
+  */
+  const fromServer = React.useCallback(() => {
+    const current = new Map<string, string | null>();
+    for (const entry of memberships) current.set(entry.enrollmentId, entry.cohortId);
+    return current;
+  }, [memberships]);
+
+  const [placement, setPlacement] = React.useState<Map<string, string | null>>(fromServer);
+
+  // Follow the server's answer whenever it changes underneath — after a save of our own, and after
+  // a cohort is removed and its fellows come back unplaced.
+  React.useEffect(() => {
+    setPlacement(fromServer());
+  }, [fromServer]);
+
+  const place = useMutation(
+    trpc.cohorts.setPlacements.mutationOptions(
+      settled({
+        onError: (error) => {
+          toast.error(error.message);
+          setPlacement(fromServer());
+        },
+      }),
+    ),
+  );
 
   const create = useMutation(
     trpc.cohorts.create.mutationOptions(
@@ -90,208 +127,305 @@ export function CohortManager({
     ),
   );
 
+  /**
+   * Writes a placement and shows it at once.
+   *
+   * `next` is the whole picture the screen should now draw; `payload` is only the part that
+   * changed, which for one fellow moving is one entry. Sending the whole roster for a single move
+   * would be the same result at the cost of an update statement per cohort.
+   */
+  function send(next: Map<string, string | null>, payload: Placement[], message: string) {
+    setPlacement(next);
+    place.mutate({ programId, placements: payload }, { onSuccess: () => toast.success(message) });
+  }
+
+  function moveFellow(entry: Fellow, cohortId: string | null, cohortName: string) {
+    const next = new Map(placement);
+    next.set(entry.enrollmentId, cohortId);
+    send(
+      next,
+      [{ enrollmentId: entry.enrollmentId, cohortId }],
+      `Moved ${labelFor(entry)} to ${cohortName}.`,
+    );
+  }
+
+  function resetPlacements() {
+    setConfirmingReset(false);
+    if (memberships.length === 0) return;
+    const next = new Map<string, string | null>(
+      memberships.map((entry) => [entry.enrollmentId, null]),
+    );
+    send(
+      next,
+      memberships.map((entry) => ({ enrollmentId: entry.enrollmentId, cohortId: null })),
+      "Every fellow is now in no cohort. The cohorts themselves are still here.",
+    );
+  }
+
+  /*
+    Who is in each card, from the local placement rather than from `memberCount`, so that a count
+    and the names under it are one claim rather than two that can disagree while a move is in
+    flight. `memberships` arrives sorted by the name each row prints, so every card is in
+    alphabetical order without sorting again. A placement naming a cohort that has just been
+    removed falls into No Cohort, which is where the server has put that fellow too.
+  */
+  const byCohort = React.useMemo(() => {
+    const groups = new Map<string | null, Fellow[]>();
+    groups.set(null, []);
+    for (const cohort of data.cohorts) groups.set(cohort.id, []);
+    for (const entry of memberships) {
+      const cohortId = placement.get(entry.enrollmentId) ?? null;
+      (groups.get(cohortId) ?? groups.get(null)!).push(entry);
+    }
+    return groups;
+  }, [data.cohorts, memberships, placement]);
+
+  const placedCount = memberships.length - (byCohort.get(null)?.length ?? 0);
+
   return (
-    <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <UsersRound className="size-4 text-muted-foreground" />
-                Cohorts
-              </CardTitle>
-              <CardDescription className="mt-1">
-                How this program&apos;s roster is divided among its instructors. Choosing one
-                narrows grading triage, an assignment&apos;s queue, the gradebook, and the
-                curriculum list — in every course of the program at once. A cohort grants nothing
-                and withholds nothing: anybody who instructs this program can still grade
-                anybody&apos;s work, which is what lets a colleague cover.
-              </CardDescription>
-            </div>
-            {!creating && (
-              <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-                <Plus data-icon="inline-start" />
-                New cohort
-              </Button>
-            )}
-          </div>
-        </CardHeader>
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        How this program&apos;s roster is divided among its instructors. Choosing a cohort narrows
+        grading triage, an assignment&apos;s queue, the gradebook, and the curriculum list — in
+        every course of the program at once. A cohort grants nothing and withholds nothing: anybody
+        who instructs this program can still grade anybody&apos;s work, which is what lets a
+        colleague cover.
+      </p>
 
-        <CardContent className="flex flex-col gap-2">
-          {creating && (
-            <form
-              className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!newName.trim()) return;
-                create.mutate({ programId, name: newName });
-              }}
-            >
-              <div className="flex min-w-48 flex-1 flex-col gap-1.5">
-                <Label htmlFor="cohort-name">What is this cohort called?</Label>
-                <Input
-                  autoFocus
-                  id="cohort-name"
-                  value={newName}
-                  onChange={(event) => setNewName(event.target.value)}
-                  placeholder="Cohort A"
-                  maxLength={120}
-                />
-              </div>
-              <Button size="sm" type="submit" disabled={create.isPending || !newName.trim()}>
-                Create
-              </Button>
-              <Button
-                size="sm"
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setCreating(false);
-                  setNewName("");
-                }}
-              >
-                Cancel
-              </Button>
-            </form>
-          )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={() => setCreating(true)} disabled={creating}>
+          <Plus data-icon="inline-start" />
+          New cohort
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={placedCount === 0 || place.isPending}
+          onClick={() => setConfirmingReset(true)}
+        >
+          <Eraser data-icon="inline-start" />
+          Reset
+        </Button>
+      </div>
 
-          {data.cohorts.length === 0 && !creating ? (
-            <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-              No cohorts yet. Every screen shows the whole roster until there are.
-            </p>
-          ) : (
-            <ul className="flex flex-col">
-              {data.cohorts.map((cohort) => (
-                <CohortRow key={cohort.id} cohort={cohort} onChanged={() => router.refresh()} />
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      {/*
-        The placement, in its own card below the list rather than inside each cohort's row.
-
-        **One list of fellows, not one per cohort**, which is the whole shape of a partition: every
-        fellow appears exactly once, so it is impossible to place somebody twice and impossible to
-        lose track of somebody nobody has placed. A card per cohort would have made "who is in no
-        cohort" a question answered by reading four lists and noticing an absence.
-      */}
-      <CohortPlacements programId={programId} data={data} memberships={memberships} />
-    </div>
-  );
-}
-
-/** One cohort: what it is called, how many are in it, and the things that can be done to it. */
-function CohortRow({
-  cohort,
-  onChanged,
-}: {
-  cohort: Cohorts["cohorts"][number];
-  onChanged: () => void;
-}) {
-  const trpc = useTRPC();
-  const [renaming, setRenaming] = React.useState(false);
-  const [name, setName] = React.useState(cohort.name);
-  const [confirmingRemove, setConfirmingRemove] = React.useState(false);
-
-  const onError = (error: { message: string }) => toast.error(error.message);
-
-  const rename = useMutation(
-    trpc.cohorts.rename.mutationOptions({
-      onError,
-      onSuccess: (updated) => {
-        toast.success(`Renamed to "${updated.name}".`);
-        setRenaming(false);
-        onChanged();
-      },
-    }),
-  );
-
-  const remove = useMutation(
-    trpc.cohorts.remove.mutationOptions({
-      onError,
-      onSuccess: (removed) => {
-        toast.success(
-          `Removed "${removed.name}". Its ${removed.memberCount} ` +
-            `${removed.memberCount === 1 ? "fellow is" : "fellows are"} now in no cohort.`,
-        );
-        onChanged();
-      },
-    }),
-  );
-
-  if (renaming) {
-    return (
-      <li>
+      {creating && (
         <form
-          className="flex items-center gap-2 px-2 py-1.5"
+          className={cn(panelSurface, "flex flex-wrap items-end gap-2 p-3")}
           onSubmit={(event) => {
             event.preventDefault();
-            if (!name.trim()) return;
-            rename.mutate({ cohortId: cohort.id, name });
+            if (!newName.trim()) return;
+            create.mutate({ programId, name: newName });
           }}
         >
-          <Input
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={120}
-            className="h-8"
-          />
-          <Button size="sm" type="submit" disabled={rename.isPending || !name.trim()}>
-            Save
+          <div className="flex min-w-48 flex-1 flex-col gap-1.5">
+            <Label htmlFor="cohort-name">What is this cohort called?</Label>
+            <Input
+              autoFocus
+              id="cohort-name"
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder="Cohort A"
+              maxLength={120}
+            />
+          </div>
+          <Button size="sm" type="submit" disabled={create.isPending || !newName.trim()}>
+            Create
           </Button>
           <Button
             size="sm"
             type="button"
             variant="ghost"
             onClick={() => {
-              setRenaming(false);
-              setName(cohort.name);
+              setCreating(false);
+              setNewName("");
             }}
           >
             Cancel
           </Button>
         </form>
-      </li>
-    );
-  }
+      )}
+
+      {/*
+        Reset undoes an arrangement an instructor may have made one fellow at a time, and nothing
+        undoes it back now that a change is written when it is made. So it says what it is about to
+        take away before it takes it.
+      */}
+      {confirmingReset && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
+          <span className="min-w-48 flex-1 text-xs text-muted-foreground">
+            Resetting takes all {placedCount} placed {placedCount === 1 ? "fellow" : "fellows"} out
+            of their cohorts and puts them in No cohort. The cohorts themselves stay, and nobody
+            leaves the roster.
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={resetPlacements}>
+              Reset every placement
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmingReset(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {memberships.length === 0 && data.cohorts.length === 0 ? (
+        <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
+          Nobody has joined this program yet, and there are no cohorts. Every screen shows the whole
+          roster until both exist.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <CohortCard
+            cohort={null}
+            fellows={byCohort.get(null) ?? []}
+            cohorts={data.cohorts}
+            busy={place.isPending}
+            onMove={moveFellow}
+          />
+          {data.cohorts.map((cohort) => (
+            <CohortCard
+              key={cohort.id}
+              cohort={cohort}
+              fellows={byCohort.get(cohort.id) ?? []}
+              cohorts={data.cohorts}
+              busy={place.isPending}
+              onMove={moveFellow}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One cohort and everybody in it, or — when `cohort` is null — everybody in none.
+ *
+ * The No cohort card carries no rename and no remove because there is nothing to rename or remove:
+ * it is not a row, it is the fellows whose `cohortId` is null. It is always drawn, including empty,
+ * because an instructor reading this tab is asking whether anybody is unplaced and an absent card
+ * would answer that question by saying nothing.
+ */
+function CohortCard({
+  cohort,
+  fellows,
+  cohorts,
+  busy,
+  onMove,
+}: {
+  cohort: Cohort | null;
+  fellows: Fellow[];
+  cohorts: Cohort[];
+  busy: boolean;
+  onMove: (entry: Fellow, cohortId: string | null, cohortName: string) => void;
+}) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const [renaming, setRenaming] = React.useState(false);
+  const [name, setName] = React.useState(cohort?.name ?? "");
+  const [confirmingRemove, setConfirmingRemove] = React.useState(false);
+
+  const rename = useMutation(
+    trpc.cohorts.rename.mutationOptions(
+      settled({
+        onSuccess: (updated) => {
+          toast.success(`Renamed to "${updated.name}".`);
+          setRenaming(false);
+        },
+      }),
+    ),
+  );
+
+  const remove = useMutation(
+    trpc.cohorts.remove.mutationOptions(
+      settled({
+        onSuccess: (removed) => {
+          toast.success(
+            `Removed "${removed.name}". Its ${removed.memberCount} ` +
+              `${removed.memberCount === 1 ? "fellow is" : "fellows are"} now in no cohort.`,
+          );
+        },
+      }),
+    ),
+  );
+
+  const title = cohort?.name ?? "No cohort";
 
   return (
-    <li className="flex flex-col gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="flex-1 truncate font-medium">{cohort.name}</span>
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-          {cohort.memberCount} {cohort.memberCount === 1 ? "fellow" : "fellows"}
-        </span>
-        <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>
-          <Pencil data-icon="inline-start" />
-          Rename
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-destructive hover:text-destructive"
-          onClick={() => setConfirmingRemove(true)}
-        >
-          <Trash2 data-icon="inline-start" />
-          Remove
-        </Button>
+    <section className={cn(panelSurface, "overflow-hidden")}>
+      <div className="flex flex-wrap items-center gap-2 bg-muted px-3 py-2">
+        {renaming && cohort ? (
+          <form
+            className="flex min-w-0 flex-1 items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!name.trim()) return;
+              rename.mutate({ cohortId: cohort.id, name });
+            }}
+          >
+            <Input
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={120}
+              className="h-8"
+            />
+            <Button size="sm" type="submit" disabled={rename.isPending || !name.trim()}>
+              Save
+            </Button>
+            <Button
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setRenaming(false);
+                setName(cohort.name);
+              }}
+            >
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <>
+            <UsersRound aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+            <h3 className="min-w-0 flex-1 truncate text-base font-semibold">{title}</h3>
+            <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+              {fellows.length} {fellows.length === 1 ? "fellow" : "fellows"}
+            </span>
+            {cohort && (
+              <>
+                <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>
+                  <Pencil data-icon="inline-start" />
+                  Rename
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setConfirmingRemove(true)}
+                >
+                  <Trash2 data-icon="inline-start" />
+                  Remove
+                </Button>
+              </>
+            )}
+          </>
+        )}
       </div>
 
-      {confirmingRemove && (
-        <div className="flex flex-col gap-2 rounded-md border border-destructive/40 p-3">
+      {confirmingRemove && cohort && (
+        <div className="flex flex-col gap-2 border-b border-border p-3">
           {/*
             Says what it costs rather than asking "are you sure". Removing a cohort is genuinely
             cheap — nobody leaves the roster and no grade changes — and the one consequence worth
             naming is that any instructor filtered to it goes back to reading the whole roster.
           */}
           <span className="text-xs text-muted-foreground">
-            Removing &ldquo;{cohort.name}&rdquo; puts its {cohort.memberCount}{" "}
-            {cohort.memberCount === 1 ? "fellow" : "fellows"} in no cohort. Nobody leaves the
-            roster, nothing anybody submitted changes, and no grade moves. Any instructor filtered
-            to it goes back to seeing every fellow.
+            Removing &ldquo;{cohort.name}&rdquo; puts its {fellows.length}{" "}
+            {fellows.length === 1 ? "fellow" : "fellows"} in No cohort. Nobody leaves the roster,
+            nothing anybody submitted changes, and no grade moves. Any instructor filtered to it
+            goes back to seeing every fellow.
           </span>
           <div className="flex gap-2">
             <Button
@@ -311,213 +445,74 @@ function CohortRow({
           </div>
         </div>
       )}
-    </li>
+
+      {fellows.length === 0 ? (
+        <p className="px-3 py-4 text-sm text-muted-foreground">
+          {cohort ? "Nobody is in this cohort yet." : "Everybody is in a cohort."}
+        </p>
+      ) : (
+        <ul className="flex flex-col p-1">
+          {fellows.map((entry) => (
+            <li
+              key={entry.enrollmentId}
+              className="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+            >
+              <span className="min-w-0 flex-1 truncate">{labelFor(entry)}</span>
+              <MoveTo entry={entry} cohort={cohort} cohorts={cohorts} busy={busy} onMove={onMove} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
-/** Who is in each cohort: a select per fellow, staged and saved together. */
-function CohortPlacements({
-  programId,
-  data,
-  memberships,
+/**
+ * Where else one fellow could go.
+ *
+ * Only the cohorts they are not already in, No cohort included, because a partition has no second
+ * place to be: naming the card the fellow is standing in would be an item that does nothing.
+ */
+function MoveTo({
+  entry,
+  cohort,
+  cohorts,
+  busy,
+  onMove,
 }: {
-  programId: string;
-  data: Cohorts;
-  memberships: Memberships;
+  entry: Fellow;
+  cohort: Cohort | null;
+  cohorts: Cohort[];
+  busy: boolean;
+  onMove: (entry: Fellow, cohortId: string | null, cohortName: string) => void;
 }) {
-  const trpc = useTRPC();
-  const router = useRouter();
+  const elsewhere = cohorts.filter((other) => other.id !== cohort?.id);
 
-  /*
-    Where everybody is now, as the server last answered. Staged rather than written per select,
-    because `setPlacements` takes the whole placement — so the screen holds a draft and sends it
-    when an instructor is done rather than firing a request per change.
-  */
-  const placedNow = React.useCallback(() => {
-    const current = new Map<string, string | null>();
-    for (const entry of memberships) current.set(entry.enrollmentId, entry.cohortId);
-    return current;
-  }, [memberships]);
-
-  const [draft, setDraft] = React.useState<Map<string, string | null>>(placedNow);
-
-  // Reset when the server's answer changes underneath, so an instructor who saves and reopens
-  // sees what was saved rather than whatever the selects happened to be left on.
-  React.useEffect(() => {
-    setDraft(placedNow());
-  }, [placedNow]);
-
-  const save = useMutation(
-    trpc.cohorts.setPlacements.mutationOptions({
-      onError: (error) => toast.error(error.message),
-      onSuccess: (result) => {
-        toast.success(
-          `Placed ${result.placed} ${result.placed === 1 ? "fellow" : "fellows"} across ` +
-            `${result.cohorts} ${result.cohorts === 1 ? "cohort" : "cohorts"}.`,
-        );
-        router.refresh();
-      },
-    }),
-  );
-
-  const saved = placedNow();
-  const dirty = [...draft].some(([enrollmentId, cohortId]) => saved.get(enrollmentId) !== cohortId);
-
-  const draftCounts = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const cohortId of draft.values()) {
-      if (cohortId) counts.set(cohortId, (counts.get(cohortId) ?? 0) + 1);
-    }
-    return counts;
-  }, [draft]);
-
-  const draftUnassigned = [...draft.values()].filter((cohortId) => cohortId === null).length;
-
-  /** Deals every fellow round-robin into the cohorts, in roster order so it is repeatable. */
-  function distributeEvenly() {
-    if (data.cohorts.length === 0) return;
-    setDraft(() => {
-      const next = new Map<string, string | null>();
-      memberships.forEach((entry, index) => {
-        next.set(entry.enrollmentId, data.cohorts[index % data.cohorts.length].id);
-      });
-      return next;
-    });
-  }
-
-  function clearPlacements() {
-    setDraft(new Map(memberships.map((entry) => [entry.enrollmentId, null])));
-  }
-
-  const cohortItems = React.useMemo(
-    () => ({
-      [UNASSIGNED_VALUE]: "— no cohort —",
-      ...Object.fromEntries(data.cohorts.map((cohort) => [cohort.id, cohort.name])),
-    }),
-    [data.cohorts],
-  );
+  if (elsewhere.length === 0 && cohort === null) return null;
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Who is in each</CardTitle>
-            <CardDescription className="mt-1">
-              Every active fellow, once. Removed fellows are not here — they keep whichever cohort
-              they were in, so restoring somebody returns them to it, but placing somebody who has
-              left would put them in a pile that never clears.
-            </CardDescription>
-          </div>
-          <div className="flex shrink-0 gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={data.cohorts.length === 0}
-              onClick={distributeEvenly}
-            >
-              <Shuffle data-icon="inline-start" />
-              Distribute evenly
-            </Button>
-            <Button size="sm" variant="ghost" onClick={clearPlacements}>
-              Clear
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="flex flex-col gap-2">
-        {memberships.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            Nobody has joined this program yet.
-          </p>
-        ) : (
-          <>
-            {/* The draft's counts, so an uneven split is visible before it is saved. */}
-            {data.cohorts.length > 0 && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-2 text-xs tabular-nums text-muted-foreground">
-                {data.cohorts.map((cohort) => (
-                  <span key={cohort.id}>
-                    {cohort.name} · {draftCounts.get(cohort.id) ?? 0}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <ul className="flex flex-col">
-              {memberships.map((entry) => (
-                <li
-                  key={entry.enrollmentId}
-                  className="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
-                >
-                  <span className="flex-1 truncate">{labelFor(entry.student)}</span>
-                  <Select
-                    value={draft.get(entry.enrollmentId) ?? UNASSIGNED_VALUE}
-                    items={cohortItems}
-                    onValueChange={(next) => {
-                      if (!next) return;
-                      setDraft((current) => {
-                        const copy = new Map(current);
-                        copy.set(
-                          entry.enrollmentId,
-                          next === UNASSIGNED_VALUE ? null : String(next),
-                        );
-                        return copy;
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="h-8 w-44 min-w-0">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNASSIGNED_VALUE}>— no cohort —</SelectItem>
-                      {data.cohorts.map((cohort) => (
-                        <SelectItem key={cohort.id} value={cohort.id}>
-                          {cohort.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </li>
-              ))}
-            </ul>
-
-            <div className="flex items-center gap-2 border-t border-border pt-2">
-              <Button
-                size="sm"
-                disabled={!dirty || save.isPending}
-                onClick={() =>
-                  save.mutate({
-                    programId,
-                    placements: [...draft].map(([enrollmentId, cohortId]) => ({
-                      enrollmentId,
-                      cohortId,
-                    })),
-                  })
-                }
-              >
-                {save.isPending ? "Saving…" : "Save cohorts"}
-              </Button>
-              {dirty && (
-                <Button size="sm" variant="ghost" onClick={() => setDraft(placedNow())}>
-                  Discard
-                </Button>
-              )}
-              {/*
-                The number worth watching. A fellow in no cohort is not broken — it is what the
-                No cohort filter finds — but somebody who joined by the link in October and was
-                never placed is invisible to every instructor working a cohort, and this is the
-                one place that says so.
-              */}
-              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                {draftUnassigned === 0
-                  ? "everybody placed"
-                  : `${draftUnassigned} in no cohort${dirty ? " (unsaved)" : ""}`}
-              </span>
-            </div>
-          </>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button size="sm" variant="ghost" className="shrink-0" disabled={busy}>
+            <ArrowRightLeft data-icon="inline-start" />
+            Move to
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        {elsewhere.map((other) => (
+          <DropdownMenuItem key={other.id} onClick={() => onMove(entry, other.id, other.name)}>
+            {other.name}
+          </DropdownMenuItem>
+        ))}
+        {cohort && elsewhere.length > 0 && <DropdownMenuSeparator />}
+        {cohort && (
+          <DropdownMenuItem onClick={() => onMove(entry, null, "No cohort")}>
+            No cohort
+          </DropdownMenuItem>
         )}
-      </CardContent>
-    </Card>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
