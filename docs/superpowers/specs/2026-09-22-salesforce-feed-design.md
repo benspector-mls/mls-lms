@@ -361,13 +361,7 @@ Integration tests against the test database, through `npm run test:integration`,
 
 **Is rollback still available?** Yes, and it is a code rollback with nothing left behind.
 
-**What to check once it is live.**
-
-- `curl` each collection with the token and confirm a 200 with a `records` array; without the token and with a wrong one, confirm a 401.
-- Follow `cursor` on the largest collection to the end and confirm `hasMore` reaches false.
-- Confirm no record in any collection carries a test student.
-- Run the setup scenario against the sandbox and review the unmatched list before the sync scenario runs at all.
-- Run each sync collection once with `limit=5` before letting the backfill go.
+**What to check once it is live.** Work through [Checking a deployment by hand](#checking-a-deployment-by-hand) below, which is the whole list with the commands. Then, on the Make side: run the setup scenario against the sandbox and review its unmatched list before the sync scenario runs at all, and run each sync collection once with `limit=5` before letting the backfill go.
 
 **When not to ship this.** The code is safe at any hour — it adds a route nothing else calls and touches no fellow's path through the application. Make's first run is the part to time: a backfill of several thousand records consumes a large share of a monthly operation allowance in one go.
 
@@ -386,3 +380,121 @@ None of these blocks the work described above, and all of them block the integra
 - Whether the Artifact object's Max Score field is nullable, and whether `kind` is reportable on it.
 - Which fields, if any, are required on Class, Class Registration, Session, and Attendance that this application has no value for.
 - Whether any existing Flow or validation rule on those objects reacts badly to an integration writing them — discoverable in Setup, per object, before the first write.
+
+## Checking a deployment by hand
+
+Everything here runs against a deployment or against `npm run dev`, and none of it needs the Make scenarios to exist. Two traps are worth knowing before the commands, because both produce failures that look like the feed is broken when it is not.
+
+**Do not pipe a response through `echo` in zsh.** Its builtin `echo` expands backslash escapes, so the `\n` inside a graded submission's `feedbackMarkdown` becomes a real newline and the JSON stops parsing. Every command below pipes `curl` straight into the parser and never stores the body in a shell variable. `printf '%s'` is the fix where a variable is unavoidable.
+
+**Python installed from python.org carries its own CA bundle** and finds none until `Install Certificates.command` has run, so `urllib` fails with `CERTIFICATE_VERIFY_FAILED` against HTTPS while `curl` works. macOS keeps a current bundle at `/etc/ssl/cert.pem`; `export SSL_CERT_FILE=/etc/ssl/cert.pem` is enough, and the walker below points at it on its own. Never disable verification instead: the token travels in a header, and an unverified connection hands it to whatever answered.
+
+### Setting the two variables
+
+```bash
+HOST=https://<the deployment>          # or http://localhost:3000
+TOKEN=$(grep -m1 '^SALESFORCE_FEED_TOKEN=' .env.local | cut -d= -f2- | tr -d '"'"'"'')
+[ ${#TOKEN} -eq 64 ] && echo "token loaded" || echo "NOT FOUND"
+```
+
+Sixty-four hexadecimal characters is what `openssl rand -hex 32` produces. Do not echo the value.
+
+### The gates
+
+```bash
+printf 'no token          '; curl -s -o /dev/null -w '%{http_code}\n' "$HOST/api/integrations/salesforce/programs"
+printf 'wrong token       '; curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer wrong" "$HOST/api/integrations/salesforce/programs"
+printf 'unknown, no token '; curl -s -o /dev/null -w '%{http_code}\n' "$HOST/api/integrations/salesforce/contacts"
+printf 'unknown, token    '; curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" "$HOST/api/integrations/salesforce/contacts"
+printf 'after sans since  '; curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" "$HOST/api/integrations/salesforce/programs?after=b"
+```
+
+Expect `401 401 401 404 400`. The third line is the one to read carefully: a 404 there would mean somebody without the token can discover which collection names exist.
+
+### Every collection answers
+
+```bash
+for c in programs enrollments classes registrations assignments sessions attendance submissions gcf-attempts; do
+  printf '%-16s ' "$c"
+  curl -s -H "Authorization: Bearer $TOKEN" "$HOST/api/integrations/salesforce/$c?limit=5" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d["records"]), "records  hasMore="+str(d["hasMore"]))'
+done
+```
+
+Nine lines and no traceback. A traceback names a collection whose query failed against real data, which is the one thing the test database cannot tell you.
+
+### Headers, and one record in full
+
+```bash
+curl -s -D - -o /dev/null -H "Authorization: Bearer $TOKEN" \
+  "$HOST/api/integrations/salesforce/programs?limit=1" | grep -iE '^(HTTP|cache-control|content-type)'
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$HOST/api/integrations/salesforce/submissions?limit=1" | python3 -m json.tool
+```
+
+Expect `200`, `cache-control: no-store`, and `content-type: application/json`. In the record, `updatedAt` ends in `Z`; in `sessions` and `gcf-attempts`, `date` and `takenOn` are bare `YYYY-MM-DD` with no time.
+
+### Walking every collection to the end
+
+The check that cannot be done in `curl` alone, and the one that matters most: a walk must return every record exactly once and then stop. Its total is also the number of Salesforce upserts the first backfill costs, which is what sizes Make's operation budget.
+
+```bash
+export HOST TOKEN
+python3 - <<'PY'
+import json, os, ssl, urllib.parse, urllib.request
+
+paths = ssl.get_default_verify_paths()
+if not os.environ.get("SSL_CERT_FILE") and not (paths.openssl_cafile and os.path.exists(paths.openssl_cafile)):
+    os.environ["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+
+HOST, TOKEN = os.environ["HOST"].rstrip("/"), os.environ["TOKEN"]
+total = 0
+for name in ["programs", "enrollments", "classes", "registrations", "assignments",
+             "sessions", "attendance", "submissions", "gcf-attempts"]:
+    url, seen, pages = f"{HOST}/api/integrations/salesforce/{name}?limit=500", set(), 0
+    while True:
+        req = urllib.request.Request(url, headers={"Authorization": "Bearer " + TOKEN})
+        page = json.loads(urllib.request.urlopen(req, timeout=120).read().decode())
+        seen.update(r["externalId"] for r in page["records"]); pages += 1
+        if not page["hasMore"]:
+            break
+        assert pages < 2000, f"{name} did not terminate"
+        c = page["cursor"]
+        url = (f"{HOST}/api/integrations/salesforce/{name}?limit=500"
+               f"&since={urllib.parse.quote(c['since'])}&after={urllib.parse.quote(c['after'])}")
+    total += len(seen)
+    print(f"{name:<16}{len(seen):>7} records{pages:>4} pages")
+print(f"{'TOTAL':<16}{total:>7} records — one Salesforce upsert each")
+PY
+```
+
+It counts distinct identifiers, so a total below the sum of the pages means a collection returned something twice. A hang means a cursor is landing on its last record rather than after it, which the assertion turns into a named failure.
+
+### A bare `since`, which is what a first poll sends
+
+```bash
+for c in programs enrollments classes registrations assignments sessions attendance submissions gcf-attempts; do
+  printf '%-16s ' "$c"
+  curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+    "$HOST/api/integrations/salesforce/$c?since=1970-01-01T00:00:00.000Z&limit=1"
+done
+```
+
+Nine 200s. A caller may ask for the whole history by date rather than by omitting the cursor, and `after` is then empty — a shape no cursor the feed writes ever produces, so it is worth asking for deliberately.
+
+### Two checks against the real data
+
+```bash
+# No test student, and nothing from a test program or course — expect no output.
+for c in enrollments registrations attendance submissions gcf-attempts; do
+  curl -s -H "Authorization: Bearer $TOKEN" "$HOST/api/integrations/salesforce/$c?limit=500" \
+    | grep -io 'test student[^"]*' | head -3
+done
+
+# Only `enrollments` carries an email address — expect 0 for every other line.
+for c in enrollments classes assignments submissions gcf-attempts; do
+  printf '%-14s emails: ' "$c"
+  curl -s -H "Authorization: Bearer $TOKEN" "$HOST/api/integrations/salesforce/$c?limit=200" | grep -oc '@' || echo 0
+done
+```
