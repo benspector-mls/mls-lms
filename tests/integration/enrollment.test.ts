@@ -2019,6 +2019,63 @@ describe("a roster belongs to one program", () => {
 });
 
 /*
+  The two columns of a claim are not null together, and that asymmetry is what lets an account be
+  deleted at all. `claimedById` is SetNull, so deleting a profile nulls it and leaves `claimedAt`
+  holding the moment they joined — a state the constraint has to permit, because otherwise the
+  update the cascade runs is refused and the refusal takes the deletion with it. The failure that
+  caused named `roster_entries`, several levels below the profile somebody asked to delete, so it
+  was reported as an unexplained database error rather than as anything about a roster.
+*/
+describe("deleting an account that joined through the roster", () => {
+  const tx = withRollback();
+
+  let joinerId: string;
+  let entryId: string;
+
+  beforeAll(async () => {
+    const built = await world(tx());
+    joinerId = await account(tx());
+
+    await createCaller(tx(), built.instructorId).enrollments.addToRoster({
+      programId: built.programId,
+      entries: [{ ...(await rosterKeysOf(tx(), joinerId)), note: null }],
+    });
+    await createCaller(tx(), joinerId).enrollments.join({
+      token: await joinTokenOf(tx(), built.programId),
+    });
+
+    entryId = (
+      await tx().rosterEntry.findFirstOrThrow({
+        where: { programId: built.programId, claimedById: joinerId },
+        select: { id: true },
+      })
+    ).id;
+
+    await tx().profile.delete({ where: { id: joinerId } });
+  });
+
+  it("the account goes, rather than being held by the entry it claimed", async () => {
+    expect(await tx().profile.count({ where: { id: joinerId } })).toBe(0);
+  });
+
+  it("the entry survives, naming nobody", async () => {
+    const entry = await tx().rosterEntry.findUniqueOrThrow({
+      where: { id: entryId },
+      select: { claimedById: true },
+    });
+    expect(entry.claimedById).toBeNull();
+  });
+
+  it("...and still says when it was claimed", async () => {
+    const entry = await tx().rosterEntry.findUniqueOrThrow({
+      where: { id: entryId },
+      select: { claimedAt: true },
+    });
+    expect(entry.claimedAt).not.toBeNull();
+  });
+});
+
+/*
   An enrollment id says nothing about which program it is in until the row is read, which is why the
   procedure loads it before checking who is asking. Removing a fellow from a term this instructor
   does instruct is allowed; the refusal for a fellow asking covers the role, and this covers the

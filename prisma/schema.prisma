@@ -2075,7 +2075,15 @@ model RosterEntry {
   /// typo in one of the two keys above findable.
   note String?
 
-  /// The profile that matched this entry and joined on it. Null until somebody does.
+  /// The profile that matched this entry and joined on it, and when. Both null until somebody does.
+  ///
+  /// A hand-written CHECK — `roster_entries_claim_implies_claimed_at` — refuses a profile with no
+  /// moment, and permits a moment whose profile has gone. That asymmetry is what lets a profile be
+  /// deleted at all: `claimedById` is `SetNull`, so the deletion nulls one column of the pair and
+  /// leaves the other, and a constraint requiring both to be null together would refuse the whole
+  /// deletion. An entry left holding only a time is claimable again, which is what freeing it
+  /// should mean — the claim checks in `lib/courses/roster.ts` read `claimedById`, and `claimedAt`
+  /// orders the printed roster.
   claimedById String?   @map("claimed_by_id") @db.Uuid
   claimedAt   DateTime? @map("claimed_at") @db.Timestamptz(6)
 
