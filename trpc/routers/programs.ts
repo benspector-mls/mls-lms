@@ -276,7 +276,8 @@ export const programsRouter = createTRPCRouter({
           courses: {
             // Instructors author unpublished courses; fellows must not see them at all.
             where: instructs ? {} : { publishedAt: { not: null } },
-            orderBy: [{ createdAt: "asc" }],
+            // The order the program's owner put them in. See `courses.reorder`.
+            orderBy: [{ position: "asc" }, { name: "asc" }],
             select: {
               id: true,
               name: true,
@@ -626,7 +627,8 @@ export const programsRouter = createTRPCRouter({
           },
         },
         courses: {
-          orderBy: [{ createdAt: "asc" }],
+          // The order the program's owner put them in, and the order the card lets them drag.
+          orderBy: [{ position: "asc" }, { name: "asc" }],
           select: { id: true, name: true, slug: true, publishedAt: true, archivedAt: true },
         },
       },

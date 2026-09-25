@@ -80,7 +80,8 @@ export async function courseFiguresFor(
   const [courses, units, cells] = await Promise.all([
     db.course.findMany({
       where: { programId: enrollment.programId },
-      orderBy: [{ createdAt: "asc" }],
+      // The order the program's owner put them in. See `courses.reorder`.
+      orderBy: [{ position: "asc" }, { name: "asc" }],
       select: { id: true, name: true, publishedAt: true, archivedAt: true },
     }),
     db.courseUnit.findMany({

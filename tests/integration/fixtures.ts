@@ -94,17 +94,22 @@ export async function makeProgram(
  */
 export async function makeCourse(
   tx: Tx,
-  options: { programId: string; published?: boolean; name?: string },
+  options: { programId: string; published?: boolean; name?: string; position?: number },
 ) {
   const suffix = unique().slice(0, 8);
+  /* At the end of its program's sequence unless placed, the way `makeUnit` below does it. */
+  const position =
+    options.position ?? (await tx.course.count({ where: { programId: options.programId } }));
+
   return tx.course.create({
     data: {
       programId: options.programId,
       name: options.name ?? `Integration Course ${suffix}`,
       slug: `integration-${suffix}`,
       publishedAt: options.published === false ? null : new Date("2026-01-01T00:00:00Z"),
+      position,
     },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, position: true },
   });
 }
 

@@ -478,6 +478,8 @@ async function main() {
         // drift — which is the rule this whole script is written to.
         slug: suggestCourseSlug({ courseName: COURSE_NAME, term: TERM }),
         publishedAt: new Date(),
+        // The first course of a new program, so the start of its sequence. See `Course.position`.
+        position: 0,
       },
     }));
   console.log(`Course: ${course.name} (${program.term}) — ${course.id}`);

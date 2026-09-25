@@ -497,6 +497,27 @@ model Course {
   /// Like the program's, it changes the feed and nothing else.
   isTest Boolean @default(false) @map("is_test")
 
+  /// Where this course sits among the others of its program, set by the program's owner.
+  ///
+  /// **The order a year is read in is a decision rather than a fact that can be derived.** A
+  /// program runs four courses at once and the one a fellow should open first is not the one
+  /// created first, nor the one whose name sorts first — creation order was what every list used,
+  /// and it made the order an accident of which course somebody happened to add on the Monday.
+  ///
+  /// The same column `course_units` and `resources` carry, with the same rules: dense from zero
+  /// within the program, assigned by the server, and deliberately NOT unique, because `reorder`
+  /// rewrites the whole sequence in one statement and a unique constraint would refuse the
+  /// intermediate states that statement passes through.
+  ///
+  /// **Owner only, where a unit's order is any instructor's to change.** Ownership is a program
+  /// fact — see `lib/programs/ownership.ts` — and this is the program's shape rather than one
+  /// course's contents. `courses.reorder` is the gate.
+  ///
+  /// **No index on `(program_id, position)`**, unlike the other two sequences. A program holds a
+  /// handful of courses and `@@index([programId])` below already narrows to them; a second index
+  /// would be maintained on every write to earn nothing on a sort of four rows.
+  position Int
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

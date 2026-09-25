@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { countLabel, Detail } from "@/components/instructor/impact-detail";
 import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
+import { SortableList, SortableRow } from "@/components/sortable-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -267,7 +268,121 @@ function ProgramTestCard({ data }: { data: Data }) {
   );
 }
 
+/** One course's row, drawn the same whether or not there is a handle in front of it. */
+function CourseRow({ course }: { course: Data["program"]["courses"][number] }) {
+  return (
+    <Link
+      href={triageHref(course.id)}
+      className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50"
+    >
+      <span className="min-w-0 flex-1 truncate font-medium">{course.name}</span>
+      <code className="shrink-0 font-mono text-xs text-muted-foreground">{course.slug}</code>
+      {course.archivedAt !== null ? (
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <Archive className="size-3" />
+          Archived
+        </span>
+      ) : course.publishedAt === null ? (
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+          <EyeOff className="size-3" />
+          Not published
+        </span>
+      ) : (
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <Eye className="size-3" />
+          Visible
+        </span>
+      )}
+    </Link>
+  );
+}
+
+/**
+ * The courses of this program, in the order they are read in, which the owner sets by dragging.
+ *
+ * **The order reaches every list of them** — this card, and the sidebar for every instructor and
+ * every fellow of the program. It was creation order everywhere before, which made the order an
+ * accident of which course somebody happened to add first.
+ *
+ * **Only the owner may change it, and only the handle drags.** Ownership is a program fact, so a
+ * co-teaching instructor sees the list exactly as it is drawn for a fellow: rows that are links and
+ * nothing else. The handle is separate from the link for the reason `SortableList` gives — a
+ * row-wide drag listener and a navigation on the same element fight each other.
+ */
 function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const fromServer = data.program.courses;
+  const serverOrder = fromServer.map((course) => course.id).join(" ");
+
+  /*
+    The order to draw while a move is in flight, or null when the server's own order is the one to
+    draw. A drag has to move the row under the pointer immediately, and this screen is server
+    rendered — `settled()` refreshes it, which is a round trip, and a list that waited for it would
+    spring back under the hand that moved it.
+
+    `basedOn` is what retires the local order: when a refresh brings a different list, whatever
+    this held is about a list that no longer exists. That covers the move landing, and it covers
+    somebody else adding or removing a course while this was open.
+  */
+  const [dragged, setDragged] = React.useState<string[] | null>(null);
+  const [basedOn, setBasedOn] = React.useState(serverOrder);
+
+  if (basedOn !== serverOrder) {
+    setBasedOn(serverOrder);
+    setDragged(null);
+  }
+
+  const reorder = useMutation(
+    trpc.courses.reorder.mutationOptions(
+      settled({
+        /*
+          Put the order back and say why. The procedure's own refusal reads "Reload the page and try
+          again — someone may have added or removed one", which is the case this is for.
+        */
+        onError: (error) => {
+          setDragged(null);
+          toast.error(error.message);
+        },
+      }),
+    ),
+  );
+
+  const byId = new Map(fromServer.map((course) => [course.id, course]));
+  const ordered = (dragged ?? fromServer.map((course) => course.id))
+    .map((id) => byId.get(id))
+    .filter((course) => course !== undefined);
+
+  /* Nothing to drag with one row, and nothing to offer somebody who would be refused. */
+  const mayReorder = data.callerActsAsOwner && ordered.length > 1;
+
+  function move(ids: string[]) {
+    setDragged(ids);
+    reorder.mutate({ programId: data.program.id, courseIds: ids });
+  }
+
+  const list = (
+    <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
+      {ordered.map((course) =>
+        mayReorder ? (
+          <SortableRow key={course.id} id={course.id} label={course.name} as="li">
+            {(handle) => (
+              <div className="flex items-center bg-background pl-2">
+                {handle}
+                <CourseRow course={course} />
+              </div>
+            )}
+          </SortableRow>
+        ) : (
+          <li key={course.id} className="flex">
+            <CourseRow course={course} />
+          </li>
+        ),
+      )}
+    </ul>
+  );
+
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex items-start justify-between gap-3">
@@ -281,42 +396,30 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
         <NewCourseDialog programId={data.program.id} term={data.program.term} courses={courses} />
       </div>
 
-      {data.program.courses.length === 0 ? (
+      {ordered.length === 0 ? (
         <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
           No courses yet. A program is created empty — add the first one, or copy last year&apos;s.
         </p>
+      ) : mayReorder ? (
+        <>
+          {/*
+            `announce` is given an id because that is all `SortableList` has; the name is what an
+            instructor needs to hear.
+          */}
+          <SortableList
+            ids={ordered.map((course) => course.id)}
+            onReorder={move}
+            announce={(id) => byId.get(id)?.name ?? "this course"}
+          >
+            {list}
+          </SortableList>
+          <p className="text-xs text-muted-foreground">
+            Drag a course to change the order it appears in — here, and in the sidebar for everybody
+            on this program.
+          </p>
+        </>
       ) : (
-        <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
-          {data.program.courses.map((course) => (
-            <li key={course.id}>
-              <Link
-                href={triageHref(course.id)}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-muted/50"
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">{course.name}</span>
-                <code className="shrink-0 font-mono text-xs text-muted-foreground">
-                  {course.slug}
-                </code>
-                {course.archivedAt !== null ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                    <Archive className="size-3" />
-                    Archived
-                  </span>
-                ) : course.publishedAt === null ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                    <EyeOff className="size-3" />
-                    Not published
-                  </span>
-                ) : (
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                    <Eye className="size-3" />
-                    Visible
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        list
       )}
     </section>
   );

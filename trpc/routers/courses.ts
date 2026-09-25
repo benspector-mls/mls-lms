@@ -14,7 +14,8 @@ import {
   removedStudentIds,
   selectedStudentIds,
 } from "@/lib/courses/membership";
-import { assertOwnsProgramOfCourse, ownerOf } from "@/lib/programs/ownership";
+import { writeOrder } from "@/lib/courses/order";
+import { assertOwnsProgram, assertOwnsProgramOfCourse, ownerOf } from "@/lib/programs/ownership";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
 import { triageBucket } from "@/lib/grade/triage";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
@@ -26,6 +27,7 @@ import {
   createTRPCRouter,
   instructorProcedure,
   profileProcedure,
+  programProcedure,
 } from "../init";
 import { courseUnitSummarySelect, personSelect } from "../selects";
 
@@ -82,7 +84,19 @@ export const coursesRouter = createTRPCRouter({
               { program: { instructors: { some: { userId: ctx.profile.id } } } },
             ],
           },
-      orderBy: { createdAt: "desc" },
+      /*
+        Newest program first, and inside each one the order its owner put its courses in.
+
+        **The program is ordered by its own `createdAt` rather than by its courses'**, which is what
+        keeps the sidebar's program groups in the order `programs.listMine` draws them: the group
+        somebody is working in this term is the one the list should open on. Sorting every course of
+        every program by course creation would order the groups by whichever program had a course
+        added last — an accident that the term's own start date already answers better.
+
+        The name is the tiebreak rather than the ordering, for the reason a unit's is: two courses
+        share a position for as long as it takes the next drag to rewrite the sequence.
+      */
+      orderBy: [{ program: { createdAt: "desc" } }, { position: "asc" }, { name: "asc" }],
       select: {
         id: true,
         name: true,
@@ -795,12 +809,26 @@ export const coursesRouter = createTRPCRouter({
         The assignments are deliberately *outside* it — see below.
       */
       const course = await ctx.db.$transaction(async (tx) => {
+        /*
+          At the end of the program's sequence, wherever that is.
+
+          The highest position rather than the number of courses. Those are the same figure only
+          while positions run 0..n-1 with no gaps, and `remove` deliberately leaves a gap rather
+          than renumbering — a gap changes nothing about the order, but counting would hand the new
+          course a position another one already holds.
+        */
+        const highest = await tx.course.aggregate({
+          where: { programId: input.programId },
+          _max: { position: true },
+        });
+
         const created = await tx.course
           .create({
             data: {
               programId: input.programId,
               name: input.name,
               slug,
+              position: (highest._max.position ?? -1) + 1,
             },
             select: { id: true, name: true, slug: true, programId: true, publishedAt: true },
           })
@@ -903,6 +931,53 @@ export const coursesRouter = createTRPCRouter({
       }
 
       return { course, copied, failed };
+    }),
+
+  /**
+   * Writes the order a program's courses appear in, whole.
+   *
+   * **Owner only, where the order of a course's own units is any instructor's to change.**
+   * Ownership is a program fact — see `lib/programs/ownership.ts` — and this decides the shape of
+   * the whole year rather than the contents of one course. Every instructor of the program sees the
+   * result on every screen, which is the same reason `setArchived` is owner-gated.
+   *
+   * **The whole order rather than "move this one"**, the `courseUnits.reorder` shape and for its
+   * reasons: it is idempotent, it cannot leave a gap or a duplicate, and a list that does not name
+   * exactly the rows it is allowed to touch is refused rather than half-applied.
+   *
+   * The list must be exactly this program's courses — **archived and unpublished ones included**,
+   * because they are one sequence. A subset would leave the omitted ones holding stale positions,
+   * which is an order nobody asked for.
+   *
+   * `programProcedure` already refuses anybody who does not instruct the program, so the ownership
+   * check below is the second of two gates rather than the only one.
+   */
+  reorder: programProcedure
+    .input(z.object({ courseIds: z.array(z.string().uuid()).min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwnsProgram(ctx, input.programId, "reorder the courses of");
+
+      const existing = await ctx.db.course.findMany({
+        where: { programId: input.programId },
+        select: { id: true },
+      });
+
+      const sent = new Set(input.courseIds);
+      if (sent.size !== input.courseIds.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That order lists a course twice." });
+      }
+      if (sent.size !== existing.length || !existing.every((course) => sent.has(course.id))) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "That order does not list exactly this program’s courses. Reload the page and try " +
+            "again — someone may have added or removed one.",
+        });
+      }
+
+      await writeOrder(ctx.db, "courses", input.programId, input.courseIds);
+
+      return { count: input.courseIds.length };
     }),
 
   /**
