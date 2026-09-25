@@ -18,7 +18,8 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * **No cohort filter, deliberately.** A team set is a partition of the whole roster and every
  * fellow's select has to be reachable; narrowing to one cohort would hide the fellows an instructor
  * still has to place, and a set with somebody left off it silently gives that fellow no work to
- * accept.
+ * accept. The cohorts are fetched all the same, because the screen groups the roster under them
+ * and Distribute evenly can keep each cohort's fellows together.
  *
  * The roster is fetched from the cohorts router rather than the course, because it is already the
  * list of active enrollments with their fellows and there is no second version of that list to
@@ -42,10 +43,13 @@ async function Teams({ params }: { params: Promise<{ courseId: string }> }) {
   // the course. The heading reads it too, so it is one read serving both.
   const course = await queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId }));
 
-  const [teamSets, roster] = await Promise.all([
+  const [teamSets, roster, cohorts] = await Promise.all([
     queryClient.fetchQuery(trpc.teamSets.listForCourse.queryOptions({ courseId })),
     queryClient.fetchQuery(
       trpc.cohorts.membershipsForProgram.queryOptions({ programId: course.program.id }),
+    ),
+    queryClient.fetchQuery(
+      trpc.cohorts.listForProgram.queryOptions({ programId: course.program.id }),
     ),
   ]);
 
@@ -60,7 +64,12 @@ async function Teams({ params }: { params: Promise<{ courseId: string }> }) {
               `${teamSets.sets.length === 1 ? "team set" : "team sets"}`
         }
       />
-      <TeamSetManager courseId={courseId} data={teamSets} roster={roster} />
+      <TeamSetManager
+        courseId={courseId}
+        data={teamSets}
+        roster={roster}
+        cohorts={cohorts.cohorts}
+      />
     </div>
   );
 }

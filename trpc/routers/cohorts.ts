@@ -124,10 +124,6 @@ export const cohortsRouter = createTRPCRouter({
    * `localeCompare` rather than `<`, so accented names file beside their unaccented spelling and a
    * capital letter does not sort a name above every lowercase one. The locale is named rather than
    * left to the server's, so the order does not depend on where this runs.
-   *
-   * It is also what makes the team sets screen's "distribute evenly" repeatable: that button deals
-   * this list round-robin, so an unordered list would have dealt the same roster differently every
-   * time it was pressed.
    */
   membershipsForProgram: programProcedure.query(async ({ ctx, input }) => {
     const enrollments = await ctx.db.enrollment.findMany({

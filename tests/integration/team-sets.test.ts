@@ -69,8 +69,7 @@ async function refuses(work: () => Promise<unknown>): Promise<boolean> {
  *
  * Three rather than two, and the reason is the move: placement is a partition, so moving somebody
  * from one team to another is a delete and an insert against one unique key, and with two people
- * and two teams that passes whether the move happened or a stale row survived. Three also makes
- * "distribute evenly" uneven, which is the arithmetic worth checking.
+ * and two teams that passes whether the move happened or a stale row survived.
  */
 async function fixture(tx: Tx) {
   const world = await makeWorld(tx, { students: 3 });
@@ -116,23 +115,30 @@ describe("the procedures", () => {
     outsider = await outsiderOf(tx());
   });
 
-  it("creating a set makes the teams it was asked for", async () => {
+  it("creating a set makes no teams; those come afterwards", async () => {
     const created = await createCaller(tx(), world.instructorId).teamSets.create({
       courseId: world.courseId,
       name: setName("Set A"),
-      teamCount: 2,
     });
     setId = created.id;
-    expect(created._count.teams).toBe(2);
+    expect((await thisSet()).teams).toEqual([]);
   });
 
-  it("the teams are named and ordered from one", async () => {
-    const set = await thisSet();
-    [teamOne, teamTwo] = set.teams;
-    expect(set.teams.map((team) => [team.name, team.position])).toEqual([
+  it("adding two teams at once names and orders them from one", async () => {
+    const added = await createCaller(tx(), world.instructorId).teamSets.addTeam({
+      teamSetId: setId,
+      count: 2,
+    });
+    expect(added.map((team) => [team.name, team.position])).toEqual([
       ["Team 1", 0],
       ["Team 2", 1],
     ]);
+  });
+
+  it("and the set now holds them in that order", async () => {
+    const set = await thisSet();
+    [teamOne, teamTwo] = set.teams;
+    expect(set.teams.map((team) => team.id)).toEqual([teamOne.id, teamTwo.id]);
   });
 
   it("a new set holds nobody", async () => {
@@ -190,10 +196,10 @@ describe("the procedures", () => {
   });
 
   it("a team added later is named from its position", async () => {
-    const third = await createCaller(tx(), world.instructorId).teamSets.addTeam({
+    const [third] = await createCaller(tx(), world.instructorId).teamSets.addTeam({
       teamSetId: setId,
     });
-    expect([third.name, third.position]).toEqual(["Team 3", 2]);
+    expect([third!.name, third!.position]).toEqual(["Team 3", 2]);
   });
 
   it("a team can be renamed", async () => {
@@ -228,7 +234,6 @@ describe("the procedures", () => {
       createCaller(tx(), world.students[0]!.studentId).teamSets.create({
         courseId: world.courseId,
         name: setName("Nope"),
-        teamCount: 2,
       }),
     );
     expect(code).toBe("FORBIDDEN");
@@ -257,10 +262,12 @@ describe("the procedures", () => {
     const otherSet = await createCaller(tx(), world.instructorId).teamSets.create({
       courseId: world.courseId,
       name: setName("Set C"),
-      teamCount: 1,
     });
     otherSetId = otherSet.id;
-    otherTeamId = (await setsOf()).find((row) => row.id === otherSetId)!.teams[0]!.id;
+    const [otherTeam] = await createCaller(tx(), world.instructorId).teamSets.addTeam({
+      teamSetId: otherSetId,
+    });
+    otherTeamId = otherTeam!.id;
 
     const code = await refusal(() =>
       createCaller(tx(), world.instructorId).teamSets.setPlacements({
@@ -306,13 +313,11 @@ describe("a duplicate set name", () => {
     await createCaller(tx(), world.instructorId).teamSets.create({
       courseId: world.courseId,
       name: setName("Duplicate"),
-      teamCount: 1,
     });
     const code = await refusal(() =>
       createCaller(tx(), world.instructorId).teamSets.create({
         courseId: world.courseId,
         name: setName("Duplicate"),
-        teamCount: 1,
       }),
     );
     expect(code).toBe("CONFLICT");

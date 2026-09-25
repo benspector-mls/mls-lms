@@ -38,13 +38,13 @@ const teamSetName = z.string().trim().min(1, "A team set needs a name.").max(120
 const teamName = z.string().trim().min(1, "A team needs a name.").max(120);
 
 /**
- * How many teams a new set is created with.
+ * How many teams one call to `addTeam` makes.
  *
- * One is allowed: a class of four doing one project together is a set of one team, and refusing
- * it would send an instructor looking for a different feature. The ceiling is a guard against a
- * typo in a number field, not a considered maximum.
+ * One is the default and is allowed on its own: a class of four doing one project together is a
+ * set of one team, and refusing it would send an instructor looking for a different feature. The
+ * ceiling is a guard against a typo in a number field, not a considered maximum.
  */
-const teamCount = z.number().int().min(1, "A set needs at least one team.").max(60);
+const teamsToAdd = z.number().int().min(1, "Add at least one team.").max(60).default(1);
 
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string, what: "team set" | "team"): never {
@@ -146,18 +146,17 @@ export const teamSetsRouter = createTRPCRouter({
   }),
 
   /**
-   * Creates a set and the teams in it, in one act.
+   * Creates a set with a name and no teams.
    *
-   * **The count is asked for here rather than teams being added one at a time**, because a set
-   * exists to divide a cohort and a set with no teams divides nothing — it is a half-made thing
-   * that every screen would then have to describe. Asking how many produces something usable
-   * immediately, and `addTeam` below covers the case that turns up later.
-   *
-   * The teams are named "Team 1" through "Team N" and are renameable. Positions are what they are
-   * ordered by, so "Team 4" does not sort after "Team 12" the way a list ordered by name would.
+   * **No teams here, deliberately.** How many teams a set holds is the answer to a question the
+   * screen asks next — "how many?", or "teams of three, and keep the cohorts together" — and the
+   * second of those is arithmetic over the roster that the screen does before calling `addTeam`
+   * with the result. Asking for a count at creation would ask the same question twice with the
+   * first answer usually wrong. An empty set is a normal, short-lived state: the screen's next
+   * action on one is to make its teams.
    */
   create: courseProcedure
-    .input(z.object({ name: teamSetName, teamCount }))
+    .input(z.object({ name: teamSetName }))
     .mutation(async ({ ctx, input }) => {
       try {
         const course = await ctx.db.course.findUniqueOrThrow({
@@ -176,21 +175,8 @@ export const teamSetsRouter = createTRPCRouter({
             */
             programId: course.programId,
             name: input.name,
-            /*
-              `courseId` is deliberately absent from each team. `Team.teamSet` is a composite
-              relation over `(teamSetId, courseId)`, so Prisma owns both columns and fills them
-              from the parent — and rejects a nested create that sets either by hand. That is
-              also the guarantee: a team cannot be created into a course its set does not belong
-              to, because nothing here gets to say which course it is.
-            */
-            teams: {
-              create: Array.from({ length: input.teamCount }, (_, index) => ({
-                name: `Team ${index + 1}`,
-                position: index,
-              })),
-            },
           },
-          select: { id: true, name: true, _count: { select: { teams: true } } },
+          select: { id: true, name: true },
         });
       } catch (err) {
         refuseDuplicate(err, input.name, "team set");
@@ -253,9 +239,16 @@ export const teamSetsRouter = createTRPCRouter({
       return { id: found.id, name: found.name, teamCount: found._count.teams, memberCount };
     }),
 
-  /** One more team, at the end. For the case that turns up after a set is made. */
+  /**
+   * More teams, at the end: one by default, or as many as the screen has worked out it needs.
+   *
+   * The teams are named "Team 1" through "Team N" and are renameable. Positions are what they are
+   * ordered by, so "Team 4" does not sort after "Team 12" the way a list ordered by name would.
+   * Returned in that order, with ids, because the caller that asked for several is about to place
+   * fellows on them.
+   */
   addTeam: instructorProcedure
-    .input(z.object({ teamSetId: z.string().uuid() }))
+    .input(z.object({ teamSetId: z.string().uuid(), count: teamsToAdd }))
     .mutation(async ({ ctx, input }) => {
       const set = await teachableTeamSet(ctx, input.teamSetId, {
         id: true,
@@ -272,24 +265,38 @@ export const teamSetsRouter = createTRPCRouter({
         orderBy: { position: "desc" },
         select: { position: true },
       });
-      const position = (last?.position ?? -1) + 1;
+      const first = (last?.position ?? -1) + 1;
 
       /*
-        Connected rather than given a `teamSetId` and a `courseId`, for the reason `create` above
-        omits `courseId`: the two columns belong to one composite relation, so Prisma sets them
-        together from the set named here or refuses.
+        Created through the set rather than given a `teamSetId` and a `courseId` each. `Team.teamSet`
+        is a composite relation over `(teamSetId, courseId)`, so Prisma owns both columns, fills
+        them from the parent, and rejects a nested create that sets either by hand. That is also
+        the guarantee: a team cannot be created into a course its set does not belong to, because
+        nothing here gets to say which course it is. One statement for any count, and the rows
+        read back by position so the caller gets exactly what was made, in order.
       */
       try {
-        return await ctx.db.team.create({
+        const updated = await ctx.db.teamSet.update({
+          where: { id: set.id },
           data: {
-            name: `Team ${position + 1}`,
-            position,
-            teamSet: { connect: { id_courseId: { id: set.id, courseId: set.courseId } } },
+            teams: {
+              create: Array.from({ length: input.count }, (_, index) => ({
+                name: `Team ${first + index + 1}`,
+                position: first + index,
+              })),
+            },
           },
-          select: { id: true, name: true, position: true },
+          select: {
+            teams: {
+              where: { position: { gte: first } },
+              orderBy: { position: "asc" },
+              select: { id: true, name: true, position: true },
+            },
+          },
         });
+        return updated.teams;
       } catch (err) {
-        refuseDuplicate(err, `Team ${position + 1}`, "team");
+        refuseDuplicate(err, `Team ${first + 1}`, "team");
       }
     }),
 
@@ -347,8 +354,8 @@ export const teamSetsRouter = createTRPCRouter({
    *
    * The whole set rather than "move this one", for the reason `groups.setMembers` takes the whole
    * list and `courseUnits.reorder` takes the whole order: it is idempotent, it cannot leave a
-   * half-applied state, and one procedure serves a select changed once and a "distribute evenly"
-   * button that changes everything.
+   * half-applied state, and one procedure serves a select changed once and a Distribute evenly
+   * that places everybody.
    *
    * A `teamId` of null takes a fellow off the team they are on and leaves them unplaced, which is
    * how somebody is removed without needing a second mutation.
