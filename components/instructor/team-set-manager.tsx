@@ -75,6 +75,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * two are the same act at different sizes. The card a fellow is drawn in comes from a local map
  * that the move updates before the request returns, and a refusal puts the map back to what the
  * server last said.
+ *
+ * **A set is fixed once work has been handed in through it**, except for fellows on no team. The
+ * server refuses the rest; here Move to is drawn only on the No team card, Remove only on empty
+ * teams, and Distribute evenly is disabled with the reason. A fellow on no team hands in as
+ * themselves until they are placed.
  */
 
 type TeamSets = RouterOutputs["teamSets"]["listForCourse"];
@@ -430,6 +435,12 @@ function TeamSetRow({
     [cohorts],
   );
 
+  /** How many are on a team right now, from the same local map the cards draw from. */
+  const countFor = React.useCallback(
+    (teamId: string) => membersOf.get(teamId)?.length ?? 0,
+    [membersOf],
+  );
+
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border border-border">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -495,6 +506,11 @@ function TeamSetRow({
                   {set.assignmentCount === 1 ? "assignment" : "assignments"}
                 </span>
               )}
+              {set.frozen && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  fixed
+                </span>
+              )}
             </CollapsibleTrigger>
             <Button size="sm" variant="ghost" onClick={() => setRenaming(true)}>
               <Pencil data-icon="inline-start" />
@@ -552,6 +568,13 @@ function TeamSetRow({
               <Plus data-icon="inline-start" />
               Create teams
             </Button>
+            {set.frozen && (
+              <span className="text-xs text-muted-foreground">
+                Work has been handed in through this set, so fellows already on a team stay where
+                they are. Fellows on no team can still be placed, and hand in as themselves until
+                they are. For a different arrangement, make a new set.
+              </span>
+            )}
           </div>
 
           {makingTeams && (
@@ -559,6 +582,7 @@ function TeamSetRow({
               set={set}
               roster={roster}
               cohorts={cohorts}
+              frozen={set.frozen}
               onDone={() => {
                 setMakingTeams(false);
                 onChanged();
@@ -577,7 +601,9 @@ function TeamSetRow({
                 team={null}
                 fellows={membersOf.get(null) ?? []}
                 sections={sections}
+                countFor={countFor}
                 cohortLabel={cohorts.length > 0 ? cohortName : () => null}
+                frozen={set.frozen}
                 busy={place.isPending}
                 onMove={moveFellow}
               />
@@ -595,6 +621,8 @@ function TeamSetRow({
                       team={team}
                       fellows={membersOf.get(team.id) ?? []}
                       sections={sections}
+                      countFor={countFor}
+                      frozen={set.frozen}
                       /*
                         A guest is labelled: somebody on a Cohort A team who is not in Cohort A
                         is the one fact about the card an instructor working one cohort would
@@ -632,15 +660,20 @@ function TeamCard({
   team,
   fellows,
   sections,
+  countFor,
   cohortLabel,
+  frozen,
   busy,
   onMove,
 }: {
   team: Team | null;
   fellows: Fellow[];
   sections: Section[];
+  countFor: (teamId: string) => number;
   /** What to print after a fellow's name about their cohort, or null for nothing. */
   cohortLabel: (entry: Fellow) => string | null;
+  /** Work has been handed in through the set: only the No team card may move anybody. */
+  frozen: boolean;
   busy: boolean;
   onMove: (entry: Fellow, teamId: string | null, teamName: string) => void;
 }) {
@@ -724,15 +757,18 @@ function TeamCard({
                   <Pencil data-icon="inline-start" />
                   Rename
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setConfirmingRemove(true)}
-                >
-                  <Trash2 data-icon="inline-start" />
-                  Remove
-                </Button>
+                {/* In a fixed set, removing a team with members would move them; only an empty one can go. */}
+                {(!frozen || fellows.length === 0) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setConfirmingRemove(true)}
+                  >
+                    <Trash2 data-icon="inline-start" />
+                    Remove
+                  </Button>
+                )}
               </>
             )}
           </>
@@ -788,7 +824,16 @@ function TeamCard({
                   {labelFor(entry)}
                   {label && <span className="ml-1.5 text-xs text-muted-foreground">· {label}</span>}
                 </span>
-                <MoveTo entry={entry} team={team} sections={sections} busy={busy} onMove={onMove} />
+                {(!frozen || team === null) && (
+                  <MoveTo
+                    entry={entry}
+                    team={team}
+                    sections={sections}
+                    countFor={countFor}
+                    busy={busy}
+                    onMove={onMove}
+                  />
+                )}
               </li>
             );
           })}
@@ -809,12 +854,14 @@ function MoveTo({
   entry,
   team,
   sections,
+  countFor,
   busy,
   onMove,
 }: {
   entry: Fellow;
   team: Team | null;
   sections: Section[];
+  countFor: (teamId: string) => number;
   busy: boolean;
   onMove: (entry: Fellow, teamId: string | null, teamName: string) => void;
 }) {
@@ -840,7 +887,11 @@ function MoveTo({
             {section.label && <DropdownMenuLabel>{section.label}</DropdownMenuLabel>}
             {section.teams.map((other) => (
               <DropdownMenuItem key={other.id} onClick={() => onMove(entry, other.id, other.name)}>
-                {other.name}
+                <span className="flex-1">{other.name}</span>
+                {/* How many are there now, so the smallest team is visible without opening it. */}
+                <span className="ml-3 text-xs tabular-nums text-muted-foreground">
+                  {countFor(other.id)}
+                </span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuGroup>
@@ -878,18 +929,23 @@ function CreateTeamsPanel({
   set,
   roster,
   cohorts,
+  frozen,
   onDone,
   onCancel,
 }: {
   set: TeamSet;
   roster: Roster;
   cohorts: Cohort[];
+  /** Distribute evenly moves everybody, which a fixed set refuses; empty teams can still be added. */
+  frozen: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const trpc = useTRPC();
 
-  const [mode, setMode] = React.useState<CreateMode>(roster.length > 0 ? "distribute" : "count");
+  const [mode, setMode] = React.useState<CreateMode>(
+    roster.length > 0 && !frozen ? "distribute" : "count",
+  );
   const [countText, setCountText] = React.useState("4");
   const [sizeText, setSizeText] = React.useState("3");
   const [keepCohorts, setKeepCohorts] = React.useState(cohorts.length > 0);
@@ -983,12 +1039,17 @@ function CreateTeamsPanel({
           size="sm"
           type="button"
           variant={mode === "distribute" ? "secondary" : "ghost"}
-          disabled={roster.length === 0}
+          disabled={roster.length === 0 || frozen}
           onClick={() => setMode("distribute")}
         >
           <Shuffle data-icon="inline-start" />
           Distribute evenly
         </Button>
+        {frozen && (
+          <span className="self-center text-xs text-muted-foreground">
+            not while work has been handed in through this set
+          </span>
+        )}
         <Button
           size="sm"
           type="button"

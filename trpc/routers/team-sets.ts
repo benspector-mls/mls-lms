@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { teachableTeam, teachableTeamSet } from "@/lib/courses/scope";
+import type { Tx } from "@/lib/prisma";
 import { syncTeamRows } from "@/lib/submissions/team";
 
 import { courseProcedure, createTRPCRouter, instructorProcedure } from "../init";
@@ -46,6 +47,16 @@ const teamName = z.string().trim().min(1, "A team needs a name.").max(120);
  */
 const teamsToAdd = z.number().int().min(1, "Add at least one team.").max(60).default(1);
 
+/**
+ * Whether any submission names a team of this set — after which its teams are fixed.
+ *
+ * `Submission.teamSetId` is a column, so this is one indexed count. A fellow's own row on a team
+ * assignment names no set and does not count: it is theirs, and it ties no team to anything.
+ */
+async function handedInThrough(db: Tx, teamSetId: string): Promise<boolean> {
+  return (await db.submission.count({ where: { teamSetId } })) > 0;
+}
+
 /** A duplicate name is the one collision the database refuses; say so in words. */
 function refuseDuplicate(err: unknown, name: string, what: "team set" | "team"): never {
   const code = (err as { code?: string }).code;
@@ -76,7 +87,7 @@ export const teamSetsRouter = createTRPCRouter({
    * holds four while the work it hands in belongs to three.
    */
   listForCourse: courseProcedure.query(async ({ ctx, input }) => {
-    const [sets, unplacedCount] = await Promise.all([
+    const [sets, unplacedCount, handedIn] = await Promise.all([
       ctx.db.teamSet.findMany({
         where: { courseId: input.courseId },
         orderBy: { name: "asc" },
@@ -114,7 +125,18 @@ export const teamSetsRouter = createTRPCRouter({
           status: "ACTIVE",
         },
       }),
+      /*
+        Which sets work has been handed in through — see `frozen` below. One read for every set
+        rather than a count per set, distinct on the set so it returns at most one row each.
+      */
+      ctx.db.submission.findMany({
+        where: { teamSetId: { not: null }, assignment: { courseId: input.courseId } },
+        distinct: ["teamSetId"],
+        select: { teamSetId: true },
+      }),
     ]);
+
+    const frozenSetIds = new Set(handedIn.map((row) => row.teamSetId as string));
 
     return {
       sets: sets.map((set) => {
@@ -138,6 +160,12 @@ export const teamSetsRouter = createTRPCRouter({
           placedCount: placed,
           unplacedCount: Math.max(0, unplacedCount - placed),
           assignmentCount: set._count.assignments,
+          /**
+           * Whether work has been handed in through this set, after which fellows already on a
+           * team stay where they are. The screen draws Move to only on the No team card and
+           * disables Distribute evenly; `setPlacements` and `removeTeam` refuse regardless.
+           */
+          frozen: frozenSetIds.has(set.id),
         };
       }),
       /** Every active fellow in the cohort, which is the denominator each set is measured against. */
@@ -331,6 +359,7 @@ export const teamSetsRouter = createTRPCRouter({
       const team = await teachableTeam(ctx, input.teamId, {
         id: true,
         name: true,
+        teamSetId: true,
         _count: { select: { memberships: true, submissions: true } },
       });
 
@@ -341,6 +370,20 @@ export const teamSetsRouter = createTRPCRouter({
             `"${team.name}" has already handed work in, so it cannot be removed — its ` +
             `submissions name it, and one of them may carry a grade that has gone out. Move its ` +
             `members to another team instead.`,
+        });
+      }
+
+      /*
+        Removing a team takes its members off it, which in a fixed set is the move `setPlacements`
+        refuses — so it is refused here too, for a team with anybody on it. An empty team can go.
+      */
+      if (team._count.memberships > 0 && (await handedInThrough(ctx.db, team.teamSetId))) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            `Work has been handed in through this set, so "${team.name}" keeps its ` +
+            `${team._count.memberships} ${team._count.memberships === 1 ? "member" : "members"}. ` +
+            `For a different arrangement, make a new set.`,
         });
       }
 
@@ -364,6 +407,13 @@ export const teamSetsRouter = createTRPCRouter({
    * to this set**, both checked rather than trusted. The foreign keys already refuse a team from
    * another set and a student from another cohort — that is what the composite keys are for — but
    * a refusal arriving as a constraint error is one an instructor cannot act on.
+   *
+   * **Once work has been handed in through the set, fellows already on a team stay where they
+   * are.** Moving one would put them in line for work their new team has already handed in, or
+   * take them off work their old team's grade describes — neither is something a shuffle should be
+   * able to do by accident. Placing a fellow who is on no team is still allowed: that is how a late
+   * arrival gets onto a team at all, and until then they hand in as themselves. A different
+   * arrangement is a new set.
    */
   setPlacements: instructorProcedure
     .input(
@@ -442,6 +492,17 @@ export const teamSetsRouter = createTRPCRouter({
       });
 
       const currentTeam = new Map(existing.map((row) => [row.enrollmentId, row.teamId]));
+
+      const wouldMove = existing.filter((row) => wanted.get(row.enrollmentId) !== row.teamId);
+      if (wouldMove.length > 0 && (await handedInThrough(ctx.db, set.id))) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Work has been handed in through this set, so fellows already on a team stay where " +
+            "they are. You can still place fellows who are on no team. For a different " +
+            "arrangement, make a new set.",
+        });
+      }
 
       const toRemove = existing
         .filter((row) => wanted.get(row.enrollmentId) !== row.teamId)

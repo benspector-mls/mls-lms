@@ -131,11 +131,22 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
     ),
   );
 
-  /** The ids the mutation wants, under whichever name this assignment takes. */
-  const named = (ids: string[]) =>
-    data.grantedTo === "team"
-      ? { teamIds: ids as [string, ...string[]] }
-      : { studentIds: ids as [string, ...string[]] };
+  /**
+   * The ids the mutation wants, under whichever names this assignment takes.
+   *
+   * Team work lists teams and, after them, the fellows on no team of the set, who hand in as
+   * themselves; a row with a `student` is one of those, and goes under `studentIds`. Either list
+   * is left out when nothing selected belongs to it, since the mutation refuses an empty one.
+   */
+  const named = (ids: string[]) => {
+    const fellows = new Set(data.rows.filter((row) => row.student).map((row) => row.id));
+    const studentIds = ids.filter((id) => fellows.has(id));
+    const teamIds = ids.filter((id) => !fellows.has(id));
+    return {
+      ...(studentIds.length > 0 ? { studentIds: studentIds as [string, ...string[]] } : {}),
+      ...(teamIds.length > 0 ? { teamIds: teamIds as [string, ...string[]] } : {}),
+    };
+  };
 
   const submit = (ids: string[], extendedDueAt: Date | null) => {
     if (ids.length === 0) return;
@@ -228,7 +239,13 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
                       }
                     />
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm">{rowLabel(row)}</span>
+                      <span className="truncate text-sm">
+                        {rowLabel(row)}
+                        {/* A fellow listed among teams is one on no team, handing in alone. */}
+                        {data.grantedTo === "team" && row.student && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">· on no team</span>
+                        )}
+                      </span>
                       {row.members.length > 0 && (
                         <span className="truncate text-xs text-muted-foreground">
                           {row.members

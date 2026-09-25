@@ -1126,9 +1126,8 @@ export const submissionsRouter = createTRPCRouter({
 
       /*
         Which team the fellow hands in with, read from their own membership the way every other
-        caller reads it. A fellow on no team of the set is refused rather than given a row of their
-        own: the task is one piece of work per team, and a team of one nobody meant to create is
-        worse than being told to fix the roster.
+        caller reads it. A fellow on no team of the set gets a row of their own, as they do on
+        every other kind: the verdict is theirs alone, and reaches nobody else.
       */
       const team = assignment.teamSetId
         ? await teamForStudent(ctx.db, {
@@ -1136,14 +1135,6 @@ export const submissionsRouter = createTRPCRouter({
             studentId: input.studentId,
           })
         : null;
-
-      if (assignment.teamSetId && !team) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "This task is done by teams, and that fellow is not on one. Put them on a team first.",
-        });
-      }
 
       const work = await resolveTaskWork(ctx.db, {
         assignmentId: assignment.id,
@@ -1257,10 +1248,15 @@ export const submissionsRouter = createTRPCRouter({
         },
       });
 
-      /** What one row says about an agreement, or null where there is none. */
+      /**
+       * What one row says about an agreement, or null where there is none.
+       *
+       * Keyed by team on team work and by fellow otherwise — and by fellow too for a row on team
+       * work that names no team, which is a fellow on no team of the set handing in as themselves.
+       */
       const extensionFor = (key: string | null) => {
         const row = granted.find((entry) =>
-          assignment.teamSetId === null ? entry.studentId === key : entry.teamId === key,
+          entry.teamId === null ? entry.studentId === key : entry.teamId === key,
         );
 
         return row?.extendedDueAt == null
@@ -1325,17 +1321,44 @@ export const submissionsRouter = createTRPCRouter({
         },
       });
 
+      /*
+        Then every active fellow on no team of the set, as a row of their own. They hand in as
+        themselves, so a deadline is agreed with them as themselves — and left off this list they
+        could not be given one at all.
+      */
+      const unplaced = await ctx.db.enrollment.findMany({
+        where: {
+          programId: assignment.course.programId,
+          status: "ACTIVE",
+          teamMemberships: { none: { teamSetId: assignment.teamSetId } },
+        },
+        select: { student: { select: personSelect } },
+      });
+
       return {
         assignment: { id: assignment.id, title: assignment.title, dueAt: assignment.dueAt },
         grantedTo: "team" as const,
-        rows: teams.map((team) => ({
-          id: team.id,
-          // A team is nobody, so the shape carries null here and the name in `teamName`.
-          student: null,
-          teamName: team.name,
-          members: team.memberships.map((membership) => membership.enrollment.student),
-          extension: extensionFor(team.id),
-        })),
+        rows: [
+          ...teams.map((team) => ({
+            id: team.id,
+            // A team is nobody, so the shape carries null here and the name in `teamName`.
+            student: null as null | (typeof unplaced)[number]["student"],
+            teamName: team.name as string | null,
+            members: team.memberships.map((membership) => membership.enrollment.student),
+            extension: extensionFor(team.id),
+          })),
+          ...unplaced
+            .map(({ student }) => ({
+              id: student.id,
+              student,
+              teamName: null,
+              members: [] as { id: string; displayName: string | null }[],
+              extension: extensionFor(student.id),
+            }))
+            .sort((a, b) =>
+              displayNameOf(a.student, "").localeCompare(displayNameOf(b.student, "")),
+            ),
+        ],
       };
     }),
 
@@ -1380,9 +1403,8 @@ export const submissionsRouter = createTRPCRouter({
           /** Which teams it is agreed with, on work a team hands in together. */
           teamIds: z.array(z.string().uuid()).nonempty().optional(),
         })
-        .refine((value) => (value.studentIds === undefined) !== (value.teamIds === undefined), {
-          message:
-            "Name fellows or teams, not both — an assignment is handed in one way or the other.",
+        .refine((value) => value.studentIds !== undefined || value.teamIds !== undefined, {
+          message: "Name at least one fellow or team.",
         }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1442,22 +1464,15 @@ export const submissionsRouter = createTRPCRouter({
       }
 
       /*
-        The two lists are exclusive, and which one this assignment takes is decided by the
-        assignment rather than by the caller — naming teams on individual work, or fellows on team
-        work, is a request that cannot be honoured rather than one to interpret generously.
+        Which lists this assignment takes is decided by the assignment rather than by the caller.
+        Work handed in alone takes fellows only. Team work takes teams, and fellows too — but only
+        fellows on no team of the set, who hand in as themselves; a fellow who is on a team shares
+        the team's deadline, and naming them alone is a request that cannot be honoured rather than
+        one to interpret generously.
       */
       const isTeamWork = assignment.teamSetId !== null;
 
-      if (isTeamWork && input.teamIds === undefined) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "This work is handed in by teams, which share one deadline. Name the teams rather " +
-            "than their members.",
-        });
-      }
-
-      if (!isTeamWork && input.studentIds === undefined) {
+      if (!isTeamWork && input.teamIds !== undefined) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message:
@@ -1476,8 +1491,10 @@ export const submissionsRouter = createTRPCRouter({
             };
 
       return inTransaction(ctx.db, async (tx) => {
-        if (!isTeamWork) {
-          const studentIds = input.studentIds!;
+        let changed = 0;
+
+        if (input.studentIds !== undefined) {
+          const studentIds = input.studentIds;
 
           /*
             On the roster, and active. Counted rather than checked one at a time, because the whole
@@ -1499,6 +1516,25 @@ export const submissionsRouter = createTRPCRouter({
             });
           }
 
+          // On team work, only a fellow on no team of the set hands in as themselves.
+          if (isTeamWork) {
+            const onATeam = await tx.teamMembership.count({
+              where: {
+                teamSetId: assignment.teamSetId!,
+                enrollment: { studentId: { in: studentIds } },
+              },
+            });
+
+            if (onATeam > 0) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message:
+                  "This work is handed in by teams, which share one deadline. Somebody named is " +
+                  "on a team — name the team rather than its members.",
+              });
+            }
+          }
+
           for (const studentId of studentIds) {
             await tx.submission.upsert({
               where: { assignmentId_studentId: { assignmentId: assignment.id, studentId } },
@@ -1517,10 +1553,12 @@ export const submissionsRouter = createTRPCRouter({
             });
           }
 
-          return { changed: studentIds.length };
+          changed += studentIds.length;
         }
 
-        const teamIds = input.teamIds!;
+        if (input.teamIds === undefined) return { changed };
+
+        const teamIds = input.teamIds;
 
         /*
           Teams of this assignment's own set, with an active member to claim through. A team with
@@ -1574,7 +1612,7 @@ export const submissionsRouter = createTRPCRouter({
           await syncTeamRows(tx, { submissionId });
         }
 
-        return { changed: teams.length };
+        return { changed: changed + teams.length };
       });
     }),
 

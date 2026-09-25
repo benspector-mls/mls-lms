@@ -215,7 +215,9 @@ A cohort grants nothing and withholds nothing. Anybody who instructs the program
 
 The collapsed row tells you what you need before publishing: how many teams, how many fellows are placed, and — in amber — **how many are on no team**. Somebody on no team of the set an assignment is handed in by has nothing to accept at all, and this is the last screen that can say so before they notice it themselves.
 
-A set an assignment is handed in through cannot be removed, and neither can a team that has handed work in: their submissions name them and carry released grades. Move the members instead.
+**Once work has been handed in through a set, its teams are fixed.** Fellows already on a team stay where they are — moving one would put them in line for work their new team already handed in, or take them off work their old team's grade describes — and Distribute evenly is off. A fellow on **no team** can still be placed, which is how a late arrival joins; until then they accept and hand in the assignment **as themselves**, on a row of their own that is graded on its own, and that row stays theirs if they are placed afterwards. The extensions sheet lists those fellows beside the teams. For a different arrangement, make a new set and point the next assignments at it.
+
+A set an assignment is handed in through cannot be removed, and neither can a team that has handed work in: their submissions name them and carry released grades.
 
 ### Attendance
 

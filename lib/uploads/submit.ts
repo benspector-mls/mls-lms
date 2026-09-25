@@ -181,9 +181,9 @@ export async function assertCanHandIn(
     Which team this caller hands in with, when the assignment is handed in by teams at all.
 
     Read from their own membership, so there is no team id anywhere for a caller to substitute —
-    the same reason `accept` resolves it this way. A fellow on no team of the set is refused
-    rather than given a submission of their own: the assignment is one piece of work per team,
-    and a team of one nobody meant to create is worse than being told to ask.
+    the same reason `accept` resolves it this way. A fellow on no team of the set hands in as
+    themselves, on a row of their own naming no team, exactly as individual work does: they may
+    have arrived after the teams were fixed, and the work is theirs to hand in and be graded on.
   */
   let team: ResolvedTeam | null = null;
   let teamSubmissionId: string | null = null;
@@ -194,17 +194,10 @@ export async function assertCanHandIn(
       studentId: params.profileId,
     });
 
-    if (!team) {
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message:
-          "This assignment is handed in by teams, and you have not been placed on one yet. " +
-          "Ask your instructor to add you to a team.",
-      });
+    if (team) {
+      const held = await teamSubmissionFor(db, { assignmentId: assignment.id, teamId: team.id });
+      teamSubmissionId = held?.id ?? null;
     }
-
-    const held = await teamSubmissionFor(db, { assignmentId: assignment.id, teamId: team.id });
-    teamSubmissionId = held?.id ?? null;
   }
 
   /*

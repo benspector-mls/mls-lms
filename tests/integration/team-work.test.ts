@@ -772,21 +772,64 @@ describe("releasing a grade", () => {
   });
 });
 
-describe("who may hand in", () => {
+/**
+ * A fellow on no team of the set hands in as themselves.
+ *
+ * Their own row, naming no team, graded on its own — so somebody who arrived after the teams were
+ * fixed, or was never placed, is not locked out of the work. Placing them on a team afterwards
+ * leaves that row alone: it is theirs, with their own link on it, and overwriting it is not a
+ * placement's decision to make. From the next assignment on they are the team's.
+ */
+describe("a fellow on no team of the set", () => {
   const tx = withRollback();
+  let world: World;
+  let alice: Fellow;
+  let cara: Fellow;
+  let setId: string;
+  let teamId: string;
+  let assignmentId: string;
 
-  it("a fellow on no team of the set cannot hand in", async () => {
-    const world = await makeWorld(tx(), { students: 3 });
-    const [alice, bob, cara] = world.students as [Fellow, Fellow, Fellow];
-    const { assignmentId } = await teamWork(tx(), world, [alice, bob]);
+  const rowOf = (studentId: string) =>
+    tx().submission.findUniqueOrThrow({
+      where: { assignmentId_studentId: { assignmentId, studentId } },
+      select: { teamId: true, teamSubmissionId: true, artifacts: { select: { url: true } } },
+    });
 
-    const code = await refusal(() =>
-      createCaller(tx(), cara.studentId).submissions.addLink({
-        assignmentId,
-        url: "https://example.com/c",
-      }),
-    );
-    expect(code).toBe("PRECONDITION_FAILED");
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 3 });
+    let bob: Fellow;
+    [alice, bob, cara] = world.students as [Fellow, Fellow, Fellow];
+    ({ setId, teamId, assignmentId } = await teamWork(tx(), world, [alice, bob]));
+  });
+
+  it("hands in as themselves, with a row naming no team", async () => {
+    await createCaller(tx(), cara.studentId).submissions.addLink({
+      assignmentId,
+      url: "https://example.com/c",
+    });
+    const row = await rowOf(cara.studentId);
+    expect(row.teamId).toBeNull();
+    expect(row.teamSubmissionId).toBeNull();
+    expect(row.artifacts.map((artifact) => artifact.url)).toEqual(["https://example.com/c"]);
+  });
+
+  it("keeps that row when placed on the team afterwards", async () => {
+    await createCaller(tx(), world.instructorId).teamSets.setPlacements({
+      teamSetId: setId,
+      placements: [{ enrollmentId: cara.id, teamId }],
+    });
+    const row = await rowOf(cara.studentId);
+    expect(row.teamId).toBeNull();
+  });
+
+  it("and keeps it when the team then hands in", async () => {
+    await createCaller(tx(), alice.studentId).submissions.addLink({
+      assignmentId,
+      url: "https://example.com/team",
+    });
+    const row = await rowOf(cara.studentId);
+    expect(row.teamSubmissionId).toBeNull();
+    expect(row.artifacts.map((artifact) => artifact.url)).toEqual(["https://example.com/c"]);
   });
 });
 

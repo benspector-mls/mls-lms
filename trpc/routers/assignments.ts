@@ -782,27 +782,17 @@ export const assignmentsRouter = createTRPCRouter({
         Which team this student hands in with, when the assignment is handed in by teams at all.
 
         Read from their own membership rather than from anything in the input, so there is no team
-        id for a caller to substitute. A fellow on no team of the set is refused before any of the
-        four kinds below does anything: their instructor has not finished placing the cohort, and
-        the honest answer is to say so rather than to create work for a team of one.
+        id for a caller to substitute. **A fellow on no team of the set accepts as themselves** —
+        the same path as individual work, with a repository named after them rather than a team.
+        They may have arrived after the teams were fixed, or never been placed, and either way the
+        work is theirs to do and to be graded on; a placement afterwards leaves this row alone.
       */
-      let team = null;
-
-      if (assignment.teamSetId) {
-        team = await teamForStudent(ctx.db, {
-          teamSetId: assignment.teamSetId,
-          studentId: student.id,
-        });
-
-        if (!team) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "This assignment is handed in by teams, and you have not been placed on one yet. " +
-              "Ask your instructor to add you to a team.",
-          });
-        }
-      }
+      const team = assignment.teamSetId
+        ? await teamForStudent(ctx.db, {
+            teamSetId: assignment.teamSetId,
+            studentId: student.id,
+          })
+        : null;
 
       /*
         A `switch` over every kind rather than the ifs this was, so a fifth kind is a compile

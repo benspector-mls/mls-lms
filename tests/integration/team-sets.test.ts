@@ -300,6 +300,120 @@ describe("the procedures", () => {
   });
 });
 
+/**
+ * A set that work has been handed in through is fixed, except for fellows on no team.
+ *
+ * Moving somebody who is on a team would put them in line for work their new team already handed
+ * in, or take them off work their old team's grade describes; neither is a thing a shuffle should
+ * be able to do by accident. Placing somebody who is on no team is allowed, because that is how a
+ * late arrival gets onto a team at all — and a fellow on no team hands in as themselves until then.
+ */
+describe("a set that work has been handed in through", () => {
+  const tx = withRollback();
+  let world: World;
+  let setId: string;
+  let openSetId: string;
+  let teamOne: { id: string };
+  let teamTwo: { id: string };
+  let teamThree: { id: string };
+
+  const instructor = () => createCaller(tx(), world.instructorId);
+
+  const setsOf = async () =>
+    (await instructor().teamSets.listForCourse({ courseId: world.courseId })).sets;
+
+  beforeAll(async () => {
+    const built = await fixture(tx());
+    world = built.world;
+
+    const set = await instructor().teamSets.create({
+      courseId: world.courseId,
+      name: setName("Fixed"),
+    });
+    setId = set.id;
+    [teamOne, teamTwo, teamThree] = await instructor().teamSets.addTeam({
+      teamSetId: setId,
+      count: 3,
+    });
+
+    await instructor().teamSets.setPlacements({
+      teamSetId: setId,
+      placements: [
+        { enrollmentId: world.students[0]!.id, teamId: teamOne.id },
+        { enrollmentId: world.students[1]!.id, teamId: teamOne.id },
+      ],
+    });
+
+    // The assignment hands in through the set, and Team 1 has handed in. Written directly: what
+    // is under test is what the set refuses afterwards, not how work comes to be handed in.
+    await tx().assignment.update({
+      where: { id: built.assignmentId },
+      data: { teamSetId: setId },
+    });
+    await tx().submission.create({
+      data: {
+        assignmentId: built.assignmentId,
+        studentId: world.students[0]!.studentId,
+        status: "SUBMITTED",
+        teamId: teamOne.id,
+        teamSetId: setId,
+      },
+    });
+
+    const open = await instructor().teamSets.create({
+      courseId: world.courseId,
+      name: setName("Open"),
+    });
+    openSetId = open.id;
+  });
+
+  it("reads as fixed, while a set nothing was handed in through does not", async () => {
+    const sets = await setsOf();
+    expect(sets.find((row) => row.id === setId)!.frozen).toBe(true);
+    expect(sets.find((row) => row.id === openSetId)!.frozen).toBe(false);
+  });
+
+  it("refuses moving a fellow who is on a team", async () => {
+    const code = await refusal(() =>
+      instructor().teamSets.setPlacements({
+        teamSetId: setId,
+        placements: [{ enrollmentId: world.students[1]!.id, teamId: teamTwo.id }],
+      }),
+    );
+    expect(code).toBe("PRECONDITION_FAILED");
+  });
+
+  it("refuses taking a fellow off their team", async () => {
+    const code = await refusal(() =>
+      instructor().teamSets.setPlacements({
+        teamSetId: setId,
+        placements: [{ enrollmentId: world.students[1]!.id, teamId: null }],
+      }),
+    );
+    expect(code).toBe("PRECONDITION_FAILED");
+  });
+
+  it("still places a fellow who is on no team", async () => {
+    await instructor().teamSets.setPlacements({
+      teamSetId: setId,
+      placements: [{ enrollmentId: world.students[2]!.id, teamId: teamTwo.id }],
+    });
+    const set = (await setsOf()).find((row) => row.id === setId)!;
+    expect(set.teams.find((team) => team.id === teamTwo.id)!.members.length).toBe(1);
+  });
+
+  it("refuses removing a team that has members", async () => {
+    const code = await refusal(() => instructor().teamSets.removeTeam({ teamId: teamTwo.id }));
+    expect(code).toBe("PRECONDITION_FAILED");
+  });
+
+  it("still removes an empty team", async () => {
+    await instructor().teamSets.removeTeam({ teamId: teamThree.id });
+    const set = (await setsOf()).find((row) => row.id === setId)!;
+    expect(set.teams.map((team) => team.id)).toEqual([teamOne.id, teamTwo.id]);
+  });
+});
+
 /*
   A duplicate name, in its own transaction. The refusal comes from a unique constraint rather than
   from a check in the procedure, so it aborts whatever transaction it happens in — which is why it

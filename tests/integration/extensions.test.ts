@@ -28,7 +28,14 @@ import { appRouter } from "@/trpc/routers/_app";
 
 import { syncTeamRows } from "@/lib/submissions/team";
 
-import { makeAssignment, makeSubmission, makeWorld, type World } from "./fixtures";
+import {
+  enroll,
+  makeAccount,
+  makeAssignment,
+  makeSubmission,
+  makeWorld,
+  type World,
+} from "./fixtures";
 import { withRollback, type Tx } from "./transaction";
 
 const factory = createCallerFactory(appRouter);
@@ -298,8 +305,9 @@ describe("what an extension is refused for", () => {
     ).toBe("PRECONDITION_FAILED");
   });
 
-  // Neither list, or both, is refused by the input schema before any of the above is consulted.
-  it("refuses naming both lists, or neither", async () => {
+  // Neither list is refused by the input schema before any of the above is consulted; both lists
+  // on work handed in alone fail on the teams, as naming teams alone does.
+  it("refuses naming both lists on work handed in alone, or neither", async () => {
     expect(
       await refusal(() =>
         asInstructor().submissions.grantExtensions({
@@ -309,7 +317,7 @@ describe("what an extension is refused for", () => {
           extendedDueAt: EXTENDED,
         }),
       ),
-    ).toBe("BAD_REQUEST");
+    ).toBe("PRECONDITION_FAILED");
 
     expect(
       await refusal(() =>
@@ -728,29 +736,52 @@ describe("a deadline agreed about team work", () => {
     }
   });
 
-  it("refuses a fellow who is on no team of the set", async () => {
-    const set = await tx().teamSet.create({
-      data: {
-        courseId: world.courseId,
-        programId: world.programId,
-        name: "Integration Extension Empty Teams",
-        teams: { create: [{ name: "Team 1", position: 0 }] },
-      },
-      select: { id: true },
+  /*
+    A fellow on no team of the set hands in as themselves, so a deadline is agreed with them as
+    themselves: named in `studentIds` on team work, written to their own row, reaching nobody else.
+    A fellow who *is* on a team cannot be named that way — their deadline is the team's.
+  */
+  // A fourth fellow, since the check above put the third on the team.
+  let dave: string;
+
+  it("lists a fellow who is on no team of the set as their own row", async () => {
+    dave = await makeAccount(tx());
+    await enroll(tx(), { programId: world.programId, studentId: dave });
+
+    const listed = await createCaller(tx(), world.instructorId).submissions.extensionsForAssignment(
+      { assignmentId },
+    );
+    const own = listed.rows.find((row) => row.student?.id === dave);
+    expect(own).toMatchObject({ id: dave, teamName: null, extension: null });
+    expect(listed.rows.filter((row) => row.teamName !== null)).toHaveLength(1);
+  });
+
+  it("agrees a deadline with a fellow who is on no team, as themselves", async () => {
+    await createCaller(tx(), world.instructorId).submissions.grantExtensions({
+      assignmentId,
+      studentIds: [dave],
+      extendedDueAt: EXTENDED,
     });
 
-    const assignment = await makeAssignment(tx(), {
-      courseId: world.courseId,
-      courseUnitId: world.unitId,
-      title: "Integration Extension No Team",
-      dueAt: DUE,
-      teamSetId: set.id,
+    const row = await tx().submission.findUniqueOrThrow({
+      where: { assignmentId_studentId: { assignmentId, studentId: dave } },
+      select: { teamId: true, extendedDueAt: true },
     });
+    expect(row.teamId).toBeNull();
+    expect(row.extendedDueAt).toEqual(EXTENDED);
 
+    const listed = await createCaller(tx(), world.instructorId).submissions.extensionsForAssignment(
+      { assignmentId },
+    );
+    const own = listed.rows.find((row) => row.student?.id === dave);
+    expect(own?.extension?.extendedDueAt).toEqual(EXTENDED);
+  });
+
+  it("refuses naming a fellow who is on a team as themselves", async () => {
     expect(
       await refusal(() =>
         createCaller(tx(), world.instructorId).submissions.grantExtensions({
-          assignmentId: assignment.id,
+          assignmentId,
           studentIds: [world.students[0]!.studentId],
           extendedDueAt: EXTENDED,
         }),
