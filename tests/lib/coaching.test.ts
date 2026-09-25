@@ -5,6 +5,7 @@ import {
   DEVELOPMENT_MARKERS,
   MARKER_META,
   parseSnapshot,
+  REVISITING_GOALS_PROMPTS,
   sessionAnswersSchema,
   SNAPSHOT_VERSION,
   type CoachingSnapshot,
@@ -108,10 +109,27 @@ describe("the development markers", () => {
   });
 });
 
-describe("the additional-notes prompt", () => {
-  it("has an id no check-in prompt uses, and is the last of every prompt", () => {
-    expect(CHECK_IN_PROMPTS.map((prompt) => prompt.id)).not.toContain(ADDITIONAL_NOTES_PROMPT.id);
-    expect(ALL_PROMPTS.at(-1)).toBe(ADDITIONAL_NOTES_PROMPT);
-    expect(ALL_PROMPTS).toHaveLength(CHECK_IN_PROMPTS.length + 1);
+describe("the revisiting-goals prompts", () => {
+  it("phrases every prompt as a question to the fellow", () => {
+    for (const prompt of REVISITING_GOALS_PROMPTS) {
+      expect(prompt.prompt.endsWith("?")).toBe(true);
+    }
+  });
+});
+
+describe("every prompt together", () => {
+  /*
+    The ids are what a stored answer is found by, so a collision would show one fellow's answer
+    under another question.
+  */
+  it("keeps every id unique across the three lists", () => {
+    const ids = ALL_PROMPTS.map((prompt) => prompt.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("asks the check-in, then the notes, then the goal questions", () => {
+    expect(ALL_PROMPTS).toHaveLength(CHECK_IN_PROMPTS.length + 1 + REVISITING_GOALS_PROMPTS.length);
+    expect(ALL_PROMPTS[CHECK_IN_PROMPTS.length]).toBe(ADDITIONAL_NOTES_PROMPT);
+    expect(ALL_PROMPTS.at(-1)).toBe(REVISITING_GOALS_PROMPTS.at(-1));
   });
 });

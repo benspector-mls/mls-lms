@@ -34,10 +34,10 @@ export const CHECK_IN_PROMPTS = [
   { id: "excited", prompt: "What are you most excited to work on at the moment?" },
   { id: "challenging", prompt: "Has anything been proving particularly challenging recently?" },
   {
-    id: "gap",
-    prompt: "Where do you notice a gap between where you are and where you want to be?",
+    id: "progress",
+    prompt:
+      "Where have you made progress over the past few weeks / where have you felt most successful?",
   },
-  { id: "stuck", prompt: "When do you feel stuck, unclear, or unsure of how to move forward?" },
   { id: "support", prompt: "What kind of support or accountability would feel helpful?" },
 ] as const;
 
@@ -55,15 +55,40 @@ export type CheckInPromptId = (typeof CHECK_IN_PROMPTS)[number]["id"];
  * The answers column already holds labelled, staff-only prose on a draft session, autosaved and
  * with the label copied in at save — which is everything this field needs. Kept apart from
  * `CHECK_IN_PROMPTS` so that the check-in list renders unchanged and the form can give this a
- * section of its own, after the check-in and before the fellow's goals.
+ * section of its own, after the check-in and before the goal questions.
  */
 export const ADDITIONAL_NOTES_PROMPT = {
   id: "additional-notes",
   prompt: "Additional notes",
 } as const;
 
-/** Every prompt an answer may be stored under: the check-ins, and the notes. */
-export const ALL_PROMPTS = [...CHECK_IN_PROMPTS, ADDITIONAL_NOTES_PROMPT] as const;
+/**
+ * The half of the session spent on the goals the fellow already set: what moved, what shows it,
+ * and what changes next time. Staff-only prose like the check-in, stored the same way, and asked
+ * after the instructor's notes because the fellow's goals are listed under it on the form.
+ */
+export const REVISITING_GOALS_PROMPTS = [
+  {
+    id: "goal-progress",
+    prompt:
+      "What progress have you made toward the goal you set during your last coaching session?",
+  },
+  { id: "goal-evidence", prompt: "What evidence, artifact, or example shows that progress?" },
+  {
+    id: "goal-adjustment",
+    prompt: "What helped or got in the way, and what would you adjust moving forward?",
+  },
+] as const;
+
+/**
+ * Every prompt an answer may be stored under, in the order the form asks them: the check-ins, the
+ * notes, and the goal questions.
+ */
+export const ALL_PROMPTS = [
+  ...CHECK_IN_PROMPTS,
+  ADDITIONAL_NOTES_PROMPT,
+  ...REVISITING_GOALS_PROMPTS,
+] as const;
 
 export const sessionAnswersSchema = z.array(
   z

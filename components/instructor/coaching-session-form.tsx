@@ -25,6 +25,7 @@ import {
   ADDITIONAL_NOTES_PROMPT,
   ALL_PROMPTS,
   CHECK_IN_PROMPTS,
+  REVISITING_GOALS_PROMPTS,
   TEMPERATURE_MAX,
   TEMPERATURE_MIN,
   parseSnapshot,
@@ -181,6 +182,40 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
 
   const strip = completed ? parseSnapshot(data.snapshot) : data.figures;
 
+  /*
+    One labelled prose answer, drawn the same way wherever it is asked — the check-in and the goal
+    questions differ only in which list they come from.
+  */
+  const promptField = (prompt: { id: string; prompt: string }) => {
+    const stored = data.answers.find((answer) => answer.promptId === prompt.id);
+    return (
+      <div key={prompt.id} className="flex flex-col gap-1.5">
+        {/*
+          A completed session shows the prompt as it was asked — the stored copy — where a draft
+          shows the template's current wording, which is what saving will copy.
+        */}
+        <Label htmlFor={`coaching-${prompt.id}`} className="text-sm font-medium">
+          {completed && stored ? stored.prompt : prompt.prompt}
+        </Label>
+        {completed ? (
+          <p className={cn("text-sm", !stored && "text-muted-foreground")}>
+            {stored?.answer || "Not discussed."}
+          </p>
+        ) : (
+          <Textarea
+            id={`coaching-${prompt.id}`}
+            value={answers[prompt.id] ?? ""}
+            onChange={(event) => editAnswer(prompt.id, event.target.value)}
+            onBlur={flush}
+            rows={2}
+            maxLength={20_000}
+            placeholder="In their words, roughly."
+          />
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4">
@@ -212,41 +247,13 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
       <section className="flex flex-col gap-3">
         <SectionHeading title="Check-in" audience="staff" />
         <div className="flex flex-col gap-4">
-          {CHECK_IN_PROMPTS.map((prompt) => {
-            const stored = data.answers.find((answer) => answer.promptId === prompt.id);
-            return (
-              <div key={prompt.id} className="flex flex-col gap-1.5">
-                {/*
-                  A completed session shows the prompt as it was asked — the stored copy — where a
-                  draft shows the template's current wording, which is what saving will copy.
-                */}
-                <Label htmlFor={`coaching-${prompt.id}`} className="text-sm font-medium">
-                  {completed && stored ? stored.prompt : prompt.prompt}
-                </Label>
-                {completed ? (
-                  <p className={cn("text-sm", !stored && "text-muted-foreground")}>
-                    {stored?.answer || "Not discussed."}
-                  </p>
-                ) : (
-                  <Textarea
-                    id={`coaching-${prompt.id}`}
-                    value={answers[prompt.id] ?? ""}
-                    onChange={(event) => editAnswer(prompt.id, event.target.value)}
-                    onBlur={flush}
-                    rows={2}
-                    maxLength={20_000}
-                    placeholder="In their words, roughly."
-                  />
-                )}
-              </div>
-            );
-          })}
+          {CHECK_IN_PROMPTS.map((prompt) => promptField(prompt))}
         </div>
       </section>
 
       {/*
-        After the check-in and before the goals: the instructor's own half of the form ends here,
-        and what follows is the fellow's. Stored among the answers under its own prompt id — see
+        After the check-in and before the goal questions: anything from the conversation that no
+        prompt asked for. Stored among the answers under its own prompt id — see
         `ADDITIONAL_NOTES_PROMPT` — so it saves, copies its label, and stays staff-only exactly as
         the check-in does.
       */}
@@ -270,11 +277,21 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         )}
       </section>
 
+      {/*
+        The goals the fellow already set, and the three questions asked about them. The questions
+        are answered in the instructor's words and stay staff-only; the goals underneath are the
+        fellow's own, which is why each heading carries its own audience.
+      */}
       <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-medium">
+        <SectionHeading title="Revisiting goals" audience="staff" />
+        <div className="flex flex-col gap-4">
+          {REVISITING_GOALS_PROMPTS.map((prompt) => promptField(prompt))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <h3 className="text-sm font-medium">
             {fellowName}&apos;s goals · {data.goals.length}
-          </h2>
+          </h3>
           <Badge variant="outline" className="font-normal text-muted-foreground">
             Theirs to edit
           </Badge>
