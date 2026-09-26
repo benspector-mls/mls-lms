@@ -1232,7 +1232,7 @@ function Editor({
               )}
 
               <Field
-                label={isTaskKind(state.kind) ? "What to do" : "Submission instructions"}
+                label={"Assignment instructions"}
                 findings={fieldFindings("submissionInstructions")}
                 /*
                   The field is markdown and the student reads it rendered, so the button shows it
@@ -1256,11 +1256,7 @@ function Editor({
                   </Button>
                 }
                 hint={
-                  isRepoKind(state.kind)
-                    ? "Optional, in markdown. The draft-branch-and-pull-request steps are already shown, so this is for anything specific to this assignment."
-                    : isTaskKind(state.kind)
-                      ? "In markdown, and the whole of what a fellow is told. There is nothing to hand in, so this is what says what to do and how they will know it is done."
-                      : "Optional, in markdown. How to hand the work in — this kind has no ritual of its own, so anything the student needs to know goes here."
+                  "Optional, in markdown. Instructions for how to setup and hand in this assignment."
                 }
               >
                 {/*
