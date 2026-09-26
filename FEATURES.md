@@ -233,7 +233,7 @@ A set an assignment is handed in through cannot be removed, and neither can a te
 
 **Add a day the calendar has none for.** A blank square today or later is an offer: press it and a dialog says what the day will look like before you make it. That is how a holiday that turned out not to be one comes back, and how a make-up Saturday is added. A day already behind cannot be made this way, because a code for a morning that has been and gone is useless; write that day up by hand from its own screen instead.
 
-**Three tabs, in the order they are asked about.** **Today** is the morning's board. **The whole term** is the record: the grid, who is drifting, the arrival averages and the export. **Schedule** is which days exist — the rule, the calendar it produces, and the printable codes. Everything about attendance is on this one screen; the program's settings screen is about what the program is and who runs it.
+**Three tabs, in the order they are asked about.** **Today** is the morning's board. **The whole term** is the record: the grid, who is drifting, and the export. **Schedule** is which days exist — the rule, the calendar it produces, and the printable codes. Everything about attendance is on this one screen; the program's settings screen is about what the program is and who runs it.
 
 **Each column of the grid says how many turned up.** A rate per day sits at the top of the grid, under the date and above the fellows, so one bad morning in a term is visible without counting a column of letters. The dates stay put as you scroll down the roster.
 
@@ -253,7 +253,7 @@ Two things prove two different facts, and separating them is the point: the code
 
 **Started one by mistake?** Delete it, as long as nobody has checked in — a session on the wrong date would otherwise mark the whole roster absent for a day they were never expected.
 
-**The whole term** is the second tab, and it holds three things. A short list of **who is drifting**, with the rule printed beside it. A list of **when people arrive**. And a grid of every fellow against every session, where clicking a date opens that session to correct it. The drift list is recent rather than cumulative, because somebody at 88 percent who has missed this week is the person to call today. The grid downloads as a CSV with one row per fellow per session, and a column saying whether each mark came from the fellow or from staff.
+**The whole term** is the second tab, and it holds two things. A short list of **who is drifting**, with the rule printed beside it. And a grid of every fellow against every session, where clicking a date opens that session to correct it, with an **Arrives** column beside the rate saying when each fellow usually checks in. The drift list is recent rather than cumulative, because somebody at 88 percent who has missed this week is the person to call today. The grid downloads as a CSV with one row per fellow per session, and a column saying whether each mark came from the fellow or from staff.
 
 **When somebody arrives is the other half of the record, and it answers a different question from whether they turned up.** A fellow marked present at 10:47 every Monday has a perfect attendance rate and a problem. So each fellow's average check-in time is reported overall and by day of the week — "on average they check in at 10:20 AM, but on Mondays at 10:47 AM" — on this screen for everybody at once, on their own record when you open one, and on the fellow's own attendance page so they can read it before you mention it.
 

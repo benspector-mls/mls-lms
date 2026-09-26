@@ -26,7 +26,7 @@ import {
 } from "@/lib/attendance/summary";
 import { attendanceDayHref, programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
-import { formatSchoolDay, formatSchoolDayShort } from "@/lib/school-time";
+import { formatClockMinutes, formatSchoolDay, formatSchoolDayShort } from "@/lib/school-time";
 import { formatPercent } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
@@ -39,10 +39,12 @@ import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
  * three people. So the short list comes first, with the rule printed beside it so nobody has to
  * wonder what qualified somebody — and the grid sits below for the reader who wants to check.
  *
- * **The arrival list sits between them and answers a different question.** Drift is about who is
- * missing; this is about who is late, which one check-in a day would otherwise have hidden — a fellow
- * marked present at 10:47 every Monday has a perfect record and a problem. It reads across the roster
- * rather than one fellow at a time, because the pattern is what makes it worth mentioning at all.
+ * **When people arrive is a column of the grid rather than a list.** Drift is about who is missing;
+ * arrival is about who is late, which one check-in a day would otherwise have hidden — a fellow
+ * marked present at 10:47 every Monday has a perfect record and a problem. A list of it was a row per
+ * fellow for a roster that mostly arrives on time, so the average sits beside the rate, where a
+ * reader scanning down a column sees the one late figure among the nine o'clocks. The weekday detail
+ * is on the fellow's own record, and the hover on the cell says it in a sentence.
  *
  * The grid copies `gradebook.tsx` exactly: an `overflow-x-auto` wrapper, a sticky name column,
  * summary columns before the day columns, and removed fellows in a second table below with their
@@ -94,20 +96,6 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
   const drifting = driftList(data.active, data.sessions);
   const rate = programRate(data.active);
 
-  /*
-    Only the fellows there is something to say about, and test students are left out for the reason
-    every figure on this screen leaves them out. A row per fellow would be twenty-five sentences,
-    most of them "on average they check in at 9:02" — which is the whole roster arriving on time and
-    not worth a list.
-  */
-  const arriving = data.active
-    .filter((summary) => summary.fellow.testStudentNumber === null)
-    .map((summary) => ({
-      summary,
-      averages: data.arrivals[summary.fellow.enrollmentId],
-    }))
-    .filter((entry) => entry.averages !== undefined && arrivalSentence(entry.averages) !== null);
-
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2">
@@ -156,37 +144,6 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
         )}
       </section>
 
-      {arriving.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-sm font-medium">When people arrive · {arriving.length}</h2>
-            <p className="text-xs text-muted-foreground">
-              The average check-in time of every fellow who has checked in enough times to have one,
-              and the weekday that drifts furthest from it. Only mornings they checked in are
-              counted, so an absence neither raises nor lowers these.
-            </p>
-          </div>
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {arriving.map((entry) => (
-              <li
-                key={entry.summary.fellow.enrollmentId}
-                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-              >
-                <Link
-                  href={programStudentHref(programId, entry.summary.fellow.studentId)}
-                  className="font-medium hover:underline"
-                >
-                  {displayNameOf(entry.summary.fellow, "Unnamed")}
-                </Link>
-                <span className="text-xs text-muted-foreground">
-                  {arrivalSentence(entry.averages!)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <section className="flex flex-col gap-2">
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">Every session</h2>
@@ -194,7 +151,12 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
             <Legend />
           </p>
         </div>
-        <Grid programId={programId} sessions={data.sessions} fellows={data.active} />
+        <Grid
+          programId={programId}
+          sessions={data.sessions}
+          fellows={data.active}
+          arrivals={data.arrivals}
+        />
       </section>
 
       {data.removed.length > 0 && (
@@ -206,10 +168,37 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
               on this screen. Days after they left read as not enrolled rather than as absences.
             </p>
           </div>
-          <Grid programId={programId} sessions={data.sessions} fellows={data.removed} />
+          <Grid
+            programId={programId}
+            sessions={data.sessions}
+            fellows={data.removed}
+            arrivals={data.arrivals}
+          />
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * When this fellow usually checks in, as one clock time, with the weekday sentence on hover.
+ *
+ * A dash until there are enough check-ins for an average — `MIN_ARRIVALS` of them — for the reason
+ * `arrival.ts` gives: a mean over one morning is a number somebody would quote. The sentence in the
+ * title is `arrivalSentence`, the same words the fellow's record prints, so the two cannot differ.
+ */
+function ArrivesCell({ averages }: { averages: ArrivalAverages | undefined }) {
+  const minutes = averages?.overall.minutes ?? null;
+  const sentence = averages ? arrivalSentence(averages) : null;
+
+  return (
+    <TableCell className="text-right tabular-nums whitespace-nowrap" title={sentence ?? undefined}>
+      {minutes === null ? (
+        <span className="text-muted-foreground">—</span>
+      ) : (
+        formatClockMinutes(minutes)
+      )}
+    </TableCell>
   );
 }
 
@@ -239,10 +228,12 @@ function Grid({
   programId,
   sessions,
   fellows,
+  arrivals,
 }: {
   programId: string;
   sessions: SummarySession[];
   fellows: FellowSummary[];
+  arrivals: Record<string, ArrivalAverages>;
 }) {
   // One figure per column, from the same summaries the letters below come from. See `dailyRates`.
   const rates = dailyRates(sessions, fellows);
@@ -263,6 +254,7 @@ function Grid({
             */}
             <TableHead className={stickyColumn}>Fellow</TableHead>
             <TableHead className="text-right">Rate</TableHead>
+            <TableHead className="text-right">Arrives</TableHead>
             <TableHead className="text-right">P</TableHead>
             <TableHead className="text-right">L</TableHead>
             <TableHead className="text-right">E</TableHead>
@@ -299,6 +291,7 @@ function Grid({
             <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
               Attendance rate
             </TableHead>
+            <TableHead />
             <TableHead />
             <TableHead />
             <TableHead />
@@ -342,6 +335,7 @@ function Grid({
                   ? "—"
                   : formatPercent(summary.rate)}
               </TableCell>
+              <ArrivesCell averages={arrivals[summary.fellow.enrollmentId]} />
               <TableCell className="text-right tabular-nums">{summary.present}</TableCell>
               <TableCell className="text-right tabular-nums">{summary.late}</TableCell>
               <TableCell className="text-right tabular-nums">{summary.excused}</TableCell>
