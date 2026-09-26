@@ -284,8 +284,7 @@ export function ProgramStudent({
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-medium">Courses · {data.courses.length}</h2>
               <p className="text-xs text-muted-foreground">
-                Every course of {data.program.term}. Click on a course row to view this their work
-                in that course.
+                Every course of {data.program.term}. Click on a course row to view their coursework.
               </p>
             </div>
 
