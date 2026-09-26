@@ -1,9 +1,12 @@
 import {
+  attendanceDriftReason,
   programRate,
   countsAsAttended,
   dailyRates,
   driftList,
   DRIFT_RULE,
+  recentAttendance,
+  recentAttendanceSentence,
   summarize,
   type SummaryFellow,
   type SummaryRecord,
@@ -513,5 +516,76 @@ describe("dailyRates", () => {
   it("has no figure for a day nobody was enrolled for", () => {
     const early = fellow({ enrolledFrom: "2027-01-01" });
     expect(dailyRates([day1], summariesFor([], [early]))).toEqual([null]);
+  });
+});
+
+/**
+ * The windows behind the drift list, for one fellow whether or not they are on it. What these
+ * protect is that the window is the cohort's last few mornings narrowed to the fellow, so a fellow
+ * who joined last week is measured over fewer days rather than charged with the days before.
+ */
+describe("recentAttendance", () => {
+  const term = sessions(12, 2);
+
+  it("reads the last settled mornings, leaving open ones and older ones out", () => {
+    const [summary] = summarize(
+      term,
+      [fellow()],
+      marks([
+        "ABSENT", // outside both windows
+        "ABSENT",
+        "PRESENT",
+        "PRESENT",
+        "LATE",
+        "PRESENT",
+        "PRESENT",
+        "LATE",
+        "ABSENT",
+        "PRESENT",
+        null, // open
+        null, // open
+      ]),
+    );
+
+    expect(recentAttendance(summary, term)).toEqual({
+      missed: 1,
+      missedOf: 5,
+      late: 2,
+      lateOf: 10,
+    });
+  });
+
+  it("narrows the window to the mornings since a fellow joined", () => {
+    const [summary] = summarize(
+      term,
+      [fellow({ enrolledFrom: "2026-09-08" })],
+      marks([null, null, null, null, null, null, null, "PRESENT", "ABSENT", "PRESENT"]),
+    );
+
+    expect(recentAttendance(summary, term)).toEqual({
+      missed: 1,
+      missedOf: 3,
+      late: 0,
+      lateOf: 3,
+    });
+  });
+
+  it("names the clause the drift list would, and nothing when neither applies", () => {
+    expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 0, lateOf: 10 })).toBe("missing");
+    expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 3, lateOf: 10 })).toBe("late");
+    expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 3, lateOf: 10 })).toBe("missing");
+    expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 2, lateOf: 10 })).toBeNull();
+  });
+
+  it("says both windows in words", () => {
+    expect(recentAttendanceSentence({ missed: 1, missedOf: 5, late: 2, lateOf: 10 })).toBe(
+      "missed 1 of the last 5 mornings · late 2 of the last 10",
+    );
+    expect(recentAttendanceSentence({ missed: 0, missedOf: 3, late: 0, lateOf: 3 })).toBe(
+      "missed 0 of the 3 mornings so far · late 0 of the 3 so far",
+    );
+    expect(recentAttendanceSentence({ missed: 0, missedOf: 0, late: 0, lateOf: 0 })).toBe(
+      "no mornings have closed yet",
+    );
   });
 });

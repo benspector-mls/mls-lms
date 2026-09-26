@@ -13,7 +13,9 @@ import {
   completionByStudent,
   lateByStudent,
   missingByStudent,
+  recentWorkByStudent,
   type Completion,
+  type RecentWork,
 } from "@/lib/gradebook/summary";
 import type { Tx } from "@/lib/prisma";
 
@@ -56,6 +58,11 @@ export type CourseFigures = {
   completedAssignments: Completion;
   missing: number;
   late: number;
+  /**
+   * The last few weeks rather than the term: the two windows the gradebook's "Needs a conversation"
+   * rule reads. The record prints them whether or not the rule trips.
+   */
+  recent: RecentWork;
 };
 
 /**
@@ -146,6 +153,10 @@ export async function courseFiguresFor(
           enrollment.studentId,
         ) ?? 0,
       late: lateByStudent(own_cells, released).get(enrollment.studentId) ?? 0,
+      // Never absent: the map holds an entry for every id it was asked about.
+      recent: recentWorkByStudent([enrollment.studentId], released, own_cells, at).get(
+        enrollment.studentId,
+      )!,
     };
   });
 }

@@ -1,13 +1,20 @@
 import {
+  ASSIGNMENT_DRIFT_RULE,
+  assignmentDriftList,
   awaitingByStudent,
   completionByAssignment,
   completionByStudent,
   completionLabel,
+  driftReasons,
   isMissing,
   lateByStudent,
   missingByStudent,
+  recentWorkByStudent,
+  recentWorkSentence,
   type MissingAssignment,
   type MissingCell,
+  type RecentCell,
+  type RecentWork,
   type SummaryCell,
 } from "@/lib/gradebook/summary";
 
@@ -391,5 +398,205 @@ describe("completionLabel", () => {
   it("has an em dash where there is nothing to be a fraction of", () => {
     expect(completionLabel(undefined, 0)).toBe("—");
     expect(completionLabel({ complete: 0, possible: 0 }, 0)).toBe("—");
+  });
+});
+
+/**
+ * The recent window, which is what separates "drifting" from the term-long counts above.
+ *
+ * What these protect is that the deadline window is the cohort's last ten deadlines and the verdict
+ * window is the fellow's last five verdicts — two different windows, deliberately — and that both
+ * read missing and late through the same two functions the columns above read them through.
+ */
+describe("recentWorkByStudent", () => {
+  /** A term of one assignment a day, released the day before it is due. */
+  function day(n: number): string {
+    return `2026-09-${String(n).padStart(2, "0")}T00:00:00.000Z`;
+  }
+
+  function dated(n: number) {
+    return { id: `a${n}`, dueAt: day(n), distributedAt: day(n - 1) };
+  }
+
+  /** Seen from the 20th, when the first nineteen are due and the twentieth is not. */
+  const NOW = new Date("2026-09-20T00:00:00.000Z");
+
+  function handedIn(
+    n: number,
+    studentId: string,
+    when: string,
+    isComplete: boolean | null = null,
+  ): RecentCell {
+    return {
+      assignmentId: `a${n}`,
+      studentId,
+      status: isComplete === null ? "SUBMITTED" : "GRADED",
+      submittedAt: when,
+      extendedDueAt: null,
+      isComplete,
+    };
+  }
+
+  it("measures deadlines over the last ten that have come due, and nothing before them", () => {
+    // Twenty assignments; nineteen are due. The fellow handed in none of the first nine and all
+    // of the last ten on time, so the window — the tenth through the nineteenth — is clean.
+    const work = Array.from({ length: 20 }, (_, i) => dated(i + 1));
+    const cells = work.slice(9, 19).map((assignment, i) => handedIn(i + 10, "s1", day(i + 9)));
+
+    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+
+    expect(recent).toMatchObject({ missed: 0, late: 0, due: ASSIGNMENT_DRIFT_RULE.dueOf });
+  });
+
+  it("counts missing and late separately, through the same tests the columns use", () => {
+    const work = [dated(1), dated(2), dated(3), dated(4)];
+    const cells: RecentCell[] = [
+      handedIn(1, "s1", day(1)), // on time: due at midnight, handed in at midnight
+      handedIn(2, "s1", day(3)), // late
+      // a3 never started: no cell, which is the central missing case
+      {
+        // a4: an unexpired extension, so neither missing nor late yet
+        assignmentId: "a4",
+        studentId: "s1",
+        status: "ACCEPTED",
+        submittedAt: null,
+        extendedDueAt: "2026-09-30T00:00:00.000Z",
+        isComplete: null,
+      },
+    ];
+
+    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+
+    expect(recent).toMatchObject({ missed: 1, late: 1, due: 4 });
+  });
+
+  it("leaves undated work and drafts out of the deadline window", () => {
+    const work = [
+      dated(1),
+      { id: "undated", dueAt: null, distributedAt: day(1) },
+      { id: "draft", dueAt: day(2), distributedAt: null },
+    ];
+
+    const recent = recentWorkByStudent(["s1"], work, [], NOW).get("s1");
+
+    expect(recent).toMatchObject({ missed: 1, due: 1 });
+  });
+
+  it("does not count an assignment whose deadline is still ahead", () => {
+    const recent = recentWorkByStudent(["s1"], [dated(25)], [], NOW).get("s1");
+
+    expect(recent).toMatchObject({ missed: 0, due: 0 });
+  });
+
+  it("measures verdicts over the fellow's last five that have one, skipping ungraded work", () => {
+    const work = Array.from({ length: 8 }, (_, i) => dated(i + 1));
+    const cells = [
+      handedIn(1, "s1", day(1), false), // outside the window of five
+      handedIn(2, "s1", day(2), false),
+      handedIn(3, "s1", day(3), true),
+      handedIn(4, "s1", day(4), null), // handed in, not graded: not a verdict
+      handedIn(5, "s1", day(5), true),
+      handedIn(6, "s1", day(6), false),
+      handedIn(7, "s1", day(7), true),
+      // a8 never started
+    ];
+
+    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+
+    expect(recent).toMatchObject({ incomplete: 2, graded: ASSIGNMENT_DRIFT_RULE.gradedOf });
+  });
+
+  // Undated work can still be graded, so it has a place in the verdict window, ordered by release.
+  it("counts a verdict on undated work", () => {
+    const work = [{ id: "u", dueAt: null, distributedAt: day(1) }];
+    const cells = [{ ...handedIn(1, "s1", day(1), false), assignmentId: "u" }];
+
+    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+
+    expect(recent).toMatchObject({ incomplete: 1, graded: 1, due: 0 });
+  });
+
+  it("gives every student an entry, including one with nothing at all", () => {
+    const recents = recentWorkByStudent(["s1", "s2"], [dated(1)], [handedIn(1, "s1", day(1))], NOW);
+
+    expect(recents.get("s2")).toEqual({
+      studentId: "s2",
+      missed: 1,
+      late: 0,
+      due: 1,
+      incomplete: 0,
+      graded: 0,
+    });
+  });
+});
+
+describe("driftReasons", () => {
+  function recent(over: Partial<RecentWork>): RecentWork {
+    return { studentId: "s1", missed: 0, late: 0, due: 10, incomplete: 0, graded: 5, ...over };
+  }
+
+  it("names deadlines once missed and late together reach the threshold", () => {
+    expect(driftReasons(recent({ missed: 2, late: 2 }))).toEqual(["deadlines"]);
+    expect(driftReasons(recent({ missed: 2, late: 1 }))).toEqual([]);
+  });
+
+  it("names falling short once enough recent verdicts are incomplete", () => {
+    expect(driftReasons(recent({ incomplete: 2 }))).toEqual(["falling-short"]);
+    expect(driftReasons(recent({ incomplete: 1 }))).toEqual([]);
+  });
+
+  it("puts deadlines first when both apply", () => {
+    expect(driftReasons(recent({ missed: 4, incomplete: 2 }))).toEqual([
+      "deadlines",
+      "falling-short",
+    ]);
+  });
+});
+
+describe("assignmentDriftList", () => {
+  function recent(studentId: string, over: Partial<RecentWork>): RecentWork {
+    return { studentId, missed: 0, late: 0, due: 10, incomplete: 0, graded: 5, ...over };
+  }
+
+  it("lists only those who trip the rule, worst first", () => {
+    const list = assignmentDriftList([
+      recent("fine", {}),
+      recent("short", { incomplete: 3 }),
+      recent("slipping", { missed: 2, late: 2 }),
+      recent("gone", { missed: 6, incomplete: 2 }),
+    ]);
+
+    expect(list.map((entry) => entry.recent.studentId)).toEqual(["gone", "slipping", "short"]);
+    expect(list[0].reasons).toEqual(["deadlines", "falling-short"]);
+  });
+});
+
+describe("recentWorkSentence", () => {
+  function recent(over: Partial<RecentWork>): RecentWork {
+    return { studentId: "s1", missed: 0, late: 0, due: 10, incomplete: 0, graded: 5, ...over };
+  }
+
+  it("names both windows", () => {
+    expect(recentWorkSentence(recent({ missed: 2, late: 1, incomplete: 1 }))).toBe(
+      "2 missed, 1 late of the last 10 due · 1 of the last 5 graded fell short",
+    );
+  });
+
+  it("says so when nothing slipped, rather than going blank", () => {
+    expect(recentWorkSentence(recent({}))).toBe(
+      "none of the last 10 due missed or late · 0 of the last 5 graded fell short",
+    );
+  });
+
+  it("says how much there is to judge while the windows are still filling", () => {
+    expect(recentWorkSentence(recent({ late: 1, due: 3, graded: 2 }))).toBe(
+      "1 late of the 3 due so far · 0 of the 2 graded so far fell short",
+    );
+  });
+
+  it("says when there is nothing in a window at all", () => {
+    expect(recentWorkSentence(recent({ due: 0, graded: 0 }))).toBe(
+      "nothing has come due yet · nothing graded yet",
+    );
   });
 });

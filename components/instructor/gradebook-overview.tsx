@@ -3,6 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 
+import { HelpTip } from "@/components/help-tip";
 import { SortableHead, VerdictMark } from "@/components/instructor/gradebook-grid";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import {
@@ -29,11 +30,16 @@ import {
 } from "@/lib/gradebook/categories";
 import { sortStudents, studentLabel, type RowSort } from "@/lib/gradebook/filters";
 import {
+  ASSIGNMENT_DRIFT_RULE,
+  assignmentDriftList,
   awaitingByStudent,
   completionByStudent,
   completionLabel,
+  DRIFT_REASON_LABEL,
   lateByStudent,
   missingByStudent,
+  recentWorkByStudent,
+  recentWorkSentence,
   type Completion,
 } from "@/lib/gradebook/summary";
 import { studentHref } from "@/lib/links";
@@ -90,15 +96,24 @@ export function Overview({
   return (
     <div className="flex flex-col gap-6">
       {active.length > 0 && (
-        <OverviewTable
-          courseId={courseId}
-          grouped={grouped}
-          students={active}
-          cells={cells}
-          countWaiting
-          gcf={gcf}
-          now={now}
-        />
+        <>
+          <NeedsAConversation
+            courseId={courseId}
+            grouped={grouped}
+            students={active}
+            cells={cells}
+            now={now}
+          />
+          <OverviewTable
+            courseId={courseId}
+            grouped={grouped}
+            students={active}
+            cells={cells}
+            countWaiting
+            gcf={gcf}
+            now={now}
+          />
+        </>
       )}
 
       {removed.length > 0 && (
@@ -121,6 +136,97 @@ export function Overview({
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * Who is drifting, above the table that holds the term.
+ *
+ * **The attendance screen's "Needs a conversation", for the work.** The table beneath carries the
+ * term-long late and missing totals, and those hide exactly the fellow this list is for: somebody
+ * who finished every module in September and has handed nothing in for a fortnight. The rule is
+ * one hover away, behind the "?" in the heading, because a list somebody is expected to act on has
+ * to say what put a person on it, or the reader is deciding whether to trust an unexplained
+ * judgement rather than what to do about a fellow.
+ *
+ * Computed from the same cells and the same clock the table reads, so a fellow on this list has the
+ * missing and late marks in their row that put them here. Test students are left out, as they are
+ * from every figure that is about the cohort.
+ *
+ * Only the active roster: a removed fellow is not somebody to have a conversation with about this
+ * week's deadlines.
+ */
+function NeedsAConversation({
+  courseId,
+  grouped,
+  students,
+  cells,
+  now,
+}: {
+  courseId: string;
+  grouped: GroupedCourse<Assignment>;
+  students: Student[];
+  cells: Cell[];
+  now: string;
+}) {
+  const counted = students.filter((student) => student.testStudentNumber === null);
+  const recents = recentWorkByStudent(
+    counted.map((student) => student.id),
+    workOf(allUnits(grouped)),
+    cells,
+    new Date(now),
+  );
+  const drifting = assignmentDriftList(recents.values());
+  const byId = new Map(counted.map((student) => [student.id, student]));
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="flex items-center gap-1.5 text-sm font-medium">
+        Needs a conversation · {drifting.length}
+        <HelpTip>
+          Missed or handed in late {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of the last{" "}
+          {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due, or fell short on{" "}
+          {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or more of their last{" "}
+          {ASSIGNMENT_DRIFT_RULE.gradedOf} graded. Recent rather than cumulative, because somebody
+          who finished every module in September and has handed nothing in this fortnight is the
+          person to talk to today.
+        </HelpTip>
+      </h3>
+
+      {drifting.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          Nobody is drifting by that rule.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+          {drifting.map((entry) => {
+            const student = byId.get(entry.recent.studentId);
+            if (!student) return null;
+            return (
+              <li
+                key={student.id}
+                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 text-sm"
+              >
+                <span className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={studentHref(courseId, student.id)}
+                    className="font-medium hover:underline"
+                  >
+                    {studentLabel(student)}
+                  </Link>
+                  {entry.reasons.map((reason) => (
+                    <span key={reason} className="font-medium text-destructive">
+                      {DRIFT_REASON_LABEL[reason]}
+                    </span>
+                  ))}
+                </span>
+                <span>{recentWorkSentence(entry.recent)}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

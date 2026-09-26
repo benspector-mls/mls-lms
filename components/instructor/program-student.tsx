@@ -3,10 +3,23 @@ import { Archive, ArrowRight, CircleCheck, EyeOff, GitBranch, UserMinus } from "
 
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { ArrivalAveragesPanel } from "@/components/arrival-averages";
+import { HelpTip } from "@/components/help-tip";
+import {
+  ATTENDANCE_DRIFT_REASON_LABEL,
+  attendanceDriftReason,
+  DRIFT_RULE,
+  recentAttendanceSentence,
+} from "@/lib/attendance/summary";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
 import { RenameStudent } from "@/components/instructor/rename-student";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
+import {
+  ASSIGNMENT_DRIFT_RULE,
+  DRIFT_REASON_LABEL,
+  driftReasons,
+  recentWorkSentence,
+} from "@/lib/gradebook/summary";
 import { coachingSessionHref, studentHref } from "@/lib/links";
 import { formatDate } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -31,10 +44,10 @@ import type { RouterOutputs } from "@/trpc/types";
  * Splitting the two is what lets grading stay per course while the roster lives above every course.
  * It is what the roster's rows point at, and every course row here is a way into the other screen.
  *
- * **Two tabs under one identity card.** Performance is attendance, the courses, and the GCF;
- * Coaching is the goals, the sessions, and the notes. The two answer different questions — how is
- * this fellow doing, and what have we agreed with them — and a single column of seven sections
- * made the second half something a reader scrolled past on the way to nothing. The card sits above
+ * **Two tabs under one identity card.** Performance is the trends, then attendance, the courses,
+ * and the GCF; Coaching is the goals, the sessions, and the notes. The two answer different
+ * questions — how is this fellow doing, and what have we agreed with them — and a single column of
+ * seven sections made the second half something a reader scrolled past on the way to nothing. The card sits above
  * both because "who is this" is asked from either tab.
  *
  * **Their GCF results name no program.** A result is sat at CodeSignal on a fellow's own
@@ -61,6 +74,12 @@ export function ProgramStudent({
 }) {
   const name = displayNameOf(data.student, "Unnamed");
   const removed = data.enrollmentStatus !== "ACTIVE";
+  /*
+    The courses with anything to have a trend about. The same guard the course rows below use for
+    their figures: none of nothing is not a figure.
+  */
+  const coursesWithWork = data.courses.filter((course) => course.completedAssignments.possible > 0);
+  const attendanceReason = attendanceDriftReason(data.recentAttendance);
 
   return (
     <div className="flex flex-col gap-6">
@@ -152,6 +171,89 @@ export function ProgramStudent({
         </TabsList>
 
         <TabsContent value="performance" className="mt-4 flex flex-col gap-6">
+          {/*
+            The last few weeks, first, where every section below is the term. The attendance block
+            is the raw figure and the course rows are the totals; both hide the fellow who was fine
+            in September and has slipped this fortnight, and this is the section that shows them,
+            which is why it is read before either.
+
+            It holds every recent-window reading the record has: the last few mornings by the
+            attendance screen's drift rule; when they arrive, which is the detail per-course
+            attendance used to carry and answers "are they turning up on time" where the rate
+            answers only whether they turn up; and the work, per course, by the rule the
+            gradebook's own list applies.
+          */}
+          <section className="flex flex-col gap-2">
+            <h2 className="flex items-center gap-1.5 text-sm font-medium">
+              Trends
+              <HelpTip>
+                The last few weeks rather than the term. Somebody at 88 percent who has slipped this
+                fortnight is the person to talk to today, and a term-long figure hides them behind
+                the good weeks.
+              </HelpTip>
+            </h2>
+            <div className="flex flex-col gap-4 rounded-lg border border-border bg-muted/30 p-4">
+              <div className="flex flex-col gap-2">
+                <h3 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Attendance
+                  <HelpTip>
+                    Flagged after missing {DRIFT_RULE.missedAtLeast} or more of the last{" "}
+                    {DRIFT_RULE.missedOf} mornings, or arriving late {DRIFT_RULE.lateAtLeast} or
+                    more times in the last {DRIFT_RULE.lateOf}. The same rule as the attendance
+                    screen&apos;s own list. Only mornings they checked in count towards when they
+                    arrive, so an absence neither raises nor lowers those averages.
+                  </HelpTip>
+                </h3>
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  {attendanceReason !== null && (
+                    <span className="font-medium text-destructive">
+                      {ATTENDANCE_DRIFT_REASON_LABEL[attendanceReason]}
+                    </span>
+                  )}
+                  <span>{recentAttendanceSentence(data.recentAttendance)}</span>
+                </p>
+                <ArrivalAveragesPanel
+                  averages={data.arrivals}
+                  emptyNote="They have not checked in enough times yet for an average."
+                />
+              </div>
+              <div className="flex flex-col gap-2 border-t border-border pt-3">
+                <h3 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Work
+                  <HelpTip>
+                    A course is flagged after {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of the
+                    last {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due were missed or handed in
+                    late, or {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or more of their last{" "}
+                    {ASSIGNMENT_DRIFT_RULE.gradedOf} graded fell short. The same rule as the
+                    gradebook&apos;s own list.
+                  </HelpTip>
+                </h3>
+                {coursesWithWork.length === 0 ? (
+                  <p className="text-sm">No course has released work yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {coursesWithWork.map((course) => {
+                      const reasons = driftReasons(course.recent);
+                      return (
+                        <li key={course.id} className="flex flex-col gap-0.5 text-sm">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{course.name}</span>
+                            {reasons.map((reason) => (
+                              <span key={reason} className="font-medium text-destructive">
+                                {DRIFT_REASON_LABEL[reason]}
+                              </span>
+                            ))}
+                          </span>
+                          <span>{recentWorkSentence(course.recent)}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-medium">Attendance</h2>
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
@@ -175,16 +277,6 @@ export function ProgramStudent({
                 {data.summary.excused > 0 &&
                   " — an excused morning still counts as one they missed."}
               </p>
-              {/*
-              The arrival averages, which are the detail per-course attendance used to carry. Under the
-              rate rather than beside it because they answer different questions: the rate is whether
-              somebody turns up, and this is when.
-            */}
-              <ArrivalAveragesPanel
-                averages={data.arrivals}
-                emptyNote="They have not checked in enough times yet for an average."
-                className="border-t border-border pt-3"
-              />
             </div>
           </section>
 

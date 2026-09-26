@@ -7,7 +7,7 @@ import { auditActor, recordEvent } from "@/lib/audit/record";
 import { arrivalAverages } from "@/lib/attendance/arrival";
 import { courseFiguresFor } from "@/lib/coaching/snapshot";
 import { DISCIPLINES } from "@/lib/competencies";
-import { summarize } from "@/lib/attendance/summary";
+import { recentAttendance, summarize } from "@/lib/attendance/summary";
 import { newSessionSecret } from "@/lib/attendance/code";
 import {
   SCHEDULE_MAX_DAYS,
@@ -504,6 +504,8 @@ export const programsRouter = createTRPCRouter({
         /** Null when nobody has placed them, which is a fact the screen states in words. */
         cohort: enrollment.cohort,
         summary,
+        /** The last few mornings, by the whole-term drift rule, for the record's Trends section. */
+        recentAttendance: recentAttendance(summary, summarySessions),
         arrivals,
         courses,
         gcf,
