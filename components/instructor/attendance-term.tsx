@@ -271,21 +271,16 @@ function Grid({
               </TableHead>
             ))}
           </TableRow>
-        </TableHeader>
-        <TableBody>
           {/*
             How much of the roster turned up each day, directly under the date and above the
             fellows.
 
-            **Cells that describe their columns, at the top of the body.** They stay `<th>`s, so
-            each one says what its column is about rather than naming a fellow, and the row takes
-            no hover — a summary sitting among the fellows would read as one.
-
-            **It scrolls away with the fellows rather than staying under the frozen dates**, which
-            is the arrangement `gradebook-grid.tsx` uses for its Completed row and for the same
-            reason. What is held at the top is what each column *is* — a date, true however the
-            table is scrolled. These figures are a reading of the rows beneath them, so they belong
-            with those rows.
+            **In the header group, so it stays put with the dates.** Reading down a column of
+            letters is reading one morning, and the figure that says how that morning went as a
+            whole is the thing to keep in view while doing it — a rate that scrolled away with the
+            rows was gone by the time the reader reached the fellow they were looking for. The
+            cells stay `<th>`s, so each one says what its column is about rather than naming a
+            fellow, and the row takes no hover.
           */}
           <TableRow className="hover:bg-transparent">
             <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
@@ -311,7 +306,8 @@ function Grid({
               </TableHead>
             ))}
           </TableRow>
-
+        </TableHeader>
+        <TableBody>
           {fellows.map((summary) => (
             <TableRow key={summary.fellow.enrollmentId}>
               <TableCell className={stickyColumn}>
