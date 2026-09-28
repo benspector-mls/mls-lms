@@ -171,7 +171,7 @@ For a **link or file** assignment you tick **how fellows may hand it in** — a 
 
 If a file is one of the ways in, you also tick which file types you will accept — PDF, images, Word and plain text, spreadsheets, Jupyter notebooks, Python. The size limit is 25MB and is the same everywhere. Ticking Python accepts a `.py` file and nothing else, which is the right shape for an exercise handed in as one script; Python work spread across several files belongs in a code assignment, where the repository holds all of it.
 
-Every kind takes **submission instructions**, written in Markdown, which the student reads in the assignment panel. For a link assignment this is where you say where to start: a sentence linking to the Canva template your students copy reads better than a bare URL with no explanation of what to do with it.
+Every kind takes **assignment instructions**, written in Markdown, which the student reads in the assignment panel. They are optional: each kind's own screen already states the mechanical steps of handing in, so this is for anything specific to the assignment. For a link assignment this is where you say where to start: a sentence linking to the Canva template your students copy reads better than a bare URL with no explanation of what to do with it.
 
 **An assignment is a draft until you publish it.** Students cannot see an unpublished one at all — a module that is full to you reads as empty to them. Publish and unpublish are on the Assignments list.
 

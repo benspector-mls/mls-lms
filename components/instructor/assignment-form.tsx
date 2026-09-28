@@ -488,7 +488,7 @@ function Editor({
   // in, and switching it rebuilds the draft into that kind's shape.
   const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? "REPO");
 
-  // Whether the submission instructions are being read rather than written. Not part of `state`
+  // Whether the assignment instructions are being read rather than written. Not part of `state`
   // because it is nothing the assignment is saved with.
   const [previewingInstructions, setPreviewingInstructions] = React.useState(false);
 
@@ -1232,7 +1232,7 @@ function Editor({
               )}
 
               <Field
-                label={"Assignment instructions"}
+                label="Assignment instructions"
                 findings={fieldFindings("submissionInstructions")}
                 /*
                   The field is markdown and the student reads it rendered, so the button shows it
@@ -1255,9 +1255,7 @@ function Editor({
                     {previewingInstructions ? "Edit" : "Preview"}
                   </Button>
                 }
-                hint={
-                  "Optional, in markdown. Instructions for how to setup and hand in this assignment."
-                }
+                hint="Optional, in markdown. Instructions for how to set up and hand in this assignment."
               >
                 {/*
                   A trimmed-empty field falls back to the textarea, so switching kind — which
@@ -1863,9 +1861,16 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
   };
 }
 
-/** A new hand-graded section. Unnamed, because what it is called is the instructor's to say. */
+/**
+ * A new hand-graded section, called "Total Score" until the instructor renames it.
+ *
+ * Most assignments graded by hand have one section that is simply the whole grade, and nothing
+ * else in the interface says that is a reasonable thing to type. Starting with the name filled
+ * in means the common case needs no typing, and an assignment with several hand-graded parts
+ * renames each for what it is.
+ */
 function manualSection(): SectionDraft {
-  return { grading: "manual", label: "", pointValue: DEFAULT_POINT_VALUE };
+  return { grading: "manual", label: "Total Score", pointValue: DEFAULT_POINT_VALUE };
 }
 
 /**
