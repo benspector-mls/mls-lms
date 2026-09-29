@@ -16,8 +16,11 @@
 
 export const MAX_ATTEMPTS = 3;
 
-/** Seven days, which is what a check is given unless the instructor says otherwise. */
-export const DEFAULT_RETRY_WAIT_HOURS = 7 * 24;
+/**
+ * One hour, which is what a check is given unless the instructor says otherwise: long enough that a
+ * second attempt is not a reflex, short enough to try again the same day after asking a question.
+ */
+export const DEFAULT_RETRY_WAIT_HOURS = 1;
 
 const HOUR_MS = 60 * 60 * 1000;
 

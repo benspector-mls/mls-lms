@@ -82,7 +82,7 @@ describe("the wait between attempts", () => {
     for (const hours of [1, 23, 24, 25, 168, 170, 8784]) {
       expect(retryWaitHoursOf(retryWaitParts(hours))).toBe(hours);
     }
-    expect(retryWaitParts(DEFAULT_RETRY_WAIT_HOURS)).toEqual({ days: 7, hours: 0 });
+    expect(retryWaitParts(DEFAULT_RETRY_WAIT_HOURS)).toEqual({ days: 0, hours: 1 });
   });
 
   it("reads as a fellow would say it", () => {

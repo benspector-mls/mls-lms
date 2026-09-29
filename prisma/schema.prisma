@@ -1124,8 +1124,8 @@ model CheckForUnderstanding {
   exemplar       String
   /// How long a fellow waits after one attempt before the next, in hours. Entered as days and
   /// hours; stored as one number because `nextAttempt` in lib/checks/attempts.ts needs one number.
-  /// The default is seven days.
-  retryWaitHours Int    @default(168) @map("retry_wait_hours")
+  /// The default is one hour, the same as `DEFAULT_RETRY_WAIT_HOURS` in lib/checks/attempts.ts.
+  retryWaitHours Int    @default(1) @map("retry_wait_hours")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

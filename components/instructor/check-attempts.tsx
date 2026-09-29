@@ -1,7 +1,15 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { ChevronRight, HandHelping, Loader2, RotateCw } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronRight,
+  ChevronsUpDown,
+  HandHelping,
+  Loader2,
+  RotateCw,
+} from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
@@ -32,6 +40,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { describeRetryWait, latestAttempt, MAX_ATTEMPTS } from "@/lib/checks/attempts";
 import {
+  type AttemptsSort,
+  type AttemptsSortColumn,
+  DEFAULT_ATTEMPTS_SORT,
+  firstAttempt,
+  sortAttemptRows,
+  toggleAttemptsSort,
+  understandingTally,
+} from "@/lib/checks/table";
+import {
   CATEGORY_LABEL,
   CHECK_LEVELS,
   type CheckCategory,
@@ -42,8 +59,8 @@ import {
 import type { CheckLevel } from "@/lib/generated/prisma/enums";
 import { curriculumHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
-import { DEFAULT_ROSTER_SORT, sortRoster } from "@/lib/roster";
 import { formatDateTime, formatRelative } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -54,8 +71,10 @@ type Attempt = Row["attempts"][number];
 /**
  * One check for understanding, and where the room stands on it.
  *
- * **The tiles read each fellow's latest attempt**, because they answer "where is the classroom
- * now"; the whole history is one click away on each row. The table lists every active fellow,
+ * **Two overviews: current and first.** Current reads each fellow's latest attempt and answers
+ * "where is the room now"; first reads each fellow's first attempt and answers "how did the lesson
+ * land". The gap between them is what going back to the material did. Every response is one click
+ * away on each row. The table lists every active fellow,
  * including the ones who have not answered — "who has not answered yet" is the question the list
  * exists to answer as much as "who is blocked".
  *
@@ -72,31 +91,13 @@ export function CheckAttempts({
   now: Date;
 }) {
   const { check } = data;
+  const [sort, setSort] = React.useState<AttemptsSort>(DEFAULT_ATTEMPTS_SORT);
 
   const rows = React.useMemo(
-    () =>
-      sortRoster(data.rows, DEFAULT_ROSTER_SORT, (row, by) =>
-        by === "name" ? displayNameOf(row.student, "Fellow") : null,
-      ),
-    [data.rows],
+    () => sortAttemptRows(data.rows, sort, (row) => displayNameOf(row.student, "Fellow")),
+    [data.rows, sort],
   );
-
-  const tally = React.useMemo(() => {
-    const byCategory: Record<CheckCategory, number> = { 1: 0, 2: 0, 3: 0 };
-    let wantsHelp = 0;
-    let unanswered = 0;
-    for (const row of data.rows) {
-      const latest = latestAttempt(row.attempts);
-      if (!latest) {
-        unanswered += 1;
-        continue;
-      }
-      const level = effectiveLevel(latest);
-      if (level) byCategory[levelCategory(level)] += 1;
-      if (latest.wantsHelp) wantsHelp += 1;
-    }
-    return { byCategory, wantsHelp, unanswered };
-  }, [data.rows]);
+  const tally = React.useMemo(() => understandingTally(data.rows), [data.rows]);
 
   return (
     <>
@@ -148,22 +149,48 @@ export function CheckAttempts({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Tile label={CATEGORY_LABEL[1]} count={tally.byCategory[1]} />
-        <Tile label={CATEGORY_LABEL[2]} count={tally.byCategory[2]} />
-        <Tile label={CATEGORY_LABEL[3]} count={tally.byCategory[3]} />
-        <Tile label="Asked for help" count={tally.wantsHelp} />
-        <Tile label="Not yet answered" count={tally.unanswered} />
+      {/*
+        Current first, because it is where the room stands; first beneath it, because the gap
+        between the two is what going back to the material did. Each fellow counts once in each row.
+      */}
+      <div className="flex flex-col gap-3">
+        <Overview
+          title="Current understanding"
+          hint="Each fellow's latest attempt."
+          counts={tally.current}
+        />
+        <Overview
+          title="First understanding"
+          hint="Each fellow's first attempt."
+          counts={tally.first}
+        />
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <HandHelping aria-hidden="true" className="size-3.5" />
+            <span className="font-medium text-foreground tabular-nums">{tally.askedForHelp}</span>
+            asked for help
+          </span>
+          <span>
+            <span className="font-medium text-foreground tabular-nums">{tally.notYetAnswered}</span>{" "}
+            not yet answered
+          </span>
+        </p>
       </div>
 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Fellow</TableHead>
-            <TableHead>Latest level</TableHead>
-            <TableHead>Attempts</TableHead>
-            <TableHead>Latest answer</TableHead>
-            <TableHead className="text-right">Submitted</TableHead>
+            <SortableHead label="Fellow" by="name" sort={sort} onSort={setSort} />
+            <SortableHead label="First attempt" by="first" sort={sort} onSort={setSort} />
+            <SortableHead label="Current" by="current" sort={sort} onSort={setSort} />
+            <SortableHead label="Attempts" by="attempts" sort={sort} onSort={setSort} />
+            <SortableHead
+              label="Submitted"
+              by="submitted"
+              sort={sort}
+              onSort={setSort}
+              className="text-right"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -178,75 +205,158 @@ export function CheckAttempts({
   );
 }
 
-function Tile({ label, count }: { label: string; count: number }) {
+/**
+ * One row of the overview: how many fellows sit in each category, on one line per category so the
+ * three read across at a glance without a card each the height of a headline number.
+ */
+function Overview({
+  title,
+  hint,
+  counts,
+}: {
+  title: string;
+  hint: string;
+  counts: Record<CheckCategory, number>;
+}) {
   return (
-    <Card size="sm">
-      <CardContent className="flex flex-col gap-0.5">
-        <span className="text-2xl font-semibold tabular-nums">{count}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <div className="flex shrink-0 flex-col sm:w-44">
+        <span className="text-sm font-medium">{title}</span>
+        <span className="text-xs text-muted-foreground">{hint}</span>
+      </div>
+      <div className="grid flex-1 grid-cols-3 gap-2">
+        {([1, 2, 3] as const).map((category) => (
+          <div
+            key={category}
+            className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5"
+          >
+            <CheckLevelDots category={category} />
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {CATEGORY_LABEL[category]}
+            </span>
+            <span className="ml-auto text-sm font-semibold tabular-nums">{counts[category]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A header that sorts the table, with the arrow showing which way when it is the active one. */
+function SortableHead({
+  label,
+  by,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  by: AttemptsSortColumn;
+  sort: AttemptsSort;
+  onSort: (sort: AttemptsSort) => void;
+  className?: string;
+}) {
+  const active = sort.by === by;
+
+  return (
+    <TableHead
+      className={className}
+      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(toggleAttemptsSort(sort, by))}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm transition-colors hover:text-foreground",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {!active ? (
+          <ChevronsUpDown className="size-3 shrink-0" aria-hidden />
+        ) : sort.direction === "asc" ? (
+          <ArrowUp className="size-3 shrink-0" aria-hidden />
+        ) : (
+          <ArrowDown className="size-3 shrink-0" aria-hidden />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
+/** One attempt's mark in a cell: the dots, or why there are none, and a hand if it asked for help. */
+function AttemptMark({ attempt }: { attempt: Attempt | null }) {
+  if (!attempt) return <span className="text-muted-foreground">—</span>;
+  const level = effectiveLevel(attempt);
+
+  return (
+    <span className="flex items-center gap-1.5">
+      {level ? (
+        <CheckLevelBadge level={level} dotsOnly />
+      ) : attempt.reviewError ? (
+        <ReviewDidNotRun error={attempt.reviewError} />
+      ) : null}
+      {attempt.wantsHelp && <WantsHelp />}
+    </span>
   );
 }
 
 /**
- * One fellow: their latest attempt at a glance, and every attempt beneath it when opened.
+ * One fellow: their first and latest attempts at a glance, and every response beneath when the row
+ * is opened.
  *
- * The history is a second table row spanning every column rather than a nested table, so a long
- * answer reads at the page's full width instead of inside one cell.
+ * **The whole row opens**, not a link in one cell, so there is no column spent on a clipped preview
+ * of an answer. The toggle is a button in the first cell for the keyboard and for a screen reader,
+ * which is told whether the row is open; a click anywhere else on the row does the same thing.
+ *
+ * The responses are a second table row spanning every column rather than a nested table, so a long
+ * answer reads at the page's full width.
  */
 function FellowRow({ row, now }: { row: Row; now: Date }) {
   const [open, setOpen] = React.useState(false);
+  const first = firstAttempt(row.attempts);
   const latest = latestAttempt(row.attempts);
-  const level = latest ? effectiveLevel(latest) : null;
   const name = displayNameOf(row.student, "Fellow");
+  const answered = row.attempts.length > 0;
+  const toggle = () => answered && setOpen((current) => !current);
 
   return (
     <>
-      <TableRow>
+      <TableRow onClick={toggle} className={cn(answered && "cursor-pointer", open && "border-b-0")}>
         <TableCell>
           <span className="flex items-center gap-2 font-medium">
+            {answered ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggle();
+                }}
+                aria-expanded={open}
+                aria-label={`${open ? "Hide" : "Show"} ${name}'s responses`}
+                className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+              >
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn("size-4 transition-transform", open && "rotate-90")}
+                />
+              </button>
+            ) : (
+              <span aria-hidden="true" className="size-5" />
+            )}
             {name}
             {row.student.testStudentNumber !== null && <TestStudentBadge />}
           </span>
         </TableCell>
         <TableCell>
-          {!latest ? (
-            <span className="text-muted-foreground">—</span>
-          ) : (
-            <span className="flex items-center gap-1.5">
-              {level ? (
-                <CheckLevelBadge level={level} dotsOnly />
-              ) : latest.reviewError ? (
-                <ReviewDidNotRun error={latest.reviewError} />
-              ) : null}
-              {latest.wantsHelp && <WantsHelp />}
-            </span>
-          )}
+          <AttemptMark attempt={first} />
+        </TableCell>
+        <TableCell>
+          <AttemptMark attempt={latest} />
         </TableCell>
         <TableCell className="tabular-nums">
-          {row.attempts.length === 0 ? (
-            <span className="text-muted-foreground">—</span>
-          ) : (
+          {answered ? (
             `${row.attempts.length} of ${MAX_ATTEMPTS}`
-          )}
-        </TableCell>
-        <TableCell className="max-w-72">
-          {latest ? (
-            <button
-              type="button"
-              onClick={() => setOpen((current) => !current)}
-              aria-expanded={open}
-              className="group flex w-full items-start gap-1.5 text-left"
-            >
-              <ChevronRight
-                aria-hidden="true"
-                className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
-              />
-              <span className="line-clamp-2 text-sm whitespace-normal group-hover:underline">
-                {latest.answer}
-              </span>
-            </button>
           ) : (
             <span className="text-muted-foreground">Not yet answered</span>
           )}
@@ -260,7 +370,7 @@ function FellowRow({ row, now }: { row: Row; now: Date }) {
         </TableCell>
       </TableRow>
 
-      {open && latest && (
+      {open && (
         <TableRow className="hover:bg-transparent">
           <TableCell colSpan={5} className="bg-muted/20 whitespace-normal">
             <div className="flex flex-col gap-3 py-2">

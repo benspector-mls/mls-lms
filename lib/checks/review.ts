@@ -21,7 +21,7 @@ import { CATEGORY_LABEL, CHECK_LEVELS, LEVEL_DEFINITION, LEVEL_NAME, levelCatego
  *
  * **One answer, judged on its own words.** The review knows nothing about attempts: a second
  * attempt is not compared with the first, so a fellow who rewrites from scratch is not marked down
- * for what they said a week ago.
+ * for what they said last time.
  */
 
 /**
