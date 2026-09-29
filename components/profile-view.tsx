@@ -472,7 +472,7 @@ function AccountCard({ profile }: { profile: Profile }) {
           }
           note={
             profile.githubUsername
-              ? "Recorded when you signed in with GitHub. Every repository handed to you is named after it, so it is fixed once your first assignment is accepted."
+              ? "Recorded when you sign in with GitHub, so renaming your GitHub account reaches this screen the next time you sign in. Repositories already handed to you keep the name they were created with."
               : "Sign in with GitHub to link it. Until then, repository-backed assignments have no account to hand a repository to."
           }
         />
