@@ -194,10 +194,14 @@ function useBreadcrumbs(
   const rest = inCourse ? segments.slice(3) : [];
 
   /*
-    The assignment routes: .../curriculum/<id> and .../curriculum/<id>/edit. "new" is a sibling
-    of the ids rather than one of them, so it is excluded here and named below.
+    The assignment routes: .../curriculum/<id> and .../curriculum/<id>/edit. "new" and "checks"
+    are siblings of the ids rather than ones of them — a new assignment, and a check for
+    understanding's attempts at .../curriculum/checks/<checkId> — so they are excluded here and
+    named below. Taken for an id, "checks" would be fetched as an assignment, refused, and shown
+    as the "Grading queue" placeholder.
   */
-  const assignmentId = rest[0] === "curriculum" && rest[1] !== "new" ? rest[1] : undefined;
+  const assignmentId =
+    rest[0] === "curriculum" && rest[1] !== "new" && rest[1] !== "checks" ? rest[1] : undefined;
 
   // Only fetched where the path names an assignment, because the title is the one label on
   // these screens the course list in memory cannot supply.
@@ -267,6 +271,7 @@ function useBreadcrumbs(
       crumbs.push(listCrumb);
 
       if (rest[1] === "new") crumbs.push({ label: "New assignment" });
+      else if (rest[1] === "checks") crumbs.push({ label: "Check for understanding" });
       else if (rest[1]) {
         crumbs.push({
           label: assignment.data ? `Grading · ${assignment.data.title}` : "Grading queue",
