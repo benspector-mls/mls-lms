@@ -4,10 +4,8 @@ import { z } from "zod";
 import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { auditActor, recordEvent } from "@/lib/audit/record";
-import { arrivalAverages } from "@/lib/attendance/arrival";
-import { courseFiguresFor } from "@/lib/coaching/snapshot";
+import { attendanceStandingFor, courseFiguresFor } from "@/lib/coaching/snapshot";
 import { DISCIPLINES } from "@/lib/competencies";
-import { recentAttendance, summarize } from "@/lib/attendance/summary";
 import { newSessionSecret } from "@/lib/attendance/code";
 import {
   SCHEDULE_MAX_DAYS,
@@ -15,7 +13,7 @@ import {
   scheduleOf,
   type Schedule,
 } from "@/lib/attendance/schedule";
-import { defaultEndsAt, isUnsettled } from "@/lib/attendance/window";
+import { defaultEndsAt } from "@/lib/attendance/window";
 import { newJoinToken } from "@/lib/courses/join-token";
 import { displayNameSchema } from "@/lib/people";
 import { assertOwnsProgram, ownerOf } from "@/lib/programs/ownership";
@@ -50,22 +48,6 @@ import { displayNameOf, personNameSelect, personSelect } from "../selects";
  * and grants nothing. See `assertTeaches` in lib/courses/membership.ts for why that is the decision
  * and `ownerOf` in lib/programs/ownership.ts for what the owner can do that the rest cannot.
  */
-
-/**
- * Everything one attendance session's state is decided from.
- *
- * The same columns `attendance.ts` selects, minus the secret — `sessionStateOf` needs the two ending
- * columns and the backstop, and nothing here derives a code. Repeated rather than imported so this
- * router does not depend on that one's internals for a read of its own.
- */
-const attendanceSessionSelect = {
-  id: true,
-  date: true,
-  startedAt: true,
-  endsAt: true,
-  endedAt: true,
-  lateAfterMinutes: true,
-} as const;
 
 /** The four columns a schedule lives in, as every read of one selects them. */
 const scheduleSelect = {
@@ -365,10 +347,8 @@ export const programsRouter = createTRPCRouter({
    * they are in, and where they stand in each course of the year. Splitting them is what lets grading
    * stay per course while the roster lives above every course.
    *
-   * **The arrival averages are computed here from this fellow's records alone.** `attendance.history`
-   * computes the same figures for the whole roster, and reusing it for one person would fetch a
-   * year's records for twenty-five people to report on one — the shared thing is `arrivalAverages`
-   * itself, so the two screens cannot disagree about what a mean means.
+   * **The attendance figures and arrival averages come from `attendanceStandingFor`**, from this
+   * fellow's records alone, and the coaching form reads the same function for its Trends.
    *
    * **A course's Overview figures rather than a submission list.** The row is a way in: what belongs
    * on this screen is "they have finished the prework, with two assignments missing", and the work
@@ -402,31 +382,18 @@ export const programsRouter = createTRPCRouter({
         });
       }
 
-      const [sessions, records, courses, gcf] = await Promise.all([
-        ctx.db.attendanceSession.findMany({
-          where: { programId: input.programId },
-          orderBy: { date: "asc" },
-          select: attendanceSessionSelect,
-        }),
-        ctx.db.attendanceRecord.findMany({
-          where: { enrollmentId: enrollment.id },
-          select: { sessionId: true, status: true, checkedInAt: true },
-        }),
-        /*
-          Every course of the program with this fellow's Overview figures — the shared computation
-          the coaching snapshot also freezes; see `lib/coaching/snapshot.ts` for why it is one
-          function.
-        */
-        courseFiguresFor(
-          ctx.db,
-          {
-            id: enrollment.id,
-            programId: input.programId,
-            studentId: input.studentId,
-            createdAt: enrollment.createdAt,
-          },
-          new Date(),
-        ),
+      const key = {
+        id: enrollment.id,
+        programId: input.programId,
+        studentId: input.studentId,
+        createdAt: enrollment.createdAt,
+      };
+
+      const [attendance, courses, gcf] = await Promise.all([
+        // The shared computations the coaching form and snapshot also use; see
+        // `lib/coaching/snapshot.ts` for why each is one function.
+        attendanceStandingFor(ctx.db, key, now),
+        courseFiguresFor(ctx.db, key, now),
         /*
           Their whole GCF history, and it names no program. A result is sat at CodeSignal on a
           fellow's own schedule and carries no program, so somebody who repeats a year has one history
@@ -446,67 +413,18 @@ export const programsRouter = createTRPCRouter({
         }),
       ]);
 
-      /*
-        A session whose check-in has not opened counts as open here, as it does in
-        `attendance.history` and for the same arithmetic. `summarize` leaves an open session out of
-        the denominator for anybody with no record in it — so without this, an instructor making
-        today's code at 8:30 would drop this fellow's rate until somebody pressed start.
-      */
-      const summarySessions = sessions.map((session) => {
-        return {
-          id: session.id,
-          day: schoolDayFromColumn(session.date),
-          unsettled: isUnsettled(session, now),
-        };
-      });
-
-      const enrolledFrom = schoolDayOf(enrollment.createdAt);
-
-      const [summary] = summarize(
-        summarySessions,
-        [
-          {
-            enrollmentId: enrollment.id,
-            studentId: enrollment.student.id,
-            displayName: enrollment.student.displayName,
-            email: enrollment.student.email,
-            githubUsername: enrollment.student.githubUsername,
-            testStudentNumber: enrollment.student.testStudentNumber,
-            enrolledFrom,
-          },
-        ],
-        records.map((record) => ({
-          enrollmentId: enrollment.id,
-          sessionId: record.sessionId,
-          status: record.status,
-        })),
-      );
-
-      /*
-        Only records carrying a `checkedInAt`, and the weekday taken from the session's day rather
-        than from the arrival instant. Both rules live in `lib/attendance/arrival.ts`; this supplies
-        the pairs, exactly as `attendance.history` does.
-      */
-      const dayBySession = new Map(summarySessions.map((session) => [session.id, session.day]));
-      const arrivals = arrivalAverages(
-        records.flatMap((record) => {
-          const day = record.checkedInAt ? dayBySession.get(record.sessionId) : undefined;
-          return day ? [{ day, checkedInAt: record.checkedInAt! }] : [];
-        }),
-      );
-
       return {
         program: enrollment.program,
         student: enrollment.student,
         enrollmentId: enrollment.id,
         enrollmentStatus: enrollment.status,
-        enrolledFrom,
+        enrolledFrom: schoolDayOf(enrollment.createdAt),
         /** Null when nobody has placed them, which is a fact the screen states in words. */
         cohort: enrollment.cohort,
-        summary,
+        summary: attendance.summary,
         /** The last few mornings, by the whole-term drift rule, for the record's Trends section. */
-        recentAttendance: recentAttendance(summary, summarySessions),
-        arrivals,
+        recentAttendance: attendance.recentAttendance,
+        arrivals: attendance.arrivals,
         courses,
         gcf,
       };

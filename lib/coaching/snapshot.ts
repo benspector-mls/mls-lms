@@ -17,10 +17,12 @@ import {
   type Completion,
   type RecentWork,
 } from "@/lib/gradebook/summary";
+import { recentChecks, type RecentChecks } from "@/lib/checks/trends";
 import type { Tx } from "@/lib/prisma";
 
 import { SNAPSHOT_VERSION, type CoachingSnapshot } from "../coaching";
-import { summarize } from "../attendance/summary";
+import { arrivalAverages } from "../attendance/arrival";
+import { recentAttendance, summarize } from "../attendance/summary";
 import { isUnsettled } from "../attendance/window";
 import { schoolDayFromColumn, schoolDayOf } from "../school-time";
 
@@ -63,17 +65,22 @@ export type CourseFigures = {
    * rule reads. The record prints them whether or not the rule trips.
    */
   recent: RecentWork;
+  /**
+   * Their last few checks for understanding in this course: how many they answered, how many ended
+   * Blocked, and whether they asked for help on those. Trends prints it; the snapshot does not
+   * freeze it, and nothing flags on it — see `lib/checks/trends.ts`.
+   */
+  checks: RecentChecks;
 };
 
 /**
  * One fellow's standing in every course of a program: the figures the gradebook Overview shows,
  * for one person.
  *
- * **The one computation behind three surfaces.** The program student record renders this, the
- * coaching session form's strip renders it as "what will be recorded", and `assembleSnapshot`
- * below freezes it into a completed session — so the screen, the strip, and the stored snapshot
- * cannot disagree, because they are this function called three times. Every figure goes through
- * the exact functions the gradebook itself uses.
+ * **The one computation behind every surface that shows it.** The program student record renders
+ * this, the coaching session form renders its Trends and its strip of "what will be recorded" from
+ * it, and `assembleSnapshot` below freezes it into a completed session — so no two of them can
+ * disagree. Every figure goes through the exact functions the gradebook itself uses.
  *
  * **Every course, published or not.** The instructor's record shows a course they are still
  * writing; what the fellow-visible snapshot may carry is `assembleSnapshot`'s narrowing to make,
@@ -84,7 +91,7 @@ export async function courseFiguresFor(
   enrollment: EnrollmentKey,
   at: Date,
 ): Promise<CourseFigures[]> {
-  const [courses, units, cells] = await Promise.all([
+  const [courses, units, cells, checks] = await Promise.all([
     db.course.findMany({
       where: { programId: enrollment.programId },
       // The order the program's owner put them in. See `courses.reorder`.
@@ -116,6 +123,18 @@ export async function courseFiguresFor(
         status: true,
         submittedAt: true,
         extendedDueAt: true,
+      },
+    }),
+    // Every check in the program, with this fellow's attempts at each; the window is taken per course.
+    db.checkForUnderstanding.findMany({
+      where: { resource: { courseUnit: { course: { programId: enrollment.programId } } } },
+      select: {
+        createdAt: true,
+        resource: { select: { courseUnit: { select: { courseId: true } } } },
+        attempts: {
+          where: { studentId: enrollment.studentId },
+          select: { attempt: true, level: true, instructorLevel: true, wantsHelp: true },
+        },
       },
     }),
   ]);
@@ -157,31 +176,33 @@ export async function courseFiguresFor(
       recent: recentWorkByStudent([enrollment.studentId], released, own_cells, at).get(
         enrollment.studentId,
       )!,
+      checks: recentChecks(
+        checks.filter((check) => check.resource.courseUnit.courseId === course.id),
+      ),
     };
   });
 }
 
 /**
- * The record a completed coaching session stores: where the fellow stood at the moment the
- * conversation ended, in the shape `parseSnapshot` reads back.
+ * Where one fellow stands on attendance: the whole-term figures, the last few mornings by the drift
+ * rule, and when they arrive.
  *
- * **Published courses only, deliberately, and it is the one divergence from the record screen.**
- * The snapshot is fellow-visible forever, so an unpublished course's name and figures must not be
- * frozen into it; the instructor's own screen keeps showing every course. Values never diverge —
- * only coverage.
+ * **One computation behind the record, its Trends, the coaching form, and the snapshot**, for the
+ * reason `courseFiguresFor` is one: two screens computing the same rate separately is two chances
+ * to disagree about what counts.
  *
- * The attendance block shapes its sessions the way `programs.student` and `attendance.history`
- * do, because `summarize` is the shared seam and each call site supplies what its screen counts:
- * a session whose check-in has not opened counts as open, so a code made at 8:30 does not drop
- * the rate until somebody presses start.
+ * A session whose check-in has not opened counts as open, as it does in `attendance.history` and
+ * for the same arithmetic. `summarize` leaves an open session out of the denominator for anybody
+ * with no record in it, so without this, an instructor making today's code at 8:30 would drop this
+ * fellow's rate until somebody pressed start.
+ *
+ * The arrival averages use only records carrying a `checkedInAt`, with the weekday taken from the
+ * session's day rather than from the arrival instant; both rules live in `lib/attendance/arrival.ts`.
+ * They are computed from this fellow's records alone, rather than by reusing `attendance.history`,
+ * which would fetch a year of records for the whole roster to report on one person.
  */
-export async function assembleSnapshot(
-  db: Tx,
-  enrollment: EnrollmentKey,
-  at: Date,
-): Promise<CoachingSnapshot> {
-  const [figures, sessions, records] = await Promise.all([
-    courseFiguresFor(db, enrollment, at),
+export async function attendanceStandingFor(db: Tx, enrollment: EnrollmentKey, at: Date) {
+  const [sessions, records] = await Promise.all([
     db.attendanceSession.findMany({
       where: { programId: enrollment.programId },
       orderBy: { date: "asc" },
@@ -189,7 +210,7 @@ export async function assembleSnapshot(
     }),
     db.attendanceRecord.findMany({
       where: { enrollmentId: enrollment.id },
-      select: { sessionId: true, status: true },
+      select: { sessionId: true, status: true, checkedInAt: true },
     }),
   ]);
 
@@ -199,6 +220,7 @@ export async function assembleSnapshot(
     unsettled: isUnsettled(session, at),
   }));
 
+  // Nobody reads the name fields of a one-fellow summary; its counts are what every caller shows.
   const [summary] = summarize(
     summarySessions,
     [
@@ -218,6 +240,57 @@ export async function assembleSnapshot(
       status: record.status,
     })),
   );
+
+  const dayBySession = new Map(summarySessions.map((session) => [session.id, session.day]));
+
+  return {
+    summary,
+    /** The last few mornings, by the whole-term drift rule. */
+    recentAttendance: recentAttendance(summary, summarySessions),
+    arrivals: arrivalAverages(
+      records.flatMap((record) => {
+        const day = record.checkedInAt ? dayBySession.get(record.sessionId) : undefined;
+        return day && record.checkedInAt ? [{ day, checkedInAt: record.checkedInAt }] : [];
+      }),
+    ),
+  };
+}
+
+export type AttendanceStanding = Awaited<ReturnType<typeof attendanceStandingFor>>;
+
+/**
+ * The record a completed coaching session stores: where the fellow stood at the moment the
+ * conversation ended, in the shape `parseSnapshot` reads back.
+ *
+ * **Published courses only, deliberately, and it is the one divergence from the record screen.**
+ * The snapshot is fellow-visible forever, so an unpublished course's name and figures must not be
+ * frozen into it; the instructor's own screen keeps showing every course. Values never diverge —
+ * only coverage. Nor does it freeze the Trends readings: those are for the instructor, and the
+ * snapshot is what the fellow sees.
+ */
+export async function assembleSnapshot(
+  db: Tx,
+  enrollment: EnrollmentKey,
+  at: Date,
+): Promise<CoachingSnapshot> {
+  const [figures, attendance] = await Promise.all([
+    courseFiguresFor(db, enrollment, at),
+    attendanceStandingFor(db, enrollment, at),
+  ]);
+
+  return snapshotOf(figures, attendance, at);
+}
+
+/**
+ * The snapshot from figures already computed, for a caller that shows those figures as well and
+ * should not compute them twice.
+ */
+export function snapshotOf(
+  figures: CourseFigures[],
+  attendance: AttendanceStanding,
+  at: Date,
+): CoachingSnapshot {
+  const { summary } = attendance;
 
   return {
     version: SNAPSHOT_VERSION,

@@ -10,7 +10,12 @@ import {
   TEMPERATURE_MIN,
   sessionAnswersSchema,
 } from "@/lib/coaching";
-import { assembleSnapshot } from "@/lib/coaching/snapshot";
+import {
+  assembleSnapshot,
+  attendanceStandingFor,
+  courseFiguresFor,
+  snapshotOf,
+} from "@/lib/coaching/snapshot";
 import { assertActiveInProgram, assertProgramMember } from "@/lib/courses/membership";
 import { inTransaction } from "@/lib/prisma";
 import {
@@ -364,13 +369,19 @@ export const coachingRouter = createTRPCRouter({
    * shows as "what will be recorded". For a completed session the strip renders the stored
    * `snapshot` instead; the live figures ride along regardless, because the strip is the one
    * place an instructor sees the two side by side before deciding to complete.
+   *
+   * **And the fellow's Trends, live**, which the form draws above the strip: the last few weeks
+   * of attendance, work, and understanding, from the same computations as the record's own
+   * Trends. They are for the instructor and are never frozen into the snapshot, which the fellow
+   * sees. The figures behind both are computed once here and shared.
    */
   session: programProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const session = await sessionOf(ctx, input.programId, input.sessionId);
 
-      const [goals, figures] = await Promise.all([
+      const now = new Date();
+      const [goals, courses, attendance] = await Promise.all([
         /*
           The fellow's goals as they stand, for the instructor to talk through. Read-only here and
           everywhere on this side: the form shows them so a session can be spent guiding somebody
@@ -381,7 +392,8 @@ export const coachingRouter = createTRPCRouter({
           orderBy: { createdAt: "desc" },
           select: goalSelect,
         }),
-        assembleSnapshot(ctx.db, session.enrollment, new Date()),
+        courseFiguresFor(ctx.db, session.enrollment, now),
+        attendanceStandingFor(ctx.db, session.enrollment, now),
       ]);
 
       const answers = sessionAnswersSchema.safeParse(session.answers);
@@ -395,7 +407,12 @@ export const coachingRouter = createTRPCRouter({
         snapshot: session.snapshot,
         createdAt: session.createdAt,
         goals,
-        figures,
+        figures: snapshotOf(courses, attendance, now),
+        trends: {
+          recentAttendance: attendance.recentAttendance,
+          arrivals: attendance.arrivals,
+          courses,
+        },
       };
     }),
 

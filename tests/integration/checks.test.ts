@@ -507,3 +507,60 @@ describe("writing a check with its resource", () => {
     expect(await tx().checkAttempt.count({ where: { checkId } })).toBe(0);
   });
 });
+
+describe("the Understanding reading, on the record and in a coaching session", () => {
+  const tx = withRollback();
+  let world: World;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    // One check answered and left Blocked without asking for help; one not answered at all.
+    const answered = await makeCheck(tx(), { unitId: world.unitId });
+    await makeCheck(tx(), { unitId: world.unitId });
+    await makeCheckAttempt(tx(), {
+      checkId: answered.checkId,
+      studentId: world.student.studentId,
+      attempt: 1,
+      submittedAt: hoursAgo(3),
+      level: "BLOCKED",
+    });
+  });
+
+  it("reads answered, blocked, and asked for help per course on the record", async () => {
+    const record = await createCaller(tx(), world.instructorId).programs.student({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+
+    expect(record.courses.find((course) => course.id === world.courseId)!.checks).toEqual({
+      checks: 2,
+      answered: 1,
+      blocked: 1,
+      blockedAskedHelp: 0,
+      otherAskedHelp: 0,
+    });
+  });
+
+  it("shows the coaching form the same Trends as the record, and keeps them out of the snapshot", async () => {
+    const instructor = createCaller(tx(), world.instructorId);
+    const started = await instructor.coaching.startSession({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    const [session, record] = await Promise.all([
+      instructor.coaching.session({ programId: world.programId, sessionId: started.id }),
+      instructor.programs.student({
+        programId: world.programId,
+        studentId: world.student.studentId,
+      }),
+    ]);
+
+    expect(session.trends.recentAttendance).toEqual(record.recentAttendance);
+    expect(session.trends.arrivals).toEqual(record.arrivals);
+    expect(
+      session.trends.courses.map((course) => [course.id, course.recent, course.checks]),
+    ).toEqual(record.courses.map((course) => [course.id, course.recent, course.checks]));
+    // What the fellow will see carries none of it.
+    expect(JSON.stringify(session.figures)).not.toContain("blocked");
+  });
+});

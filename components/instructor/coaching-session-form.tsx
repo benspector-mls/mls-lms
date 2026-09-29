@@ -7,6 +7,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
+import { Trends } from "@/components/instructor/trends";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -218,6 +219,22 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
 
   return (
     <div className="flex flex-col gap-6">
+      {/*
+        Where the conversation starts: the last few weeks, live, the same component and the same
+        figures as the fellow's record. Above the strip, and labelled apart from it, because the
+        strip is what the fellow will see and this is not.
+      */}
+      <Trends
+        recentAttendance={data.trends.recentAttendance}
+        arrivals={data.trends.arrivals}
+        courses={data.trends.courses}
+        note={
+          completed
+            ? "As of today, not as of this session. For you only: none of it is recorded, and the fellow does not see it."
+            : "For you only: none of it is recorded when you complete this session, and the fellow does not see it."
+        }
+      />
+
       <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4">
         <p className="text-xs text-muted-foreground">
           {completed
