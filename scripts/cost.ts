@@ -1,8 +1,13 @@
 /**
- * What the reports on record cost, from the token counts each one stored.
+ * What the reports and check reviews on record cost, from the token counts each one stored.
  *
- *   npm run cost                  # every draft that recorded usage
- *   npm run cost -- sonnet        # only drafts whose model matches a substring
+ *   npm run cost                  # every draft and check review that recorded usage
+ *   npm run cost -- sonnet        # only runs whose model matches a substring
+ *
+ * A review of a check for understanding records its usage in the same shape a draft does, on
+ * `check_attempts.model_metadata`, with `check_for_understanding` as its one section and `none` as
+ * its effort. Reviewing an attempt again replaces that record, so only the latest review of each
+ * attempt is priced.
  *
  * The pipeline records four token counts per draft in `model_metadata.usage` and no
  * dollar figure, because a price is a fact about Anthropic's rate card rather than about
@@ -66,13 +71,25 @@ function median(values: number[]): number {
 
 async function main() {
   const { db } = await import("../lib/prisma");
+  const { Prisma } = await import("../lib/generated/prisma/client");
 
   const filter = process.argv[2];
 
-  const drafts = await db.gradingDraft.findMany({
-    orderBy: { createdAt: "asc" },
-    select: { createdAt: true, modelMetadata: true },
-  });
+  const [gradingDrafts, checkAttempts] = await Promise.all([
+    db.gradingDraft.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true, modelMetadata: true },
+    }),
+    db.checkAttempt.findMany({
+      where: { modelMetadata: { not: Prisma.DbNull } },
+      orderBy: { submittedAt: "asc" },
+      select: { submittedAt: true, modelMetadata: true },
+    }),
+  ]);
+  const drafts = [
+    ...gradingDrafts,
+    ...checkAttempts.map((a) => ({ createdAt: a.submittedAt, modelMetadata: a.modelMetadata })),
+  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   const priced: Priced[] = [];
   let withoutUsage = 0;

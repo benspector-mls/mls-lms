@@ -5,6 +5,7 @@ import { displayNameSchema } from "@/lib/people";
 import { createTRPCRouter, protectedProcedure } from "../init";
 import { assignmentsRouter } from "./assignments";
 import { attendanceRouter } from "./attendance";
+import { checksRouter } from "./checks";
 import { gcfRouter } from "./gcf";
 import { coursesRouter } from "./courses";
 import { programsRouter } from "./programs";
@@ -170,6 +171,7 @@ export const appRouter = createTRPCRouter({
   cohorts: cohortsRouter,
   teamSets: teamSetsRouter,
   resources: resourcesRouter,
+  checks: checksRouter,
   assignments: assignmentsRouter,
   submissions: submissionsRouter,
   submissionComments: submissionCommentsRouter,

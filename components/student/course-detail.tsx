@@ -7,6 +7,7 @@ import * as React from "react";
 import { CheckCircle2, ChevronRight, CircleSlash, ListChecks, Wrench } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
+import { CheckForUnderstanding } from "@/components/student/check-for-understanding";
 import { ResourceItem } from "@/components/resource-item";
 import { UnitList } from "@/components/unit-list";
 import { PageHeader } from "@/components/page-header";
@@ -32,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 import { AssignmentPanel } from "./assignment-panel";
 import { CourseProgressBar } from "./progress-bar";
-import type { Assignment, Course, Resource, Submission } from "./types";
+import type { Assignment, CheckProgress, Course, Resource, Submission } from "./types";
 
 /**
  * A student's assignments for one course.
@@ -58,6 +59,7 @@ export function StudentCourseDetail({
   course,
   assignments,
   resources,
+  checkProgress,
   githubLinked,
   now,
 }: {
@@ -71,11 +73,17 @@ export function StudentCourseDetail({
    * merge is here, which is the cost that model was chosen knowing about.
    */
   resources: Resource[];
+  /** The fellow's attempts at the checks for understanding in this course, one entry per check. */
+  checkProgress: CheckProgress[];
   githubLinked: boolean;
   /** Read once on the server, so relative times do not differ between the two render passes. */
   now: Date;
 }) {
   const units = groupByCourseUnit(course, assignments, resources);
+  const progressByCheck = React.useMemo(
+    () => new Map(checkProgress.map((entry) => [entry.checkId, entry])),
+    [checkProgress],
+  );
 
   /*
     Which assignment is open is React state, and the address is kept in step with it.
@@ -207,6 +215,8 @@ export function StudentCourseDetail({
               category={category}
               assignments={rows}
               resources={unitResources}
+              progressByCheck={progressByCheck}
+              now={now}
               teaches={course.teaches}
               openAssignmentId={openId}
               onOpen={show}
@@ -296,6 +306,8 @@ function UnitSection({
   category,
   assignments,
   resources,
+  progressByCheck,
+  now,
   teaches,
   openAssignmentId,
   onOpen,
@@ -304,6 +316,8 @@ function UnitSection({
   category: CourseUnitCategory;
   assignments: Assignment[];
   resources: Resource[];
+  progressByCheck: Map<string, CheckProgress>;
+  now: Date;
   teaches: boolean;
   openAssignmentId: string | null;
   onOpen: (assignmentId: string | null) => void;
@@ -417,7 +431,19 @@ function UnitSection({
                 <UnitList heading="Resources" muted>
                   {resources.map((resource) => (
                     <li key={resource.id}>
-                      <ResourceItem resource={resource} />
+                      <ResourceItem
+                        resource={resource}
+                        panel={
+                          resource.check && (
+                            <CheckForUnderstanding
+                              check={resource.check}
+                              progress={progressByCheck.get(resource.check.id) ?? null}
+                              teaches={teaches}
+                              now={now}
+                            />
+                          )
+                        }
+                      />
                     </li>
                   ))}
                 </UnitList>

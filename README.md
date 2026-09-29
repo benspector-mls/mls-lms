@@ -56,6 +56,7 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 | `E2B_API_KEY`                                                                                    | sandbox                                                                      |
 | `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GRADING_LLM_EFFORT`                                | report generation                                                            |
 | `ANTHROPIC_MODEL`                                                                                | optional: overrides the model, which defaults to `claude-sonnet-5`           |
+| `CHECK_REVIEW_MODEL`                                                                             | optional: overrides the model that reviews checks for understanding, which defaults to `claude-haiku-4-5` |
 | `GRADING_ASSETS_REPO`                                                                            | the repository holding `rubric.md`, `agent-rules.md`, and the sample reports |
 | `GRADING_ASSETS_INSTALLATION_ID`                                                                 | optional: overrides which installation reads that repository                 |
 | `GRADING_ASSETS_REF`                                                                             | optional: a branch to read the guides from instead of the default            |
@@ -131,6 +132,7 @@ Everything below those is a script, because everything below them needs somethin
 | `npm run tests:run`           | Runs one real submission's tests from the terminal, where a sandbox failure is diagnosable                                                                                                       |
 | `npm run grade`               | Generates one real report from the terminal                                                                                                                                                      |
 | `npm run calibrate`           | Grades a sample submission and compares the result against the report an instructor wrote about it                                                                                               |
+| `npm run calibrate:checks`    | Reviews a labelled set of answers to one check for understanding and compares each level against the one an instructor gave: `npm run calibrate:checks -- path/to/set.json`. The file's shape is at the top of `scripts/calibrate-checks.ts` |
 | `npm run approve`             | Approves a draft from the terminal                                                                                                                                                               |
 | `npm run accept`              | Runs the accept flow from the terminal                                                                                                                                                           |
 | `npm run rename:org`          | Points the database at a GitHub organization's new name after it has been renamed on GitHub — the webhook matches `repo_full_name` exactly, so nothing else recovers those rows. Reports by default; `--write` makes the change    |

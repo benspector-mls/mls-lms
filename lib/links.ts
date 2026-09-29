@@ -173,6 +173,11 @@ export function curriculumHref(courseId: string): string {
   return `/instructor/courses/${courseId}/curriculum`;
 }
 
+/** Every fellow's attempts at one check for understanding, reached from its resource's row. */
+export function checkAttemptsHref(courseId: string, checkId: string): string {
+  return `/instructor/courses/${courseId}/curriculum/checks/${checkId}`;
+}
+
 export function gradingQueueHref(
   courseId: string,
   assignmentId: string,

@@ -2,6 +2,7 @@ import {
   attendanceHref,
   courseHref,
   courseSettingsHref,
+  checkAttemptsHref,
   curriculumHref,
   editAssignmentHref,
   gradebookHref,
@@ -38,6 +39,7 @@ describe("every course route names its course", () => {
     newAssignmentHref(COURSE),
     newAssignmentHref(COURSE, UNIT),
     gradingQueueHref(COURSE, ASSIGNMENT),
+    checkAttemptsHref(COURSE, ASSIGNMENT),
     editAssignmentHref(COURSE, ASSIGNMENT),
     studentHref(COURSE, STUDENT),
   ])("%s", (href) => {

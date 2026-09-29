@@ -120,6 +120,7 @@ model Profile {
   commentsResolved       Submission[]            @relation("CommentsResolved")
   extensionsGranted      Submission[]            @relation("ExtensionGrantedBy")
   commentReads           SubmissionCommentRead[] @relation("CommentReads")
+  checkAttempts          CheckAttempt[]
 
   @@map("profiles")
   @@schema("public")
@@ -991,9 +992,11 @@ enum VideoProvider {
 
 /// Something in a module that is not work: a reading, a note, a video.
 ///
-/// **Nothing here is graded, submitted, or in the gradebook**, and saying that plainly is most
-/// of the design. The value is that a student's course page becomes the whole of the course
-/// rather than only the parts that are marked.
+/// **Nothing here is graded or in the gradebook**, and saying that plainly is most of the design.
+/// The value is that a student's course page becomes the whole of the course rather than only the
+/// parts that are marked. A resource may carry one `CheckForUnderstanding` — a question about it
+/// that fellows answer — and the attempts at that question are readings of understanding rather
+/// than submissions: no score, no due date, no gradebook cell.
 ///
 /// A sibling of `Assignment` under `CourseUnit` rather than a shared parent both hang off. The
 /// tidier model is one "unit item" that is either of them, and it is a much larger migration:
@@ -1054,7 +1057,9 @@ model Resource {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  courseUnit CourseUnit @relation(fields: [courseUnitId], references: [id], onDelete: Cascade)
+  courseUnit CourseUnit             @relation(fields: [courseUnitId], references: [id], onDelete: Cascade)
+  /// The question fellows answer about this resource, if the instructor asked one.
+  check      CheckForUnderstanding?
 
   /// Cascade rather than restrict, which is the opposite of what an assignment gets from its
   /// unit — and right for the opposite reason. `courseUnits.remove` refuses while assignments
@@ -1064,6 +1069,118 @@ model Resource {
   /// a guard against nothing.
   @@index([courseUnitId, position])
   @@map("resources")
+  @@schema("public")
+}
+
+/// Where an answer to a check for understanding sits, on the SOLO taxonomy.
+///
+/// Five levels are stored because five is what the review can distinguish and what calibration
+/// compares; a fellow reads three categories — Blocked, Understands facts, Making connections —
+/// derived by `levelCategory` in lib/checks/levels.ts, which is also where every definition lives.
+enum CheckLevel {
+  /// Does not yet grasp the concept, or answered something else.
+  BLOCKED
+  /// States one relevant fact, without relating it to anything.
+  UNISTRUCTURAL
+  /// States several relevant facts, without connecting them.
+  MULTISTRUCTURAL
+  /// Connects the facts to each other and to the broader concept.
+  RELATIONAL
+  /// Discusses the concept in general terms, beyond this syntax or example.
+  EXTENDED_ABSTRACT
+
+  @@schema("public")
+}
+
+/// One question about one resource, answered by each fellow up to three times and reviewed into
+/// a level each time.
+///
+/// **A second object beside the resource rather than a kind of resource**, because the question
+/// is *about* the reading, the note, or the video, and the resource stays what it was. A link with
+/// a check is still a link: it opens the same way, sits in the same place, and is edited in the
+/// same dialog.
+///
+/// **Nothing here is graded.** There is no score, no due date, and no gradebook cell, and no
+/// grading screen reads this table. It is a check on how well a concept was taught and a place for
+/// a fellow to practise saying what they understood.
+model CheckForUnderstanding {
+  id             String @id @default(uuid()) @db.Uuid
+  /// At most one check per resource. The resource's own kind is untouched by this.
+  resourceId     String @unique @map("resource_id") @db.Uuid
+  /// One line naming the learning objective this checks. Sent to the review and shown to
+  /// instructors, never to a fellow, because an objective can name the answer.
+  objective      String
+  /// The question, in markdown, rendered through components/markdown.tsx.
+  question       String
+  /// What a level-2 answer looks like, in markdown: the facts stated without the connections
+  /// between them. Sent to the review, never to a fellow.
+  factsExample   String @map("facts_example")
+  /// What a level-3 answer looks like, in markdown. Sent to the review, and shown to a fellow only
+  /// once they have used all three attempts — `checks.myAttempts` decides that, on the server.
+  ///
+  /// **There is deliberately no level-1 example.** Level 1 is an answer that resembles neither
+  /// of these, and the review is asked exactly that; an instructor describing every way to miss
+  /// a concept would be writing a list with no end.
+  exemplar       String
+  /// How long a fellow waits after one attempt before the next, in hours. Entered as days and
+  /// hours; stored as one number because `nextAttempt` in lib/checks/attempts.ts needs one number.
+  /// The default is seven days.
+  retryWaitHours Int    @default(168) @map("retry_wait_hours")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// Cascade: removing a resource removes the question about it. The resource dialog says how
+  /// many fellows' attempts go with it before anything is removed.
+  resource Resource       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  attempts CheckAttempt[]
+
+  @@map("checks_for_understanding")
+  @@schema("public")
+}
+
+/// One fellow's answer to a check for understanding, and what the review made of it.
+///
+/// **Every attempt is kept.** A second attempt is a new row, never an edit of the first, so the
+/// fellow and the instructor can both read how an understanding moved.
+model CheckAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  checkId     String   @map("check_id") @db.Uuid
+  studentId   String   @map("student_id") @db.Uuid
+  /// 1, 2, or 3, assigned by the server from the fellow's earlier attempts and never sent by the
+  /// browser. The unique constraint below is what makes a double-click one attempt rather than two.
+  attempt     Int
+  /// The fellow's own words, in markdown, rendered through components/markdown.tsx on both the
+  /// fellow's card and the instructor's table so a code snippet reads as code. Sent to the review
+  /// as text, fenced and labelled as the fellow's.
+  answer      String
+  /// Ticked when the fellow asked to go over this with an instructor.
+  wantsHelp   Boolean  @default(false) @map("wants_help")
+  submittedAt DateTime @default(now()) @map("submitted_at") @db.Timestamptz(6)
+
+  /// The review's verdict. Null while the review has not produced one; `reviewError` says why.
+  level         CheckLevel?
+  /// Two sentences addressed to the fellow, written by the review. Null with `level`.
+  explanation   String?
+  /// Why `level` is null: the message from the failed model call. Cleared by a successful review.
+  /// Shown to instructors; a fellow is shown a fixed sentence instead.
+  reviewError   String?     @map("review_error")
+  /// Model id, prompt version, and the four token counts, in the shape
+  /// `grading_drafts.model_metadata.usage` uses, so `npm run cost` can price it. Never sent to a
+  /// fellow.
+  modelMetadata Json?       @map("model_metadata")
+
+  /// An instructor's level over the top of the review's. Null means the review's stands.
+  instructorLevel     CheckLevel? @map("instructor_level")
+  instructorLevelById String?     @map("instructor_level_by_id") @db.Uuid
+  instructorLevelAt   DateTime?   @map("instructor_level_at") @db.Timestamptz(6)
+
+  check   CheckForUnderstanding @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  student Profile               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([checkId, studentId, attempt])
+  @@index([studentId])
+  @@map("check_attempts")
   @@schema("public")
 }
 

@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { checkColumns, checkSpecSchema } from "@/lib/checks/spec";
 import { assertCourseMember } from "@/lib/courses/membership";
 import { writeOrder } from "@/lib/courses/order";
 import { teachableCourseUnit, teachableResource } from "@/lib/courses/scope";
 import { resourceColumns, resourceSpecSchema, UnrecognisedVideoError } from "@/lib/resources/spec";
-import type { Tx } from "@/lib/prisma";
+import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { createTRPCRouter, instructorProcedure, profileProcedure } from "../init";
 import { resourceSelect } from "../selects";
@@ -13,9 +14,13 @@ import { resourceSelect } from "../selects";
 /**
  * The things in a module that are not work: readings, notes, and videos.
  *
- * **Nothing here is graded, submitted, counted, or in the gradebook.** No procedure in this
- * file touches a submission, and none of the grading screens read it. That is the whole design:
- * a student's course page becomes the entire course rather than only the parts that are marked.
+ * **Nothing here is graded, counted, or in the gradebook.** No procedure in this file touches a
+ * submission, and none of the grading screens read it. That is the whole design: a student's
+ * course page becomes the entire course rather than only the parts that are marked.
+ *
+ * **A resource may carry a check for understanding** — one question about it, which fellows answer
+ * and which is reviewed into a level. The check is written here, in the same request as its
+ * resource, because it is authored in the same dialog; the attempts at it live in `checks`.
  *
  * A resource belongs to a module and to nothing else — there is no course-level resource,
  * because a student reads a course as a list of modules and something outside all of them has
@@ -80,6 +85,22 @@ function columnsOrRefuse(spec: z.infer<typeof resourceSpecSchema>) {
   }
 }
 
+/**
+ * The check for understanding a save asks for: a spec to write, null for "this resource has none",
+ * or absent to leave it as it is.
+ *
+ * **Null is an instruction, not an omission.** The dialog always sends the whole of what it shows,
+ * so a resource saved with the box unticked is a resource that should not have a check — and on
+ * `update` a check that was there is removed, along with every attempt at it. The dialog says how
+ * many before the save is sent.
+ *
+ * **Absent is allowed so that a page loaded before this field existed can still save.** During a
+ * deploy both releases are live, and a tab opened a minute earlier sends no `check` at all; that
+ * tab knows nothing about checks, so leaving them untouched is the only answer that cannot destroy
+ * one by accident.
+ */
+const checkInput = checkSpecSchema.nullable().optional();
+
 export const resourcesRouter = createTRPCRouter({
   /**
    * Every resource in a course, by module and then by the order the instructor put them in.
@@ -129,7 +150,9 @@ export const resourcesRouter = createTRPCRouter({
    * would be a second way to say what the drag already says.
    */
   create: instructorProcedure
-    .input(z.object({ courseUnitId: z.string().uuid(), spec: resourceSpecSchema }))
+    .input(
+      z.object({ courseUnitId: z.string().uuid(), spec: resourceSpecSchema, check: checkInput }),
+    )
     .mutation(async ({ ctx, input }) => {
       await teachableCourseUnit(ctx, input.courseUnitId, { id: true });
 
@@ -138,6 +161,8 @@ export const resourcesRouter = createTRPCRouter({
           courseUnitId: input.courseUnitId,
           position: await endOfUnit(ctx.db, input.courseUnitId),
           ...columnsOrRefuse(input.spec),
+          // A nested create, so the resource and its question land together or not at all.
+          ...(input.check ? { check: { create: checkColumns(input.check) } } : {}),
         },
         select: resourceSelect,
       });
@@ -162,6 +187,7 @@ export const resourcesRouter = createTRPCRouter({
         /** Omitted leaves it where it is. Given, it must be a module of the same course. */
         courseUnitId: z.string().uuid().optional(),
         spec: resourceSpecSchema,
+        check: checkInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -201,20 +227,46 @@ export const resourcesRouter = createTRPCRouter({
         }
       }
 
-      return ctx.db.resource.update({
-        where: { id: input.resourceId },
-        data: {
+      const columns = columnsOrRefuse(input.spec);
+      const position = movingTo ? await endOfUnit(ctx.db, movingTo) : null;
+
+      /*
+        One transaction, because a save is the resource and its check together: an edited title
+        with a check that failed to write would be a dialog reporting success for half of what it
+        sent.
+      */
+      return inTransaction(ctx.db, async (tx) => {
+        // Absent is a caller that does not know about checks, and is left alone; see `checkInput`.
+        if (input.check) {
+          const check = checkColumns(input.check);
           /*
-            The position comes with the module and only with it. A rename that also rewrote the
-            position would send a resource to the bottom of the list it is already in, every time
-            anybody fixed a typo in its title.
+            An upsert keyed on the resource, so editing a check keeps its id — and with it every
+            attempt already made. Changing the wait or an example applies to the attempts still to
+            come; the ones already reviewed keep the level they were given.
           */
-          ...(movingTo
-            ? { courseUnitId: movingTo, position: await endOfUnit(ctx.db, movingTo) }
-            : {}),
-          ...columnsOrRefuse(input.spec),
-        },
-        select: resourceSelect,
+          await tx.checkForUnderstanding.upsert({
+            where: { resourceId: input.resourceId },
+            create: { resourceId: input.resourceId, ...check },
+            update: check,
+          });
+        } else if (input.check === null) {
+          // `deleteMany` rather than `delete`, so a resource that never had a check is not an error.
+          await tx.checkForUnderstanding.deleteMany({ where: { resourceId: input.resourceId } });
+        }
+
+        return tx.resource.update({
+          where: { id: input.resourceId },
+          data: {
+            /*
+              The position comes with the module and only with it. A rename that also rewrote the
+              position would send a resource to the bottom of the list it is already in, every time
+              anybody fixed a typo in its title.
+            */
+            ...(movingTo && position !== null ? { courseUnitId: movingTo, position } : {}),
+            ...columns,
+          },
+          select: resourceSelect,
+        });
       });
     }),
 
@@ -268,13 +320,15 @@ export const resourcesRouter = createTRPCRouter({
     }),
 
   /**
-   * Removes a resource.
+   * Removes a resource, and with it its check for understanding and every attempt at that check.
    *
    * No confirmation guard in the procedure and no impact count, which is the opposite of
    * `assignments.remove` and right for the opposite reason: that one destroys submissions,
-   * released grades, and test runs, and cannot be undone. This destroys a title and a URL.
-   * A dialog is enough, and a typed confirmation on something that costs a minute to re-add
-   * would be ceremony that teaches instructors to click through confirmations.
+   * released grades, and test runs, and cannot be undone. This destroys a title and a URL, and
+   * where the resource carries a check, the attempts at it — readings of understanding rather
+   * than grades, whose count the dialog states before anything is removed. A dialog is enough,
+   * and a typed confirmation on something that costs a minute to re-add would be ceremony that
+   * teaches instructors to click through confirmations.
    */
   remove: instructorProcedure
     .input(z.object({ resourceId: z.string().uuid() }))

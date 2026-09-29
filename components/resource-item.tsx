@@ -22,6 +22,10 @@ import { videoEmbedUrl, videoWatchUrl } from "@/lib/resources/spec";
  * place, and a video is a player. Forcing one row shape onto all three would mean a note whose
  * only affordance is a link to nowhere.
  *
+ * **A check for understanding is drawn beneath the row, not inside it.** The caller passes it as
+ * `panel`, and this component knows nothing about attempts, answers, or levels — the row is the same
+ * row whether or not a question hangs off it.
+ *
  * **The instructor's Curriculum screen renders this same component**, with its actions menu passed
  * in as `actions`. That is the point rather than a convenience: an instructor asking what their
  * cohort will read should be reading the thing itself, and a second rendering built for their side
@@ -38,6 +42,8 @@ export type ResourceView = {
   body: string | null;
   videoProvider: VideoProvider | null;
   videoId: string | null;
+  /** The question fellows answer about this resource, if the instructor asked one. */
+  check: { id: string; question: string; retryWaitHours: number } | null;
 };
 
 export function ResourceItem({
@@ -59,10 +65,19 @@ export function ResourceItem({
    * nor clickable. Absent for a student, who has nothing to reorder.
    */
   handle,
+  /**
+   * What sits beneath the row: a fellow's check for understanding, with their attempts and the
+   * form. Absent for an instructor, who reads the resource exactly as the cohort does.
+   *
+   * Outside the row's own markup for the reason `actions` is: a link's row *is* an anchor, and a
+   * form nested in an anchor is neither valid nor usable.
+   */
+  panel,
 }: {
   resource: ResourceView;
   actions?: React.ReactNode;
   handle?: React.ReactNode;
+  panel?: React.ReactNode;
 }) {
   const row =
     resource.kind === "LINK" ? (
@@ -73,21 +88,34 @@ export function ResourceItem({
       <VideoResource resource={resource} />
     );
 
-  if (!actions && !handle) return row;
+  if (!actions && !handle && !panel) return row;
+
+  const line =
+    !actions && !handle ? (
+      row
+    ) : (
+      <div className="flex items-start gap-1">
+        {/*
+          Aligned to the top for the same reason the menu is: the grip belongs beside the title,
+          not beside the middle of an opened note.
+        */}
+        {handle && <div className="flex shrink-0 items-center pt-2 pl-1">{handle}</div>}
+        <div className="min-w-0 flex-1">{row}</div>
+        {/*
+          Aligned to the top rather than centred, so the menu stays beside the title when the row
+          is opened onto a page of prose or a video player.
+        */}
+        {actions && <div className="flex shrink-0 items-center gap-2 pt-1.5 pr-2">{actions}</div>}
+      </div>
+    );
+
+  if (!panel) return line;
 
   return (
-    <div className="flex items-start gap-1">
-      {/*
-        Aligned to the top for the same reason the menu is: the grip belongs beside the title,
-        not beside the middle of an opened note.
-      */}
-      {handle && <div className="flex shrink-0 items-center pt-2 pl-1">{handle}</div>}
-      <div className="min-w-0 flex-1">{row}</div>
-      {/*
-        Aligned to the top rather than centred, so the menu stays beside the title when the row
-        is opened onto a page of prose or a video player.
-      */}
-      {actions && <div className="flex shrink-0 items-center gap-2 pt-1.5 pr-2">{actions}</div>}
+    <div>
+      {line}
+      {/* Indented to the title's edge, so the check reads as belonging to the resource above it. */}
+      <div className="pr-3 pb-2.5 pl-10">{panel}</div>
     </div>
   );
 }

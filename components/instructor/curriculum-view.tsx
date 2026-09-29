@@ -29,7 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CATEGORY_META, UNIT_CATEGORIES, partCount } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
-import { gradingQueueHref, newAssignmentHref } from "@/lib/links";
+import { checkAttemptsHref, gradingQueueHref, newAssignmentHref } from "@/lib/links";
 import { formatDueDateShort } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
@@ -722,7 +722,17 @@ function UnitSection({
                           <ResourceItem
                             resource={resource}
                             handle={handle}
-                            actions={<ResourceActions courseId={courseId} resource={resource} />}
+                            actions={
+                              <>
+                                {resource.check && (
+                                  <CheckAnsweredLink
+                                    courseId={courseId}
+                                    checkId={resource.check.id}
+                                  />
+                                )}
+                                <ResourceActions courseId={courseId} resource={resource} />
+                              </>
+                            }
                           />
                         )}
                       </SortableRow>
@@ -796,4 +806,28 @@ function reordered<T extends { id: string; position: number }>(
   if (next.length !== rows.length) return rows;
 
   return next.map((row, position) => ({ ...row, position }));
+}
+
+/**
+ * How many fellows have answered a resource's check for understanding, linking to their attempts.
+ *
+ * On the row's end, beside the actions, so it reads with the row closed. Each row asks for the
+ * course's checks rather than being handed its entry; every row asks the same question, so it is
+ * one request for the whole screen, already shared with the edit dialog.
+ */
+function CheckAnsweredLink({ courseId, checkId }: { courseId: string; checkId: string }) {
+  const trpc = useTRPC();
+  const checks = useQuery(trpc.checks.forCourse.queryOptions({ courseId }));
+  const entry = checks.data?.checks.find((check) => check.checkId === checkId);
+
+  return (
+    <Link
+      href={checkAttemptsHref(courseId, checkId)}
+      className="text-xs whitespace-nowrap text-muted-foreground hover:text-foreground hover:underline"
+    >
+      {entry && checks.data
+        ? `${entry.answered} of ${checks.data.activeStudents} answered`
+        : "Check attempts"}
+    </Link>
+  );
 }

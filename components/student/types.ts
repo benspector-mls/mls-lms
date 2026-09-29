@@ -17,6 +17,9 @@ export type Course = RouterOutputs["courses"]["get"];
 export type Assignment = RouterOutputs["assignments"]["listForCourse"][number];
 export type Submission = Assignment["submissions"][number];
 export type Resource = RouterOutputs["resources"]["listForCourse"][number];
+/** A fellow's attempts at one check for understanding, and its exemplar once they have earned it. */
+export type CheckProgress = RouterOutputs["checks"]["myAttempts"][number];
+export type CheckAttempt = CheckProgress["attempts"][number];
 
 /** The dashboard's row, which is a different and much narrower read. */
 export type DashboardAssignment = RouterOutputs["assignments"]["listMine"][number];

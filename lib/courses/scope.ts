@@ -151,6 +151,58 @@ export async function teachableResource<S extends Prisma.ResourceSelect>(
   return row ?? refuse(ctx.db.resource, resourceId, "Resource");
 }
 
+/** A check for understanding, if the caller teaches the course its resource's unit is in. */
+export async function teachableCheck<S extends Prisma.CheckForUnderstandingSelect>(
+  ctx: AuthedCtx,
+  checkId: string,
+  select: S,
+): Promise<Prisma.CheckForUnderstandingGetPayload<{ select: S }>> {
+  const row = await ctx.db.checkForUnderstanding.findFirst({
+    where: {
+      id: checkId,
+      ...(teachesEverything(ctx)
+        ? {}
+        : {
+            resource: {
+              courseUnit: {
+                course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
+              },
+            },
+          }),
+    },
+    select,
+  });
+
+  return row ?? refuse(ctx.db.checkForUnderstanding, checkId, "Check for understanding");
+}
+
+/** One fellow's attempt at a check for understanding, if the caller teaches the course. */
+export async function teachableCheckAttempt<S extends Prisma.CheckAttemptSelect>(
+  ctx: AuthedCtx,
+  attemptId: string,
+  select: S,
+): Promise<Prisma.CheckAttemptGetPayload<{ select: S }>> {
+  const row = await ctx.db.checkAttempt.findFirst({
+    where: {
+      id: attemptId,
+      ...(teachesEverything(ctx)
+        ? {}
+        : {
+            check: {
+              resource: {
+                courseUnit: {
+                  course: { program: { instructors: { some: { userId: ctx.profile.id } } } },
+                },
+              },
+            },
+          }),
+    },
+    select,
+  });
+
+  return row ?? refuse(ctx.db.checkAttempt, attemptId, "Attempt");
+}
+
 /** A cohort, if the caller instructs the program whose roster it divides. */
 export async function teachableCohort<S extends Prisma.CohortSelect>(
   ctx: AuthedCtx,

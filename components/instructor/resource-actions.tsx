@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { Loader2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -44,6 +44,17 @@ export function ResourceActions({ courseId, resource }: { courseId: string; reso
   const settled = useServerMutation();
   const [editing, setEditing] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
+
+  /*
+    How many fellows have answered this resource's check, so the confirmation can say what goes with
+    it. The Curriculum screen has already asked for this; the answer comes from the cache.
+  */
+  const checks = useQuery({
+    ...trpc.checks.forCourse.queryOptions({ courseId }),
+    enabled: removing && resource.check !== null,
+  });
+  const answered =
+    checks.data?.checks.find((check) => check.checkId === resource.check?.id)?.answered ?? 0;
 
   const remove = useMutation(
     trpc.resources.remove.mutationOptions(
@@ -95,8 +106,19 @@ export function ResourceActions({ courseId, resource }: { courseId: string; reso
           <DialogHeader>
             <DialogTitle>Remove &ldquo;{resource.title}&rdquo;?</DialogTitle>
             <DialogDescription>
-              It disappears from your students&apos; course page. Nothing they have handed in is
-              affected — a resource is not work.
+              {resource.check && answered > 0 ? (
+                <>
+                  It disappears from your students&apos; course page, and so does its check for
+                  understanding — with every attempt the {answered}{" "}
+                  {answered === 1 ? "fellow who answered it" : "fellows who answered it"} made.
+                  Nothing graded is affected.
+                </>
+              ) : (
+                <>
+                  It disappears from your students&apos; course page. Nothing they have handed in is
+                  affected — a resource is not work.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

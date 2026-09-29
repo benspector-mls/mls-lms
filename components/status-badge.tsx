@@ -26,11 +26,13 @@ import { MARKER_META, type DevelopmentMarker } from "@/lib/coaching";
 import { CATEGORY_META } from "@/lib/course-units";
 import type {
   AttendanceStatus,
+  CheckLevel,
   CourseUnitCategory,
   GradingDraftStatus,
   ResourceKind,
   SubmissionStatus,
 } from "@/lib/generated/prisma/enums";
+import { CATEGORY_LABEL, LEVEL_DEFINITION, LEVEL_NAME, levelCategory } from "@/lib/checks/levels";
 import { RESOURCE_KIND_LABEL } from "@/lib/resources/spec";
 import {
   assignmentKindMeta,
@@ -102,6 +104,75 @@ function BadgeShell({ meta, className }: { meta: StatusMeta; className?: string 
         {meta.label}
       </span>
     </WithExplanation>
+  );
+}
+
+/**
+ * Where an answer to a check for understanding sits: three dots, filled as far as its category.
+ *
+ * **Deliberately without colour.** Every other badge here is a verdict — late, missing, approved —
+ * and its tone says so. A check is not a verdict, and red, amber, and green would lend it stakes it
+ * is designed not to have. So this is the neutral pill with a small scale on it: one dot filled for
+ * Blocked, two for Understands facts, three for Making connections.
+ *
+ * Its own component rather than a `BadgeShell` because that draws one tone-coloured dot and this
+ * draws three. The SOLO name and its definition are in the tooltip, so a fellow is not shown the
+ * jargon unless they go looking for it. Both sides of the application use this one badge.
+ */
+export function CheckLevelBadge({
+  level,
+  dotsOnly = false,
+  className,
+}: {
+  level: CheckLevel;
+  /**
+   * Only the dots, with the category moved into the tooltip. For a table, where a legend beneath it
+   * says what the dots mean and a column of repeated labels would crowd out the answers.
+   */
+  dotsOnly?: boolean;
+  className?: string;
+}) {
+  const category = levelCategory(level);
+  const definition = `${LEVEL_NAME[level]}: ${LEVEL_DEFINITION[level]}`;
+
+  return (
+    <WithExplanation
+      description={dotsOnly ? `${CATEGORY_LABEL[category]}. ${definition}` : definition}
+    >
+      <span
+        className={cn(
+          "inline-flex cursor-help items-center gap-1.5 rounded-full border py-0.5 text-xs font-medium whitespace-nowrap",
+          dotsOnly ? "px-1.5" : "px-2",
+          TONE_CLASSES.neutral,
+          className,
+        )}
+      >
+        <CheckLevelDots category={category} />
+        <span className="sr-only">Level {category} of 3: </span>
+        {dotsOnly ? (
+          <span className="sr-only">{CATEGORY_LABEL[category]}</span>
+        ) : (
+          CATEGORY_LABEL[category]
+        )}
+      </span>
+    </WithExplanation>
+  );
+}
+
+/** Three dots, filled as far as a category. Also what the legend beneath a table of levels draws. */
+export function CheckLevelDots({ category }: { category: 1 | 2 | 3 }) {
+  return (
+    <span aria-hidden="true" className="flex items-center gap-0.5">
+      {[1, 2, 3].map((dot) => (
+        <span
+          key={dot}
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            dot <= category ? "bg-foreground/70" : "border border-muted-foreground/50",
+          )}
+        />
+      ))}
+    </span>
   );
 }
 

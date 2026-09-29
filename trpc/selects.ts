@@ -129,4 +129,13 @@ export const resourceSelect = {
   videoId: true,
   courseUnitId: true,
   position: true,
+  /*
+    The check for understanding, as a fellow may read it: the question and the wait. **Never the
+    objective or the two examples**, any of which can give the answer away. This select is what
+    `resources.listForCourse` returns to a fellow's course page, so anything here is readable by
+    every fellow in the course. The objective and the examples reach an instructor through
+    `checks.forCourse`, and the level-3 example reaches a fellow only through `checks.myAttempts`,
+    once they have used all three attempts.
+  */
+  check: { select: { id: true, question: true, retryWaitHours: true } },
 } satisfies Prisma.ResourceSelect;

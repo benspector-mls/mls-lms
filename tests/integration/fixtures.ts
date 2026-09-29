@@ -339,3 +339,66 @@ export async function makeWorld(
     student: students[0]!,
   };
 }
+
+/**
+ * A link resource carrying a check for understanding, at the end of its unit.
+ *
+ * The resource kind is a link because it is the simplest one; a check hangs off any kind the same
+ * way, and nothing about checks depends on which.
+ */
+export async function makeCheck(
+  tx: Tx,
+  options: { unitId: string; retryWaitHours?: number; title?: string },
+) {
+  const position = await tx.resource.count({ where: { courseUnitId: options.unitId } });
+
+  const resource = await tx.resource.create({
+    data: {
+      courseUnitId: options.unitId,
+      kind: "LINK",
+      title: options.title ?? `Integration Reading ${unique().slice(0, 6)}`,
+      url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Closures",
+      position,
+      check: {
+        create: {
+          objective: "Explain why a closure can read variables after its outer function returns.",
+          question: "What does `counter()` return the second time it is called, and why?",
+          factsExample: "It returns 2.",
+          exemplar: "It returns 2, because the inner function keeps a reference to `count`.",
+          retryWaitHours: options.retryWaitHours ?? 168,
+        },
+      },
+    },
+    select: { id: true, check: { select: { id: true } } },
+  });
+
+  return { resourceId: resource.id, checkId: resource.check!.id };
+}
+
+/**
+ * An attempt written straight to the table, back-dated when asked, so the wait between attempts
+ * can be tested without waiting for it.
+ */
+export async function makeCheckAttempt(
+  tx: Tx,
+  options: {
+    checkId: string;
+    studentId: string;
+    attempt: number;
+    submittedAt: Date;
+    level?: "BLOCKED" | "UNISTRUCTURAL" | "MULTISTRUCTURAL" | "RELATIONAL" | "EXTENDED_ABSTRACT";
+  },
+) {
+  return tx.checkAttempt.create({
+    data: {
+      checkId: options.checkId,
+      studentId: options.studentId,
+      attempt: options.attempt,
+      answer: `Attempt ${options.attempt}`,
+      submittedAt: options.submittedAt,
+      level: options.level ?? "UNISTRUCTURAL",
+      explanation: "You named the facts. Connect them next.",
+    },
+    select: { id: true },
+  });
+}

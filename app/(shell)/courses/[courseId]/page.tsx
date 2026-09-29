@@ -30,13 +30,16 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
   const { courseId } = await params;
   const queryClient = getQueryClient();
 
-  const [profile, course, assignments, resources] = await Promise.all([
+  const [profile, course, assignments, resources, checkProgress] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.assignments.listForCourse.queryOptions({ courseId })),
     // Its own read rather than part of the assignment list: a resource is a sibling of an
     // assignment under a module, not a kind of assignment, and the two are merged on the page.
     queryClient.fetchQuery(trpc.resources.listForCourse.queryOptions({ courseId })),
+    // The fellow's own attempts at the checks for understanding on those resources. Empty for an
+    // instructor looking at the page, who has none.
+    queryClient.fetchQuery(trpc.checks.myAttempts.queryOptions({ courseId })),
   ]);
 
   return (
@@ -44,6 +47,7 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
       course={course}
       assignments={assignments}
       resources={resources}
+      checkProgress={checkProgress}
       githubLinked={Boolean(profile?.githubUsername)}
       /*
         Read once here and passed down, which is the convention every screen in this application
