@@ -103,7 +103,12 @@ export function UploadedCode({
 
   return (
     <div className="overflow-hidden rounded-md border border-border">
-      <div className="overflow-x-auto py-1 font-mono text-xs">
+      {/*
+        Long lines wrap rather than scroll, matching the diff in `diff-file-card.tsx`. A horizontal
+        scrollbar here would be a second scroller inside the column that already scrolls, and two
+        code viewers on one screen that answer a long line differently is worse than either.
+      */}
+      <div className="py-1 font-mono text-xs">
         {lines.map((line, index) => (
           <CodeLine key={index} number={index + 1} text={line} tokens={tokens?.[index] ?? null} />
         ))}
@@ -140,7 +145,11 @@ function CodeLine({
       <span className="px-1 text-right text-muted-foreground/60 tabular-nums select-none">
         {number}
       </span>
-      <code className="shiki-code pr-3 whitespace-pre">
+      {/*
+        `wrap-anywhere` rather than `break-words`: a minified line or a long URL has no space to
+        break at, and `break-words` leaves such a line to widen the grid column instead.
+      */}
+      <code className="shiki-code min-w-0 pr-3 whitespace-pre-wrap wrap-anywhere">
         {tokens
           ? tokens.map((token, index) => (
               <span key={index} style={token.htmlStyle as React.CSSProperties}>
