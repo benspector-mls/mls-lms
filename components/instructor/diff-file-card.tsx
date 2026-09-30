@@ -158,7 +158,12 @@ export function DiffFileCard({
               <NoPatch file={file} />
             ) : (
               <>
-                <div className="overflow-x-auto font-mono text-xs">
+                {/*
+                  Long lines wrap rather than scroll. A horizontal scrollbar here would be a second
+                  scroller inside the column that already scrolls, and a reader dragging it would lose
+                  the gutter and the marker that say which line they are looking at.
+                */}
+                <div className="font-mono text-xs">
                   {rendered.rows.map((row) =>
                     row.kind === "hunk" ? (
                       /*
@@ -317,7 +322,11 @@ function CodeLine({
         <span className="text-center text-muted-foreground select-none">
           {LINE_MARKER[line.kind]}
         </span>
-        <code className="shiki-code pr-3 whitespace-pre">
+        {/*
+          `wrap-anywhere` rather than `break-words`: a minified line or a long URL has no space to
+          break at, and `break-words` leaves such a line to widen the grid column instead.
+        */}
+        <code className="shiki-code min-w-0 pr-3 whitespace-pre-wrap wrap-anywhere">
           {tokens
             ? tokens.map((token, index) => (
                 <span key={index} style={token.htmlStyle as React.CSSProperties}>
