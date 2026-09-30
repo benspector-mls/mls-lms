@@ -75,6 +75,9 @@ type MarkdownFieldId = "body" | "question" | "factsExample" | "exemplar";
  */
 export type Resource = RouterOutputs["resources"]["listForCourse"][number];
 
+/** An existing check's examples and answered count, as `checks.forCourse` reports them. */
+type CheckDetail = RouterOutputs["checks"]["forCourse"]["checks"][number];
+
 export function ResourceDialog({
   open,
   onOpenChange,
@@ -91,7 +94,6 @@ export function ResourceDialog({
   defaultCourseUnitId?: string;
 }) {
   const trpc = useTRPC();
-  const settled = useServerMutation();
 
   /*
     The units this may be filed under, fetched here rather than passed in. The dialog is opened
@@ -103,7 +105,6 @@ export function ResourceDialog({
     ...trpc.courseUnits.listForCourse.queryOptions({ courseId }),
     enabled: open,
   });
-  const modules = React.useMemo(() => units.data ?? [], [units.data]);
 
   /*
     The two examples and the answered count, which a fellow must never receive and which are
@@ -122,81 +123,105 @@ export function ResourceDialog({
     [checks.data, resource],
   );
 
-  const [kind, setKind] = React.useState<ResourceKind>("LINK");
-  const [courseUnitId, setCourseUnitId] = React.useState("");
-  const [title, setTitle] = React.useState("");
-  const [url, setUrl] = React.useState("");
-  const [description, setDescription] = React.useState("");
-  const [body, setBody] = React.useState("");
-  /**
-   * Whether the note is being read rather than written.
-   *
-   * On the form rather than in the note field's own component, so that opening the dialog on
-   * another resource puts it back to writing — arriving at an edit form in a state where the text
-   * cannot be typed into would be a form that appears not to work.
-   */
-  const [previewing, setPreviewing] = React.useState<MarkdownFieldId | null>(null);
-
-  const [hasCheck, setHasCheck] = React.useState(false);
-  const [objective, setObjective] = React.useState("");
-  const [question, setQuestion] = React.useState("");
-  const [factsExample, setFactsExample] = React.useState("");
-  const [exemplar, setExemplar] = React.useState("");
-  const [waitDays, setWaitDays] = React.useState(retryWaitParts(DEFAULT_RETRY_WAIT_HOURS).days);
-  const [waitHours, setWaitHours] = React.useState(retryWaitParts(DEFAULT_RETRY_WAIT_HOURS).hours);
+  const modules = units.data;
+  const failed = units.error ?? checks.error;
 
   /*
-    Reset when the dialog opens rather than on every render of a closed one, so a half-typed
-    resource is not wiped by an unrelated refetch — and so reopening on a different row does not
-    show the previous row's text. Keyed on `open` and the row's id together: editing A, closing,
-    then editing B has to reload, and both changes land in the same commit.
+    The form is mounted only once everything it starts from has arrived, and it reads those values
+    once, at mount. Nothing copies them into the fields afterwards, so a refetch while the dialog is
+    open — the window regaining focus, or a mutation elsewhere invalidating every query — cannot
+    overwrite what has been typed. The dialog unmounts its content on close, so reopening on another
+    row is a fresh mount that reads that row.
+
+    A failed read is said rather than shown as an empty module picker, which would read as "this
+    course has no modules" — a claim this dialog is in no position to make, and one whose obvious
+    next move is to go and create a module that already exists.
   */
-  React.useEffect(() => {
-    if (!open) return;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{resource ? "Edit resource" : "Add a resource"}</DialogTitle>
+          <DialogDescription>
+            Readings, notes, and videos, each with an optional check for understanding. Nothing here
+            is graded — a check is answered and reviewed, not marked — and a resource is visible to
+            the cohort as soon as it is saved.
+          </DialogDescription>
+        </DialogHeader>
 
-    setPreviewing(null);
+        {failed ? (
+          <p className="text-sm text-destructive" role="alert">
+            Could not open the form. {failed.message}
+          </p>
+        ) : modules === undefined || (resource?.check && checkDetail === null) ? (
+          <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading…
+          </p>
+        ) : (
+          <ResourceForm
+            resource={resource}
+            modules={modules}
+            checkDetail={checkDetail}
+            defaultCourseUnitId={defaultCourseUnitId}
+            onClose={() => onOpenChange(false)}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-    if (resource) {
-      setKind(resource.kind);
-      setCourseUnitId(resource.courseUnitId);
-      setTitle(resource.title);
-      setUrl(resource.url ?? "");
-      setDescription(resource.description ?? "");
-      setBody(resource.body ?? "");
+/**
+ * The form itself, mounted once the dialog is open and what it starts from has arrived.
+ *
+ * Every field is initialized from `resource` and `checkDetail` at mount and written to only by its
+ * own input. Reopening the dialog is a new mount, which is how editing A, closing, then editing B
+ * shows B's text rather than A's.
+ */
+function ResourceForm({
+  resource,
+  modules,
+  checkDetail,
+  defaultCourseUnitId,
+  onClose,
+}: {
+  resource: Resource | null;
+  modules: RouterOutputs["courseUnits"]["listForCourse"];
+  /** Null when there is no existing check. Never null while there is one: the shell waits for it. */
+  checkDetail: CheckDetail | null;
+  defaultCourseUnitId?: string;
+  onClose: () => void;
+}) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
 
-      const wait = retryWaitParts(resource.check?.retryWaitHours ?? DEFAULT_RETRY_WAIT_HOURS);
-      setHasCheck(resource.check !== null);
-      setObjective(checkDetail?.objective ?? "");
-      setQuestion(resource.check?.question ?? "");
-      setFactsExample(checkDetail?.factsExample ?? "");
-      setExemplar(checkDetail?.exemplar ?? "");
-      setWaitDays(wait.days);
-      setWaitHours(wait.hours);
-      return;
-    }
+  const startingWait = retryWaitParts(resource?.check?.retryWaitHours ?? DEFAULT_RETRY_WAIT_HOURS);
 
-    const wait = retryWaitParts(DEFAULT_RETRY_WAIT_HOURS);
-    setKind("LINK");
-    setCourseUnitId(defaultCourseUnitId ?? modules[0]?.id ?? "");
-    setTitle("");
-    setUrl("");
-    setDescription("");
-    setBody("");
-    setHasCheck(false);
-    setObjective("");
-    setQuestion("");
-    setFactsExample("");
-    setExemplar("");
-    setWaitDays(wait.days);
-    setWaitHours(wait.hours);
-  }, [open, resource, defaultCourseUnitId, modules, checkDetail]);
+  const [kind, setKind] = React.useState<ResourceKind>(resource?.kind ?? "LINK");
+  const [courseUnitId, setCourseUnitId] = React.useState(
+    resource?.courseUnitId ?? defaultCourseUnitId ?? modules[0]?.id ?? "",
+  );
+  const [title, setTitle] = React.useState(resource?.title ?? "");
+  const [url, setUrl] = React.useState(resource?.url ?? "");
+  const [description, setDescription] = React.useState(resource?.description ?? "");
+  const [body, setBody] = React.useState(resource?.body ?? "");
+  /** Which markdown field is being read rather than written: one at a time, and none to begin with. */
+  const [previewing, setPreviewing] = React.useState<MarkdownFieldId | null>(null);
+
+  const [hasCheck, setHasCheck] = React.useState(resource !== null && resource.check !== null);
+  const [objective, setObjective] = React.useState(checkDetail?.objective ?? "");
+  const [question, setQuestion] = React.useState(resource?.check?.question ?? "");
+  const [factsExample, setFactsExample] = React.useState(checkDetail?.factsExample ?? "");
+  const [exemplar, setExemplar] = React.useState(checkDetail?.exemplar ?? "");
+  const [waitDays, setWaitDays] = React.useState(startingWait.days);
+  const [waitHours, setWaitHours] = React.useState(startingWait.hours);
 
   const create = useMutation(
     trpc.resources.create.mutationOptions(
       settled({
         onSuccess: (row) => {
           toast.success(`Added "${row.title}".`);
-          onOpenChange(false);
+          onClose();
         },
       }),
     ),
@@ -206,7 +231,7 @@ export function ResourceDialog({
       settled({
         onSuccess: (row) => {
           toast.success(`Saved "${row.title}".`);
-          onOpenChange(false);
+          onClose();
         },
       }),
     ),
@@ -240,10 +265,7 @@ export function ResourceDialog({
     title.trim() !== "" &&
     (kind === "TEXT" ? body.trim() !== "" : url.trim() !== "") &&
     !videoProblem &&
-    checkComplete &&
-    // An existing check's examples are not in the form until they have loaded, and saving before
-    // then would write them back empty.
-    !(resource?.check && hasCheck && !checkDetail);
+    checkComplete;
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -280,199 +302,171 @@ export function ResourceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-        <form onSubmit={submit}>
-          <DialogHeader>
-            <DialogTitle>{resource ? "Edit resource" : "Add a resource"}</DialogTitle>
-            <DialogDescription>
-              Readings, notes, and videos, each with an optional check for understanding. Nothing
-              here is graded — a check is answered and reviewed, not marked — and a resource is
-              visible to the cohort as soon as it is saved.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-4 py-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="resource-kind">What is it?</Label>
-              <Select
-                value={kind}
-                onValueChange={(next) => next && setKind(next as ResourceKind)}
-                items={Object.fromEntries(
-                  IMPLEMENTED_RESOURCE_KINDS.map((k) => [k, RESOURCE_KIND_LABEL[k]]),
-                )}
-              >
-                <SelectTrigger id="resource-kind" className="w-full min-w-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {IMPLEMENTED_RESOURCE_KINDS.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {RESOURCE_KIND_LABEL[k]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">{RESOURCE_KIND_BLURB[kind]}</p>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="resource-module">Module</Label>
-              <Select
-                value={courseUnitId}
-                onValueChange={(next) => next && setCourseUnitId(next)}
-                items={Object.fromEntries(modules.map((row) => [row.id, row.name]))}
-              >
-                <SelectTrigger id="resource-module" className="w-full min-w-0">
-                  <SelectValue placeholder="Choose a module" />
-                </SelectTrigger>
-                <SelectContent>
-                  {modules.map((row) => (
-                    <SelectItem key={row.id} value={row.id}>
-                      {row.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {/*
-                Why the list is empty, on the one occasion it is empty for a reason other than the
-                course having no units. An unexplained empty picker reads as "this course has no
-                modules", which is a claim this dialog is in no position to make when the read
-                failed — and the instructor's next move would be to go and create a module that
-                already exists.
-              */}
-              {/*
-                Where it lands, said here rather than on the title, which no longer decides
-                anything about order. Both sentences are about the same rule from the two sides an
-                instructor meets it from: a resource is added at the end of a module, and a
-                resource that changes module is added to the end of the new one.
-              */}
-              <p className="text-xs text-muted-foreground">
-                {resource
-                  ? "Moving this to another module puts it at the end of that module's list."
-                  : "Added at the end of the module. Drag it into place from the Curriculum screen."}
-              </p>
-              {units.error && (
-                <p className="text-xs text-destructive">
-                  The units of this course could not be loaded, so there is nothing to choose from.{" "}
-                  {units.error.message}
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="resource-title">Title</Label>
-              <Input
-                id="resource-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder={kind === "TEXT" ? "How to read an error message" : "MDN: Array.map()"}
-                maxLength={200}
-              />
-            </div>
-
-            {kind !== "TEXT" && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="resource-url">{kind === "VIDEO" ? "Video link" : "Link"}</Label>
-                <Input
-                  id="resource-url"
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                  placeholder={
-                    kind === "VIDEO"
-                      ? "https://www.youtube.com/watch?v=…"
-                      : "https://developer.mozilla.org/…"
-                  }
-                  maxLength={2000}
-                  aria-invalid={videoProblem || undefined}
-                />
-                {/*
-                  Which video was recognised, rather than only whether one was. An instructor who
-                  pasted the wrong tab's URL gets a valid-looking field either way; naming the
-                  provider is what lets them notice.
-                */}
-                {video && (
-                  <p className="text-xs text-muted-foreground">
-                    {VIDEO_PROVIDER_LABEL[video.provider]} video{" "}
-                    <span className="font-mono">{video.videoId}</span>. It will play on the course
-                    page.
-                  </p>
-                )}
-                {videoProblem && (
-                  <p className="text-xs text-destructive">
-                    Only YouTube and Vimeo links can be embedded. Paste the address from the
-                    video&apos;s own page — or add it as a Link instead, which accepts any address.
-                  </p>
-                )}
-              </div>
+    <form onSubmit={submit}>
+      <div className="flex flex-col gap-4 py-4">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="resource-kind">What is it?</Label>
+          <Select
+            value={kind}
+            onValueChange={(next) => next && setKind(next as ResourceKind)}
+            items={Object.fromEntries(
+              IMPLEMENTED_RESOURCE_KINDS.map((k) => [k, RESOURCE_KIND_LABEL[k]]),
             )}
+          >
+            <SelectTrigger id="resource-kind" className="w-full min-w-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {IMPLEMENTED_RESOURCE_KINDS.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {RESOURCE_KIND_LABEL[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{RESOURCE_KIND_BLURB[kind]}</p>
+        </div>
 
-            {kind === "LINK" && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="resource-description">Description (optional)</Label>
-                <Input
-                  id="resource-description"
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Read the first two sections before Wednesday."
-                  maxLength={500}
-                />
-                <p className="text-xs text-muted-foreground">
-                  One line, shown under the title. Anything that wants formatting is a Note.
-                </p>
-              </div>
-            )}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="resource-module">Module</Label>
+          <Select
+            value={courseUnitId}
+            onValueChange={(next) => next && setCourseUnitId(next)}
+            items={Object.fromEntries(modules.map((row) => [row.id, row.name]))}
+          >
+            <SelectTrigger id="resource-module" className="w-full min-w-0">
+              <SelectValue placeholder="Choose a module" />
+            </SelectTrigger>
+            <SelectContent>
+              {modules.map((row) => (
+                <SelectItem key={row.id} value={row.id}>
+                  {row.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/*
+            Where it lands, said here rather than on the title, which no longer decides
+            anything about order. Both sentences are about the same rule from the two sides an
+            instructor meets it from: a resource is added at the end of a module, and a
+            resource that changes module is added to the end of the new one.
+          */}
+          <p className="text-xs text-muted-foreground">
+            {resource
+              ? "Moving this to another module puts it at the end of that module's list."
+              : "Added at the end of the module. Drag it into place from the Curriculum screen."}
+          </p>
+        </div>
 
-            {kind === "TEXT" && (
-              <MarkdownField
-                id="body"
-                label="Note"
-                value={body}
-                onChange={setBody}
-                previewing={previewing}
-                onPreviewChange={setPreviewing}
-                rows={10}
-                maxLength={50_000}
-                placeholder={"## Before you start\n\nRun `npm i` first, then…"}
-                hint="Markdown, rendered the same way feedback is."
-              />
-            )}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="resource-title">Title</Label>
+          <Input
+            id="resource-title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder={kind === "TEXT" ? "How to read an error message" : "MDN: Array.map()"}
+            maxLength={200}
+          />
+        </div>
 
-            <CheckSection
-              enabled={hasCheck}
-              onEnabledChange={setHasCheck}
-              attemptsLost={attemptsLost}
-              loadingExamples={Boolean(resource?.check && hasCheck && !checkDetail)}
-              objective={objective}
-              onObjectiveChange={setObjective}
-              question={question}
-              onQuestionChange={setQuestion}
-              factsExample={factsExample}
-              onFactsExampleChange={setFactsExample}
-              exemplar={exemplar}
-              onExemplarChange={setExemplar}
-              waitDays={waitDays}
-              onWaitDaysChange={setWaitDays}
-              waitHours={waitHours}
-              onWaitHoursChange={setWaitHours}
-              waitTooShort={hasCheck && waitTotal < 1}
-              previewing={previewing}
-              onPreviewChange={setPreviewing}
+        {kind !== "TEXT" && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="resource-url">{kind === "VIDEO" ? "Video link" : "Link"}</Label>
+            <Input
+              id="resource-url"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder={
+                kind === "VIDEO"
+                  ? "https://www.youtube.com/watch?v=…"
+                  : "https://developer.mozilla.org/…"
+              }
+              maxLength={2000}
+              aria-invalid={videoProblem || undefined}
             />
+            {/*
+              Which video was recognised, rather than only whether one was. An instructor who
+              pasted the wrong tab's URL gets a valid-looking field either way; naming the
+              provider is what lets them notice.
+            */}
+            {video && (
+              <p className="text-xs text-muted-foreground">
+                {VIDEO_PROVIDER_LABEL[video.provider]} video{" "}
+                <span className="font-mono">{video.videoId}</span>. It will play on the course page.
+              </p>
+            )}
+            {videoProblem && (
+              <p className="text-xs text-destructive">
+                Only YouTube and Vimeo links can be embedded. Paste the address from the
+                video&apos;s own page — or add it as a Link instead, which accepts any address.
+              </p>
+            )}
           </div>
+        )}
 
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!complete || busy}>
-              {busy && <Loader2 data-icon="inline-start" className="animate-spin" />}
-              {resource ? "Save" : "Add resource"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        {kind === "LINK" && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="resource-description">Description (optional)</Label>
+            <Input
+              id="resource-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Read the first two sections before Wednesday."
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground">
+              One line, shown under the title. Anything that wants formatting is a Note.
+            </p>
+          </div>
+        )}
+
+        {kind === "TEXT" && (
+          <MarkdownField
+            id="body"
+            label="Note"
+            value={body}
+            onChange={setBody}
+            previewing={previewing}
+            onPreviewChange={setPreviewing}
+            rows={10}
+            maxLength={50_000}
+            placeholder={"## Before you start\n\nRun `npm i` first, then…"}
+            hint="Markdown, rendered the same way feedback is."
+          />
+        )}
+
+        <CheckSection
+          enabled={hasCheck}
+          onEnabledChange={setHasCheck}
+          attemptsLost={attemptsLost}
+          objective={objective}
+          onObjectiveChange={setObjective}
+          question={question}
+          onQuestionChange={setQuestion}
+          factsExample={factsExample}
+          onFactsExampleChange={setFactsExample}
+          exemplar={exemplar}
+          onExemplarChange={setExemplar}
+          waitDays={waitDays}
+          onWaitDaysChange={setWaitDays}
+          waitHours={waitHours}
+          onWaitHoursChange={setWaitHours}
+          waitTooShort={hasCheck && waitTotal < 1}
+          previewing={previewing}
+          onPreviewChange={setPreviewing}
+        />
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!complete || busy}>
+          {busy && <Loader2 data-icon="inline-start" className="animate-spin" />}
+          {resource ? "Save" : "Add resource"}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
@@ -485,9 +479,9 @@ export function ResourceDialog({
  *
  * One toggle rather than a box beside the text, because the dialog is not wide enough to read prose
  * in half of it, and rather than two tabs, because this is the same Edit/Preview switch the feedback
- * editor already uses. Which field is previewing is held by the dialog, so opening it on another
- * resource puts every field back to writing — arriving at a form whose text cannot be typed into
- * would be a form that appears not to work.
+ * editor already uses. Which field is previewing is held by the form, so one preview is open at a
+ * time, and a form always mounts with every field writable — arriving at a form whose text cannot
+ * be typed into would be a form that appears not to work.
  */
 function MarkdownField({
   id,
@@ -570,7 +564,6 @@ function CheckSection({
   enabled,
   onEnabledChange,
   attemptsLost,
-  loadingExamples,
   objective,
   onObjectiveChange,
   question,
@@ -591,8 +584,6 @@ function CheckSection({
   onEnabledChange: (enabled: boolean) => void;
   /** How many fellows' attempts unticking the box would remove. */
   attemptsLost: number;
-  /** An existing check's examples are still on their way; the fields wait for them. */
-  loadingExamples: boolean;
   objective: string;
   onObjectiveChange: (value: string) => void;
   question: string;
@@ -634,13 +625,7 @@ function CheckSection({
         </p>
       )}
 
-      {enabled && loadingExamples && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading the examples…
-        </p>
-      )}
-
-      {enabled && !loadingExamples && (
+      {enabled && (
         <>
           <div className="flex flex-col gap-2">
             <Label htmlFor="check-objective">Objective</Label>
