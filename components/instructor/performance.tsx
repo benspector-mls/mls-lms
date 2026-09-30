@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Gauge } from "lucide-react";
 import * as React from "react";
 
@@ -19,28 +20,40 @@ import {
 import { ATTENDANCE_DRIFT_REASON_LABEL, DRIFT_RULE } from "@/lib/attendance/summary";
 import { CHECK_TREND_RULE } from "@/lib/checks/trends";
 import { CATEGORY_LABEL, type CheckCategory } from "@/lib/checks/levels";
-import { CATEGORY_META } from "@/lib/course-units";
+import { CATEGORY_META, UNIT_CATEGORIES } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { ASSIGNMENT_DRIFT_RULE, DRIFT_REASON_LABEL } from "@/lib/gradebook/summary";
 import { programStudentHref } from "@/lib/links";
 import { initials } from "@/lib/people";
 import {
+  COURSES_PARAM,
   PERFORMANCE_BUCKET_LABEL,
   PERFORMANCE_BUCKETS,
   PERFORMANCE_RULE,
+  shownCourseIds,
+  standingAcross,
   type PerformanceBucket,
+  type Standing,
 } from "@/lib/programs/performance";
 import { formatPercent } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 type Payload = RouterOutputs["programs"]["performance"];
-type Fellow = Payload["fellows"][number];
+/** A fellow as the server sends them: attendance, and one reading per course. */
+type Reading = Payload["fellows"][number];
+/** The same fellow with their standing across the shown courses, which is what the grid draws. */
+type Fellow = Reading & { standing: Standing };
 type Course = Payload["courses"][number];
 
 /**
  * The Performance screen: every real fellow in one of three groups, and the few there is not yet
  * enough to say about, with the readings behind the group laid out across the row.
+ *
+ * **Read against the courses chosen in the page header.** The groups, the All courses figures and
+ * the bands all follow the course filter, so the roster can be sorted by how it is doing in one
+ * course, in this month's, or in all of them. Attendance belongs to the program and counts
+ * whichever are shown. `standingAcross` in lib/programs/performance.ts is the computation.
  *
  * **A grid for the whole roster**, the fellow's Trends section turned on its side. Attendance
  * comes first, then the program-wide figures — work handed in on time, and the share of
@@ -72,11 +85,37 @@ export function ProgramPerformance({
   cohortName: Map<string, string>;
 }) {
   const [sort, setSort] = React.useState<Sort | null>(null);
-  const { courses, fellows } = data;
+
+  /*
+    The course filter in the page header decides which courses everything is read against: the
+    bands drawn, the All courses figures, and each fellow's group. The payload holds every course's
+    reading, so a change of selection is arithmetic here rather than a request.
+  */
+  const param = useSearchParams().get(COURSES_PARAM);
+  const courses = React.useMemo(() => {
+    const shown = shownCourseIds(param, data.courses);
+    return data.courses.filter((course) => shown.has(course.id));
+  }, [param, data.courses]);
+
+  const fellows = React.useMemo(
+    () =>
+      data.fellows.map((fellow): Fellow => ({
+        ...fellow,
+        standing: standingAcross(fellow.attendance, courses, fellow.courses),
+      })),
+    [data.fellows, courses],
+  );
 
   const columns = React.useMemo(
-    () => columnsFor(courses, data.categories),
-    [courses, data.categories],
+    () =>
+      columnsFor(
+        courses,
+        // The kinds of unit any shown course has released work in, in the gradebook's order.
+        UNIT_CATEGORIES.filter((category) =>
+          courses.some((course) => course.categories.includes(category)),
+        ),
+      ),
+    [courses],
   );
 
   if (fellows.length === 0) {
@@ -92,7 +131,7 @@ export function ProgramPerformance({
   const byBucket = new Map<PerformanceBucket, Fellow[]>(
     PERFORMANCE_BUCKETS.map((bucket) => [bucket, []]),
   );
-  for (const fellow of fellows) byBucket.get(fellow.bucket)!.push(fellow);
+  for (const fellow of fellows) byBucket.get(fellow.standing.bucket)!.push(fellow);
 
   const order = (rows: Fellow[]) => {
     const column = sort && columns.find((candidate) => candidate.key === sort.key);
@@ -209,7 +248,8 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
         All courses
         <HelpTip>
           On time submissions is the share of past-due work handed in by its deadline. The completed
-          columns are the share graded complete, out of everything released so far in every course.
+          columns are the share graded complete, out of everything released so far. All of them
+          count only the courses shown.
         </HelpTip>
       </>
     ),
@@ -262,12 +302,13 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       key: "onTime",
       band: allCourses,
       title: "On time submissions",
-      sortValue: (f) => (f.onTime ? f.onTime.onTime / f.onTime.due : null),
+      sortValue: (f) =>
+        f.standing.onTime ? f.standing.onTime.onTime / f.standing.onTime.due : null,
       render: (f) =>
-        f.onTime
+        f.standing.onTime
           ? {
-              value: formatPercent(f.onTime.onTime / f.onTime.due),
-              detail: `${f.onTime.onTime} of ${f.onTime.due}`,
+              value: formatPercent(f.standing.onTime.onTime / f.standing.onTime.due),
+              detail: `${f.standing.onTime.onTime} of ${f.standing.onTime.due}`,
             }
           : EMPTY("nothing due yet"),
     },
@@ -276,10 +317,10 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       band: allCourses,
       title: completedTitle(category),
       sortValue: (f) => {
-        const completion = f.completion[category];
+        const completion = f.standing.completion[category];
         return completion ? fraction(completion.complete, completion.possible) : null;
       },
-      render: (f) => completionCell(f.completion[category]),
+      render: (f) => completionCell(f.standing.completion[category]),
     })),
   ];
 
@@ -410,13 +451,13 @@ type Sort = { key: string; direction: "asc" | "desc" };
 /** More flags first, then the lower on-time share, then the lower attendance. */
 function worstFirst(a: Fellow, b: Fellow): number {
   return (
-    b.flags.length - a.flags.length ||
-    ratio(a.onTime) - ratio(b.onTime) ||
+    b.standing.flags.length - a.standing.flags.length ||
+    ratio(a.standing.onTime) - ratio(b.standing.onTime) ||
     (a.attendance.rate ?? 1) - (b.attendance.rate ?? 1)
   );
 }
 
-function ratio(onTime: Fellow["onTime"]): number {
+function ratio(onTime: Standing["onTime"]): number {
   return onTime === null ? 1 : onTime.onTime / onTime.due;
 }
 

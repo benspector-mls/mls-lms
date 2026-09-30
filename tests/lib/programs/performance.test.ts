@@ -1,5 +1,8 @@
 import {
   onTimeByStudent,
+  shownCourseIds,
+  standingAcross,
+  type CourseStanding,
   performanceBucket,
   performanceFlagLabel,
   PERFORMANCE_RULE,
@@ -181,5 +184,84 @@ describe("onTimeByStudent", () => {
   it("gives every student asked about an entry", () => {
     const result = onTimeByStudent(["s1", "s2"], [assignment("a1", PAST)], [cell("a1")], AT);
     expect(result.get("s2")).toEqual({ onTime: 0, due: 1 });
+  });
+});
+
+describe("shownCourseIds", () => {
+  const courses = [{ id: "c1" }, { id: "c2" }, { id: "c3" }];
+
+  it("shows every course when the address names none", () => {
+    expect([...shownCourseIds(null, courses)]).toEqual(["c1", "c2", "c3"]);
+  });
+
+  it("shows the courses the address names", () => {
+    expect([...shownCourseIds("c3,c1", courses)].sort()).toEqual(["c1", "c3"]);
+  });
+
+  it("ignores an id that names no course of this program", () => {
+    expect([...shownCourseIds("c2,elsewhere", courses)]).toEqual(["c2"]);
+  });
+
+  it("shows none when the address names none of them", () => {
+    expect(shownCourseIds("", courses).size).toBe(0);
+  });
+});
+
+describe("standingAcross", () => {
+  const prework = { id: "prework", name: "Prework" };
+  const fundamentals = { id: "fundamentals", name: "Web Fundamentals" };
+
+  const readings: Record<string, CourseStanding> = {
+    // A course that ended badly: most deadlines missed, and flagged for it.
+    prework: {
+      onTime: { onTime: 2, due: 10 },
+      completion: { MODULE: { complete: 3, possible: 10 } },
+      reasons: ["deadlines"],
+    },
+    // A course going well.
+    fundamentals: {
+      onTime: { onTime: 10, due: 10 },
+      completion: { MODULE: { complete: 8, possible: 10 }, PROJECT: { complete: 1, possible: 1 } },
+      reasons: [],
+    },
+  };
+  const here = { rate: 0.95, reason: null };
+
+  it("sums every course given", () => {
+    const standing = standingAcross(here, [prework, fundamentals], readings);
+    expect(standing.onTime).toEqual({ onTime: 12, due: 20 });
+    expect(standing.completion).toEqual({
+      MODULE: { complete: 11, possible: 20 },
+      PROJECT: { complete: 1, possible: 1 },
+    });
+  });
+
+  it("carries each course's flags, named by course", () => {
+    expect(standingAcross(here, [prework, fundamentals], readings).flags).toEqual([
+      { kind: "work", courseId: "prework", courseName: "Prework", reason: "deadlines" },
+    ]);
+  });
+
+  /*
+    The case the filter exists for: one past course is the only reason a fellow needs support, and
+    leaving it out reads them against the rest.
+  */
+  it("a fellow held back only by one course moves when it is left out", () => {
+    expect(standingAcross(here, [prework, fundamentals], readings).bucket).toBe("needs-support");
+    expect(standingAcross(here, [fundamentals], readings).bucket).toBe("exceeding");
+  });
+
+  it("keeps an attendance flag whichever courses are shown", () => {
+    const late = { rate: 1, reason: "late" as const };
+    expect(standingAcross(late, [fundamentals], readings).flags).toEqual([
+      { kind: "attendance", reason: "late" },
+    ]);
+    expect(standingAcross(late, [fundamentals], readings).bucket).toBe("needs-support");
+  });
+
+  it("is too early to say when nothing in the shown courses has come due", () => {
+    const standing = standingAcross(here, [], readings);
+    expect(standing.onTime).toBeNull();
+    expect(standing.bucket).toBe("too-early");
   });
 });

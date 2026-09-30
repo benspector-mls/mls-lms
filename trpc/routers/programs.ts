@@ -13,16 +13,10 @@ import {
   completionByStudent,
   driftReasons,
   recentWorkByStudent,
-  type DriftReason,
   type RecentWork,
 } from "@/lib/gradebook/summary";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
-import {
-  onTimeByStudent,
-  performanceBucket,
-  PERFORMANCE_RULE,
-  type PerformanceFlag,
-} from "@/lib/programs/performance";
+import { onTimeByStudent, PERFORMANCE_RULE, type CourseStanding } from "@/lib/programs/performance";
 import { DISCIPLINES } from "@/lib/competencies";
 import { newSessionSecret } from "@/lib/attendance/code";
 import {
@@ -575,12 +569,9 @@ export const programsRouter = createTRPCRouter({
         two windows the gradebook's drift rule reads, the reasons it trips, and the last few checks
         for understanding. A course with neither released work nor a check draws no band.
       */
-      type CourseReading = {
+      type CourseReading = CourseStanding & {
         recent: RecentWork | null;
-        reasons: DriftReason[];
         checks: RecentChecks | null;
-        /** Graded complete, of the course's released work of each kind in the course's `categories`. */
-        completion: Partial<Record<CourseUnitCategory, { complete: number; possible: number }>>;
       };
       const readingsByStudent = new Map<string, Record<string, CourseReading>>(
         studentIds.map((studentId) => [studentId, {}]),
@@ -593,16 +584,6 @@ export const programsRouter = createTRPCRouter({
         /** The kinds of unit with released work in this course, each drawn as a column. */
         categories: CourseUnitCategory[];
       }[] = [];
-      const allReleased: (typeof units)[number]["assignments"] = [];
-      /*
-        Released work across every course, by the kind of unit it sits in, for the grid's
-        completion columns: assignments in modules, deliverables in projects, parts of assessments.
-      */
-      const releasedByCategory: Record<CourseUnitCategory, typeof allReleased> = {
-        MODULE: [],
-        PROJECT: [],
-        ASSESSMENT: [],
-      };
 
       for (const course of courses) {
         const own = units.filter((unit) => unit.courseId === course.id);
@@ -614,9 +595,6 @@ export const programsRouter = createTRPCRouter({
         const courseByCategory = UNIT_CATEGORIES.map(
           (category) => [category, published(workOf(grouped[category]))] as const,
         ).filter(([, work]) => work.length > 0);
-        for (const [category, work] of courseByCategory) {
-          releasedByCategory[category].push(...work);
-        }
         const courseCompletion = courseByCategory.map(
           ([category, work]) =>
             [
@@ -625,7 +603,6 @@ export const programsRouter = createTRPCRouter({
               completionByStudent(cellsFor(cells, work), work.length),
             ] as const,
         );
-        allReleased.push(...released);
 
         const courseChecks = checks.filter(
           (check) => check.resource.courseUnit.courseId === course.id,
@@ -641,15 +618,18 @@ export const programsRouter = createTRPCRouter({
           categories: courseByCategory.map(([category]) => category),
         });
 
+        const courseCells = cellsFor(cells, released);
         const recents = hasWork
-          ? recentWorkByStudent(studentIds, released, cellsFor(cells, released), now)
+          ? recentWorkByStudent(studentIds, released, courseCells, now)
           : null;
+        const onTimes = onTimeByStudent(studentIds, released, courseCells, now);
 
         for (const studentId of studentIds) {
           const recent = recents?.get(studentId) ?? null;
           readingsByStudent.get(studentId)![course.id] = {
             recent,
             reasons: recent ? driftReasons(recent) : [],
+            onTime: onTimes.get(studentId)!,
             checks: hasChecks
               ? recentChecks(
                   courseChecks.map((check) => ({
@@ -667,23 +647,6 @@ export const programsRouter = createTRPCRouter({
           };
         }
       }
-
-      const onTime = onTimeByStudent(studentIds, allReleased, cells, now);
-
-      /*
-        Completed means `isComplete`, and the denominator is every released assignment of the
-        category — the gradebook Overview's own figure, through the same function, summed across
-        the program's courses. A category with nothing released anywhere draws no column.
-      */
-      const categories = UNIT_CATEGORIES.filter(
-        (category) => releasedByCategory[category].length > 0,
-      );
-      const completionByCategory = new Map(
-        categories.map((category) => {
-          const work = releasedByCategory[category];
-          return [category, completionByStudent(cellsFor(cells, work), work.length)] as const;
-        }),
-      );
 
       /*
         Attendance, by `summarize` and the drift rule, exactly as the fellow's record reads it. A
@@ -713,10 +676,8 @@ export const programsRouter = createTRPCRouter({
       );
 
       return {
-        /** The courses the grid draws a band for, in the program's order. */
+        /** The courses the grid can draw a band for, in the program's order. */
         courses: shownCourses,
-        /** The kinds of unit with released work anywhere in the program, in the gradebook's order. */
-        categories,
         fellows: enrollments.map((enrollment) => {
           const studentId = enrollment.student.id;
           const summary = summaryByEnrollment.get(enrollment.id)!;
@@ -729,55 +690,25 @@ export const programsRouter = createTRPCRouter({
           */
           const recent = judged ? recentAttendance(summary, summarySessions) : null;
           const attendanceReason = recent ? attendanceDriftReason(recent) : null;
-          const readings = readingsByStudent.get(studentId)!;
-          const flags: PerformanceFlag[] = [
-            ...(attendanceReason
-              ? [{ kind: "attendance" as const, reason: attendanceReason }]
-              : []),
-            ...shownCourses.flatMap((course) =>
-              readings[course.id]!.reasons.map((reason) => ({
-                kind: "work" as const,
-                courseId: course.id,
-                courseName: course.name,
-                reason,
-              })),
-            ),
-          ];
-
-          const workDue = onTime.get(studentId)!;
-          const reading = {
-            onTime: workDue.due === 0 ? null : workDue,
-            attendanceRate: judged ? summary.rate : null,
-            flags,
-          };
-
+          const rate = judged ? summary.rate : null;
           return {
             enrollmentId: enrollment.id,
             cohortId: enrollment.cohortId,
             student: enrollment.student,
-            bucket: performanceBucket(reading),
-            onTime: reading.onTime,
             attendance: {
-              rate: reading.attendanceRate,
+              /** Null until the fellow has enough mornings to be judged, which is what the rule reads. */
+              rate,
               eligible: summary.eligible,
               attended: summary.present + summary.late,
               /** The drift rule's two windows, or null until the fellow can be judged by it. */
               recent,
               reason: attendanceReason,
             },
-            flags,
-            /** Keyed by course id, one entry for every course in `courses`. */
-            courses: readings,
-            /** Keyed by category, one entry for every category in `categories`. */
-            completion: Object.fromEntries(
-              categories.map((category) => [
-                category,
-                completionByCategory.get(category)!.get(studentId) ?? {
-                  complete: 0,
-                  possible: releasedByCategory[category].length,
-                },
-              ]),
-            ) as Partial<Record<CourseUnitCategory, { complete: number; possible: number }>>,
+            /**
+             * Keyed by course id, one entry for every course in `courses`. The group, the on-time
+             * share and completion across courses are `standingAcross` over whichever are shown.
+             */
+            courses: readingsByStudent.get(studentId)!,
           };
         }),
       };

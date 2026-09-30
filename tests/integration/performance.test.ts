@@ -4,11 +4,13 @@
  * Run with `npm run test:integration`.
  *
  * The rule itself is `tests/lib/programs/performance.test.ts`, which runs on every save. What this
- * adds is that the procedure feeds the rule the right figures from real rows: that past-due work
+ * adds is that the procedure feeds the rule the right figures from real rows, combined here by
+ * `standingAcross` the way the screen combines them when every course is shown: that past-due work
  * counts, that closed mornings count, that a test student is not measured, that the cohort picker
  * narrows the list, and — the case the rule is shaped around — that a fellow with full attendance
  * who has been late three mornings running is in needs support rather than exceeding.
  */
+import { standingAcross } from "@/lib/programs/performance";
 import { dateColumnFor } from "@/lib/school-time";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
@@ -123,13 +125,23 @@ describe("sorting a roster into the Performance groups", () => {
 
   const read = async (cohort = "all") =>
     (await asInstructor().programs.performance({ programId: world.programId, cohort })).fellows;
-  const fellow = async (studentId: string) =>
-    (await read()).find((row) => row.student.id === studentId);
+  /**
+   * One fellow, with their standing across every course, as the screen computes it with no course
+   * filter chosen. The procedure sends per-course readings; `standingAcross` is what combines them.
+   */
+  const fellow = async (studentId: string) => {
+    const data = await asInstructor().programs.performance({
+      programId: world.programId,
+      cohort: "all",
+    });
+    const row = data.fellows.find((candidate) => candidate.student.id === studentId);
+    return row && { ...row, standing: standingAcross(row.attendance, data.courses, row.courses) };
+  };
 
   it("a fellow on time and here every morning exceeds", async () => {
     const row = await fellow(ids.clean);
-    expect(row?.bucket).toBe("exceeding");
-    expect(row?.onTime).toEqual({ onTime: 1, due: 1 });
+    expect(row?.standing.bucket).toBe("exceeding");
+    expect(row?.standing.onTime).toEqual({ onTime: 1, due: 1 });
     expect(row?.attendance.rate).toBe(1);
   });
 
@@ -144,16 +156,21 @@ describe("sorting a roster into the Performance groups", () => {
   });
 
   it("and a completion column for the one kind of unit with released work", async () => {
-    const { categories } = await asInstructor().programs.performance({
+    const { courses } = await asInstructor().programs.performance({
       programId: world.programId,
       cohort: "all",
     });
-    expect(categories).toEqual(["MODULE"]);
+    expect(courses[0]?.categories).toEqual(["MODULE"]);
+  });
+
+  it("each fellow carries that course's on-time count", async () => {
+    const row = await fellow(ids.missing);
+    expect(row?.courses[world.courseId]?.onTime).toEqual({ onTime: 0, due: 1 });
   });
 
   it("completion counts only work graded complete", async () => {
     const row = await fellow(ids.clean);
-    expect(row?.completion.MODULE).toEqual({ complete: 0, possible: 1 });
+    expect(row?.standing.completion.MODULE).toEqual({ complete: 0, possible: 1 });
   });
 
   it("each fellow carries that course's completion, by kind of unit", async () => {
@@ -176,21 +193,21 @@ describe("sorting a roster into the Performance groups", () => {
 
   it("a fellow who never handed in the work needs support", async () => {
     const row = await fellow(ids.missing);
-    expect(row?.bucket).toBe("needs-support");
-    expect(row?.onTime).toEqual({ onTime: 0, due: 1 });
+    expect(row?.standing.bucket).toBe("needs-support");
+    expect(row?.standing.onTime).toEqual({ onTime: 0, due: 1 });
   });
 
   it("a fellow late three mornings running needs support, at full attendance", async () => {
     const row = await fellow(ids.lateLately);
     expect(row?.attendance.rate).toBe(1);
-    expect(row?.flags).toEqual([{ kind: "attendance", reason: "late" }]);
-    expect(row?.bucket).toBe("needs-support");
+    expect(row?.standing.flags).toEqual([{ kind: "attendance", reason: "late" }]);
+    expect(row?.standing.bucket).toBe("needs-support");
   });
 
   it("a fellow with no mornings counted yet is too early to say", async () => {
     const row = await fellow(ids.newcomer);
     expect(row?.attendance.rate).toBeNull();
-    expect(row?.bucket).toBe("too-early");
+    expect(row?.standing.bucket).toBe("too-early");
   });
 
   it("a test student is not measured", async () => {

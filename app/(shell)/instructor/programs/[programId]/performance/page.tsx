@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { CohortPicker } from "@/components/instructor/cohort-picker";
+import { CourseFilter } from "@/components/instructor/course-filter";
 import { ProgramPerformance } from "@/components/instructor/performance";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
@@ -17,7 +18,8 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * instructor doing that has no reason to be on the roster's tabs in the same sitting.
  *
  * **It carries the cohort picker**, so an instructor who works with fifteen fellows reads their
- * fifteen, and No cohort shows the fellows nobody has placed.
+ * fifteen, and No cohort shows the fellows nobody has placed. **And a course filter**, which narrows
+ * the course bands drawn without changing anybody's group; see `CourseFilter`.
  *
  * The rule is `performanceBucket` in lib/programs/performance.ts, and the figures come from
  * `programs.performance`.
@@ -71,7 +73,12 @@ async function Performance({
             ? "this program"
             : cohortSelectionLabel(selection, cohorts.cohorts)
         } · attendance, and work across every course`}
-        actions={<CohortPicker choice={cohorts} />}
+        actions={
+          <>
+            <CourseFilter courses={data.courses} />
+            <CohortPicker choice={cohorts} />
+          </>
+        }
       />
       <ProgramPerformance programId={programId} data={data} cohortName={cohortName} />
     </div>

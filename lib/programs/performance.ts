@@ -6,6 +6,7 @@ import {
   type RecentAssignment,
   type RecentCell,
 } from "@/lib/gradebook/summary";
+import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { handedIn } from "@/lib/status";
 import { lateness } from "@/lib/submissions/hand-in";
 
@@ -30,9 +31,16 @@ import { lateness } from "@/lib/submissions/hand-in";
  * exceeding, and reading it as failing would start it in needs support; both are wrong about
  * somebody.
  *
+ * **Read against the courses being looked at.** The Performance screen can narrow to some of a
+ * program's courses, and the groups follow: a fellow is placed by their attendance and by the
+ * shown courses alone, so the same roster can be sorted by how it is doing in this month's courses,
+ * or in one course, or in all of them. `standingAcross` is that computation, and it is the only one.
+ *
  * **Browser-safe and pure**, and its inputs are figures other modules already compute: the drift
  * reasons are `driftReasons` and `attendanceDriftReason`, and the rate is `summarize`'s. What this
- * module adds is the on-time figure and the rule that combines them.
+ * module adds is the on-time figure and the rule that combines them. The server sends one reading
+ * per course and the browser combines whichever are shown, so changing the selection asks the
+ * server nothing.
  *
  * The thresholds are a first guess to be argued with once there is a term of data behind them, and
  * are deliberately not configurable, for the reason `DRIFT_RULE` and `ASSIGNMENT_DRIFT_RULE` are
@@ -175,4 +183,97 @@ export function onTimeByStudent(
       return [studentId, { onTime, due }];
     }),
   );
+}
+
+/** The query string key holding the shown courses, comma separated. Absent means every course. */
+export const COURSES_PARAM = "courses";
+
+/**
+ * Which of these courses the address asks to show.
+ *
+ * **Absent means every course**, so the plain address is the whole grid and a course published
+ * next week appears without anybody choosing it. An id that names no course here — one since
+ * unpublished, or from another program's link — is ignored rather than refused.
+ */
+export function shownCourseIds(
+  param: string | null,
+  courses: readonly { id: string }[],
+): Set<string> {
+  if (param === null) return new Set(courses.map((course) => course.id));
+  const asked = new Set(param.split(",").filter(Boolean));
+  return new Set(courses.filter((course) => asked.has(course.id)).map((course) => course.id));
+}
+
+/** Graded complete, of the released work of one kind. */
+export type Completion = { complete: number; possible: number };
+
+/** What one course contributes to a fellow's standing. */
+export type CourseStanding = {
+  /** Of this course's past-due released work: see `onTimeByStudent`. */
+  onTime: OnTime;
+  /** By the kind of unit, for each kind this course has released work in. */
+  completion: Partial<Record<CourseUnitCategory, Completion>>;
+  /** Which clauses of the gradebook's drift rule this course trips. */
+  reasons: readonly DriftReason[];
+};
+
+/** A fellow's standing across the courses being looked at. */
+export type Standing = {
+  bucket: PerformanceBucket;
+  /** Summed over the shown courses. Null when nothing in them has come due. */
+  onTime: OnTime | null;
+  /** Summed over the shown courses, for each kind of unit any of them has released work in. */
+  completion: Partial<Record<CourseUnitCategory, Completion>>;
+  flags: PerformanceFlag[];
+};
+
+/**
+ * Where a fellow stands, reading attendance and only the courses given.
+ *
+ * **Sums rather than recomputes**, which is sound because every figure here is a count over
+ * assignments and each assignment belongs to one course: the on-time share across three courses is
+ * the three courses' counts added, and so is completion. Attendance belongs to the program rather
+ * than to any course, so it counts whichever courses are shown.
+ */
+export function standingAcross(
+  attendance: { rate: number | null; reason: Drift["reason"] | null },
+  courses: readonly { id: string; name: string }[],
+  readings: Readonly<Record<string, CourseStanding>>,
+): Standing {
+  let onTime = 0;
+  let due = 0;
+  const completion: Partial<Record<CourseUnitCategory, Completion>> = {};
+  const flags: PerformanceFlag[] = attendance.reason
+    ? [{ kind: "attendance", reason: attendance.reason }]
+    : [];
+
+  for (const course of courses) {
+    const reading = readings[course.id];
+    if (!reading) continue;
+
+    onTime += reading.onTime.onTime;
+    due += reading.onTime.due;
+
+    for (const [category, figures] of Object.entries(reading.completion) as [
+      CourseUnitCategory,
+      Completion,
+    ][]) {
+      const total = (completion[category] ??= { complete: 0, possible: 0 });
+      total.complete += figures.complete;
+      total.possible += figures.possible;
+    }
+
+    for (const reason of reading.reasons) {
+      flags.push({ kind: "work", courseId: course.id, courseName: course.name, reason });
+    }
+  }
+
+  const summed = due === 0 ? null : { onTime, due };
+
+  return {
+    bucket: performanceBucket({ onTime: summed, attendanceRate: attendance.rate, flags }),
+    onTime: summed,
+    completion,
+    flags,
+  };
 }
