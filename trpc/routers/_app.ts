@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { viewedStudentLabel } from "@/lib/auth/view-as";
 import { newJoinToken } from "@/lib/courses/join-token";
 import { displayNameSchema } from "@/lib/people";
 import { createTRPCRouter, protectedProcedure } from "../init";
@@ -48,25 +49,24 @@ export const appRouter = createTRPCRouter({
   ),
 
   /**
-   * Whether this request is being answered as a test student, and on whose behalf.
+   * Whether this request is being answered as a student, on whose behalf, and whether it may write.
    *
-   * Reads `ctx.viewingAs` and deliberately not `ctx.user`, which under the switch *is* the test
-   * student — asking the caller who they are would get the answer the switch installed. The real
-   * admin is on the context precisely so this can be answered.
+   * Reads `ctx.viewingAs` and deliberately not `ctx.user`, which under the switch *is* the student —
+   * asking the caller who they are would get the answer the switch installed. The real viewer is on
+   * the context precisely so this can be answered.
    *
    * Returns null the rest of the time, which is what the banner renders nothing for. It is a query
    * rather than a field on `me` because `me` answers "who am I", and the honest answer to that while
-   * the cookie is set is the test student. Two questions, two procedures.
+   * the cookie is set is the student. Two questions, two procedures.
    */
   viewingAs: protectedProcedure.query(({ ctx }) => {
     if (!ctx.viewingAs) return null;
 
     return {
-      testStudent: {
-        displayName: ctx.viewingAs.testStudent.displayName,
-        number: ctx.viewingAs.testStudent.number,
-      },
-      admin: { displayName: ctx.viewingAs.admin.displayName },
+      /** Named here rather than in the banner, so the fallback for a nameless profile is one rule. */
+      student: { name: viewedStudentLabel(ctx.viewingAs.student) },
+      viewer: { displayName: ctx.viewingAs.viewer.displayName },
+      readOnly: ctx.viewingAs.readOnly,
     };
   }),
 

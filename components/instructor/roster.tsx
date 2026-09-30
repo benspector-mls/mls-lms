@@ -39,6 +39,11 @@ import type { EnrollmentStatus } from "@/lib/generated/prisma/enums";
 import { programStudentHref } from "@/lib/links";
 import { initials } from "@/lib/people";
 import {
+  cohortSelectionLabel,
+  inCohortSelection,
+  parseCohortSelection,
+} from "@/lib/programs/cohorts";
+import {
   DEFAULT_ROSTER_SORT,
   sortRoster,
   toggleRosterSort,
@@ -68,6 +73,15 @@ import type { RouterOutputs } from "@/trpc/types";
  * status, so within either one the column holds a single value and a header that sorted it would
  * be a control that visibly does nothing. Each table keeps its own order, because they are two
  * lists answering two questions rather than one list with a divider.
+ *
+ * **Test students are in neither table.** They have a third, inside the card that makes them, and
+ * only an admin sees it. A test student is nobody's fellow, so listing one among the fellows made
+ * every reader of the roster check a badge before trusting a row; in their own table they are
+ * where the one person who uses them goes looking.
+ *
+ * **The cohort picker narrows the two fellow tables** and not the test students', which belong to
+ * no cohort anybody grades. The narrowing is done here rather than by `programs.roster`, because the
+ * same payload feeds the test-student table and has to stay whole for it.
  */
 
 type Data = RouterOutputs["programs"]["roster"];
@@ -75,6 +89,7 @@ type Data = RouterOutputs["programs"]["roster"];
 export function ProgramRoster({
   data,
   cohorts,
+  cohort,
 }: {
   data: Data;
   /**
@@ -85,10 +100,13 @@ export function ProgramRoster({
    * it, which is the question an instructor asks when somebody joins by the link mid-term.
    */
   cohorts: { id: string; name: string }[];
+  /** The cohort picker's selection, as it travels in the query string. */
+  cohort: string;
 }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const programId = data.program.id;
+  const selection = parseCohortSelection(cohort);
 
   // Named once rather than searched per row, because a roster of twenty-five would otherwise walk
   // the cohort list twenty-five times to print five names.
@@ -128,10 +146,30 @@ export function ProgramRoster({
   const [deleting, setDeleting] = React.useState<string | null>(null);
 
   const busy = remove.isPending || restore.isPending;
-  // Complements, so every enrollment lands in exactly one table. See the same reasoning in
-  // `courses.gradebook`: filters naming both statuses would lose a third one from both lists.
-  const active = data.enrollments.filter((enrollment) => enrollment.status === "ACTIVE");
-  const removed = data.enrollments.filter((enrollment) => enrollment.status !== "ACTIVE");
+  /*
+    Complements, so every enrollment lands in exactly one table. See the same reasoning in
+    `courses.gradebook`: filters naming both statuses would lose a third one from both lists. Test
+    students are taken out first, and only the fellows that remain are narrowed to the cohort.
+  */
+  const testStudents = data.enrollments.filter(
+    (enrollment) => enrollment.student.testStudentNumber !== null,
+  );
+  const fellows = data.enrollments.filter(
+    (enrollment) => enrollment.student.testStudentNumber === null,
+  );
+  const shown = fellows.filter((enrollment) => inCohortSelection(selection, enrollment.cohortId));
+  const active = shown.filter((enrollment) => enrollment.status === "ACTIVE");
+  const removed = shown.filter((enrollment) => enrollment.status !== "ACTIVE");
+
+  const tableProps = {
+    programId,
+    cohortName,
+    busy,
+    isAdmin,
+    onRemove: (enrollmentId: string) => remove.mutate({ enrollmentId }),
+    onRestore: (enrollmentId: string) => restore.mutate({ enrollmentId }),
+    onDelete: setDeleting,
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -146,26 +184,21 @@ export function ProgramRoster({
         />
       )}
 
-      {data.enrollments.length === 0 ? (
+      {fellows.length === 0 ? (
         <EmptyState
           icon={<Users />}
           title="Nobody has joined yet"
           description="Send the join link from Enroll new students. Fellows appear here as they use it."
         />
+      ) : shown.length === 0 ? (
+        <EmptyState
+          icon={<Users />}
+          title={`Nobody in ${cohortSelectionLabel(selection, cohorts)}`}
+          description="Choose All fellows above to see the whole roster."
+        />
       ) : (
         <>
-          {active.length > 0 && (
-            <RosterTable
-              programId={programId}
-              cohortName={cohortName}
-              enrollments={active}
-              busy={busy}
-              isAdmin={isAdmin}
-              onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
-              onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
-              onDelete={setDeleting}
-            />
-          )}
+          {active.length > 0 && <RosterTable {...tableProps} enrollments={active} />}
 
           {/*
             Below the roster and labelled, not mixed into it. What an instructor needs from this
@@ -182,16 +215,7 @@ export function ProgramRoster({
                   gradebook. Restore puts them back where they were.
                 </p>
               </div>
-              <RosterTable
-                programId={programId}
-                cohortName={cohortName}
-                enrollments={removed}
-                busy={busy}
-                isAdmin={isAdmin}
-                onRemove={(enrollmentId) => remove.mutate({ enrollmentId })}
-                onRestore={(enrollmentId) => restore.mutate({ enrollmentId })}
-                onDelete={setDeleting}
-              />
+              <RosterTable {...tableProps} enrollments={removed} />
             </section>
           )}
         </>
@@ -201,22 +225,29 @@ export function ProgramRoster({
         Below the roster rather than above it. The tables are what this tab is for; this is a tool
         for checking the courses, and a card at the top would be the first thing an instructor read
         on a screen they opened to look at their fellows.
+
+        The test students themselves are listed inside it, in a table of their own, so they are
+        never read as fellows. The Enrollment column still says which are removed from this program,
+        so one table holds both.
       */}
       {isAdmin && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border px-4 py-3">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-medium">View this program as a test student</span>
-            <span className="text-xs text-muted-foreground">
-              As a test student you can accept work, push to the repository, and submit assignments
-              in any course of this program. Then, you can grade them here. Test student data is
-              left out of the roster&apos;s count.
-            </span>
+        <section className="flex flex-col gap-3 rounded-lg border border-dashed border-border px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-sm font-medium">View this program as a test student</span>
+              <span className="text-xs text-muted-foreground">
+                As a test student you can accept work, push to the repository, and submit
+                assignments in any course of this program. Then, you can grade them here. Test
+                students are left out of the roster&apos;s count and out of Performance.
+              </span>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+              <FlaskConical data-icon="inline-start" />
+              Add test student
+            </Button>
           </div>
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-            <FlaskConical data-icon="inline-start" />
-            Add test student
-          </Button>
-        </div>
+          {testStudents.length > 0 && <RosterTable {...tableProps} enrollments={testStudents} />}
+        </section>
       )}
     </div>
   );
@@ -476,13 +507,16 @@ function RosterTable({
                   <div className="flex items-center justify-end gap-1">
                     {/*
                       A form rather than a button with an onClick, because entering the view is a
-                      cookie and a full navigation — see `app/api/view-as/route.ts`. Only for an
-                      active enrollment: looking through a test student that has been removed from
-                      this program would show courses it cannot accept anything in.
+                      cookie and a full navigation — see `app/api/view-as/route.ts`. Offered to
+                      every instructor for every active fellow: whoever can open this roster
+                      instructs the program, and the server decides whether the view is read-only,
+                      which it is for everybody but an admin looking through a test student. Only
+                      for an active enrollment: looking through somebody removed from this program
+                      would show courses they cannot act in.
                     */}
-                    {isAdmin && isTestStudent && !removed && (
+                    {!removed && (
                       <form method="post" action="/api/view-as">
-                        <input type="hidden" name="testStudentId" value={enrollment.student.id} />
+                        <input type="hidden" name="studentId" value={enrollment.student.id} />
                         {/* Where to come back to. A test student can be on several rosters, so
                             leaving cannot work this out later — this is the one moment that knows
                             which one is being checked. */}

@@ -69,6 +69,19 @@ export function parseCohortSelection(value: string | null | undefined): CohortSe
   return { kind: "cohort", cohortId: value };
 }
 
+/**
+ * Whether a fellow placed in this cohort (or in none, for null) is in the selected set.
+ *
+ * For the screens that already hold every enrollment and narrow in the browser, where a `where`
+ * fragment cannot reach. It asks the same three-way question `cohortCondition` asks the database,
+ * so a roster narrowed here and a gradebook narrowed there hold the same fellows.
+ */
+export function inCohortSelection(selection: CohortSelection, cohortId: string | null): boolean {
+  if (selection.kind === "all") return true;
+  if (selection.kind === "unassigned") return cohortId === null;
+  return cohortId === selection.cohortId;
+}
+
 /** The inverse, for putting a selection back into a query string or a select's value. */
 export function cohortSelectionValue(selection: CohortSelection): string {
   if (selection.kind === "all") return ALL_STUDENTS;

@@ -809,14 +809,15 @@ export const assignmentsRouter = createTRPCRouter({
         case "REPO":
           /*
             `actingAdmin` is the admin looking through a test student, and null for a real student's
-            accept. It is what gets push access to a test student's repository, since the handle the
+            accept. Only an admin's view of a test student can reach this line, because every other
+            view is read-only and `protectedProcedure` refuses its mutations. It is what gets push access to a test student's repository, since the handle the
             repository is named after belongs to no GitHub account. See the test-student branch in
             `lib/assignments/accept.ts` for why that account is invited and the student's is not.
           */
           return acceptRepoAssignment(ctx.db, {
             assignment,
             student,
-            actingAdmin: ctx.viewingAs?.admin ?? null,
+            actingAdmin: ctx.viewingAs?.viewer ?? null,
             team,
           });
 

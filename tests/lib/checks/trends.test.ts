@@ -32,7 +32,22 @@ describe("recentChecks", () => {
       blocked: 2,
       blockedAskedHelp: 1,
       otherAskedHelp: 1,
+      // Two Blocked (1) and two Understands facts (2).
+      averageLevel: 1.5,
     });
+  });
+
+  it("averages only the answers that have a level yet", () => {
+    const checks = [
+      { createdAt: day(1), attempts: [attempt({ level: "RELATIONAL" })] },
+      { createdAt: day(2), attempts: [attempt({ level: null })] },
+      { createdAt: day(3), attempts: [] },
+    ];
+    expect(recentChecks(checks).averageLevel).toBe(3);
+  });
+
+  it("has no average when nothing has a level", () => {
+    expect(recentChecks([{ createdAt: day(1), attempts: [] }]).averageLevel).toBeNull();
   });
 
   it("reads the latest attempt, with an instructor's level over the review's", () => {
@@ -67,6 +82,7 @@ describe("recentChecksSentence", () => {
     blocked: 0,
     blockedAskedHelp: 0,
     otherAskedHelp: 0,
+    averageLevel: null,
     ...overrides,
   });
 

@@ -1,29 +1,35 @@
 import type { Tx } from "../prisma";
+import { testStudentName } from "../students/test-student";
 
 /**
- * An admin looking at the application as a test student, and the rule that permits it.
+ * An instructor looking at the application as one of their fellows, and the rule that permits it.
  *
- * **One cookie, re-checked on every request.** The cookie holds a test student's profile id and
- * nothing else. It is not signed and does not need to be, because it is never trusted: every read
- * re-establishes that the signed-in user is an ADMIN and that the profile named is a test student.
- * A cookie forged by anybody else buys nothing, and a cookie left behind by an admin who was later
- * demoted stops working the moment their role changes rather than when they next sign in.
+ * **Two kinds of view, one mechanism.** Any instructor of a program may look at the application as
+ * any active fellow of it, read-only: what that fellow sees, their work and their feedback, with
+ * every write refused. An admin looking through a *test student* is the one writable view, because
+ * that is how a course is checked end to end — accepting work, pushing, submitting, and then
+ * grading it from the other side. `readOnly` on the result is what separates the two, and
+ * `protectedProcedure` in trpc/init.ts is what enforces it.
+ *
+ * **One cookie, re-checked on every request.** The cookie holds a student's profile id and nothing
+ * else. It is not signed and does not need to be, because it is never trusted: every read
+ * re-establishes that the signed-in user may look at that student. A cookie forged by anybody else
+ * buys nothing, and a cookie left behind by an instructor who was later taken off the program stops
+ * working the moment the row goes rather than when they next sign in.
  *
  * **The switch is one field.** `createTRPCContext` replaces the id on the context's user with the
- * test student's, and `ctx.user` is read for its `.id` and nothing else — `profileProcedure` loads
- * a profile with it, `_app.me` selects with it. So `requireRole` sees STUDENT, `studentProcedure`
- * admits the caller, `assertActiveStudent` finds the enrollment, the sidebar renders student
- * navigation, and `courses.listMine` returns the test student's courses. Server Components go
- * through the same function, so they switch too. That the whole feature is one substitution is the
- * dividend of there having been a single place the session is read.
+ * student's, and `ctx.user` is read for its `.id` and nothing else — `profileProcedure` loads a
+ * profile with it, `_app.me` selects with it. So `requireRole` sees STUDENT, the sidebar renders
+ * student navigation, and every student read, all of which scope themselves by `ctx.profile.id`,
+ * returns that fellow's data. Server Components go through the same function, so they switch too.
  *
- * **The real admin is kept beside it**, not discarded, for two reasons. Accepting a repository
- * assignment has to invite somebody with push access, and the person who needs it is whoever is
- * doing the previewing. And the banner has to name who is looking and who they are looking as,
- * because a preview that looks like the real thing is a way to grade the wrong person.
+ * **The real viewer is kept beside it**, not discarded, for two reasons. Accepting a repository
+ * assignment as a test student has to invite somebody with push access, and the person who needs it
+ * is whoever is doing the previewing. And the banner has to name who they are looking as, because a
+ * view that looks like the real thing is a way to grade the wrong person.
  *
- * Note what deliberately does *not* work while the cookie is set: `adminProcedure` refuses the
- * caller, because the caller is a student. That is correct, and it is why leaving is a route
+ * Note what deliberately does *not* work while the cookie is set: every instructor procedure refuses
+ * the caller, because the caller is a student. That is correct, and it is why leaving is a route
  * handler reading the real Supabase session rather than a mutation.
  */
 
@@ -36,7 +42,7 @@ import type { Tx } from "../prisma";
 export const VIEW_AS_COOKIE = "mls_view_as";
 
 /**
- * Where the admin was when they switched in, so leaving returns them there.
+ * Where the viewer was when they switched in, so leaving returns them there.
  *
  * **A second cookie rather than a second value in the first**, because the two carry different
  * authority. The one above is an entitlement and is re-established from the database on every
@@ -45,7 +51,7 @@ export const VIEW_AS_COOKIE = "mls_view_as";
  * is checked.
  *
  * **A program rather than a course**, because the roster is the program's: the View as button
- * is on that screen, and a test student enrolled in several programs gives "which one did the admin
+ * is on that screen, and a student enrolled in several programs gives "which one did the viewer
  * come from" no answer that can be derived at the point of leaving.
  */
 export const VIEW_AS_PROGRAM_COOKIE = "mls_view_as_program";
@@ -62,36 +68,71 @@ export function isUuid(value: string): boolean {
   return UUID.test(value);
 }
 
+/**
+ * Whether a destination sent by the banner is an instructor screen of this application.
+ *
+ * Leaving a view may return to the screen it was pressed on, and that address arrives in a form,
+ * which is a value anybody can set. So only `/instructor` or a path beneath it is honoured, and
+ * nothing that could leave the origin: no second slash at the start, which is a protocol-relative
+ * host, and no backslash, which some browsers read as one.
+ */
+export function isInstructorPath(value: string): boolean {
+  if (value.includes("\\") || value.startsWith("//")) return false;
+  return value === "/instructor" || /^\/instructor[/?]/.test(value);
+}
+
 /** Who is looking, and who they are looking as. */
 export type ViewingAs = {
-  /** The real signed-in admin. What `ctx.profile` would have been. */
-  admin: {
+  /** The real signed-in instructor or admin. What `ctx.profile` would have been. */
+  viewer: {
     id: string;
     displayName: string | null;
-    /** Needed at accept: this is the account invited to push to the test student's repository. */
+    /** Needed at accept: this is the account invited to push to a test student's repository. */
     githubUsername: string | null;
     email: string | null;
   };
-  /** The test student the request is being answered as. */
-  testStudent: {
+  /** The student the request is being answered as. */
+  student: {
     id: string;
-    /** Its number, which is also what says it is a test student at all. */
-    number: number;
     displayName: string | null;
     email: string | null;
+    /** Non-null for a test student, which is the one kind an admin may act as. */
+    testStudentNumber: number | null;
   };
+  /** False only for an admin looking through a test student. Every other view refuses writes. */
+  readOnly: boolean;
 };
 
 /**
- * Whether this cookie value entitles this user to be answered as that test student.
+ * What the banner, the audit log, and the refusal call the student.
+ *
+ * A test student by its number when it has no name, since the number is what the interface calls
+ * it; anybody else by their address, which every signed-in fellow has.
+ */
+export function viewedStudentLabel(student: ViewingAs["student"]): string {
+  if (student.displayName) return student.displayName;
+  if (student.testStudentNumber !== null) return testStudentName(student.testStudentNumber);
+  return student.email ?? "this student";
+}
+
+/**
+ * Whether this cookie value entitles this user to be answered as that student, and how.
+ *
+ * **The rule.** The viewer is an INSTRUCTOR or an ADMIN; the target is a STUDENT; and either the
+ * viewer is an ADMIN or the target has an ACTIVE enrollment in a program the viewer instructs. The
+ * view is writable only when an admin looks through a test student.
+ *
+ * **The target must be a STUDENT, and that check is a privilege boundary.** Without it an admin
+ * could name another admin in the cookie and have every admin query answered as them, and an
+ * instructor enrolled somewhere as a student could be named by another instructor of that program.
  *
  * Returns null for every failure and reports none of them, because there is no failure a caller
- * can act on: a stale cookie, a demoted admin, a deleted test student, and a forged value all mean
- * the same thing — answer the request as the person who actually signed in. The route handler that
- * *sets* the cookie is where a refusal is worth wording, since there somebody pressed a button.
+ * can act on: a stale cookie, an instructor taken off the program, a fellow removed from it, and a
+ * forged value all mean the same thing — answer the request as the person who actually signed in.
+ * The route handler that *sets* the cookie is where a refusal is worth wording, since there somebody
+ * pressed a button.
  *
- * One query rather than two. The pair is loaded together and sorted out here, so the cost of a
- * request made under the cookie is a single extra read, and requests without it pay nothing.
+ * Two queries, run together, and requests without the cookie pay for neither.
  *
  * Takes a `Tx` rather than reaching for the module's client, for the reason `accept.ts` does: rows
  * written inside a caller's transaction are invisible to the module's own client, so a check script
@@ -106,37 +147,50 @@ export async function resolveViewAs(
   if (!isUuid(params.cookieValue)) return null;
   if (params.cookieValue === params.realUserId) return null;
 
-  const pair = await db.profile.findMany({
-    where: { id: { in: [params.realUserId, params.cookieValue] } },
-    select: {
-      id: true,
-      role: true,
-      displayName: true,
-      email: true,
-      githubUsername: true,
-      testStudentNumber: true,
-    },
-  });
+  const [pair, taught] = await Promise.all([
+    db.profile.findMany({
+      where: { id: { in: [params.realUserId, params.cookieValue] } },
+      select: {
+        id: true,
+        role: true,
+        displayName: true,
+        email: true,
+        githubUsername: true,
+        testStudentNumber: true,
+      },
+    }),
+    // An active place on a roster this viewer teaches. Unread for an admin, who may view anybody.
+    db.enrollment.findFirst({
+      where: {
+        studentId: params.cookieValue,
+        status: "ACTIVE",
+        program: { instructors: { some: { userId: params.realUserId } } },
+      },
+      select: { id: true },
+    }),
+  ]);
 
-  const admin = pair.find((p) => p.id === params.realUserId);
+  const viewer = pair.find((p) => p.id === params.realUserId);
   const target = pair.find((p) => p.id === params.cookieValue);
 
-  if (!admin || admin.role !== "ADMIN") return null;
-  if (!target || target.testStudentNumber === null) return null;
+  if (!viewer || (viewer.role !== "ADMIN" && viewer.role !== "INSTRUCTOR")) return null;
+  if (!target || target.role !== "STUDENT") return null;
+  if (viewer.role !== "ADMIN" && !taught) return null;
 
   return {
-    admin: {
-      id: admin.id,
-      displayName: admin.displayName,
-      githubUsername: admin.githubUsername,
-      email: admin.email,
+    viewer: {
+      id: viewer.id,
+      displayName: viewer.displayName,
+      githubUsername: viewer.githubUsername,
+      email: viewer.email,
     },
-    testStudent: {
+    student: {
       id: target.id,
-      number: target.testStudentNumber,
       displayName: target.displayName,
       email: target.email,
+      testStudentNumber: target.testStudentNumber,
     },
+    readOnly: !(viewer.role === "ADMIN" && target.testStudentNumber !== null),
   };
 }
 

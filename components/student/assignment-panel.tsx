@@ -108,6 +108,7 @@ export function AssignmentPanel({
   open,
   onOpenChange,
   preview = false,
+  readOnly = false,
   fallback,
 }: {
   /** Null while nothing is selected, which is what keeps one panel serving a whole page. */
@@ -123,6 +124,16 @@ export function AssignmentPanel({
    * greyed and unpressable.
    */
   preview?: boolean;
+  /**
+   * An instructor looking through one of their fellows' accounts, from the roster.
+   *
+   * Unlike `preview`, the fellow's own submission, feedback and conversation are all shown, because
+   * seeing them is why the instructor came. Everything that would write is drawn greyed and
+   * unpressable, and opening the conversation does not mark it read, which would take it off the
+   * fellow's dashboard before they had seen it. The server refuses every write regardless; this is
+   * so the screen does not offer what will be refused.
+   */
+  readOnly?: boolean;
   /**
    * What the open sheet shows while `assignment` is null. A caller that opens the panel before
    * its payload has arrived owes the reader a body for the wait and for the failure — without
@@ -166,6 +177,7 @@ export function AssignmentPanel({
           <PanelBody
             key={assignment.id}
             preview={preview}
+            readOnly={readOnly}
             assignment={assignment}
             submission={submission}
             rounds={rounds}
@@ -187,6 +199,7 @@ export function AssignmentPanel({
 
 function PanelBody({
   preview,
+  readOnly,
   assignment,
   submission,
   rounds,
@@ -194,6 +207,7 @@ function PanelBody({
   now,
 }: {
   preview: boolean;
+  readOnly: boolean;
   assignment: Assignment;
   submission: Submission | null;
   rounds: FeedbackRound[];
@@ -233,10 +247,11 @@ function PanelBody({
     enabled: !preview && tab === "comments",
   });
 
-  // Mounting the thread is reading it, because the panel does not render it until selected.
+  // Mounting the thread is reading it, because the panel does not render it until selected — except
+  // for an instructor looking through the fellow's account, whose reading is not the fellow's.
   const autoRead = useMarkThreadRead({
     thread: comments.data,
-    enabled: tab === "comments",
+    enabled: !readOnly && tab === "comments",
     onRead: () => setUnread(0),
   });
 
@@ -288,6 +303,11 @@ function PanelBody({
         <p className="border-b border-border bg-muted/50 px-4 py-2 text-sm text-muted-foreground">
           A preview of this assignment as a student sees it before starting. Nothing in it can be
           pressed.
+        </p>
+      )}
+      {readOnly && (
+        <p className="border-b border-border bg-muted/50 px-4 py-2 text-sm text-muted-foreground">
+          You are viewing this as a student, read-only. Nothing here can be changed on their behalf.
         </p>
       )}
 
@@ -343,9 +363,9 @@ function PanelBody({
             default `min-width: min-content`, which would stop long content shrinking with the
             sheet.
           */}
-          <fieldset disabled={preview} className="min-w-0">
+          <fieldset disabled={preview || readOnly} className="min-w-0">
             <SubmissionTab
-              preview={preview}
+              preview={preview || readOnly}
               assignment={assignment}
               submission={submission}
               onOpenComments={() => setTab("comments")}
@@ -354,23 +374,30 @@ function PanelBody({
         </TabsContent>
 
         <TabsContent value="feedback" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-          {submission && hasFeedback ? (
-            <div className="flex flex-col gap-4">
-              <MarkFeedbackRead submission={submission} />
-              <FeedbackHistory
-                rounds={rounds}
-                comments={comments.data?.comments ?? []}
-                now={now}
-                onRespond={respondToRound}
+          {/*
+            `contents` so the fieldset takes no box of its own and the layout is the tab's. The
+            disabled attribute still reaches every button beneath it, which is Mark as read and
+            the Respond links that open the composer.
+          */}
+          <fieldset disabled={readOnly} className="contents">
+            {submission && hasFeedback ? (
+              <div className="flex flex-col gap-4">
+                <MarkFeedbackRead submission={submission} />
+                <FeedbackHistory
+                  rounds={rounds}
+                  comments={comments.data?.comments ?? []}
+                  now={now}
+                  onRespond={respondToRound}
+                />
+              </div>
+            ) : (
+              <EmptyState
+                icon={<MessageSquare />}
+                title="No feedback yet"
+                description="Your instructor's feedback appears here once it is released."
               />
-            </div>
-          ) : (
-            <EmptyState
-              icon={<MessageSquare />}
-              title="No feedback yet"
-              description="Your instructor's feedback appears here once it is released."
-            />
-          )}
+            )}
+          </fieldset>
         </TabsContent>
 
         {/*
@@ -379,56 +406,63 @@ function PanelBody({
           conversation squeezing the textarea to nothing.
         */}
         <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col">
-          <CommentThread
-            thread={comments.data}
-            loading={comments.isPending}
-            error={comments.isError}
-            onRetry={() => void comments.refetch()}
-            now={now}
-            assignmentId={assignment.id}
-            emptyTitle="No comments yet"
-            emptyDescription="Ask your instructor anything about this assignment. You do not need to have handed anything in."
-            announcement={announcement}
-            className="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
-          />
-
           {/*
+            The conversation is shown to an instructor looking through the fellow's account, and
+            nothing in it can be pressed: not the composer, not Mark as unread, not withdrawing one
+            of the fellow's own messages. `contents` keeps the tab's column layout intact.
+          */}
+          <fieldset disabled={readOnly} className="contents">
+            <CommentThread
+              thread={comments.data}
+              loading={comments.isPending}
+              error={comments.isError}
+              onRetry={() => void comments.refetch()}
+              now={now}
+              assignmentId={assignment.id}
+              emptyTitle="No comments yet"
+              emptyDescription="Ask your instructor anything about this assignment. You do not need to have handed anything in."
+              announcement={announcement}
+              className="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+            />
+
+            {/*
             Offered only once there is nothing left unread and there is something that could be:
             a conversation holding only your own messages, or only withdrawn ones, has nothing to
             come back to. It sits above the composer because it is about what has been read rather
             than about what to write, and it is drawn here rather than inside `CommentThread` so
             that no instructor screen grows a control only a student has a use for.
           */}
-          {threadCanBeUnread && (
-            <div className="flex shrink-0 flex-col items-start gap-1 border-t border-border px-4 pt-3">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-muted-foreground"
-                disabled={markUnread.isPending}
-                onClick={() => markUnread.mutate({ submissionId: comments.data!.submissionId! })}
-              >
-                <RotateCcw data-icon="inline-start" />
-                {markUnread.isPending ? "Saving…" : "Mark as unread"}
-              </Button>
-              {markUnread.error && (
-                <p className="text-sm text-destructive" role="alert">
-                  {markUnread.error.message}
-                </p>
-              )}
-            </div>
-          )}
+            {threadCanBeUnread && (
+              <div className="flex shrink-0 flex-col items-start gap-1 border-t border-border px-4 pt-3">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  disabled={markUnread.isPending}
+                  onClick={() => markUnread.mutate({ submissionId: comments.data!.submissionId! })}
+                >
+                  <RotateCcw data-icon="inline-start" />
+                  {markUnread.isPending ? "Saving…" : "Mark as unread"}
+                </Button>
+                {markUnread.error && (
+                  <p className="text-sm text-destructive" role="alert">
+                    {markUnread.error.message}
+                  </p>
+                )}
+              </div>
+            )}
 
-          <div className="shrink-0 border-t border-border px-4 py-3">
-            <CommentComposer
-              assignmentId={assignment.id}
-              value={draft}
-              onValueChange={setDraft}
-              anchor={anchor}
-              onClearAnchor={() => setAnchor(null)}
-              onPosted={() => setAnnouncement("Comment posted.")}
-            />
-          </div>
+            <div className="shrink-0 border-t border-border px-4 py-3">
+              <CommentComposer
+                assignmentId={assignment.id}
+                value={draft}
+                onValueChange={setDraft}
+                anchor={anchor}
+                onClearAnchor={() => setAnchor(null)}
+                onPosted={() => setAnnouncement("Comment posted.")}
+              />
+            </div>
+          </fieldset>
         </TabsContent>
       </Tabs>
     </>

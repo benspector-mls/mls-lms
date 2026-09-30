@@ -248,11 +248,16 @@ export function recentAttendanceSentence(recent: RecentAttendance): string {
  * behind twelve good weeks. Two clauses because absence and lateness are different problems with
  * different conversations.
  *
+ * **Both clauses read the same ten mornings**, so a fellow's recent absences and recent lateness are
+ * two counts over one window and can be read side by side — the Performance grid prints them in
+ * adjacent columns, and a reader comparing "2 of 10" with "3 of 5" would be comparing different
+ * fortnights.
+ *
  * The thresholds are deliberately not configurable. They are a starting point to be argued with
  * after a term of use, and a setting would freeze the first guess as though it had been reasoned.
  */
 export const DRIFT_RULE = {
-  missedOf: 5,
+  missedOf: 10,
   missedAtLeast: 2,
   lateOf: 10,
   lateAtLeast: 3,
@@ -262,7 +267,7 @@ export const DRIFT_RULE = {
 
 /** What each reason is called where it is shown as a label rather than a sentence. */
 export const ATTENDANCE_DRIFT_REASON_LABEL: Record<Drift["reason"], string> = {
-  missing: "Missing mornings",
+  missing: "Often absent",
   late: "Arriving late",
 };
 

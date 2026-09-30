@@ -92,4 +92,4 @@ export type Place = {
  * view they were on before it. That is the whole cost of the two lists disagreeing.
  */
 const COURSE_VIEWS = ["triage", "gradebook", "curriculum", "teams", "settings"] as const;
-const PROGRAM_VIEWS = ["attendance", "roster", "settings"] as const;
+const PROGRAM_VIEWS = ["attendance", "performance", "roster", "settings"] as const;

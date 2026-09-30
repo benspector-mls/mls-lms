@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ViewingAs } from "../auth/view-as";
+import { viewedStudentLabel, type ViewingAs } from "../auth/view-as";
 import type { AuditAction, Prisma } from "../generated/prisma/client";
 import { displayNameOf } from "../people";
 import type { Tx } from "../prisma";
@@ -49,7 +49,8 @@ type Nameable = {
  * test student's id onto `ctx.user`, and `profileProcedure` then loads *the test student's*
  * profile — so an event written from `ctx.profile` names a test student as the actor. That is not
  * a small inaccuracy: it attributes an admin's act to an identity that has no power to perform
- * it, and the events most worth recording are exactly the ones an admin performs.
+ * it, and the events most worth recording are exactly the ones an admin performs. An instructor's
+ * read-only view of a fellow writes nothing, because `protectedProcedure` refuses its mutations.
  *
  * `ctx.viewingAs` is the only thing on the context that still knows who signed in, which is why
  * it is checked first here rather than treated as extra detail.
@@ -69,7 +70,7 @@ export function auditActor(ctx: {
 }
 
 /**
- * The same actor, for the two route handlers that enter and leave a test-student view.
+ * The same actor, for the two route handlers that enter and leave a view of a student.
  *
  * They have a `ViewingAs` and no procedure context — entering *is* the act, so there is no
  * `ctx.profile` to have been substituted yet. Exported separately rather than making `profile`
@@ -77,15 +78,15 @@ export function auditActor(ctx: {
  * and get an event with no actor.
  */
 export function viewAsActor(viewingAs: ViewingAs): AuditActor {
-  const { admin, testStudent } = viewingAs;
+  const { viewer, student } = viewingAs;
 
   return {
-    id: admin.id,
-    label: displayNameOf({ ...admin }, "an admin"),
-    actedAsId: testStudent.id,
+    id: viewer.id,
+    label: displayNameOf({ ...viewer }, "an instructor"),
+    actedAsId: student.id,
     // Not `displayNameOf`: a test student has no GitHub login, and its number is a better
     // fallback than its address because the number is what the interface calls it.
-    actedAsLabel: testStudent.displayName ?? `Test Student ${testStudent.number}`,
+    actedAsLabel: viewedStudentLabel(student),
   };
 }
 

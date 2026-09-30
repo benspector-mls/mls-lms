@@ -1,7 +1,7 @@
 import type { CheckLevel } from "@/lib/generated/prisma/enums";
 
 import { latestAttempt } from "./attempts";
-import { effectiveLevel } from "./levels";
+import { effectiveLevel, levelCategory } from "./levels";
 
 /**
  * A fellow's recent checks for understanding in one course, for the Trends section of their record
@@ -17,6 +17,9 @@ import { effectiveLevel } from "./levels";
  * - **Blocked, and whether they asked**: of those, how many ended Blocked on their latest attempt,
  *   and on how many of those they asked to go over it. Blocked and asking is somebody to follow up
  *   with and thank for asking; blocked and not asking is somebody to offer help to.
+ * - **The average level**: the three categories a fellow sees — 1 Blocked, 2 Understands facts,
+ *   3 Making connections — averaged over the latest attempts in the window that have a level. It is
+ *   what the roster's Performance grid prints, one figure a column can hold and be sorted by.
  *
  * Recent rather than cumulative, the way the other two readings are: the last `CHECK_TREND_RULE`
  * checks attached in the course, newest first, whether or not the fellow answered them.
@@ -45,6 +48,11 @@ export type RecentChecks = {
   blockedAskedHelp: number;
   /** Of the ones not blocked, how many they asked for help on anyway. */
   otherAskedHelp: number;
+  /**
+   * The mean category, from 1 to 3, of the latest attempts that have a level. Null when none has
+   * one yet — nothing answered, or every answer still waiting on its review.
+   */
+  averageLevel: number | null;
 };
 
 /**
@@ -64,7 +72,10 @@ export function recentChecks(
     blocked: 0,
     blockedAskedHelp: 0,
     otherAskedHelp: 0,
+    averageLevel: null,
   };
+  let levelled = 0;
+  let categoryTotal = 0;
 
   for (const check of window) {
     const latest = latestAttempt(check.attempts);
@@ -72,6 +83,12 @@ export function recentChecks(
 
     reading.answered += 1;
     const askedHelp = check.attempts.some((attempt) => attempt.wantsHelp);
+
+    const level = effectiveLevel(latest);
+    if (level) {
+      levelled += 1;
+      categoryTotal += levelCategory(level);
+    }
 
     if (effectiveLevel(latest) === "BLOCKED") {
       reading.blocked += 1;
@@ -81,6 +98,7 @@ export function recentChecks(
     }
   }
 
+  reading.averageLevel = levelled === 0 ? null : categoryTotal / levelled;
   return reading;
 }
 

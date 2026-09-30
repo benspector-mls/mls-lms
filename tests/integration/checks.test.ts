@@ -538,6 +538,7 @@ describe("the Understanding reading, on the record and in a coaching session", (
       blocked: 1,
       blockedAskedHelp: 0,
       otherAskedHelp: 0,
+      averageLevel: 1,
     });
   });
 

@@ -62,6 +62,7 @@ export function StudentCourseDetail({
   checkProgress,
   githubLinked,
   now,
+  readOnly = false,
 }: {
   course: Course;
   assignments: Assignment[];
@@ -78,6 +79,12 @@ export function StudentCourseDetail({
   githubLinked: boolean;
   /** Read once on the server, so relative times do not differ between the two render passes. */
   now: Date;
+  /**
+   * An instructor is looking through this fellow's account, and nothing may be written on their
+   * behalf. Read once on the server from `viewingAs` and handed down, because that query is not in
+   * the browser's cache on the first render.
+   */
+  readOnly?: boolean;
 }) {
   const units = groupByCourseUnit(course, assignments, resources);
   const progressByCheck = React.useMemo(
@@ -218,6 +225,7 @@ export function StudentCourseDetail({
               progressByCheck={progressByCheck}
               now={now}
               teaches={course.teaches}
+              readOnly={readOnly}
               openAssignmentId={openId}
               onOpen={show}
             />
@@ -232,6 +240,7 @@ export function StudentCourseDetail({
       <AssignmentPanel
         assignment={openAssignment}
         now={now}
+        readOnly={readOnly}
         open={openAssignment != null}
         onOpenChange={(next) => {
           if (!next) show(null);
@@ -309,6 +318,7 @@ function UnitSection({
   progressByCheck,
   now,
   teaches,
+  readOnly,
   openAssignmentId,
   onOpen,
 }: {
@@ -319,6 +329,7 @@ function UnitSection({
   progressByCheck: Map<string, CheckProgress>;
   now: Date;
   teaches: boolean;
+  readOnly: boolean;
   openAssignmentId: string | null;
   onOpen: (assignmentId: string | null) => void;
 }) {
@@ -439,6 +450,7 @@ function UnitSection({
                               check={resource.check}
                               progress={progressByCheck.get(resource.check.id) ?? null}
                               teaches={teaches}
+                              readOnly={readOnly}
                               now={now}
                             />
                           )

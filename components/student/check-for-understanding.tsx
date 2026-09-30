@@ -38,6 +38,7 @@ export function CheckForUnderstanding({
   check,
   progress,
   teaches,
+  readOnly = false,
   now,
 }: {
   check: Check;
@@ -49,6 +50,12 @@ export function CheckForUnderstanding({
    * worse than none.
    */
   teaches: boolean;
+  /**
+   * An instructor is looking through this fellow's account. Their attempts are shown and the form
+   * for the next one is not, for the reason an instructor is not offered it above: an answer would
+   * be refused.
+   */
+  readOnly?: boolean;
   now: Date;
 }) {
   const trpc = useTRPC();
@@ -111,7 +118,7 @@ export function CheckForUnderstanding({
                 <AttemptCard key={attempt.id} attempt={attempt} />
               ))}
 
-              {state.kind === "open" && (
+              {state.kind === "open" && !readOnly && (
                 <AnswerForm
                   checkId={check.id}
                   attemptNumber={state.attempt}

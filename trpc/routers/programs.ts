@@ -4,7 +4,25 @@ import { z } from "zod";
 import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { auditActor, recordEvent } from "@/lib/audit/record";
+import { attendanceDriftReason, recentAttendance, summarize } from "@/lib/attendance/summary";
+import { recentChecks, type RecentChecks } from "@/lib/checks/trends";
 import { attendanceStandingFor, courseFiguresFor } from "@/lib/coaching/snapshot";
+import { enrollmentsIn } from "@/lib/courses/membership";
+import { allUnits, cellsFor, groupByUnit, published, workOf } from "@/lib/gradebook/categories";
+import {
+  completionByStudent,
+  driftReasons,
+  recentWorkByStudent,
+  type DriftReason,
+  type RecentWork,
+} from "@/lib/gradebook/summary";
+import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
+import {
+  onTimeByStudent,
+  performanceBucket,
+  PERFORMANCE_RULE,
+  type PerformanceFlag,
+} from "@/lib/programs/performance";
 import { DISCIPLINES } from "@/lib/competencies";
 import { newSessionSecret } from "@/lib/attendance/code";
 import {
@@ -13,8 +31,10 @@ import {
   scheduleOf,
   type Schedule,
 } from "@/lib/attendance/schedule";
-import { defaultEndsAt } from "@/lib/attendance/window";
+import { defaultEndsAt, isUnsettled } from "@/lib/attendance/window";
+import { UNIT_CATEGORIES } from "@/lib/course-units";
 import { newJoinToken } from "@/lib/courses/join-token";
+import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { displayNameSchema } from "@/lib/people";
 import { assertOwnsProgram, ownerOf } from "@/lib/programs/ownership";
 import {
@@ -427,6 +447,339 @@ export const programsRouter = createTRPCRouter({
         arrivals: attendance.arrivals,
         courses,
         gcf,
+      };
+    }),
+
+  /**
+   * Every real fellow on the roster, sorted into the Performance tab's buckets.
+   *
+   * **The fellow's record, for a whole roster at once.** The figures are the ones Trends prints on
+   * one fellow's record — the attendance drift rule, the gradebook's drift rule per course, and the
+   * last few checks for understanding — plus the two term-long figures the bucket rule reads, the
+   * attendance rate and the on-time share. Every one goes through the same pure function the record
+   * and the gradebook call, so a fellow flagged here is flagged there. The rule itself is
+   * `performanceBucket` in lib/programs/performance.ts.
+   *
+   * **One read per table for the whole program**, then reduced per fellow in memory. Calling
+   * `courseFiguresFor` and `attendanceStandingFor` once per fellow would be the same arithmetic at
+   * six queries a fellow, which for a roster of thirty is the difference between one round trip and
+   * a hundred and eighty.
+   *
+   * **Active real fellows only.** A removed fellow is not somebody to support this week, and a test
+   * student is not somebody at all — both are left out of the query rather than filtered after it.
+   *
+   * **Published courses only, archived ones included.** A course still being written has handed out
+   * nothing, and an archived one is part of the term a fellow is being read against.
+   */
+  performance: programProcedure
+    .input(z.object({ cohort: cohortSelectionInput }))
+    .query(async ({ ctx, input }) => {
+      const now = new Date();
+      const programId = input.programId;
+
+      const enrollments = await ctx.db.enrollment.findMany({
+        where: {
+          ...enrollmentsIn(programId, parseCohortSelection(input.cohort)),
+          status: "ACTIVE",
+          student: { testStudentNumber: null },
+        },
+        select: { id: true, cohortId: true, createdAt: true, student: { select: personSelect } },
+      });
+
+      const studentIds = enrollments.map((enrollment) => enrollment.student.id);
+
+      const [courses, units, cells, checks, sessions, records] = await Promise.all([
+        ctx.db.course.findMany({
+          where: { programId, publishedAt: { not: null } },
+          orderBy: [{ position: "asc" }, { name: "asc" }],
+          select: { id: true, name: true },
+        }),
+        ctx.db.courseUnit.findMany({
+          where: { course: { programId, publishedAt: { not: null } } },
+          select: {
+            id: true,
+            courseId: true,
+            name: true,
+            position: true,
+            category: true,
+            assignments: {
+              select: {
+                id: true,
+                title: true,
+                dueAt: true,
+                courseUnitId: true,
+                distributedAt: true,
+              },
+            },
+          },
+        }),
+        ctx.db.submission.findMany({
+          where: { studentId: { in: studentIds }, assignment: { course: { programId } } },
+          select: {
+            assignmentId: true,
+            studentId: true,
+            isComplete: true,
+            status: true,
+            submittedAt: true,
+            extendedDueAt: true,
+          },
+        }),
+        ctx.db.checkForUnderstanding.findMany({
+          where: {
+            resource: { courseUnit: { course: { programId, publishedAt: { not: null } } } },
+          },
+          select: {
+            createdAt: true,
+            resource: { select: { courseUnit: { select: { courseId: true } } } },
+            attempts: {
+              where: { studentId: { in: studentIds } },
+              select: {
+                studentId: true,
+                attempt: true,
+                level: true,
+                instructorLevel: true,
+                wantsHelp: true,
+              },
+            },
+          },
+        }),
+        // Today and everything behind it, as `attendance.history` bounds it: a scheduled program
+        // has a row for every meeting day to June, and none of those can have been missed yet.
+        ctx.db.attendanceSession.findMany({
+          where: { programId, date: { lte: dateColumnFor(schoolDayOf(now)) } },
+          orderBy: { date: "asc" },
+          select: {
+            id: true,
+            date: true,
+            startedAt: true,
+            endsAt: true,
+            endedAt: true,
+            lateAfterMinutes: true,
+          },
+        }),
+        ctx.db.attendanceRecord.findMany({
+          where: {
+            programId,
+            enrollmentId: { in: enrollments.map((enrollment) => enrollment.id) },
+          },
+          select: { enrollmentId: true, sessionId: true, status: true },
+        }),
+      ]);
+
+      /*
+        Work, per course and across the program. Released work only, as `courseFiguresFor` takes
+        it: the units query includes drafts, and a draft cannot be handed in.
+      */
+      /*
+        One reading per fellow per course, which is what the grid draws a band of columns for: the
+        two windows the gradebook's drift rule reads, the reasons it trips, and the last few checks
+        for understanding. A course with neither released work nor a check draws no band.
+      */
+      type CourseReading = {
+        recent: RecentWork | null;
+        reasons: DriftReason[];
+        checks: RecentChecks | null;
+        /** Graded complete, of the course's released work of each kind in the course's `categories`. */
+        completion: Partial<Record<CourseUnitCategory, { complete: number; possible: number }>>;
+      };
+      const readingsByStudent = new Map<string, Record<string, CourseReading>>(
+        studentIds.map((studentId) => [studentId, {}]),
+      );
+      const shownCourses: {
+        id: string;
+        name: string;
+        hasWork: boolean;
+        hasChecks: boolean;
+        /** The kinds of unit with released work in this course, each drawn as a column. */
+        categories: CourseUnitCategory[];
+      }[] = [];
+      const allReleased: (typeof units)[number]["assignments"] = [];
+      /*
+        Released work across every course, by the kind of unit it sits in, for the grid's
+        completion columns: assignments in modules, deliverables in projects, parts of assessments.
+      */
+      const releasedByCategory: Record<CourseUnitCategory, typeof allReleased> = {
+        MODULE: [],
+        PROJECT: [],
+        ASSESSMENT: [],
+      };
+
+      for (const course of courses) {
+        const own = units.filter((unit) => unit.courseId === course.id);
+        const grouped = groupByUnit(
+          own.flatMap((unit) => unit.assignments),
+          own,
+        );
+        const released = published(workOf(allUnits(grouped)));
+        const courseByCategory = UNIT_CATEGORIES.map(
+          (category) => [category, published(workOf(grouped[category]))] as const,
+        ).filter(([, work]) => work.length > 0);
+        for (const [category, work] of courseByCategory) {
+          releasedByCategory[category].push(...work);
+        }
+        const courseCompletion = courseByCategory.map(
+          ([category, work]) =>
+            [
+              category,
+              work.length,
+              completionByStudent(cellsFor(cells, work), work.length),
+            ] as const,
+        );
+        allReleased.push(...released);
+
+        const courseChecks = checks.filter(
+          (check) => check.resource.courseUnit.courseId === course.id,
+        );
+        const hasWork = released.length > 0;
+        const hasChecks = courseChecks.length > 0;
+        if (!hasWork && !hasChecks) continue;
+        shownCourses.push({
+          id: course.id,
+          name: course.name,
+          hasWork,
+          hasChecks,
+          categories: courseByCategory.map(([category]) => category),
+        });
+
+        const recents = hasWork
+          ? recentWorkByStudent(studentIds, released, cellsFor(cells, released), now)
+          : null;
+
+        for (const studentId of studentIds) {
+          const recent = recents?.get(studentId) ?? null;
+          readingsByStudent.get(studentId)![course.id] = {
+            recent,
+            reasons: recent ? driftReasons(recent) : [],
+            checks: hasChecks
+              ? recentChecks(
+                  courseChecks.map((check) => ({
+                    createdAt: check.createdAt,
+                    attempts: check.attempts.filter((attempt) => attempt.studentId === studentId),
+                  })),
+                )
+              : null,
+            completion: Object.fromEntries(
+              courseCompletion.map(([category, possible, byStudent]) => [
+                category,
+                byStudent.get(studentId) ?? { complete: 0, possible },
+              ]),
+            ),
+          };
+        }
+      }
+
+      const onTime = onTimeByStudent(studentIds, allReleased, cells, now);
+
+      /*
+        Completed means `isComplete`, and the denominator is every released assignment of the
+        category — the gradebook Overview's own figure, through the same function, summed across
+        the program's courses. A category with nothing released anywhere draws no column.
+      */
+      const categories = UNIT_CATEGORIES.filter(
+        (category) => releasedByCategory[category].length > 0,
+      );
+      const completionByCategory = new Map(
+        categories.map((category) => {
+          const work = releasedByCategory[category];
+          return [category, completionByStudent(cellsFor(cells, work), work.length)] as const;
+        }),
+      );
+
+      /*
+        Attendance, by `summarize` and the drift rule, exactly as the fellow's record reads it. A
+        session that has not settled counts only for somebody with a record in it; see
+        `summarize`.
+      */
+      const summarySessions = sessions.map((session) => ({
+        id: session.id,
+        day: schoolDayFromColumn(session.date),
+        unsettled: isUnsettled(session, now),
+      }));
+      const summaries = summarize(
+        summarySessions,
+        enrollments.map((enrollment) => ({
+          enrollmentId: enrollment.id,
+          studentId: enrollment.student.id,
+          displayName: enrollment.student.displayName,
+          email: enrollment.student.email,
+          githubUsername: enrollment.student.githubUsername,
+          testStudentNumber: enrollment.student.testStudentNumber,
+          enrolledFrom: schoolDayOf(enrollment.createdAt),
+        })),
+        records,
+      );
+      const summaryByEnrollment = new Map(
+        summaries.map((summary) => [summary.fellow.enrollmentId, summary]),
+      );
+
+      return {
+        /** The courses the grid draws a band for, in the program's order. */
+        courses: shownCourses,
+        /** The kinds of unit with released work anywhere in the program, in the gradebook's order. */
+        categories,
+        fellows: enrollments.map((enrollment) => {
+          const studentId = enrollment.student.id;
+          const summary = summaryByEnrollment.get(enrollment.id)!;
+          const judged = summary.eligible >= PERFORMANCE_RULE.needsSessionsAtLeast;
+
+          /*
+            The attendance flag is read only once the fellow has enough mornings to be judged,
+            which is the drift rule's own minimum — `driftList` applies it, and the fellow's Trends
+            is read by a person who can see how few mornings there have been.
+          */
+          const recent = judged ? recentAttendance(summary, summarySessions) : null;
+          const attendanceReason = recent ? attendanceDriftReason(recent) : null;
+          const readings = readingsByStudent.get(studentId)!;
+          const flags: PerformanceFlag[] = [
+            ...(attendanceReason
+              ? [{ kind: "attendance" as const, reason: attendanceReason }]
+              : []),
+            ...shownCourses.flatMap((course) =>
+              readings[course.id]!.reasons.map((reason) => ({
+                kind: "work" as const,
+                courseId: course.id,
+                courseName: course.name,
+                reason,
+              })),
+            ),
+          ];
+
+          const workDue = onTime.get(studentId)!;
+          const reading = {
+            onTime: workDue.due === 0 ? null : workDue,
+            attendanceRate: judged ? summary.rate : null,
+            flags,
+          };
+
+          return {
+            enrollmentId: enrollment.id,
+            cohortId: enrollment.cohortId,
+            student: enrollment.student,
+            bucket: performanceBucket(reading),
+            onTime: reading.onTime,
+            attendance: {
+              rate: reading.attendanceRate,
+              eligible: summary.eligible,
+              attended: summary.present + summary.late,
+              /** The drift rule's two windows, or null until the fellow can be judged by it. */
+              recent,
+              reason: attendanceReason,
+            },
+            flags,
+            /** Keyed by course id, one entry for every course in `courses`. */
+            courses: readings,
+            /** Keyed by category, one entry for every category in `categories`. */
+            completion: Object.fromEntries(
+              categories.map((category) => [
+                category,
+                completionByCategory.get(category)!.get(studentId) ?? {
+                  complete: 0,
+                  possible: releasedByCategory[category].length,
+                },
+              ]),
+            ) as Partial<Record<CourseUnitCategory, { complete: number; possible: number }>>,
+          };
+        }),
       };
     }),
 

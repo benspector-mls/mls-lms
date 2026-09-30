@@ -233,26 +233,16 @@ describe("driftList", () => {
   });
 
   it("leaves alone somebody whose absences are all in the distant past", () => {
-    // Cumulatively this fellow is at 60 percent, and they have been at every recent session. The
+    // Cumulatively this fellow is at 71 percent, and they have been at every recent session. The
     // list is about who to call today, not about who has had a hard term.
+    const long = sessions(14);
     const drifting = driftList(
       summarize(
-        term,
+        long,
         [fellow()],
-        marks([
-          "ABSENT",
-          "ABSENT",
-          "ABSENT",
-          "ABSENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-        ]),
+        marks(["ABSENT", "ABSENT", "ABSENT", "ABSENT", ...Array<"PRESENT">(10).fill("PRESENT")]),
       ),
-      term,
+      long,
     );
 
     expect(drifting).toHaveLength(0);
@@ -528,12 +518,14 @@ describe("recentAttendance", () => {
   const term = sessions(12, 2);
 
   it("reads the last settled mornings, leaving open ones and older ones out", () => {
+    const longer = sessions(13, 2);
     const [summary] = summarize(
-      term,
+      longer,
       [fellow()],
       marks([
         "ABSENT", // outside both windows
         "ABSENT",
+        "PRESENT",
         "PRESENT",
         "PRESENT",
         "LATE",
@@ -547,9 +539,9 @@ describe("recentAttendance", () => {
       ]),
     );
 
-    expect(recentAttendance(summary, term)).toEqual({
-      missed: 1,
-      missedOf: 5,
+    expect(recentAttendance(summary, longer)).toEqual({
+      missed: 2,
+      missedOf: 10,
       late: 2,
       lateOf: 10,
     });
@@ -578,8 +570,8 @@ describe("recentAttendance", () => {
   });
 
   it("says both windows in words", () => {
-    expect(recentAttendanceSentence({ missed: 1, missedOf: 5, late: 2, lateOf: 10 })).toBe(
-      "missed 1 of the last 5 mornings · late 2 of the last 10",
+    expect(recentAttendanceSentence({ missed: 1, missedOf: 10, late: 2, lateOf: 10 })).toBe(
+      "missed 1 of the last 10 mornings · late 2 of the last 10",
     );
     expect(recentAttendanceSentence({ missed: 0, missedOf: 3, late: 0, lateOf: 3 })).toBe(
       "missed 0 of the 3 mornings so far · late 0 of the 3 so far",

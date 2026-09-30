@@ -30,7 +30,7 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
   const { courseId } = await params;
   const queryClient = getQueryClient();
 
-  const [profile, course, assignments, resources, checkProgress] = await Promise.all([
+  const [profile, course, assignments, resources, checkProgress, viewingAs] = await Promise.all([
     queryClient.fetchQuery(trpc.me.queryOptions()),
     queryClient.fetchQuery(trpc.courses.get.queryOptions({ courseId })),
     queryClient.fetchQuery(trpc.assignments.listForCourse.queryOptions({ courseId })),
@@ -40,6 +40,9 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
     // The fellow's own attempts at the checks for understanding on those resources. Empty for an
     // instructor looking at the page, who has none.
     queryClient.fetchQuery(trpc.checks.myAttempts.queryOptions({ courseId })),
+    // Whether an instructor is looking through this fellow's account, which greys every control
+    // that would write. The server refuses those writes either way.
+    queryClient.fetchQuery(trpc.viewingAs.queryOptions()),
   ]);
 
   return (
@@ -55,6 +58,7 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
         in the browser's first pass, which React reports as a hydration mismatch.
       */
       now={new Date()}
+      readOnly={viewingAs?.readOnly ?? false}
     />
   );
 }

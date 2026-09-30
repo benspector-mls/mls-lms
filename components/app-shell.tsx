@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import {
+  Activity,
   BarChart3,
   CalendarCheck,
   Target,
@@ -85,6 +86,7 @@ import {
   gcfHref,
   myAttendanceHref,
   myGoalsHref,
+  performanceHref,
   programSettingsHref,
   programsHref,
   rosterHref,
@@ -302,7 +304,8 @@ function useBreadcrumbs(
       if (programRest[1] === "day" && programRest[2]) {
         crumbs.push({ label: formatSchoolDay(programRest[2]) });
       }
-    } else if (programRest[0] === "roster") crumbs.push({ label: "Roster" });
+    } else if (programRest[0] === "performance") crumbs.push({ label: "Performance" });
+    else if (programRest[0] === "roster") crumbs.push({ label: "Roster" });
     else if (programRest[0] === "cohorts") crumbs.push({ label: "Cohorts" });
     else if (programRest[0] === "instructors") crumbs.push({ label: "Instructors" });
     else if (programRest[0] === "settings") crumbs.push({ label: "Settings" });
@@ -798,14 +801,19 @@ function CourseViewPanel({
 }
 
 /**
- * The three views a program has, in the order they are offered.
+ * The four views a program has, in the order they are offered.
  *
  * Attendance leads, and it is the only item in either group touched at a fixed time every single
- * morning — being findable without thinking is most of what it needs. The roster is second because
- * it is what everything else is about, and the settings last because they are read at the start of a
- * year and rarely after.
+ * morning — being findable without thinking is most of what it needs. Performance is second, read
+ * weekly to decide who to talk to. The roster is third, because managing who is on it is done at
+ * the start of a term and when somebody joins or leaves, and the settings last because they are
+ * read at the start of a year and rarely after.
  *
- * **Three rather than five, and the two that went were sections rather than screens.** Cohorts are a
+ * **Performance is its own view rather than a tab of the roster**, because an instructor reading
+ * who needs support has no reason to be placing fellows in cohorts or sending the join link in the
+ * same sitting. A tab would have put two unrelated jobs behind one address.
+ *
+ * **Four rather than six, and the two that went were sections rather than screens.** Cohorts are a
  * tab on the roster, because placing fellows is a thing done to it; instructors are a card on the
  * settings, because who runs a program is a fact about it. Each had its own address while the
  * question was open, and running it answered them — five sidebar items were five doors onto three
@@ -813,6 +821,7 @@ function CourseViewPanel({
  */
 const PROGRAM_VIEWS = [
   { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
+  { title: "Performance", href: performanceHref, icon: Activity, segment: "performance" },
   { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
   { title: "Settings", href: programSettingsHref, icon: Settings, segment: "settings" },
 ] as const;

@@ -88,6 +88,15 @@ export function myGoalsHref(programId: string): string {
 }
 
 /**
+ * How every fellow on the program's roster is doing: attendance, work across every course, and
+ * where each stands against the bar. Its own screen rather than a tab of the roster, because the
+ * roster is where the program's membership is managed and this is read for a different reason.
+ */
+export function performanceHref(programId: string): string {
+  return `/instructor/programs/${programId}/performance`;
+}
+
+/**
  * The roster: everybody who has ever joined this program, and the link that lets them.
  *
  * **The program's, and this is the duplication it removed.** One roster where there used to be one
@@ -318,6 +327,7 @@ export function sameViewInProgram(pathname: string, programId: string): string {
   const rest = segments[0] === "instructor" && segments[1] === "programs" ? segments.slice(3) : [];
 
   if (rest[0] === "attendance" && rest.length === 1) return attendanceHref(programId);
+  if (rest[0] === "performance") return performanceHref(programId);
   if (rest[0] === "roster") return rosterHref(programId);
   if (rest[0] === "settings") return programSettingsHref(programId);
 

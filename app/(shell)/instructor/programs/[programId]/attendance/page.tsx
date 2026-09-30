@@ -23,8 +23,7 @@ import { stateIsUnsettled } from "@/lib/attendance/window";
  * and wants the whole term at once. They were two addresses reached by a button, which put the
  * question an instructor asks every morning one click away from the one they ask once a month.
  *
- * **No cohort filter on either tab.** The roster has none because it is where cohorts are made;
- * attendance has none for a sharper reason. `resolveCohort` falls back to an
+ * **No cohort filter on either tab**, unlike the roster and the gradebook. `resolveCohort` falls back to an
  * instructor's *remembered* grading filter, so somebody who narrowed the gradebook to their fifteen
  * last Tuesday would open this at 9:00 and read "11 of 15" — a number that is wrong about the room
  * while looking entirely correct. Attendance is taken for everybody present, so it reads everybody.
@@ -95,7 +94,10 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
     `upcoming` — `history` deliberately carries nothing past today, and the calendar is the one
     place on this screen that wants both halves.
   */
-  const throughToday = history.sessions.map((session) => ({ day: session.day, state: session.state }));
+  const throughToday = history.sessions.map((session) => ({
+    day: session.day,
+    state: session.state,
+  }));
 
   return (
     <div className="mx-auto flex w-full flex-col gap-6 p-4 md:p-6">

@@ -4,7 +4,7 @@ import { cache } from "react";
 import superjson from "superjson";
 import { z } from "zod";
 
-import { resolveViewAs, VIEW_AS_COOKIE } from "@/lib/auth/view-as";
+import { resolveViewAs, VIEW_AS_COOKIE, viewedStudentLabel } from "@/lib/auth/view-as";
 import { assertInstructsProgram, assertTeaches } from "@/lib/courses/membership";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -32,11 +32,12 @@ export const createTRPCContext = cache(async () => {
   } = await supabase.auth.getUser();
 
   /*
-    An admin looking at the application as a test student, which is the whole of that feature.
+    An instructor looking at the application as one of their fellows, which is the whole of that
+    feature apart from the read-only guard in `protectedProcedure` below.
 
-    `resolveViewAs` re-establishes the entitlement on every request — the signed-in user is an
-    ADMIN, the profile named is a test student — so the cookie is a request rather than a grant.
-    See `lib/auth/view-as.ts` for why it needs no signature.
+    `resolveViewAs` re-establishes the entitlement on every request — the signed-in user teaches a
+    program the named student is active in, or is an admin — so the cookie is a request rather than
+    a grant. See `lib/auth/view-as.ts` for why it needs no signature.
 
     Substituting the id is enough because `ctx.user` is read for its `.id` and nothing else.
     `email` is replaced alongside it so the object does not carry one person's address under
@@ -48,7 +49,7 @@ export const createTRPCContext = cache(async () => {
 
   const effectiveUser =
     user && viewingAs
-      ? { ...user, id: viewingAs.testStudent.id, email: viewingAs.testStudent.email ?? undefined }
+      ? { ...user, id: viewingAs.student.id, email: viewingAs.student.email ?? undefined }
       : user;
 
   return { db, user: effectiveUser, viewingAs };
@@ -79,7 +80,13 @@ const t = initTRPC.context<Context>().create({
 export const createTRPCRouter = t.router;
 export const createCallerFactory = t.createCallerFactory;
 
-/** Unauthenticated. `ctx.user` may be null. */
+/**
+ * Unauthenticated. `ctx.user` may be null.
+ *
+ * Carries no read-only guard, because no mutation is built on it: every one in the routers goes
+ * through `protectedProcedure`, which is where a read-only view is refused. A mutation added here
+ * would be reachable by an instructor looking through a fellow.
+ */
 export const baseProcedure = t.procedure;
 
 /**
@@ -92,11 +99,29 @@ export const baseProcedure = t.procedure;
  * procedure, `ctx.user.id` in the `where` clause is the only thing scoping a
  * query to its caller.
  */
-export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
+export const protectedProcedure = t.procedure.use(async ({ ctx, type, next }) => {
   if (!ctx.user) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "You must be signed in to do that.",
+    });
+  }
+
+  /*
+    A read-only view refuses every write, here at the root, rather than at each student procedure.
+
+    Every mutation in the routers is built on this procedure, so one line covers all of them and a
+    mutation added next month is covered without anybody remembering to. Refused by the kind of
+    call rather than by a list of procedures, because a list is what goes stale. Reads are left
+    alone, since what the instructor came for is to see what the fellow sees.
+
+    The message names the student, because it surfaces as a toast or beside a form on whichever
+    screen the instructor pressed something, and "forbidden" alone reads as a fault.
+  */
+  if (type === "mutation" && ctx.viewingAs?.readOnly) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `You are viewing ${viewedStudentLabel(ctx.viewingAs.student)}'s account read-only; nothing can be changed on their behalf.`,
     });
   }
 

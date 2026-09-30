@@ -3,12 +3,19 @@ import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 
 import { recordEvent, viewAsActor } from "@/lib/audit/record";
-import { isUuid, resolveViewAs, VIEW_AS_COOKIE, VIEW_AS_PROGRAM_COOKIE } from "@/lib/auth/view-as";
+import {
+  isUuid,
+  resolveViewAs,
+  VIEW_AS_COOKIE,
+  VIEW_AS_PROGRAM_COOKIE,
+  viewedStudentLabel,
+} from "@/lib/auth/view-as";
 import { db } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Entering a test student's view. A route handler rather than a procedure, for two reasons.
+ * Entering a student's view, read-only for an instructor and writable for an admin looking through
+ * a test student. A route handler rather than a procedure, for two reasons.
  *
  * A tRPC mutation in this application answers over `fetch` and cannot reliably write a cookie, and
  * this act is a cookie. Writing one and redirecting is what route handlers are for here already —
@@ -24,12 +31,12 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function POST(request: NextRequest) {
   const form = await request.formData();
-  const testStudentId = form.get("testStudentId");
+  const studentId = form.get("studentId");
   const programId = form.get("programId");
   const { origin } = new URL(request.url);
 
-  if (typeof testStudentId !== "string") {
-    redirect(`${origin}/auth/error?error=${encodeURIComponent("No test student named.")}`);
+  if (typeof studentId !== "string") {
+    redirect(`${origin}/auth/error?error=${encodeURIComponent("No student named.")}`);
   }
 
   const supabase = await createClient();
@@ -45,13 +52,13 @@ export async function POST(request: NextRequest) {
   */
   const viewingAs = await resolveViewAs(db, {
     realUserId: user.id,
-    cookieValue: testStudentId,
+    cookieValue: studentId,
   });
 
   if (!viewingAs) {
     redirect(
       `${origin}/auth/error?error=${encodeURIComponent(
-        "Only an admin may look at a course as a test student, and only as a test student.",
+        "You may only view a student who is active in a program you instruct.",
       )}`,
     );
   }
@@ -59,19 +66,18 @@ export async function POST(request: NextRequest) {
   /*
     Recorded before the cookie is set, not after.
 
-    Everything the admin does from here arrives attributed to them with `acted_as` filled in, so
-    this event is what says when that began — and an admin who enters a view and then leaves the
-    tab open is the case the banner exists for and the log has to be able to reconstruct. Written
+    Everything an admin does from a test student's view arrives attributed to them with `acted_as`
+    filled in, so this event is what says when that began — and somebody who enters a view and then
+    leaves the tab open is the case the banner exists for and the log has to be able to
+    reconstruct. A read-only view writes nothing after this, so this event is the whole of its
+    record: who looked at which fellow, and when. Written
     outside a transaction because there is no database change to pair it with: the act is the
     cookie, and a failure here should not stop somebody entering a preview.
   */
   await recordEvent(db, {
     action: "VIEW_AS_ENTERED",
     actor: viewAsActor(viewingAs),
-    subject: {
-      id: viewingAs.testStudent.id,
-      label: `Test Student ${viewingAs.testStudent.number}`,
-    },
+    subject: { id: viewingAs.student.id, label: viewedStudentLabel(viewingAs.student) },
     ...(typeof programId === "string" && isUuid(programId) ? { program: { id: programId } } : {}),
   });
 
@@ -83,15 +89,15 @@ export async function POST(request: NextRequest) {
     // because localhost is served over http, which would otherwise silently drop it.
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    // No `maxAge`: session cookies, so closing the browser leaves the view. An admin who forgets
+    // No `maxAge`: session cookies, so closing the browser leaves the view. Somebody who forgets
     // they are in it is the failure this feature has to work hardest against.
   } as const;
 
-  jar.set(VIEW_AS_COOKIE, viewingAs.testStudent.id, options);
+  jar.set(VIEW_AS_COOKIE, viewingAs.student.id, options);
 
   /*
     Where to go back to. Set from the program whose roster this was pressed on, and *cleared*
-    rather than left when there is none — a stale value from a previous switch would send the admin
+    rather than left when there is none — a stale value from a previous switch would send the viewer
     back to a program they were not in this time, which is worse than the fallback.
   */
   if (typeof programId === "string" && isUuid(programId)) {
@@ -100,6 +106,6 @@ export async function POST(request: NextRequest) {
     jar.delete(VIEW_AS_PROGRAM_COOKIE);
   }
 
-  // Where a student lands, because that is what the admin is now looking at.
+  // Where a student lands, because that is what the viewer is now looking at.
   redirect(`${origin}/dashboard`);
 }

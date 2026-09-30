@@ -22,7 +22,7 @@ describe("the eight views that are remembered", () => {
     },
   );
 
-  it.each(["attendance", "roster", "settings"])("a program's %s", (segment) => {
+  it.each(["attendance", "performance", "roster", "settings"])("a program's %s", (segment) => {
     expect(viewPlaceOf(`/instructor/programs/${PROGRAM}/${segment}`)).toEqual({
       scope: "programs",
       id: PROGRAM,

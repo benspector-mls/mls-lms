@@ -10,7 +10,7 @@
  * `resolveViewAs` itself decides — who may be answered as whom — is in
  * `tests/integration/test-student.test.ts`, because it reads two profiles to decide it.
  */
-import { isUuid } from "@/lib/auth/view-as";
+import { isInstructorPath, isUuid } from "@/lib/auth/view-as";
 
 describe("what may be interpolated into a redirect path", () => {
   it("a uuid is a uuid", () => {
@@ -31,5 +31,41 @@ describe("what may be interpolated into a redirect path", () => {
 
   it("nor is the empty string", () => {
     expect(isUuid("")).toBe(false);
+  });
+});
+
+describe("where leaving a view may return to", () => {
+  it("an instructor screen", () => {
+    expect(
+      isInstructorPath("/instructor/programs/b549d23b-76ac-41a8-ba40-13f3249d3c63/roster"),
+    ).toBe(true);
+  });
+
+  it("an instructor screen with its query", () => {
+    expect(isInstructorPath("/instructor/courses/x/gradebook?tab=overview")).toBe(true);
+  });
+
+  it("the instructor landing page", () => {
+    expect(isInstructorPath("/instructor")).toBe(true);
+  });
+
+  it("not a fellow's screen", () => {
+    expect(isInstructorPath("/dashboard")).toBe(false);
+  });
+
+  it("not a path that only begins with the same letters", () => {
+    expect(isInstructorPath("/instructorship")).toBe(false);
+  });
+
+  it("not a protocol-relative host", () => {
+    expect(isInstructorPath("//evil.example/instructor")).toBe(false);
+  });
+
+  it("not a backslash a browser would read as one", () => {
+    expect(isInstructorPath("/instructor\\..\\evil")).toBe(false);
+  });
+
+  it("not an absolute address", () => {
+    expect(isInstructorPath("https://evil.example/instructor")).toBe(false);
   });
 });

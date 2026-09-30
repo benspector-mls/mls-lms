@@ -13,9 +13,10 @@
  * **Two groups matter more than the rest.** `enroll` and `remove` refusing a profile that is not a
  * test student is the entire difference between this feature and a mutation that puts anybody in any
  * course and deletes anybody's account with every grade they were ever given. And the view-as group
- * asserts the rule from both ends: that a non-admin holding a valid cookie value is answered as
- * themselves, and that an admin holding a real one is answered as the test student — because a
- * substitution that works is worth nothing if the check permitting it does not.
+ * asserts the rule from both ends: that somebody not entitled to a cookie value is answered as
+ * themselves, and that an admin or an instructor of the program holding one is answered as the
+ * student — because a substitution that works is worth nothing if the check permitting it does not.
+ * It also asserts the guard that makes every view but an admin's of a test student read-only.
  *
  * Carries the 31 assertions of `verify:test-student` that need a database, and eight more. Ten of
  * that script's checks needed nothing at all and are now `tests/lib/students/test-student.test.ts`
@@ -333,12 +334,12 @@ describe("who may make and delete a test student", () => {
 });
 
 /*
-  ---- Looking through one: the rule from both ends -----------------------------
+  ---- Looking through a student: the rule from both ends, and the read-only guard ----
 
   Its own transaction, because it marks a profile and the groups above are about a roster with no
   test student on it.
 */
-describe("looking through a test student", () => {
+describe("looking through a student", () => {
   const tx = withRollback();
 
   /** The admin's name is asserted rather than merely present, so the banner has something to say. */
@@ -348,80 +349,124 @@ describe("looking through a test student", () => {
   let adminId: string;
   /** The fellow this group marks, which makes it a test student for the length of the transaction. */
   let markedId: string;
-  /**
-   * Somebody who is neither an admin nor the profile this group marks.
-   *
-   * Wanted for one check — a non-admin holding a valid cookie value is refused — which cannot use
-   * the marked profile, since a caller and a target that are the same id are refused by a different
-   * rule and would pass without testing this one.
-   */
+  /** A real fellow of the world's program, active on its roster. */
   let otherFellowId: string;
+  /** A fellow of the same program whose enrollment has been removed. */
+  let removedFellowId: string;
+  /** An instructor, but of no program this group's fellows are in. */
+  let strangerId: string;
 
   beforeAll(async () => {
-    world = await makeWorld(tx(), { students: 2 });
+    world = await makeWorld(tx(), { students: 3 });
     createdHere.push(world.instructorId, ...world.students.map((row) => row.studentId));
     adminId = await account(tx(), { role: "ADMIN", displayName: ADMIN_NAME });
+    strangerId = await account(tx(), { role: "INSTRUCTOR" });
 
     markedId = world.students[0]!.studentId;
     otherFellowId = world.students[1]!.studentId;
+    removedFellowId = world.students[2]!.studentId;
 
     await tx().profile.update({
       where: { id: markedId },
       data: { testStudentNumber: FAKE_NUMBER },
     });
+    await tx().enrollment.update({
+      where: { id: world.students[2]!.id },
+      data: { status: "REMOVED" },
+    });
   });
 
-  const permitted = () => resolveViewAs(tx(), { realUserId: adminId, cookieValue: markedId });
+  const resolve = (realUserId: string, cookieValue: string) =>
+    resolveViewAs(tx(), { realUserId, cookieValue });
 
-  it("an admin may look through a test student", async () => {
-    expect(await permitted()).not.toBeNull();
+  describe("an admin", () => {
+    it("may look through a test student, and write as it", async () => {
+      expect((await resolve(adminId, markedId))?.readOnly).toBe(false);
+    });
+
+    it("...and the substitution names it", async () => {
+      expect((await resolve(adminId, markedId))?.student.testStudentNumber).toBe(FAKE_NUMBER);
+    });
+
+    it("...while keeping the real admin", async () => {
+      expect((await resolve(adminId, markedId))?.viewer.id).toBe(adminId);
+    });
+
+    it("may look through a real fellow, read-only", async () => {
+      expect((await resolve(adminId, otherFellowId))?.readOnly).toBe(true);
+    });
+
+    /*
+      The admin path does not read the enrollment, deliberately: an admin may see anybody's screens,
+      and a removed fellow's record is still theirs.
+    */
+    it("may look through a removed fellow, read-only", async () => {
+      expect((await resolve(adminId, removedFellowId))?.readOnly).toBe(true);
+    });
+
+    /*
+      The privilege boundary. Named as an instructor, every instructor procedure would answer the
+      admin as that instructor; named as another admin, every admin procedure would.
+    */
+    it("may not look through an instructor", async () => {
+      expect(await resolve(adminId, world.instructorId)).toBeNull();
+    });
   });
 
-  it("...and the substitution names it", async () => {
-    expect((await permitted())?.testStudent.number).toBe(FAKE_NUMBER);
+  describe("an instructor of the program", () => {
+    it("may look through one of its fellows, read-only", async () => {
+      expect((await resolve(world.instructorId, otherFellowId))?.readOnly).toBe(true);
+    });
+
+    it("may look through its test student, read-only", async () => {
+      expect((await resolve(world.instructorId, markedId))?.readOnly).toBe(true);
+    });
+
+    it("may not look through a fellow removed from it", async () => {
+      expect(await resolve(world.instructorId, removedFellowId)).toBeNull();
+    });
   });
 
-  it("...while keeping the real admin", async () => {
-    expect((await permitted())?.admin.id).toBe(adminId);
+  it("an instructor of another program may not", async () => {
+    expect(await resolve(strangerId, otherFellowId)).toBeNull();
   });
 
   /*
-    A non-admin holding exactly the value that works for an admin. The pair is the check: the same
-    cookie, two callers, one refused — which is what says the entitlement is the caller's role and
-    not the cookie's contents.
+    A student holding exactly the value that works for an admin. The pair is the check: the same
+    cookie, two callers, one refused — which is what says the entitlement is the caller's and not
+    the cookie's contents.
   */
   it("a fellow may not, holding the same value", async () => {
-    const resolved = await resolveViewAs(tx(), {
-      realUserId: otherFellowId,
-      cookieValue: markedId,
-    });
-    expect(resolved).toBeNull();
+    expect(await resolve(otherFellowId, markedId)).toBeNull();
   });
 
   it("nor may the test student itself", async () => {
-    const resolved = await resolveViewAs(tx(), { realUserId: markedId, cookieValue: markedId });
-    expect(resolved).toBeNull();
-  });
-
-  it("an admin may not look through a real person", async () => {
-    const resolved = await resolveViewAs(tx(), { realUserId: adminId, cookieValue: otherFellowId });
-    expect(resolved).toBeNull();
+    expect(await resolve(markedId, markedId)).toBeNull();
   });
 
   it("a value that is not a uuid is refused without a query", async () => {
-    const resolved = await resolveViewAs(tx(), { realUserId: adminId, cookieValue: "not-a-uuid" });
-    expect(resolved).toBeNull();
+    expect(await resolve(adminId, "not-a-uuid")).toBeNull();
   });
 
   /*
     What the substitution actually produces, through the caller.
 
-    This is the whole feature in one assertion: a context whose user id is the test student's answers
-    `me` as the test student, which is what makes every screen and every guard behave.
+    This is the whole feature in one assertion: a context whose user id is the student's answers
+    `me` as the student, which is what makes every screen and every guard behave.
   */
   describe("what the caller answers under the substitution", () => {
     const asTestStudent = async () =>
-      factory({ db: tx(), user: { id: markedId }, viewingAs: await permitted() } as never);
+      factory({
+        db: tx(),
+        user: { id: markedId },
+        viewingAs: await resolve(adminId, markedId),
+      } as never);
+    const asFellowReadOnly = async () =>
+      factory({
+        db: tx(),
+        user: { id: otherFellowId },
+        viewingAs: await resolve(world.instructorId, otherFellowId),
+      } as never);
 
     it("me answers as the test student", async () => {
       expect((await (await asTestStudent()).me())?.id).toBe(markedId);
@@ -433,13 +478,51 @@ describe("looking through a test student", () => {
 
     it("viewingAs names the admin behind it", async () => {
       const viewingAs = await (await asTestStudent()).viewingAs();
-      expect(viewingAs?.admin.displayName).toBe(ADMIN_NAME);
+      expect(viewingAs?.viewer.displayName).toBe(ADMIN_NAME);
+    });
+
+    it("viewingAs says an admin's view of a test student may write", async () => {
+      expect((await (await asTestStudent()).viewingAs())?.readOnly).toBe(false);
+    });
+
+    it("viewingAs says an instructor's view of a fellow may not", async () => {
+      expect((await (await asFellowReadOnly()).viewingAs())?.readOnly).toBe(true);
     });
 
     // And the ordinary case reports nothing, which is what the banner renders nothing for.
     it("viewingAs is null when nobody is looking through anybody", async () => {
       const asAdmin = factory({ db: tx(), user: { id: adminId }, viewingAs: null } as never);
       expect(await asAdmin.viewingAs()).toBeNull();
+    });
+
+    /*
+      The guard, on the plainest mutation there is. It is at the root, so what holds for this one
+      holds for every mutation in the routers.
+    */
+    it("a read-only view reads as the fellow", async () => {
+      expect((await (await asFellowReadOnly()).me())?.id).toBe(otherFellowId);
+    });
+
+    it("a read-only view refuses a write", async () => {
+      const caller = await asFellowReadOnly();
+      expect(
+        await refusal(() => caller.updateDisplayName({ displayName: "Changed By Viewer" })),
+      ).toBe("FORBIDDEN");
+    });
+
+    it("...and the fellow's row is untouched", async () => {
+      const row = await tx().profile.findUnique({
+        where: { id: otherFellowId },
+        select: { displayName: true },
+      });
+      expect(row?.displayName).not.toBe("Changed By Viewer");
+    });
+
+    it("an admin's view of a test student still writes", async () => {
+      const caller = await asTestStudent();
+      expect(await refusal(() => caller.updateDisplayName({ displayName: "Renamed Test" }))).toBe(
+        "accepted",
+      );
     });
   });
 });

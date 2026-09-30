@@ -11,6 +11,7 @@ import {
   programSettingsHref,
   programsHref,
   programStudentHref,
+  performanceHref,
   rosterHref,
   sameViewInCourse,
   sameViewInProgram,
@@ -220,6 +221,7 @@ describe("sameViewInProgram", () => {
   describe("the views every program has, which travel", () => {
     it.each([
       ["attendance", attendanceHref(OTHER_PROGRAM)],
+      ["performance", performanceHref(OTHER_PROGRAM)],
       ["roster", rosterHref(OTHER_PROGRAM)],
       ["settings", programSettingsHref(OTHER_PROGRAM)],
     ])("%s becomes the other program's %s", (segment, expected) => {
