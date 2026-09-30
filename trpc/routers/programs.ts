@@ -482,11 +482,16 @@ export const programsRouter = createTRPCRouter({
 
       const studentIds = enrollments.map((enrollment) => enrollment.student.id);
 
-      const [courses, units, cells, checks, sessions, records] = await Promise.all([
+      const [program, courses, units, cells, checks, sessions, records] = await Promise.all([
+        // Whether the program is over, which decides whether archived courses are read by default.
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: programId },
+          select: { archivedAt: true },
+        }),
         ctx.db.course.findMany({
           where: { programId, publishedAt: { not: null } },
           orderBy: [{ position: "asc" }, { name: "asc" }],
-          select: { id: true, name: true },
+          select: { id: true, name: true, archivedAt: true },
         }),
         ctx.db.courseUnit.findMany({
           where: { course: { programId, publishedAt: { not: null } } },
@@ -581,6 +586,8 @@ export const programsRouter = createTRPCRouter({
         name: string;
         hasWork: boolean;
         hasChecks: boolean;
+        /** Finished. Left out of the screen's default reading; see `defaultCourseIds`. */
+        archived: boolean;
         /** The kinds of unit with released work in this course, each drawn as a column. */
         categories: CourseUnitCategory[];
       }[] = [];
@@ -615,6 +622,7 @@ export const programsRouter = createTRPCRouter({
           name: course.name,
           hasWork,
           hasChecks,
+          archived: course.archivedAt !== null,
           categories: courseByCategory.map(([category]) => category),
         });
 
@@ -678,6 +686,8 @@ export const programsRouter = createTRPCRouter({
       return {
         /** The courses the grid can draw a band for, in the program's order. */
         courses: shownCourses,
+        /** A finished program is read across every course by default; see `defaultCourseIds`. */
+        programArchived: program.archivedAt !== null,
         fellows: enrollments.map((enrollment) => {
           const studentId = enrollment.student.id;
           const summary = summaryByEnrollment.get(enrollment.id)!;

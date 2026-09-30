@@ -93,9 +93,9 @@ export function ProgramPerformance({
   */
   const param = useSearchParams().get(COURSES_PARAM);
   const courses = React.useMemo(() => {
-    const shown = shownCourseIds(param, data.courses);
+    const shown = shownCourseIds(param, data.courses, data.programArchived);
     return data.courses.filter((course) => shown.has(course.id));
-  }, [param, data.courses]);
+  }, [param, data.courses, data.programArchived]);
 
   const fellows = React.useMemo(
     () =>
@@ -210,12 +210,18 @@ type SortValue = number | null;
 type Column = {
   key: string;
   /** The band heading this column sits under; consecutive columns with the same band share it. */
-  band: { key: string; label: React.ReactNode };
+  band: Band;
   title: string;
   help?: React.ReactNode;
   sortValue: (fellow: Fellow) => SortValue;
   render: (fellow: Fellow) => CellContent;
 };
+
+/**
+ * A heading over a run of columns. `archived` marks a finished course's band, drawn with a dotted
+ * edge and a marker, because it is only on the screen when somebody chose to read it.
+ */
+type Band = { key: string; label: React.ReactNode; archived?: boolean };
 
 /** What a cell holds: a figure, the line under it, and the rule's name when it trips. */
 type CellContent = { value: string; detail: string; flag?: string | null; title?: string };
@@ -325,9 +331,19 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
   ];
 
   courses.forEach((course, index) => {
-    const band = {
+    const band: Band = {
       key: `course:${course.id}`,
-      label: <span className="truncate">{course.name}</span>,
+      archived: course.archived,
+      label: (
+        <>
+          <span className="truncate">{course.name}</span>
+          {course.archived && (
+            <span className="shrink-0 rounded-sm border border-dotted border-muted-foreground/60 px-1 text-[10px] font-normal text-muted-foreground">
+              Archived
+            </span>
+          )}
+        </>
+      ),
     };
     const reading = (f: Fellow) => f.courses[course.id]!;
 
@@ -513,15 +529,26 @@ function PerformanceGrid({
   onSort: (sort: Sort | null) => void;
 }) {
   // Consecutive columns under one band heading, in order.
-  const bands: { key: string; label: React.ReactNode; span: number }[] = [];
+  const bands: (Band & { span: number })[] = [];
   for (const column of columns) {
     const last = bands[bands.length - 1];
     if (last?.key === column.band.key) last.span += 1;
-    else bands.push({ key: column.band.key, label: column.band.label, span: 1 });
+    else bands.push({ ...column.band, span: 1 });
   }
   const bandStarts = new Set(
     columns.filter((column, i) => columns[i - 1]?.band.key !== column.band.key).map((c) => c.key),
   );
+  /*
+    The line a column draws on its left: solid where a band begins, dotted where an archived
+    course's band begins, and none inside a band. The band after an archived one keeps its own
+    solid line, so the dotted run reads as one bracket around the finished course.
+  */
+  const edgeOf = (column: Column) =>
+    bandStarts.has(column.key)
+      ? column.band.archived
+        ? "border-l border-dotted border-muted-foreground/60"
+        : "border-l border-border"
+      : null;
 
   const nameSorted = (rows: Fellow[]) =>
     sort?.key === "name"
@@ -555,7 +582,12 @@ function PerformanceGrid({
               <TableHead
                 key={band.key}
                 colSpan={band.span}
-                className="h-8 border-l border-border text-xs"
+                className={cn(
+                  "h-8 text-xs",
+                  band.archived
+                    ? "border-x border-t border-dotted border-muted-foreground/60"
+                    : "border-l border-border",
+                )}
               >
                 <span className="flex min-w-0 items-center gap-1.5">{band.label}</span>
               </TableHead>
@@ -568,7 +600,7 @@ function PerformanceGrid({
                 aria-sort={ariaSort(sort, column.key)}
                 className={cn(
                   "h-auto py-1.5 align-bottom text-xs font-normal whitespace-normal",
-                  bandStarts.has(column.key) && "border-l border-border",
+                  edgeOf(column),
                 )}
               >
                 <span className="flex items-end gap-1">
@@ -614,11 +646,7 @@ function PerformanceGrid({
                 </div>
               </TableCell>
               {columns.map((column) => (
-                <Cell
-                  key={column.key}
-                  first={bandStarts.has(column.key)}
-                  content={column.render(fellow)}
-                />
+                <Cell key={column.key} edge={edgeOf(column)} content={column.render(fellow)} />
               ))}
             </TableRow>
           ))}
@@ -676,15 +704,12 @@ function SortButton({
  * and in the tooltip for anybody who hovers, so the red is never the only way to know which rule
  * tripped.
  */
-function Cell({ first, content }: { first: boolean; content: CellContent }) {
+function Cell({ edge, content }: { edge: string | null; content: CellContent }) {
   const { value, detail, flag, title } = content;
 
   return (
     <TableCell
-      className={cn(
-        first && "border-l border-border",
-        flag && "bg-destructive/10 text-destructive",
-      )}
+      className={cn(edge, flag && "bg-destructive/10 text-destructive")}
       title={title ?? flag ?? undefined}
     >
       <div className="flex min-w-0 flex-col">

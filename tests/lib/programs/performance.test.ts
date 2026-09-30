@@ -1,5 +1,6 @@
 import {
   onTimeByStudent,
+  defaultCourseIds,
   shownCourseIds,
   standingAcross,
   type CourseStanding,
@@ -187,23 +188,47 @@ describe("onTimeByStudent", () => {
   });
 });
 
-describe("shownCourseIds", () => {
-  const courses = [{ id: "c1" }, { id: "c2" }, { id: "c3" }];
+describe("defaultCourseIds", () => {
+  const running = { id: "fundamentals", archived: false };
+  const finished = { id: "prework", archived: true };
 
-  it("shows every course when the address names none", () => {
-    expect([...shownCourseIds(null, courses)]).toEqual(["c1", "c2", "c3"]);
+  it("reads the courses still running", () => {
+    expect([...defaultCourseIds([finished, running], false)]).toEqual(["fundamentals"]);
   });
 
-  it("shows the courses the address names", () => {
-    expect([...shownCourseIds("c3,c1", courses)].sort()).toEqual(["c1", "c3"]);
+  it("reads every course once the program is archived", () => {
+    expect([...defaultCourseIds([finished, running], true)].sort()).toEqual([
+      "fundamentals",
+      "prework",
+    ]);
+  });
+
+  it("reads every course when every course is archived, rather than none", () => {
+    expect([...defaultCourseIds([finished], false)]).toEqual(["prework"]);
+  });
+});
+
+describe("shownCourseIds", () => {
+  const courses = [
+    { id: "c1", archived: false },
+    { id: "c2", archived: false },
+    { id: "c3", archived: true },
+  ];
+
+  it("reads the default when the address names none", () => {
+    expect([...shownCourseIds(null, courses, false)]).toEqual(["c1", "c2"]);
+  });
+
+  it("shows the courses the address names, archived ones included", () => {
+    expect([...shownCourseIds("c3,c1", courses, false)].sort()).toEqual(["c1", "c3"]);
   });
 
   it("ignores an id that names no course of this program", () => {
-    expect([...shownCourseIds("c2,elsewhere", courses)]).toEqual(["c2"]);
+    expect([...shownCourseIds("c2,elsewhere", courses, false)]).toEqual(["c2"]);
   });
 
   it("shows none when the address names none of them", () => {
-    expect(shownCourseIds("", courses).size).toBe(0);
+    expect(shownCourseIds("", courses, false).size).toBe(0);
   });
 });
 

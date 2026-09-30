@@ -75,7 +75,7 @@ async function Performance({
         } · attendance, and work across every course`}
         actions={
           <>
-            <CourseFilter courses={data.courses} />
+            <CourseFilter courses={data.courses} programArchived={data.programArchived} />
             <CohortPicker choice={cohorts} />
           </>
         }

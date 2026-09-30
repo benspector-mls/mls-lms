@@ -189,17 +189,42 @@ export function onTimeByStudent(
 export const COURSES_PARAM = "courses";
 
 /**
+ * Which courses the Performance screen reads when nobody has chosen.
+ *
+ * **The courses still running.** An archived course is over, and its last few deadlines stop being
+ * recent the day it ends — a fellow who missed Prework's final week would otherwise carry that
+ * flag, and that group, for the rest of the year. Archiving a course is how an instructor says it
+ * has finished, so it leaves the default without anybody touching the filter. It stays one tick
+ * away in the filter's menu.
+ *
+ * **Every course, once the program itself is archived.** A finished program is read as a whole
+ * term, and every one of its courses is over, so leaving the archived ones out would leave nothing.
+ * The same fallback covers a running program all of whose courses are archived, for the same
+ * reason: an empty default would read every fellow as too early to say.
+ */
+export function defaultCourseIds(
+  courses: readonly { id: string; archived: boolean }[],
+  programArchived: boolean,
+): Set<string> {
+  const running = courses.filter((course) => !course.archived);
+  const chosen = programArchived || running.length === 0 ? courses : running;
+  return new Set(chosen.map((course) => course.id));
+}
+
+/**
  * Which of these courses the address asks to show.
  *
- * **Absent means every course**, so the plain address is the whole grid and a course published
- * next week appears without anybody choosing it. An id that names no course here — one since
- * unpublished, or from another program's link — is ignored rather than refused.
+ * **Absent means the default**, `defaultCourseIds`, so the plain address follows the program as it
+ * changes: a course published next week appears without anybody choosing it, and one archived next
+ * week leaves. A link that names courses keeps naming them. An id that names no course here — one
+ * since unpublished, or from another program's link — is ignored rather than refused.
  */
 export function shownCourseIds(
   param: string | null,
-  courses: readonly { id: string }[],
+  courses: readonly { id: string; archived: boolean }[],
+  programArchived: boolean,
 ): Set<string> {
-  if (param === null) return new Set(courses.map((course) => course.id));
+  if (param === null) return defaultCourseIds(courses, programArchived);
   const asked = new Set(param.split(",").filter(Boolean));
   return new Set(courses.filter((course) => asked.has(course.id)).map((course) => course.id));
 }

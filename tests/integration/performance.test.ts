@@ -151,8 +151,21 @@ describe("sorting a roster into the Performance groups", () => {
       cohort: "all",
     });
     expect(courses).toEqual([
-      expect.objectContaining({ id: world.courseId, hasWork: true, hasChecks: false }),
+      expect.objectContaining({
+        id: world.courseId,
+        hasWork: true,
+        hasChecks: false,
+        archived: false,
+      }),
     ]);
+  });
+
+  it("says whether the program is over, which decides the default courses", async () => {
+    const { programArchived } = await asInstructor().programs.performance({
+      programId: world.programId,
+      cohort: "all",
+    });
+    expect(programArchived).toBe(false);
   });
 
   it("and a completion column for the one kind of unit with released work", async () => {
