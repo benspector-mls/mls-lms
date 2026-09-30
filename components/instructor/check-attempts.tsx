@@ -14,10 +14,12 @@ import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { CheckSummary } from "@/components/instructor/check-summary";
 import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/page-header";
 import { CheckLevelBadge, CheckLevelDots } from "@/components/status-badge";
 import { TestStudentBadge } from "@/components/test-student-badge";
+import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -59,6 +61,12 @@ import {
 import type { CheckLevel } from "@/lib/generated/prisma/enums";
 import { curriculumHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
+import {
+  type CohortChoice,
+  cohortSelectionLabel,
+  inCohortSelection,
+  parseCohortSelection,
+} from "@/lib/programs/cohorts";
 import { formatDateTime, formatRelative } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
@@ -76,28 +84,39 @@ type Attempt = Row["attempts"][number];
  * land". The gap between them is what going back to the material did. Every response is one click
  * away on each row. The table lists every active fellow,
  * including the ones who have not answered — "who has not answered yet" is the question the list
- * exists to answer as much as "who is blocked".
+ * exists to answer as much as "who is blocked". The cohort picker narrows the counts and the
+ * table in the browser, as the roster does, and the line above the counts says what they were
+ * narrowed to; the summary beneath the counts reads every fellow whichever cohort is shown.
  *
- * An instructor may set a level over the review's on any attempt, and run the review again on one.
- * Neither is a grade: a check has no score, and nothing here reaches the gradebook.
+ * An instructor may set a level over the review's on any attempt, run the review again on one, and
+ * ask for a summary of what every answer has in common. None of these is a grade: a check has no
+ * score, and nothing here reaches the gradebook.
  */
 export function CheckAttempts({
   data,
   courseId,
+  choice,
   now,
 }: {
   data: Data;
   courseId: string;
+  /** The cohort picker's options and the selection this screen was built for. */
+  choice: CohortChoice;
   now: Date;
 }) {
   const { check } = data;
   const [sort, setSort] = React.useState<AttemptsSort>(DEFAULT_ATTEMPTS_SORT);
 
-  const rows = React.useMemo(
-    () => sortAttemptRows(data.rows, sort, (row) => displayNameOf(row.student, "Fellow")),
-    [data.rows, sort],
+  const selection = parseCohortSelection(choice.cohort);
+  const shown = React.useMemo(
+    () => data.rows.filter((row) => inCohortSelection(selection, row.cohortId)),
+    [data.rows, selection],
   );
-  const tally = React.useMemo(() => understandingTally(data.rows), [data.rows]);
+  const rows = React.useMemo(
+    () => sortAttemptRows(shown, sort, (row) => displayNameOf(row.student, "Fellow")),
+    [shown, sort],
+  );
+  const tally = React.useMemo(() => understandingTally(shown), [shown]);
 
   return (
     <>
@@ -106,12 +125,15 @@ export function CheckAttempts({
         title={check.resourceTitle}
         description={check.objective}
         actions={
-          <Link
-            href={curriculumHref(courseId)}
-            className={buttonVariants({ variant: "ghost", size: "sm" })}
-          >
-            Curriculum
-          </Link>
+          <>
+            <CohortPicker choice={choice} />
+            <Link
+              href={curriculumHref(courseId)}
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              Curriculum
+            </Link>
+          </>
         }
       />
 
@@ -154,6 +176,15 @@ export function CheckAttempts({
         between the two is what going back to the material did. Each fellow counts once in each row.
       */}
       <div className="flex flex-col gap-3">
+        {selection.kind !== "all" && (
+          <p className="text-xs text-muted-foreground">
+            Showing{" "}
+            <span className="font-medium text-foreground">
+              {cohortSelectionLabel(selection, choice.cohorts)}
+            </span>
+            : {shown.length} {shown.length === 1 ? "fellow" : "fellows"}.
+          </p>
+        )}
         <Overview
           title="Current understanding"
           hint="Each fellow's latest attempt."
@@ -176,6 +207,14 @@ export function CheckAttempts({
           </span>
         </p>
       </div>
+
+      <CheckSummary
+        checkId={check.id}
+        summary={check.summary}
+        summaryAt={check.summaryAt}
+        rows={data.rows}
+        now={now}
+      />
 
       <Table>
         <TableHeader>
@@ -423,19 +462,19 @@ function AttemptDetail({ attempt }: { attempt: Attempt }) {
         {attempt.wantsHelp && <WantsHelp />}
       </div>
 
+      <div className="text-sm">
+        <Markdown content={attempt.answer} />
+      </div>
+
       {attempt.explanation && (
         <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Review: </span>
+          <span className="font-medium text-foreground">Feedback: </span>
           {attempt.explanation}
         </p>
       )}
       {attempt.reviewError && (
         <p className="text-sm text-destructive">The review did not run: {attempt.reviewError}</p>
       )}
-
-      <div className="text-sm">
-        <Markdown content={attempt.answer} />
-      </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <Select

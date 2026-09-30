@@ -7,7 +7,13 @@ import { z } from "zod";
 import type { CheckLevel } from "@/lib/generated/prisma/enums";
 import type { Usage } from "@/lib/grade/pricing";
 
-import { CATEGORY_LABEL, CHECK_LEVELS, LEVEL_DEFINITION, LEVEL_NAME, levelCategory } from "./levels";
+import {
+  CATEGORY_LABEL,
+  CHECK_LEVELS,
+  LEVEL_DEFINITION,
+  LEVEL_NAME,
+  levelCategory,
+} from "./levels";
 
 /**
  * Reviews one answer to a check for understanding into a level.
@@ -75,7 +81,8 @@ export class CheckReviewError extends Error {
   }
 }
 
-function levelLines(): string {
+/** One line per level, as both prompts describe the taxonomy. */
+export function levelLines(): string {
   return CHECK_LEVELS.map(
     (level) =>
       `- ${level} (${LEVEL_NAME[level]}; shown to the fellow as "${CATEGORY_LABEL[levelCategory(level)]}"): ${LEVEL_DEFINITION[level]}`,
@@ -110,7 +117,7 @@ export const SYSTEM_PROMPT = [
 ].join("\n");
 
 /** Keeps the fellow's text from closing the tag it is wrapped in. */
-function containAnswer(answer: string): string {
+export function containAnswer(answer: string): string {
   return answer.replace(/<\/?fellow_answer/gi, (match) => match.replace("<", "&lt;"));
 }
 

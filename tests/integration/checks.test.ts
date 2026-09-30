@@ -15,6 +15,7 @@
  * the transaction it happens in.
  */
 import { CheckReviewError, reviewCheckAnswer, type CheckReview } from "@/lib/checks/review";
+import { CheckSummaryError, summarizeCheck, type CheckSummaryResult } from "@/lib/checks/summary";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
@@ -33,7 +34,13 @@ jest.mock("../../lib/checks/review", () => ({
   reviewCheckAnswer: jest.fn(),
 }));
 
+jest.mock("../../lib/checks/summary", () => ({
+  ...jest.requireActual("../../lib/checks/summary"),
+  summarizeCheck: jest.fn(),
+}));
+
 const review = reviewCheckAnswer as jest.MockedFunction<typeof reviewCheckAnswer>;
+const summarize = summarizeCheck as jest.MockedFunction<typeof summarizeCheck>;
 
 const factory = createCallerFactory(appRouter);
 
@@ -59,12 +66,41 @@ const RELATIONAL: CheckReview = {
   promptVersion: "test",
 };
 
+const SUMMARY: CheckSummaryResult = {
+  summary: {
+    themes: {
+      level3: ["Named why the index starts at zero."],
+      level2: ["Listed the facts without the reason."],
+      level1: ["Answered a different question."],
+    },
+    failureModes: [
+      {
+        title: "Counts from one",
+        evidence: "Two answers start the index at one.",
+        fellows: ["Fellow 1", "Fellow 2", "Fellow 40"],
+        revisit: "Trace a loop on the board.",
+      },
+    ],
+  },
+  usage: {
+    promptTokens: 4_000,
+    completionTokens: 600,
+    cachedPromptTokens: 0,
+    cacheWriteTokens: 900,
+  },
+  modelId: "claude-haiku-4-5",
+  provider: "claude:claude-haiku-4-5:none",
+  promptVersion: "test",
+};
+
 const HOUR = 60 * 60 * 1000;
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * HOUR);
 
 beforeEach(() => {
   review.mockReset();
   review.mockResolvedValue(RELATIONAL);
+  summarize.mockReset();
+  summarize.mockResolvedValue(SUMMARY);
 });
 
 describe("a fellow answering a check", () => {
@@ -400,6 +436,8 @@ describe("an instructor reading and correcting attempts", () => {
     const data = await createCaller(tx(), world.instructorId).checks.attemptsFor({ checkId });
 
     expect(data.rows).toHaveLength(4);
+    // Every row carries the fellow's cohort, so the page can narrow to the picker's in the browser.
+    expect(data.rows.every((row) => row.cohortId === null)).toBe(true);
     const histories = new Map(data.rows.map((row) => [row.student.id, row.attempts.length]));
     expect(histories.get(world.student.studentId)).toBe(2);
     expect(histories.get(world.students[1]!.studentId)).toBe(1);
@@ -426,6 +464,148 @@ describe("an instructor reading and correcting attempts", () => {
         createCaller(tx(), other.instructorId).checks.setLevel({ attemptId, level: "BLOCKED" }),
       ),
     ).toBe("FORBIDDEN");
+  });
+});
+
+describe("summarizing a check's answers", () => {
+  const tx = withRollback();
+  let world: World;
+  let other: World;
+  let checkId: string;
+  let unanswered: string;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 3 });
+    other = await makeWorld(tx());
+    ({ checkId } = await makeCheck(tx(), { unitId: world.unitId }));
+    ({ checkId: unanswered } = await makeCheck(tx(), { unitId: world.unitId, title: "Second" }));
+
+    await makeCheckAttempt(tx(), {
+      checkId,
+      studentId: world.student.studentId,
+      attempt: 1,
+      submittedAt: hoursAgo(40),
+      level: "BLOCKED",
+    });
+    await makeCheckAttempt(tx(), {
+      checkId,
+      studentId: world.student.studentId,
+      attempt: 2,
+      submittedAt: hoursAgo(20),
+      level: "MULTISTRUCTURAL",
+    });
+    await makeCheckAttempt(tx(), {
+      checkId,
+      studentId: world.students[1]!.studentId,
+      attempt: 1,
+      submittedAt: hoursAgo(10),
+    });
+  });
+
+  it("refuses a check nobody has answered, before anything is recorded", async () => {
+    expect(
+      await refusal(() =>
+        createCaller(tx(), world.instructorId).checks.summarize({ checkId: unanswered }),
+      ),
+    ).toBe("PRECONDITION_FAILED");
+    expect(summarize).not.toHaveBeenCalled();
+    expect(await tx().auditEvent.count({ where: { action: "CHECK_SUMMARY_GENERATED" } })).toBe(0);
+  });
+
+  it("sends labels rather than names, stores ids from the labels it sent, and prices the call", async () => {
+    const instructor = createCaller(tx(), world.instructorId);
+
+    const written = await instructor.checks.summarize({ checkId });
+
+    // The model saw two labelled fellows in roster order, each with every attempt, and no name.
+    const sent = summarize.mock.calls[0]![0];
+    expect(sent.fellows.map((f) => f.label)).toEqual(["Fellow 1", "Fellow 2"]);
+    expect(sent.fellows.map((f) => f.attempts.length).sort()).toEqual([1, 2]);
+    expect(sent.tally.notYetAnswered).toBe(1);
+    const names = (
+      await tx().profile.findMany({
+        where: { id: { in: [world.student.studentId, world.students[1]!.studentId] } },
+        select: { displayName: true, email: true },
+      })
+    ).flatMap((p) => [p.displayName, p.email].filter((v): v is string => !!v));
+    expect(names.length).toBeGreaterThan(0);
+    for (const name of names) expect(JSON.stringify(sent)).not.toContain(name);
+
+    // "Fellow 40" was never sent, so it is dropped; the two real labels come back as ids.
+    const ids = new Set([world.student.studentId, world.students[1]!.studentId]);
+    expect(written.summary.failureModes[0]!.fellowIds).toHaveLength(2);
+    for (const id of written.summary.failureModes[0]!.fellowIds) expect(ids.has(id)).toBe(true);
+    expect(written.summary.themes.level2).toEqual(["Listed the facts without the reason."]);
+
+    // The instructor's read carries it; the cost script's shape is on the row.
+    const data = await instructor.checks.attemptsFor({ checkId });
+    expect(data.check.summary).toEqual(written.summary);
+    expect(data.check.summaryAt).toEqual(written.summaryAt);
+    const row = await tx().checkForUnderstanding.findUniqueOrThrow({
+      where: { id: checkId },
+      select: { summaryModelMetadata: true },
+    });
+    expect(row.summaryModelMetadata).toEqual({
+      provider: "claude:claude-haiku-4-5:none",
+      modelId: "claude-haiku-4-5",
+      promptVersion: "test",
+      usage: SUMMARY.usage,
+      sectionsGraded: ["check_summary"],
+    });
+
+    // Recorded once, against the instructor, on this course.
+    const events = await tx().auditEvent.findMany({
+      where: { action: "CHECK_SUMMARY_GENERATED" },
+      select: { actorId: true, subjectId: true, courseId: true, programId: true },
+    });
+    expect(events).toEqual([
+      {
+        actorId: world.instructorId,
+        subjectId: checkId,
+        courseId: world.courseId,
+        programId: world.programId,
+      },
+    ]);
+  });
+
+  it("keeps the summary from a fellow, and from another program's instructor", async () => {
+    const fellow = createCaller(tx(), world.student.studentId);
+    const mine = await fellow.checks.myAttempts({ courseId: world.courseId });
+    expect(JSON.stringify(mine)).not.toContain("summary");
+    const resources = await fellow.resources.listForCourse({ courseId: world.courseId });
+    expect(JSON.stringify(resources)).not.toContain("summary");
+
+    expect(
+      await refusal(() => createCaller(tx(), other.instructorId).checks.summarize({ checkId })),
+    ).toBe("FORBIDDEN");
+  });
+
+  it("reports a failed call and leaves the stored summary where it was", async () => {
+    summarize.mockRejectedValueOnce(new CheckSummaryError("Could not reach the Claude API."));
+    const instructor = createCaller(tx(), world.instructorId);
+
+    await expect(instructor.checks.summarize({ checkId })).rejects.toThrow(
+      "Could not reach the Claude API.",
+    );
+
+    const data = await instructor.checks.attemptsFor({ checkId });
+    expect(data.check.summary?.themes.level1).toEqual(["Answered a different question."]);
+  });
+
+  it("refuses the twenty-first summary in an hour", async () => {
+    const instructor = createCaller(tx(), world.instructorId);
+    const already = await tx().auditEvent.count({
+      where: { action: "CHECK_SUMMARY_GENERATED", actorId: world.instructorId },
+    });
+    await tx().auditEvent.createMany({
+      data: Array.from({ length: 20 - already }, () => ({
+        action: "CHECK_SUMMARY_GENERATED" as const,
+        actorId: world.instructorId,
+        actorLabel: "instructor",
+      })),
+    });
+
+    expect(await refusal(() => instructor.checks.summarize({ checkId }))).toBe("TOO_MANY_REQUESTS");
   });
 });
 

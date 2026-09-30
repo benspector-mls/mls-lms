@@ -1,9 +1,19 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { assertWithinRate, CHECK_SUMMARY_LIMIT } from "@/lib/audit/rate-limit";
+import { auditActor, recordEvent } from "@/lib/audit/record";
 import { MAX_ATTEMPTS, nextAttempt } from "@/lib/checks/attempts";
-import { CHECK_LEVELS } from "@/lib/checks/levels";
+import { CHECK_LEVELS, effectiveLevel } from "@/lib/checks/levels";
 import { CheckReviewError, reviewCheckAnswer } from "@/lib/checks/review";
+import {
+  CheckSummaryError,
+  fellowLabel,
+  readStoredSummary,
+  storeSummary,
+  summarizeCheck,
+} from "@/lib/checks/summary";
+import { understandingTally } from "@/lib/checks/table";
 import { assertActiveStudent, assertCourseMember, enrollmentsIn } from "@/lib/courses/membership";
 import { teachableCheck, teachableCheckAttempt } from "@/lib/courses/scope";
 import type { Prisma } from "@/lib/generated/prisma/client";
@@ -28,8 +38,9 @@ import { personSelect } from "../selects";
  *
  * **Two audiences, kept apart by procedure rather than by filtering one reply.** A fellow's
  * procedures never return the level-2 example, never return the level-3 exemplar until the attempts
- * are used up, and never return model metadata. The instructor's procedures return all three, and
- * each refuses a caller who does not teach the course.
+ * are used up, and never return model metadata or the summary of the room's answers. The
+ * instructor's procedures return all of them, and each refuses a caller who does not teach the
+ * course.
  */
 
 /** One attempt, as the fellow who made it reads it. */
@@ -131,6 +142,43 @@ async function applyReview(
     }
     await db.checkAttempt.update({ where: { id: attemptId }, data: { reviewError: message } });
   }
+}
+
+/**
+ * Every active fellow in the program, each with their attempts at one check — including the
+ * fellows who have not answered, whose histories are empty.
+ *
+ * The roster is the program's, because a course has none of its own. Every active fellow is
+ * returned, with their cohort: the page narrows to the picker's cohort in the browser, as the
+ * roster and the gradebook do, because it already holds every row and the summary beneath the
+ * table needs every fellow's name whichever cohort is shown. Test students are listed, badged on
+ * the page, so a test course reads as a page of its own answers.
+ */
+async function roomAttempts(db: Tx, checkId: string, programId: string) {
+  const enrollments = await db.enrollment.findMany({
+    where: { ...enrollmentsIn(programId), status: "ACTIVE" },
+    select: { cohortId: true, student: { select: personSelect } },
+  });
+
+  const attempts = await db.checkAttempt.findMany({
+    where: {
+      checkId,
+      studentId: { in: enrollments.map((enrollment) => enrollment.student.id) },
+    },
+    orderBy: { attempt: "asc" },
+    select: { ...instructorAttemptSelect, studentId: true },
+  });
+
+  const byStudent = new Map<string, typeof attempts>();
+  for (const attempt of attempts) {
+    byStudent.set(attempt.studentId, [...(byStudent.get(attempt.studentId) ?? []), attempt]);
+  }
+
+  return enrollments.map(({ student, cohortId }) => ({
+    student,
+    cohortId,
+    attempts: byStudent.get(student.id) ?? [],
+  }));
 }
 
 export const checksRouter = createTRPCRouter({
@@ -341,11 +389,8 @@ export const checksRouter = createTRPCRouter({
   }),
 
   /**
-   * One check, and every active fellow's attempts at it — including the fellows who have not
-   * answered, whose histories are empty.
-   *
-   * The roster is the program's, because a course has none of its own. The cohort filter is not
-   * applied: a class fits on one screen, and "who has not answered yet" wants everybody.
+   * One check, every active fellow's attempts at it, and the latest summary of those answers if
+   * an instructor has asked for one.
    */
   attemptsFor: instructorProcedure
     .input(z.object({ checkId: z.string().uuid() }))
@@ -357,6 +402,8 @@ export const checksRouter = createTRPCRouter({
         factsExample: true,
         exemplar: true,
         retryWaitHours: true,
+        summary: true,
+        summaryAt: true,
         resource: {
           select: {
             title: true,
@@ -365,24 +412,7 @@ export const checksRouter = createTRPCRouter({
         },
       });
 
-      const enrollments = await ctx.db.enrollment.findMany({
-        where: { ...enrollmentsIn(check.resource.courseUnit.course.programId), status: "ACTIVE" },
-        select: { student: { select: personSelect } },
-      });
-
-      const attempts = await ctx.db.checkAttempt.findMany({
-        where: {
-          checkId: check.id,
-          studentId: { in: enrollments.map((enrollment) => enrollment.student.id) },
-        },
-        orderBy: { attempt: "asc" },
-        select: { ...instructorAttemptSelect, studentId: true },
-      });
-
-      const byStudent = new Map<string, typeof attempts>();
-      for (const attempt of attempts) {
-        byStudent.set(attempt.studentId, [...(byStudent.get(attempt.studentId) ?? []), attempt]);
-      }
+      const rows = await roomAttempts(ctx.db, check.id, check.resource.courseUnit.course.programId);
 
       return {
         check: {
@@ -394,12 +424,121 @@ export const checksRouter = createTRPCRouter({
           factsExample: check.factsExample,
           exemplar: check.exemplar,
           retryWaitHours: check.retryWaitHours,
+          summary: readStoredSummary(check.summary),
+          summaryAt: check.summaryAt,
         },
-        rows: enrollments.map(({ student }) => ({
-          student,
-          attempts: byStudent.get(student.id) ?? [],
-        })),
+        rows,
       };
+    }),
+
+  /**
+   * Reads every answer to a check and writes what they have in common, for the instructor.
+   *
+   * **Recorded and rate limited before the call**, as `gradingDrafts.generate` is: this is the
+   * third operation that spends money per press, and a failed call still counts, because the
+   * thing being bounded is presses rather than successes.
+   *
+   * **Fellows go to the model as labels and come back as ids.** `fellowLabel` numbers the fellows
+   * who answered, in roster order; `storeSummary` maps the labels the model cites back through
+   * that map and drops any it did not send. No name leaves the server, and no name can be
+   * invented.
+   *
+   * **A failed call throws**, unlike a failed review, which is recorded on the attempt. There the
+   * fellow's answer had to land whatever the model did; here the instructor is the one waiting,
+   * and a toast saying why is the right place for the reason. The summary already stored, if any,
+   * is left where it was.
+   */
+  summarize: instructorProcedure
+    .input(z.object({ checkId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const check = await teachableCheck(ctx, input.checkId, {
+        id: true,
+        ...reviewableCheckSelect,
+        resource: {
+          select: {
+            title: true,
+            courseUnit: { select: { courseId: true, course: { select: { programId: true } } } },
+          },
+        },
+      });
+      const programId = check.resource.courseUnit.course.programId;
+
+      const rows = await roomAttempts(ctx.db, check.id, programId);
+      const answered = rows.filter((row) => row.attempts.length > 0);
+      if (answered.length === 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Nobody has answered this check yet.",
+        });
+      }
+
+      const actor = auditActor(ctx);
+      await assertWithinRate(ctx.db, {
+        actorId: actor.id,
+        action: "CHECK_SUMMARY_GENERATED",
+        limit: CHECK_SUMMARY_LIMIT,
+        whatTheyDid: "summarize the answers",
+      });
+      await recordEvent(ctx.db, {
+        action: "CHECK_SUMMARY_GENERATED",
+        actor,
+        subject: { id: check.id, label: check.resource.title },
+        program: { id: programId },
+        course: { id: check.resource.courseUnit.courseId },
+      });
+
+      const byLabel = new Map<string, string>();
+      const fellows = answered.map((row, index) => {
+        const label = fellowLabel(index);
+        byLabel.set(label, row.student.id);
+        return {
+          label,
+          attempts: row.attempts.map((attempt) => ({
+            attempt: attempt.attempt,
+            level: effectiveLevel(attempt),
+            wantsHelp: attempt.wantsHelp,
+            answer: attempt.answer,
+          })),
+        };
+      });
+
+      let result;
+      try {
+        result = await summarizeCheck({
+          objective: check.objective,
+          question: check.question,
+          factsExample: check.factsExample,
+          exemplar: check.exemplar,
+          tally: understandingTally(rows),
+          fellows,
+        });
+      } catch (err) {
+        if (err instanceof CheckSummaryError) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message });
+        }
+        throw err;
+      }
+
+      const summary = storeSummary(result.summary, byLabel);
+      const summaryAt = new Date();
+      await ctx.db.checkForUnderstanding.update({
+        where: { id: check.id },
+        data: {
+          summary,
+          summaryAt,
+          // The shape the other two `model_metadata` columns use, so `npm run cost` prices it.
+          summaryModelMetadata: {
+            provider: result.provider,
+            modelId: result.modelId,
+            promptVersion: result.promptVersion,
+            usage: result.usage,
+            sectionsGraded: ["check_summary"],
+          },
+        },
+        select: { id: true },
+      });
+
+      return { summary, summaryAt };
     }),
 
   /**

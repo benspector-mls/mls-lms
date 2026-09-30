@@ -56,6 +56,15 @@ export const DRAFT_GENERATION_LIMIT: RateLimit = { max: 20, windowMinutes: 60 };
 export const TEST_RUN_LIMIT: RateLimit = { max: 60, windowMinutes: 60 };
 
 /**
+ * Summarizing a check for understanding's answers: one model call over a whole room's writing.
+ *
+ * The same ceiling as draft generation. An instructor writes a summary once a check has been
+ * answered and again after a retry wave, so a few a day is a real day's use, and twenty an hour
+ * is only reachable by a loop.
+ */
+export const CHECK_SUMMARY_LIMIT: RateLimit = { max: 20, windowMinutes: 60 };
+
+/**
  * Refuses when this actor has already done this too many times lately.
  *
  * Takes the real actor id rather than a context, so a caller has to have gone through `auditActor`

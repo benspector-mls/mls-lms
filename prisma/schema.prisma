@@ -1127,6 +1127,18 @@ model CheckForUnderstanding {
   /// The default is one hour, the same as `DEFAULT_RETRY_WAIT_HOURS` in lib/checks/attempts.ts.
   retryWaitHours Int    @default(1) @map("retry_wait_hours")
 
+  /// The latest reading of the room's answers, written by Claude at an instructor's request:
+  /// `{ overview, failureModes: [{ title, evidence, fellowIds, revisit }] }`, the shape
+  /// `storedSummarySchema` in lib/checks/summary.ts reads. Fellows are held by profile id, mapped
+  /// back from the labels the prompt used, so no name went to the model and none can be invented.
+  /// Read by instructors only; nothing a fellow can call selects it.
+  summary              Json?
+  /// When `summary` was written. The attempts page counts answers submitted after it.
+  summaryAt            DateTime? @map("summary_at") @db.Timestamptz(6)
+  /// Model id, prompt version, and the four token counts, in the shape the other two
+  /// `model_metadata` columns use, so `npm run cost` prices it.
+  summaryModelMetadata Json?     @map("summary_model_metadata")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2029,6 +2041,8 @@ enum AuditAction {
   /// See `lib/audit/rate-limit.ts` for why these live here rather than in a counter of their own.
   DRAFT_GENERATED
   TESTS_RUN
+  /// The third operation that costs money: a model call over every answer to one check.
+  CHECK_SUMMARY_GENERATED
   /// An admin began looking at the application as a test student.
   ///
   /// **There is deliberately no matching VIEW_AS_EXITED.** The view is held by a session cookie
