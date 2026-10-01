@@ -145,7 +145,8 @@ export function ProgramPerformance({
     <div className="flex flex-col gap-6">
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
         <span>
-          Any red cell means needs support, however good the term has been. Meeting the bar is{" "}
+          A red cell is a reason the fellow needs support, and a yellow one is what keeps somebody
+          meeting the bar from exceeding it. Meeting the bar is{" "}
           {percent(PERFORMANCE_RULE.onTimeAtLeast)} of work handed in on time and{" "}
           {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)} attendance; exceeding asks the same
           with {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} attendance.
@@ -223,8 +224,19 @@ type Column = {
  */
 type Band = { key: string; label: React.ReactNode; archived?: boolean };
 
-/** What a cell holds: a figure, the line under it, and the rule's name when it trips. */
-type CellContent = { value: string; detail: string; flag?: string | null; title?: string };
+/**
+ * What a cell holds: a figure, the line under it, and why it is coloured.
+ *
+ * `flag` is a reason the fellow needs support, drawn red. `short` is what keeps a fellow meeting the
+ * bar from exceeding it, drawn yellow. Each names the rule, for a screen reader and the tooltip.
+ */
+type CellContent = {
+  value: string;
+  detail: string;
+  flag?: string | null;
+  short?: string | null;
+  title?: string;
+};
 
 const EMPTY = (detail: string): CellContent => ({ value: "—", detail });
 
@@ -267,13 +279,30 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       band: attendance,
       title: "Overall Rate",
       sortValue: (f) => fraction(f.attendance.attended, f.attendance.eligible),
-      render: (f) =>
-        f.attendance.eligible === 0
-          ? EMPTY("no mornings yet")
-          : {
-              value: formatPercent(f.attendance.attended / f.attendance.eligible),
-              detail: `${f.attendance.attended} of ${f.attendance.eligible}`,
-            },
+      /*
+        Read against the bar only once the fellow has enough mornings to be judged, which is when
+        `attendance.rate` stops being null — the figure shown before then is real, and nothing yet.
+        Red below the meeting bar. Yellow for somebody meeting the bar below the exceeding one,
+        which is the only figure that can hold them there: meeting already asks for every other.
+      */
+      render: (f) => {
+        if (f.attendance.eligible === 0) return EMPTY("no mornings yet");
+        const { rate } = f.attendance;
+        return {
+          value: formatPercent(f.attendance.attended / f.attendance.eligible),
+          detail: `${f.attendance.attended} of ${f.attendance.eligible}`,
+          flag:
+            rate !== null && rate < PERFORMANCE_RULE.meetingAttendanceAtLeast
+              ? `Attendance under ${percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)}`
+              : null,
+          short:
+            f.standing.bucket === "meeting" &&
+            rate !== null &&
+            rate < PERFORMANCE_RULE.exceedingAttendanceAtLeast
+              ? `Attendance under ${percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)}`
+              : null,
+        };
+      },
     },
     {
       key: "absence",
@@ -286,7 +315,9 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
               value: `${f.attendance.recent.missed} of ${f.attendance.recent.missedOf}`,
               detail: "recent mornings",
               flag:
-                f.attendance.reason === "missing" ? ATTENDANCE_DRIFT_REASON_LABEL.missing : null,
+                f.attendance.recent.missed >= DRIFT_RULE.missedAtLeast
+                  ? ATTENDANCE_DRIFT_REASON_LABEL.missing
+                  : null,
             }
           : EMPTY("too few yet"),
     },
@@ -300,7 +331,15 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
           ? {
               value: `${f.attendance.recent.late} of ${f.attendance.recent.lateOf}`,
               detail: "recent mornings",
-              flag: f.attendance.reason === "late" ? ATTENDANCE_DRIFT_REASON_LABEL.late : null,
+              /*
+                Red whenever its own clause trips, even when absence trips as well. The drift rule
+                names one reason for a list that shows one, but a fellow both absent and late is
+                held back by both, and the grid shows every cell that does it.
+              */
+              flag:
+                f.attendance.recent.late >= DRIFT_RULE.lateAtLeast
+                  ? ATTENDANCE_DRIFT_REASON_LABEL.late
+                  : null,
             }
           : EMPTY("too few yet"),
     },
@@ -310,13 +349,18 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       title: "On time submissions",
       sortValue: (f) =>
         f.standing.onTime ? f.standing.onTime.onTime / f.standing.onTime.due : null,
-      render: (f) =>
-        f.standing.onTime
-          ? {
-              value: formatPercent(f.standing.onTime.onTime / f.standing.onTime.due),
-              detail: `${f.standing.onTime.onTime} of ${f.standing.onTime.due}`,
-            }
-          : EMPTY("nothing due yet"),
+      render: (f) => {
+        const onTime = f.standing.onTime;
+        if (!onTime) return EMPTY("nothing due yet");
+        return {
+          value: formatPercent(onTime.onTime / onTime.due),
+          detail: `${onTime.onTime} of ${onTime.due}`,
+          flag:
+            onTime.onTime / onTime.due < PERFORMANCE_RULE.onTimeAtLeast
+              ? `Under ${percent(PERFORMANCE_RULE.onTimeAtLeast)} on time`
+              : null,
+        };
+      },
     },
     ...categories.map((category): Column => ({
       key: `all:${category}`,
@@ -705,17 +749,24 @@ function SortButton({
  * tripped.
  */
 function Cell({ edge, content }: { edge: string | null; content: CellContent }) {
-  const { value, detail, flag, title } = content;
+  const { value, detail, flag, short, title } = content;
+  // Red wins: a cell that is a reason to need support is that before it is anything else.
+  const yellow = !flag && short;
 
   return (
     <TableCell
-      className={cn(edge, flag && "bg-destructive/10 text-destructive")}
-      title={title ?? flag ?? undefined}
+      className={cn(
+        edge,
+        flag && "bg-destructive/10 text-destructive",
+        yellow && "bg-amber-500/15 text-amber-800 dark:text-amber-200",
+      )}
+      title={title ?? flag ?? short ?? undefined}
     >
       <div className="flex min-w-0 flex-col">
         <span className="text-sm tabular-nums">{value}</span>
         <span className="truncate text-xs opacity-70">{detail}</span>
         {flag && <span className="sr-only">Flagged: {flag}</span>}
+        {yellow && <span className="sr-only">Short of exceeding: {short}</span>}
       </div>
     </TableCell>
   );
