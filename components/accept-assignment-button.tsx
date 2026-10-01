@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
@@ -28,6 +29,12 @@ import { useTRPC } from "@/trpc/client";
  * gesture, which Safari refuses and Chrome permits only while its transient activation lasts,
  * whereas a click on an `href` is a navigation the student made and is never blocked. The two
  * render identically, so the difference is invisible on the screen and only in the mechanism.
+ *
+ * **A repository still opens in a new tab, by opening the tab before its address exists.** The
+ * click opens an empty tab while it is still inside the user gesture, and the mutation's result
+ * points that tab at the repository once GitHub has made it. A browser that blocks even that
+ * leaves `window.open` returning null, and the student uses the "Your repository" link the
+ * refresh puts in place of this button, which is what the toast tells them to click.
  *
  * The mutation still records the accept, fired from the same click. It is deliberately not
  * waited on: the student is already on their way to Google, and a status this writes afterwards
@@ -64,6 +71,24 @@ export function AcceptAssignmentButton({
   const trpc = useTRPC();
   const settled = useServerMutation();
 
+  /*
+    The tab a repository will open in, held from the click until the mutation settles. A ref and
+    not state, because nothing renders from it. Settled in the hook-level `onSettled` rather than
+    in callbacks passed to `mutate`, since React Query skips the latter once the component has
+    unmounted, and the refresh after success replaces this button with the repository link.
+  */
+  const repoTab = React.useRef<Window | null>(null);
+
+  const openRepoTab = () => {
+    const tab = window.open("", "_blank");
+    if (!tab) return;
+    // GitHub's page has no business reaching back into this one through `window.opener`.
+    tab.opener = null;
+    tab.document.title = "Creating your repository…";
+    tab.document.body.textContent = "Creating your repository…";
+    repoTab.current = tab;
+  };
+
   const accept = useMutation(
     trpc.assignments.accept.mutationOptions(
       settled({
@@ -81,15 +106,24 @@ export function AcceptAssignmentButton({
           */
           if (kind === "REPO") {
             toast.warning(
-              "GitHub has emailed you an invitation to your new repository. You have 7 days to " +
-                "accept it before the invitation expires — after that, your instructor has to " +
-                "invite you again. You can also accept it by opening the repository on GitHub.",
+              'Click "Your repository" to accept the GitHub invitation to your new repository. ' +
+                "GitHub will also email you the invitation. You have 7 days to accept it before " +
+                "it expires — after that, your instructor has to invite you again.",
               { duration: 15_000 },
             );
           }
 
           // `useServerMutation` re-renders the server component after this, so the row picks up
           // its new status, and a repository assignment picks up the link to the one it made.
+        },
+        onSettled: (result) => {
+          const tab = repoTab.current;
+          repoTab.current = null;
+          if (!tab) return;
+          // A failed accept, or a row with no address, closes the tab rather than leaving it blank.
+          const repoUrl = result?.submission.repoUrl;
+          if (repoUrl) tab.location.href = repoUrl;
+          else tab.close();
         },
       }),
     ),
@@ -119,7 +153,10 @@ export function AcceptAssignmentButton({
       ) : (
         <Button
           size="sm"
-          onClick={() => accept.mutate({ assignmentId })}
+          onClick={() => {
+            if (kind === "REPO") openRepoTab();
+            accept.mutate({ assignmentId });
+          }}
           disabled={disabled || accept.isPending}
         >
           {accept.isPending
