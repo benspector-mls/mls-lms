@@ -20,8 +20,8 @@ import { ALL_STUDENTS } from "./cohorts";
  * they teach in it rather than one per course.
  *
  * `ALL_STUDENTS` last rather than as an error case, because it is the behaviour that existed before
- * cohorts: a program with none, an admin with nowhere to remember a selection, and a cleared filter
- * all mean the same thing.
+ * cohorts: a program with none, an admin with nowhere to remember a selection, and an instructor who
+ * has never chosen a cohort all mean the same thing.
  *
  * Resolved before the screen's own read rather than beside it, since that read takes the answer as
  * an argument. One extra query per page load against a table of a handful of rows.

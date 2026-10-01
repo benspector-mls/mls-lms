@@ -3,7 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { Users } from "lucide-react";
+import { Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -46,10 +46,20 @@ export function CohortPicker({
   /** Overrides the trigger's width, for the queue's sidebar where it spans the column. */
   className?: string;
 }) {
-  const { programId, cohort: value, cohorts, unassignedCount } = choice;
+  const { programId, cohorts, unassignedCount } = choice;
   const router = useRouter();
   const searchParams = useSearchParams();
   const trpc = useTRPC();
+
+  /*
+    The server rebuilds the screen beneath for every change of filter, and the old screen stays up
+    until the new one arrives. If the picker showed only what the server last sent, it would keep
+    showing the previous cohort for that whole wait, and an instructor would believe the click had
+    not registered and pick again. So the picker shows the chosen value the moment it is chosen,
+    and replaces its icon with a spinner until the screen beneath has caught up with it.
+  */
+  const [isPending, startTransition] = React.useTransition();
+  const [value, setOptimisticValue] = React.useOptimistic(choice.cohort);
 
   const remember = useMutation(
     trpc.cohorts.setCohort.mutationOptions({
@@ -75,11 +85,15 @@ export function CohortPicker({
   function choose(value: string | null) {
     const next = value ?? ALL_STUDENTS;
     const params = new URLSearchParams(searchParams.toString());
-    if (next === ALL_STUDENTS) {
-      params.delete("cohort");
-    } else {
-      params.set("cohort", next);
-    }
+
+    /*
+      All Fellows is written into the query string like any other choice. A query string with no
+      cohort tells `resolveCohort` to fall back on the remembered one, and the mutation below that
+      changes the remembered one has usually not finished when the server rebuilds the screen. So
+      a missing parameter would bring back the cohort the instructor had just left, both on the
+      screen and in this picker, until the next reload.
+    */
+    params.set("cohort", next);
 
     /*
       The submission a queue happened to have open is dropped, deliberately. It is very often a
@@ -89,8 +103,10 @@ export function CohortPicker({
     */
     params.delete("submission");
 
-    const query = params.toString();
-    router.replace(query ? `?${query}` : "?", { scroll: false });
+    startTransition(() => {
+      setOptimisticValue(next);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    });
 
     /*
       No cohort is not recorded. It answers "has anybody been missed" rather than "whose work do
@@ -119,8 +135,16 @@ export function CohortPicker({
         ...Object.fromEntries(cohorts.map((cohort) => [cohort.id, cohort.name])),
       }}
     >
-      <SelectTrigger className={cn("w-[220px] min-w-0", className)} aria-label="Filter by cohort">
-        <Users className="size-4 shrink-0 text-muted-foreground" />
+      <SelectTrigger
+        className={cn("w-[220px] min-w-0", className)}
+        aria-label="Filter by cohort"
+        aria-busy={isPending}
+      >
+        {isPending ? (
+          <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+        ) : (
+          <Users className="size-4 shrink-0 text-muted-foreground" />
+        )}
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
