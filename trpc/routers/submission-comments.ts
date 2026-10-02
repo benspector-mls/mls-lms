@@ -380,17 +380,12 @@ export const submissionCommentsRouter = createTRPCRouter({
         });
       }
 
-      // An instructor only ever answers a thread that exists; a fellow's first comment makes one.
-      const submissionId = scope.asInstructor
-        ? scope.submissionId
-        : await threadRowForWriting(ctx.db, scope);
-
-      if (!submissionId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "There is nothing here to comment on yet.",
-        });
-      }
+      /*
+        The first comment makes the thread, whoever writes it. A fellow asks before starting; an
+        instructor opens a fellow who has not started from the grading queue and checks in. Either
+        way the row is `NOT_STARTED`, which reads downstream as the same fact as no row at all.
+      */
+      const submissionId = await threadRowForWriting(ctx.db, scope);
 
       // A foreign key holds the round to this submission; only its status is left to check.
       if (input.gradingDraftId) {

@@ -147,7 +147,7 @@ export function TaskReview({
         </CardContent>
       </Card>
 
-      <TaskConversation
+      <FellowConversation
         assignmentId={assignmentId}
         studentId={student.id}
         studentName={name}
@@ -160,11 +160,15 @@ export function TaskReview({
 /**
  * The thread, fetched here rather than by the pane above.
  *
- * Its own component only so the query is not made until a fellow is open — the pane is keyed on
- * the fellow, so mounting is what starts it, and an instructor stepping down a roster of twenty
+ * Its own component so the query is not made until a fellow is open — the pane is keyed on the
+ * fellow, so mounting is what starts it, and an instructor stepping down a roster of twenty
  * fetches the thread they are looking at rather than twenty threads.
+ *
+ * Exported for the grading queue's pane for a fellow with no submission row, which has nothing
+ * else to show. The thread is keyed on `(assignment, student)`, so it works there for the same
+ * reason it works here.
  */
-function TaskConversation({
+export function FellowConversation({
   assignmentId,
   studentId,
   studentName,

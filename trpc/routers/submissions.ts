@@ -2042,20 +2042,21 @@ export const submissionsRouter = createTRPCRouter({
       };
 
       /*
-        The fellows with no submission row at all, for a task and for nothing else.
+        The fellows with no submission row at all.
 
-        **A task's queue is the whole roster, which is the opposite of every other kind's.**
-        Elsewhere this screen answers "what is left to grade", and somebody who never started has
-        nothing on it — the assignment's own page is where an instructor goes to see who has not
-        begun. A task has no grading, so the only question its queue can answer is "who has done
-        this", and a fellow who has not is the most important row on it: they are the one an
-        instructor may want to mark done, or chase.
+        **The queue lists the whole roster**, so an instructor can scan everybody on an assignment
+        from one place and start a conversation with a fellow who has not begun. On a task this is
+        the most important part of the list: a task has no grading, so the only question its queue
+        answers is "who has done this", and a fellow who has not is the one an instructor may want
+        to mark done, or chase. On graded work these fellows are not work to grade, which is why
+        the screen shows them under All and leaves them out of To do.
 
-        Synthesized here rather than by creating rows at publish time. A row per fellow per task
-        written in advance would be a table of rows recording that nothing has happened, wrong the
-        moment the roster changes, and it would put every task in the gradebook as `NOT_STARTED`
-        rather than absent. `listForStudent` already answers the mirror-image question the same
-        way, returning a row for an assignment the fellow has not started.
+        Synthesized here rather than by creating rows at publish time. A row per fellow per
+        assignment written in advance would be a table of rows recording that nothing has
+        happened, wrong the moment the roster changes, and it would put every assignment in the
+        gradebook as `NOT_STARTED` rather than absent. `listForStudent` already answers the
+        mirror-image question the same way, returning a row for an assignment the fellow has not
+        started.
 
         Narrowed by the same cohort selection as the arrays above, so the three agree about who is
         on screen, and by the same active-enrollment rule, so a removed fellow is absent here for
@@ -2063,21 +2064,17 @@ export const submissionsRouter = createTRPCRouter({
       */
       const started = new Set(submissions.map((row) => row.student.id));
 
-      const notStarted =
-        assignment.kind !== "TASK"
-          ? []
-          : (
-              await ctx.db.enrollment.findMany({
-                where: { programId: assignment.course.programId, status: "ACTIVE" },
-                select: { student: { select: personSelect } },
-                orderBy: { student: { displayName: "asc" } },
-              })
-            )
-              .map((enrollment) => enrollment.student)
-              .filter(
-                (student) =>
-                  !started.has(student.id) && (!inSelection || inSelection.has(student.id)),
-              );
+      const notStarted = (
+        await ctx.db.enrollment.findMany({
+          where: { programId: assignment.course.programId, status: "ACTIVE" },
+          select: { student: { select: personSelect } },
+          orderBy: { student: { displayName: "asc" } },
+        })
+      )
+        .map((enrollment) => enrollment.student)
+        .filter(
+          (student) => !started.has(student.id) && (!inSelection || inSelection.has(student.id)),
+        );
 
       return {
         // Spelled out rather than spread, so `sections` does not travel to the browser as a
@@ -2092,11 +2089,8 @@ export const submissionsRouter = createTRPCRouter({
           manualOnly,
         },
         /**
-         * Fellows on the roster who hold no submission row on this assignment.
-         *
-         * **Empty for every kind but `TASK`**, and the emptiness is the answer rather than a
-         * feature not yet built: on a graded assignment a fellow who has not started is
-         * deliberately not in the queue. See the comment above the query.
+         * Fellows on the roster who hold no submission row on this assignment, on every kind.
+         * See the comment above the query.
          */
         notStarted,
         /**
@@ -2142,9 +2136,8 @@ export const submissionsRouter = createTRPCRouter({
    *
    * **Every assignment, not every submission.** A row is returned for an assignment the student
    * has not started, with `submission: null`, because "has not begun this" is a fact about the
-   * student worth reading and a list of only what exists cannot say it. That is the difference
-   * between this and the grading queue, where a student who never accepted is deliberately absent:
-   * there the question is what is left to grade, here it is how somebody is doing.
+   * student worth reading and a list of only what exists cannot say it. The grading queue says the
+   * same fact along the other axis, listing every fellow on the roster for one assignment.
    *
    * Unpublished assignments are included. An instructor reading a student's record is entitled to
    * see the ones the cohort cannot: leaving them out would make the list disagree with the

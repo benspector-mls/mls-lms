@@ -13,7 +13,7 @@ import {
   useGradingMode,
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
-import { TaskReview } from "@/components/instructor/task-review";
+import { FellowConversation, TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
@@ -156,8 +156,8 @@ export function GradingQueue({
    * Whether this screen is a roster rather than a queue.
    *
    * A task is not graded and never waits on anybody, so "what is left to grade" is a question it
-   * cannot answer. What its queue is for instead is "who has done this" — which makes every
-   * fellow a row, including the ones with nothing on record.
+   * cannot answer. What its queue is for instead is "who has done this", so it has no tabs and no
+   * report to generate.
    */
   const isTask = data.assignment.kind === "TASK";
 
@@ -169,25 +169,13 @@ export function GradingQueue({
   const selfMarked = taskIsSelfMarked(data.assignment);
 
   /*
-    A student who has not opened a pull request is not in the queue. They have not done anything
-    wrong and there is nothing to grade — the assignment's own page is where an instructor goes to
-    see who has not started.
-
-    **Unless they have said something.** A question asked before starting is a record an instructor
-    will want to find again, and the assignment is the obvious place to look for it: without this
-    the only route to it is the fellow's own record, which means already knowing who asked.
-
-    **And unless this is a task**, where the filter is turned off entirely. A fellow who has not
-    marked a task done is exactly the row an instructor came here for: the one to chase, or to mark
-    done on their behalf. `notStarted` below carries the fellows who have no row at all, for the
-    same reason.
+    Every row on the assignment, whatever its status. A fellow who has accepted but not handed in,
+    or who has a row only because somebody commented, is listed beside the work that is ready to
+    grade, so an instructor can scan the whole assignment from here and start a conversation with
+    anybody on it. Those rows have a null `bucket`, so To do leaves them out and they count under
+    All.
   */
-  const submissions = isTask
-    ? data.submissions
-    : data.submissions.filter(
-        (row) =>
-          (row.status !== "NOT_STARTED" && row.status !== "ACCEPTED") || row.commentCount > 0,
-      );
+  const submissions = data.submissions;
 
   /*
     "Needs review" is the same question the triage screen asks, answered by the same
@@ -196,10 +184,21 @@ export function GradingQueue({
   */
   const needsReview = (row: Row) => row.bucket !== null && row.bucket !== "generating";
 
+  /*
+    Fellows on the roster with no submission row at all — see `notStarted` in
+    `submissions.listForAssignment`.
+
+    Listed under All and nowhere else on graded work, because the other two tabs are answers to
+    "what is left to grade" and somebody who has not begun has nothing on either. A task has no
+    tabs, so its list always carries them.
+  */
+  const notStarted = isTask || filter === "all" ? data.notStarted : [];
+
   const counts = {
     needs_review: submissions.filter(needsReview).length,
     graded: submissions.filter((row) => row.status === "GRADED").length,
-    all: submissions.length,
+    // The fellows with no row as well, so the number on the tab matches the list beneath it.
+    all: submissions.length + data.notStarted.length,
   };
   // Deliberately outside `needs_review`: a question is not work to grade, and `bucket` is null on
   // a row nobody has submitted. It counts under All, which is where the record is looked for.
@@ -255,14 +254,6 @@ export function GradingQueue({
     selected === null
       ? null
       : (data.asideSubmissions.find((row) => row.id === selected.id)?.asideReason ?? null);
-
-  /*
-    Fellows on the roster with no submission row at all. Empty for every kind but a task — see
-    `notStarted` in `submissions.listForAssignment` for why only a task has them.
-
-    Not counted in the tabs: the tabs count submissions, and these are the absence of one.
-  */
-  const notStarted = data.notStarted;
 
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -513,7 +504,9 @@ export function GradingQueue({
                           {displayNameOf(student, "Unknown student")}
                         </Link>
                       </span>
-                      <span className="text-xs text-muted-foreground">Not marked</span>
+                      <span className="text-xs text-muted-foreground">
+                        {isTask ? "Not marked" : "Not started"}
+                      </span>
                     </div>
                   </li>
                 ))}
@@ -702,6 +695,29 @@ export function GradingQueue({
                 selfMarked={selfMarked}
                 now={now}
               />
+            ) : selectedFellow ? (
+              /*
+                A fellow with no row on graded work. There is no report, test run, or diff to show,
+                so the pane says that nothing has been handed in and offers the conversation, which
+                is what an instructor opens a fellow who has not started to do. Posting the first
+                comment creates their row, and the refresh that follows moves them into
+                `submissions`.
+              */
+              <div
+                key={selectedFellow.id}
+                // `relative` for the reason `TaskReview` gives: the thread's `sr-only` live region.
+                className="relative flex h-full flex-col gap-4 overflow-y-auto p-4"
+              >
+                <p className="text-sm text-muted-foreground">
+                  {displayNameOf(selectedFellow, "This fellow")} has not started this assignment.
+                </p>
+                <FellowConversation
+                  assignmentId={data.assignment.id}
+                  studentId={selectedFellow.id}
+                  studentName={displayNameOf(selectedFellow, "this fellow")}
+                  now={now}
+                />
+              </div>
             ) : selected ? (
               // Keyed on the submission so switching students resets the editor rather
               // than carrying one student's unsaved edits onto another's report.

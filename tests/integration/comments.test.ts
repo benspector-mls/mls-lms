@@ -869,8 +869,14 @@ describe("the assignment's own queue carries the record", () => {
     before = await queue();
   });
 
-  it("nobody is in the queue before anything happens", () => {
+  /*
+    The queue lists the whole roster on graded work too, so an instructor can open a fellow who has
+    not begun and start the conversation. Such a fellow has no row, so they are carried beside the
+    submissions rather than among them.
+  */
+  it("before anything happens, the fellow is listed as not started and has no row", () => {
     expect(before.submissions.filter((row) => row.student.id === aliceId())).toHaveLength(0);
+    expect(before.notStarted.some((student) => student.id === aliceId())).toBe(true);
   });
 
   describe("after a question", () => {
@@ -883,8 +889,9 @@ describe("the assignment's own queue carries the record", () => {
       alicesRow = after.submissions.find((row) => row.student.id === aliceId());
     });
 
-    it("a question puts the fellow in the assignment's queue", () => {
+    it("a question gives the fellow a row in the assignment's queue", () => {
       expect(alicesRow).toBeDefined();
+      expect(after.notStarted.some((student) => student.id === aliceId())).toBe(false);
     });
 
     it("with nothing to grade", () => {
@@ -899,10 +906,10 @@ describe("the assignment's own queue carries the record", () => {
       expect(alicesRow?.commentsAwaitReply).toBe(true);
     });
 
-    // A fellow who has neither submitted nor said anything stays out of it.
-    it("somebody who has done nothing at all is still absent", () => {
+    it("somebody who has done nothing at all is still listed as not started", () => {
       const bobId = world.students[1]!.studentId;
       expect(after.submissions.filter((row) => row.student.id === bobId)).toHaveLength(0);
+      expect(after.notStarted.some((student) => student.id === bobId)).toBe(true);
     });
   });
 
@@ -924,6 +931,31 @@ describe("the assignment's own queue carries the record", () => {
 
     it("and stops asking to be acted on", () => {
       expect(answeredRow?.commentsAwaitReply).toBe(false);
+    });
+  });
+
+  // What the not-started list is for: the instructor writing first, to somebody who has no row.
+  describe("the instructor writes first to a fellow who has not started", () => {
+    let after: Queue;
+    const bobId = () => world.students[1]!.studentId;
+
+    beforeAll(async () => {
+      await asInstructor().submissionComments.post({
+        assignmentId,
+        studentId: bobId(),
+        body: "Checking in. Do you need anything to get started?",
+      });
+      after = await queue();
+    });
+
+    it("gives the fellow a row that has not started", () => {
+      const row = after.submissions.find((entry) => entry.student.id === bobId());
+      expect(row?.status).toBe("NOT_STARTED");
+      expect(row?.commentCount).toBe(1);
+    });
+
+    it("and takes them off the not-started list", () => {
+      expect(after.notStarted.some((student) => student.id === bobId())).toBe(false);
     });
   });
 });
