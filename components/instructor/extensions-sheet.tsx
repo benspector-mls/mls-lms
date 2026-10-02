@@ -23,8 +23,8 @@ import {
   END_OF_DAY,
   instantAtSchoolClock,
   schoolClockOf,
-  schoolDayOf,
   type SchoolClock,
+  type SchoolDay,
 } from "@/lib/school-time";
 import { formatDueDate } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -116,6 +116,13 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
 
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [at, setAt] = React.useState<Date | null>(null);
+  /*
+    The date input's own string, held beside the instant rather than read back from it. A date
+    input reports every keystroke in its year field, so typing 2026 passes through 0002 and 0202,
+    and redrawing the input from the instant each time writes back "202-10-02" — which is not a
+    value a date input accepts — under the cursor of somebody still typing.
+  */
+  const [day, setDay] = React.useState<SchoolDay>("");
   const lastClock = React.useRef<SchoolClock>(END_OF_DAY);
 
   const noun = data.grantedTo === "team" ? "team" : "fellow";
@@ -282,8 +289,9 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
             <Input
               id="extension-date"
               type="date"
-              value={at ? schoolDayOf(at) : ""}
-              onChange={(event) =>
+              value={day}
+              onChange={(event) => {
+                setDay(event.target.value);
                 setAt(
                   event.target.value
                     ? instantAtSchoolClock(
@@ -291,8 +299,8 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
                         at ? schoolClockOf(at) : lastClock.current,
                       )
                     : null,
-                )
-              }
+                );
+              }}
             />
           </div>
           <div className="flex flex-col gap-2">
@@ -305,7 +313,7 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
               onChange={(event) => {
                 const clock = event.target.value || END_OF_DAY;
                 lastClock.current = clock;
-                setAt(at ? instantAtSchoolClock(schoolDayOf(at), clock) : null);
+                setAt(at ? instantAtSchoolClock(day, clock) : null);
               }}
             />
           </div>

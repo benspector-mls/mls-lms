@@ -154,8 +154,8 @@ describe("instantAtSchoolClock", () => {
   });
 
   it("round-trips every day of a year at the end of the day", () => {
-    // What the assignment form does on every keystroke: read the stored instant back into the two
-    // inputs, and build an instant from what they hold. A day where that loses an hour is a
+    // What the assignment form does when it opens a saved assignment: read the stored instant back
+    // into the two inputs, and build an instant from what they hold. A day where that loses an hour is a
     // deadline that walks when an instructor opens the form and saves without touching it.
     for (let offset = 0; offset < 365; offset += 1) {
       const day = schoolDayFromColumn(new Date(Date.UTC(2026, 0, 1 + offset)));
@@ -179,6 +179,18 @@ describe("instantAtSchoolClock", () => {
         expect(schoolDayOf(instant)).toBe(day);
         expect(schoolClockOf(instant)).toBe(clock);
       }
+    }
+  });
+
+  it("keeps the year of every date a date input reports while 2026 is being typed", () => {
+    // A date input reports each keystroke in its year field, so 0002, 0020, and 0202 all arrive
+    // before 2026 does. `Date.UTC` reads a year below 100 as 1900-something, which once sent year 2
+    // to 3796 BC and showed an instructor typing a deadline the year 3796.
+    for (const year of ["0002", "0020", "0202", "2026"]) {
+      const instant = instantAtSchoolClock(`${year}-10-02`, END_OF_DAY);
+
+      expect(instant.getUTCFullYear()).toBe(Number(year));
+      expect(schoolClockOf(instant)).toBe(END_OF_DAY);
     }
   });
 });

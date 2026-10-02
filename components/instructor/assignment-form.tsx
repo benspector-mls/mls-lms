@@ -52,6 +52,7 @@ import {
   schoolClockOf,
   schoolDayOf,
   type SchoolClock,
+  type SchoolDay,
 } from "@/lib/school-time";
 import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind, HandInMethod } from "@/lib/generated/prisma/enums";
@@ -453,11 +454,21 @@ function Editor({
   /*
     The time of day a due date was last set to, so that clearing the date and choosing another
     does not quietly reset a deliberate 5pm deadline to 11:59pm. It is a ref rather than state
-    because nothing renders from it — the two due date inputs both read the stored instant, and
-    this is consulted only when there is no instant to read a time from.
+    because nothing renders from it — the time input reads the stored instant, and this is
+    consulted only when there is no instant to read a time from.
   */
   const lastDueClock = React.useRef<SchoolClock>(
     existing?.dueAt ? schoolClockOf(existing.dueAt) : END_OF_DAY,
+  );
+  /*
+    The date input's own string, held beside the stored instant rather than read back from it. A
+    date input reports every keystroke in its year field, so typing 2026 passes through 0002 and
+    0202, and redrawing the input from the instant each time writes back "202-10-02" — which is not
+    a value a date input accepts — under the cursor of somebody still typing. Only the two due date
+    inputs change `dueAt`, so the two cannot drift apart.
+  */
+  const [dueDay, setDueDay] = React.useState<SchoolDay>(() =>
+    existing?.dueAt ? schoolDayOf(existing.dueAt) : "",
   );
 
   const [state, setState] = React.useState<FormState | null>(() =>
@@ -1092,8 +1103,9 @@ function Editor({
                 >
                   <Input
                     type="date"
-                    value={state.dueAt ? schoolDayOf(state.dueAt) : ""}
-                    onChange={(event) =>
+                    value={dueDay}
+                    onChange={(event) => {
+                      setDueDay(event.target.value);
                       setState({
                         ...state,
                         dueAt: event.target.value
@@ -1102,8 +1114,8 @@ function Editor({
                               dueClockOf(state.dueAt, lastDueClock.current),
                             )
                           : null,
-                      })
-                    }
+                      });
+                    }}
                   />
                 </Field>
                 <Field
@@ -1124,7 +1136,7 @@ function Editor({
                       setState({
                         ...state,
                         dueAt: state.dueAt
-                          ? instantAtSchoolClock(schoolDayOf(state.dueAt), clock)
+                          ? instantAtSchoolClock(dueDay, clock)
                           : null,
                       });
                     }}

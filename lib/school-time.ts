@@ -100,16 +100,18 @@ function schoolOffsetMs(at: Date): number {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((candidate) => candidate.type === type)?.value);
 
-  const wallClockAsIfUtc = Date.UTC(
-    part("year"),
-    part("month") - 1,
-    part("day"),
-    part("hour"),
-    part("minute"),
-    part("second"),
-  );
+  /*
+    `setUTCFullYear` rather than `Date.UTC`, because `Date.UTC` reads a year from 0 to 99 as 1900
+    to 1999. A date input reports every keystroke in its year field, so typing 2026 passes through
+    0002, 0020, and 0202 on the way, and `Date.UTC` measured the offset at year 2 as nineteen
+    centuries rather than five hours. The due date then landed thousands of years in the past and
+    the input showed 3796.
+  */
+  const wallClockAsIfUtc = new Date(0);
+  wallClockAsIfUtc.setUTCFullYear(part("year"), part("month") - 1, part("day"));
+  wallClockAsIfUtc.setUTCHours(part("hour"), part("minute"), part("second"));
 
-  return wallClockAsIfUtc - at.getTime();
+  return wallClockAsIfUtc.getTime() - at.getTime();
 }
 
 /**
