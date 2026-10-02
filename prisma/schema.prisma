@@ -405,6 +405,9 @@ model Cohort {
   /// The instructors currently filtered to this cohort. Present so that deleting one can null their
   /// column rather than orphan it.
   filteredBy ProgramInstructor[]
+  /// Summaries of checks written for this cohort alone. Cascade: they are about a set that no
+  /// longer exists.
+  checkSummaries CheckSummary[]
 
   /// One "Cohort A" per program. Ordered by name in the picker, which is why there is no position
   /// column: a list of four entries does not need reordering.
@@ -1127,25 +1130,14 @@ model CheckForUnderstanding {
   /// The default is one hour, the same as `DEFAULT_RETRY_WAIT_HOURS` in lib/checks/attempts.ts.
   retryWaitHours Int    @default(1) @map("retry_wait_hours")
 
-  /// The latest reading of the room's answers, written by Claude at an instructor's request:
-  /// `{ overview, failureModes: [{ title, evidence, fellowIds, revisit }] }`, the shape
-  /// `storedSummarySchema` in lib/checks/summary.ts reads. Fellows are held by profile id, mapped
-  /// back from the labels the prompt used, so no name went to the model and none can be invented.
-  /// Read by instructors only; nothing a fellow can call selects it.
-  summary              Json?
-  /// When `summary` was written. The attempts page counts answers submitted after it.
-  summaryAt            DateTime? @map("summary_at") @db.Timestamptz(6)
-  /// Model id, prompt version, and the four token counts, in the shape the other two
-  /// `model_metadata` columns use, so `npm run cost` prices it.
-  summaryModelMetadata Json?     @map("summary_model_metadata")
-
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   /// Cascade: removing a resource removes the question about it. The resource dialog says how
   /// many fellows' attempts go with it before anything is removed.
-  resource Resource       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  attempts CheckAttempt[]
+  resource  Resource       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  attempts  CheckAttempt[]
+  summaries CheckSummary[]
 
   @@map("checks_for_understanding")
   @@schema("public")
@@ -1193,6 +1185,41 @@ model CheckAttempt {
   @@unique([checkId, studentId, attempt])
   @@index([studentId])
   @@map("check_attempts")
+  @@schema("public")
+}
+
+/// What one set of fellows' answers to a check have in common, written by Claude at an
+/// instructor's request: themes per level, then failure modes naming the fellows whose answers
+/// show each one. The shape is `storedSummarySchema` in lib/checks/summary.ts.
+///
+/// **One row per check and cohort selection**, because co-teachers each summarize their own
+/// cohort and must not overwrite each other. The whole room and the fellows in no cohort are
+/// selections too, so a check may hold a summary for each of them beside one per cohort.
+///
+/// Fellows are held by profile id, mapped back from the labels the prompt used, so no name went
+/// to the model and none can be invented. Read by instructors only; nothing a fellow can call
+/// selects this table.
+model CheckSummary {
+  id      String @id @default(uuid()) @db.Uuid
+  checkId String @map("check_id") @db.Uuid
+  /// The picker's value the summary was written for — `all`, `unassigned`, or a cohort's id — as
+  /// `cohortSelectionValue` in lib/programs/cohorts.ts spells it. The key the page looks up by.
+  cohortKey String  @map("cohort_key")
+  /// The cohort, where the key names one, so deleting a cohort removes its summaries rather than
+  /// leaving rows no picker can reach.
+  cohortId  String? @map("cohort_id") @db.Uuid
+
+  summary   Json
+  writtenAt DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
+  /// Model id, prompt version, and the four token counts, in the shape the other two
+  /// `model_metadata` columns use, so `npm run cost` prices it.
+  modelMetadata Json @map("model_metadata")
+
+  check  CheckForUnderstanding @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  cohort Cohort?               @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+
+  @@unique([checkId, cohortKey])
+  @@map("check_summaries")
   @@schema("public")
 }
 

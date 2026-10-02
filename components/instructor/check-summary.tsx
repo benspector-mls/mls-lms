@@ -12,6 +12,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { CATEGORY_LABEL, type CheckCategory } from "@/lib/checks/levels";
 import { displayNameOf } from "@/lib/people";
+import {
+  type CohortChoice,
+  cohortSelectionLabel,
+  parseCohortSelection,
+} from "@/lib/programs/cohorts";
 import { formatDateTime, formatRelative } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -25,10 +30,13 @@ type Summary = NonNullable<Data["check"]["summary"]>;
  * **Between the counts and the table**, because it is the sentence the counts cannot say: the
  * overview above says how many are Blocked, and this says what the blocked answers share and
  * which part of the lesson to return to. First the themes, one list per level; then the failure
- * modes, each with the fellows whose answers show it and what to return to. The fellows are looked
- * up by id in the rows the page holds — every row, whichever cohort the table is narrowed to,
- * because the summary reads every fellow's answers — so a fellow who has since left the roster is
- * still accounted for without a name.
+ * modes, each with the fellows whose answers show it and what to return to.
+ *
+ * **One summary per cohort selection.** The summary shown is the one written for the picker's
+ * selection, and the button writes for that selection, so co-teachers summarize their own cohorts
+ * side by side. The answer counts in the footer are over the fellows shown; the names are looked
+ * up in every row the page holds, so a fellow who has since moved cohort or left the roster still
+ * reads as who they are, or as no longer enrolled.
  *
  * **Instructor-only, and the card says so.** A summary that cites fellows by name is a synthesis
  * about people, and nothing here has a path to a fellow's screen.
@@ -40,17 +48,31 @@ const THEME_KEY = { 3: "level3", 2: "level2", 1: "level1" } as const satisfies R
 >;
 export function CheckSummary({
   checkId,
+  choice,
   summary,
   summaryAt,
   rows,
+  shown,
   now,
 }: {
   checkId: string;
+  /** The picker's options and the selection this summary was read and is written for. */
+  choice: CohortChoice;
   summary: Summary | null;
   summaryAt: Date | null;
+  /** Every fellow, for naming whoever is cited. */
   rows: Data["rows"];
+  /** The fellows in the selection, for the counts. */
+  shown: Data["rows"];
   now: Date;
 }) {
+  const selection = parseCohortSelection(choice.cohort);
+  const scope =
+    selection.kind === "all"
+      ? "every fellow's answers"
+      : selection.kind === "unassigned"
+        ? "the answers of fellows in no cohort"
+        : `the answers of ${cohortSelectionLabel(selection, choice.cohorts)}`;
   const trpc = useTRPC();
   const settled = useServerMutation();
   const summarize = useMutation(
@@ -61,13 +83,13 @@ export function CheckSummary({
     ),
   );
 
-  const answered = rows.filter((row) => row.attempts.length > 0).length;
+  const answered = shown.filter((row) => row.attempts.length > 0).length;
   const figures = React.useMemo(() => {
     if (!summaryAt) return null;
     let read = 0;
     let since = 0;
     const readFellows = new Set<string>();
-    for (const row of rows) {
+    for (const row of shown) {
       for (const attempt of row.attempts) {
         if (attempt.submittedAt > summaryAt) since += 1;
         else {
@@ -77,7 +99,7 @@ export function CheckSummary({
       }
     }
     return { read, fellows: readFellows.size, since };
-  }, [rows, summaryAt]);
+  }, [shown, summaryAt]);
 
   const button = (
     <Button
@@ -85,8 +107,8 @@ export function CheckSummary({
       size="sm"
       variant={summary ? "outline" : "default"}
       disabled={summarize.isPending || answered === 0}
-      title={answered === 0 ? "Nobody has answered this check yet." : undefined}
-      onClick={() => summarize.mutate({ checkId })}
+      title={answered === 0 ? "Nobody shown has answered this check yet." : undefined}
+      onClick={() => summarize.mutate({ checkId, cohort: choice.cohort })}
     >
       {summarize.isPending ? (
         <Loader2 data-icon="inline-start" className="animate-spin" />
@@ -108,8 +130,7 @@ export function CheckSummary({
           <div className="flex flex-col">
             <span className="text-sm font-medium">What the answers have in common</span>
             <span className="text-xs text-muted-foreground">
-              Written by Claude for instructors, from every fellow&apos;s answers. Fellows never see
-              it.
+              Written by Claude for instructors, from {scope}. Fellows never see it.
             </span>
           </div>
           {!summary && button}
@@ -184,8 +205,10 @@ export function CheckSummary({
         ) : (
           <p className="text-sm text-muted-foreground">
             {answered === 0
-              ? "Nobody has answered this check yet."
-              : "No summary of the answers yet."}
+              ? selection.kind === "all"
+                ? "Nobody has answered this check yet."
+                : "Nobody shown has answered this check yet."
+              : `No summary of ${scope} yet.`}
           </p>
         )}
       </CardContent>

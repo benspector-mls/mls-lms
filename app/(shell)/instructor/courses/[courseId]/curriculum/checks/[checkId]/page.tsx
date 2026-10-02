@@ -16,7 +16,8 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * The cohort picker is the one the other course screens carry, resolved the same way: the query
  * string, then the instructor's remembered cohort, then every fellow. The procedure returns every
- * fellow and the screen narrows, so the picker changes nothing about the read.
+ * fellow and the screen narrows the table; the selection chooses which summary comes back, since
+ * each cohort has its own.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here — awaiting it
  * in the page component would make the whole route block on per-request data outside a Suspense
@@ -46,11 +47,11 @@ async function Attempts({
   const { courseId, checkId } = await params;
   const query = await searchParams;
 
-  const [data, cohorts] = await Promise.all([
-    // The procedure refuses a check in a course the caller does not teach.
-    getQueryClient().fetchQuery(trpc.checks.attemptsFor.queryOptions({ checkId })),
-    resolveCohortForCourse(courseId, query.cohort),
-  ]);
+  const cohorts = await resolveCohortForCourse(courseId, query.cohort);
+  // The procedure refuses a check in a course the caller does not teach.
+  const data = await getQueryClient().fetchQuery(
+    trpc.checks.attemptsFor.queryOptions({ checkId, cohort: cohorts.cohort }),
+  );
 
   requireCourseMatch({
     urlCourseId: courseId,

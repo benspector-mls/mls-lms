@@ -8,8 +8,8 @@
  * `check_attempts.model_metadata`, with `check_for_understanding` as its one section and `none` as
  * its effort. Reviewing an attempt again replaces that record, so only the latest review of each
  * attempt is priced. A summary of a check's answers does the same on
- * `checks_for_understanding.summary_model_metadata`, with `check_summary` as its section, and
- * summarizing again replaces it likewise.
+ * `check_summaries.model_metadata`, with `check_summary` as its section, and summarizing the same
+ * cohort again replaces it likewise.
  *
  * The pipeline records four token counts per draft in `model_metadata.usage` and no
  * dollar figure, because a price is a fact about Anthropic's rate card rather than about
@@ -87,19 +87,15 @@ async function main() {
       orderBy: { submittedAt: "asc" },
       select: { submittedAt: true, modelMetadata: true },
     }),
-    db.checkForUnderstanding.findMany({
-      where: { summaryModelMetadata: { not: Prisma.DbNull } },
-      orderBy: { summaryAt: "asc" },
-      select: { summaryAt: true, summaryModelMetadata: true },
+    db.checkSummary.findMany({
+      orderBy: { writtenAt: "asc" },
+      select: { writtenAt: true, modelMetadata: true },
     }),
   ]);
   const drafts = [
     ...gradingDrafts,
     ...checkAttempts.map((a) => ({ createdAt: a.submittedAt, modelMetadata: a.modelMetadata })),
-    ...checkSummaries.map((c) => ({
-      createdAt: c.summaryAt ?? new Date(0),
-      modelMetadata: c.summaryModelMetadata,
-    })),
+    ...checkSummaries.map((c) => ({ createdAt: c.writtenAt, modelMetadata: c.modelMetadata })),
   ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   const priced: Priced[] = [];

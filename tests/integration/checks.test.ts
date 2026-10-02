@@ -473,12 +473,34 @@ describe("summarizing a check's answers", () => {
   let other: World;
   let checkId: string;
   let unanswered: string;
+  /** The second fellow's cohort, and a cohort holding only the fellow who has not answered. */
+  let cohortId: string;
+  let quietCohortId: string;
 
   beforeAll(async () => {
     world = await makeWorld(tx(), { students: 3 });
     other = await makeWorld(tx());
     ({ checkId } = await makeCheck(tx(), { unitId: world.unitId }));
     ({ checkId: unanswered } = await makeCheck(tx(), { unitId: world.unitId, title: "Second" }));
+
+    const squad = await tx().cohort.create({
+      data: { programId: world.programId, name: `Squad ${Math.random()}` },
+      select: { id: true },
+    });
+    cohortId = squad.id;
+    await tx().enrollment.updateMany({
+      where: { programId: world.programId, studentId: world.students[1]!.studentId },
+      data: { cohortId },
+    });
+    const quiet = await tx().cohort.create({
+      data: { programId: world.programId, name: `Quiet ${Math.random()}` },
+      select: { id: true },
+    });
+    quietCohortId = quiet.id;
+    await tx().enrollment.updateMany({
+      where: { programId: world.programId, studentId: world.students[2]!.studentId },
+      data: { cohortId: quietCohortId },
+    });
 
     await makeCheckAttempt(tx(), {
       checkId,
@@ -502,11 +524,13 @@ describe("summarizing a check's answers", () => {
     });
   });
 
-  it("refuses a check nobody has answered, before anything is recorded", async () => {
+  it("refuses a check nobody has answered, or a cohort nobody in has, before anything is recorded", async () => {
+    const instructor = createCaller(tx(), world.instructorId);
+    expect(await refusal(() => instructor.checks.summarize({ checkId: unanswered }))).toBe(
+      "PRECONDITION_FAILED",
+    );
     expect(
-      await refusal(() =>
-        createCaller(tx(), world.instructorId).checks.summarize({ checkId: unanswered }),
-      ),
+      await refusal(() => instructor.checks.summarize({ checkId, cohort: quietCohortId })),
     ).toBe("PRECONDITION_FAILED");
     expect(summarize).not.toHaveBeenCalled();
     expect(await tx().auditEvent.count({ where: { action: "CHECK_SUMMARY_GENERATED" } })).toBe(0);
@@ -541,11 +565,12 @@ describe("summarizing a check's answers", () => {
     const data = await instructor.checks.attemptsFor({ checkId });
     expect(data.check.summary).toEqual(written.summary);
     expect(data.check.summaryAt).toEqual(written.summaryAt);
-    const row = await tx().checkForUnderstanding.findUniqueOrThrow({
-      where: { id: checkId },
-      select: { summaryModelMetadata: true },
+    const row = await tx().checkSummary.findUniqueOrThrow({
+      where: { checkId_cohortKey: { checkId, cohortKey: "all" } },
+      select: { modelMetadata: true, cohortId: true },
     });
-    expect(row.summaryModelMetadata).toEqual({
+    expect(row.cohortId).toBeNull();
+    expect(row.modelMetadata).toEqual({
       provider: "claude:claude-haiku-4-5:none",
       modelId: "claude-haiku-4-5",
       promptVersion: "test",
@@ -556,7 +581,7 @@ describe("summarizing a check's answers", () => {
     // Recorded once, against the instructor, on this course.
     const events = await tx().auditEvent.findMany({
       where: { action: "CHECK_SUMMARY_GENERATED" },
-      select: { actorId: true, subjectId: true, courseId: true, programId: true },
+      select: { actorId: true, subjectId: true, courseId: true, programId: true, detail: true },
     });
     expect(events).toEqual([
       {
@@ -564,8 +589,60 @@ describe("summarizing a check's answers", () => {
         subjectId: checkId,
         courseId: world.courseId,
         programId: world.programId,
+        detail: { cohort: "all" },
       },
     ]);
+  });
+
+  it("writes a cohort's summary from that cohort's answers alone, beside the whole room's", async () => {
+    const instructor = createCaller(tx(), world.instructorId);
+
+    await instructor.checks.summarize({ checkId, cohort: cohortId });
+
+    // Only the second fellow is in the cohort: one labelled fellow, with one attempt, nobody unanswered.
+    const sent = summarize.mock.calls.at(-1)![0];
+    expect(sent.fellows.map((f) => f.label)).toEqual(["Fellow 1"]);
+    expect(sent.fellows[0]!.attempts).toHaveLength(1);
+    expect(sent.tally.notYetAnswered).toBe(0);
+
+    // The label maps to the cohort's fellow, and the row points at the cohort.
+    const row = await tx().checkSummary.findUniqueOrThrow({
+      where: { checkId_cohortKey: { checkId, cohortKey: cohortId } },
+      select: { cohortId: true, summary: true },
+    });
+    expect(row.cohortId).toBe(cohortId);
+    const stored = row.summary as { failureModes: { fellowIds: string[] }[] };
+    expect(stored.failureModes[0]!.fellowIds).toEqual([world.students[1]!.studentId]);
+
+    // Each selection reads its own; the whole room's is still there, and the unassigned have none.
+    const forCohort = await instructor.checks.attemptsFor({ checkId, cohort: cohortId });
+    const forAll = await instructor.checks.attemptsFor({ checkId });
+    const forUnassigned = await instructor.checks.attemptsFor({ checkId, cohort: "unassigned" });
+    expect(forCohort.check.summary?.failureModes[0]!.fellowIds).toEqual([
+      world.students[1]!.studentId,
+    ]);
+    expect(forAll.check.summary?.failureModes[0]!.fellowIds).toHaveLength(2);
+    expect(forUnassigned.check.summary).toBeNull();
+    // The rows are everybody's whichever selection asked.
+    expect(forCohort.rows).toHaveLength(3);
+
+    // The unassigned: the first fellow alone, since the other two are each in a cohort.
+    await instructor.checks.summarize({ checkId, cohort: "unassigned" });
+    const unassignedSent = summarize.mock.calls.at(-1)![0];
+    expect(unassignedSent.fellows).toHaveLength(1);
+    expect(unassignedSent.tally.notYetAnswered).toBe(0);
+    expect(await tx().checkSummary.count({ where: { checkId } })).toBe(3);
+  });
+
+  it("removes a cohort's summary with the cohort", async () => {
+    await tx().enrollment.updateMany({
+      where: { programId: world.programId, cohortId },
+      data: { cohortId: null },
+    });
+    await tx().cohort.delete({ where: { id: cohortId } });
+
+    expect(await tx().checkSummary.count({ where: { checkId, cohortKey: cohortId } })).toBe(0);
+    expect(await tx().checkSummary.count({ where: { checkId } })).toBe(2);
   });
 
   it("keeps the summary from a fellow, and from another program's instructor", async () => {

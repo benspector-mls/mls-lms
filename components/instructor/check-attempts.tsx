@@ -86,7 +86,7 @@ type Attempt = Row["attempts"][number];
  * including the ones who have not answered — "who has not answered yet" is the question the list
  * exists to answer as much as "who is blocked". The cohort picker narrows the counts and the
  * table in the browser, as the roster does, and the line above the counts says what they were
- * narrowed to; the summary beneath the counts reads every fellow whichever cohort is shown.
+ * narrowed to; the summary beneath the counts is the one written for that selection.
  *
  * An instructor may set a level over the review's on any attempt, run the review again on one, and
  * ask for a summary of what every answer has in common. None of these is a grade: a check has no
@@ -210,9 +210,11 @@ export function CheckAttempts({
 
       <CheckSummary
         checkId={check.id}
+        choice={choice}
         summary={check.summary}
         summaryAt={check.summaryAt}
         rows={data.rows}
+        shown={shown}
         now={now}
       />
 

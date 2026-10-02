@@ -15,6 +15,12 @@ import {
 } from "@/lib/checks/summary";
 import { understandingTally } from "@/lib/checks/table";
 import { assertActiveStudent, assertCourseMember, enrollmentsIn } from "@/lib/courses/membership";
+import {
+  type CohortSelection,
+  cohortSelectionInput,
+  cohortSelectionValue,
+  parseCohortSelection,
+} from "@/lib/programs/cohorts";
 import { teachableCheck, teachableCheckAttempt } from "@/lib/courses/scope";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { Tx } from "@/lib/prisma";
@@ -148,15 +154,22 @@ async function applyReview(
  * Every active fellow in the program, each with their attempts at one check — including the
  * fellows who have not answered, whose histories are empty.
  *
- * The roster is the program's, because a course has none of its own. Every active fellow is
- * returned, with their cohort: the page narrows to the picker's cohort in the browser, as the
- * roster and the gradebook do, because it already holds every row and the summary beneath the
- * table needs every fellow's name whichever cohort is shown. Test students are listed, badged on
- * the page, so a test course reads as a page of its own answers.
+ * The roster is the program's, because a course has none of its own. Each fellow comes with their
+ * cohort. `attemptsFor` asks for everybody and the page narrows to the picker's cohort in the
+ * browser, as the roster does, because the page already holds every row and the summary needs
+ * every fellow's name to render whoever is cited; `summarize` narrows here, with the same
+ * `enrollmentsIn` fragment the other screens use, because what it sends to the model is the
+ * selection. Test students are listed, badged on the page, so a test course reads as a page of its
+ * own answers.
  */
-async function roomAttempts(db: Tx, checkId: string, programId: string) {
+async function roomAttempts(
+  db: Tx,
+  checkId: string,
+  programId: string,
+  selection: CohortSelection = { kind: "all" },
+) {
   const enrollments = await db.enrollment.findMany({
-    where: { ...enrollmentsIn(programId), status: "ACTIVE" },
+    where: { ...enrollmentsIn(programId, selection), status: "ACTIVE" },
     select: { cohortId: true, student: { select: personSelect } },
   });
 
@@ -389,11 +402,15 @@ export const checksRouter = createTRPCRouter({
   }),
 
   /**
-   * One check, every active fellow's attempts at it, and the latest summary of those answers if
-   * an instructor has asked for one.
+   * One check, every active fellow's attempts at it, and the summary written for the selected
+   * cohort, if an instructor has asked for one.
+   *
+   * The rows are everybody's whatever the selection — see `roomAttempts` — and only the summary
+   * is chosen by it, because a summary is of one selection's answers and each selection has its
+   * own.
    */
   attemptsFor: instructorProcedure
-    .input(z.object({ checkId: z.string().uuid() }))
+    .input(z.object({ checkId: z.string().uuid(), cohort: cohortSelectionInput }))
     .query(async ({ ctx, input }) => {
       const check = await teachableCheck(ctx, input.checkId, {
         id: true,
@@ -402,8 +419,10 @@ export const checksRouter = createTRPCRouter({
         factsExample: true,
         exemplar: true,
         retryWaitHours: true,
-        summary: true,
-        summaryAt: true,
+        summaries: {
+          where: { cohortKey: cohortSelectionValue(parseCohortSelection(input.cohort)) },
+          select: { summary: true, writtenAt: true },
+        },
         resource: {
           select: {
             title: true,
@@ -424,15 +443,21 @@ export const checksRouter = createTRPCRouter({
           factsExample: check.factsExample,
           exemplar: check.exemplar,
           retryWaitHours: check.retryWaitHours,
-          summary: readStoredSummary(check.summary),
-          summaryAt: check.summaryAt,
+          summary: readStoredSummary(check.summaries[0]?.summary),
+          summaryAt: check.summaries[0]?.writtenAt ?? null,
         },
         rows,
       };
     }),
 
   /**
-   * Reads every answer to a check and writes what they have in common, for the instructor.
+   * Reads every answer to a check by the selected cohort and writes what they have in common, for
+   * the instructor.
+   *
+   * **One summary per check and selection.** Co-teachers each summarize their own cohort, so a
+   * cohort's summary is written beside the whole room's rather than over it. A selection that
+   * holds nobody who has answered — including a cohort of another program, which matches no
+   * enrollment on this roster — is refused before anything is recorded.
    *
    * **Recorded and rate limited before the call**, as `gradingDrafts.generate` is: this is the
    * third operation that spends money per press, and a failed call still counts, because the
@@ -449,8 +474,10 @@ export const checksRouter = createTRPCRouter({
    * is left where it was.
    */
   summarize: instructorProcedure
-    .input(z.object({ checkId: z.string().uuid() }))
+    .input(z.object({ checkId: z.string().uuid(), cohort: cohortSelectionInput }))
     .mutation(async ({ ctx, input }) => {
+      const selection = parseCohortSelection(input.cohort);
+      const cohortKey = cohortSelectionValue(selection);
       const check = await teachableCheck(ctx, input.checkId, {
         id: true,
         ...reviewableCheckSelect,
@@ -463,12 +490,15 @@ export const checksRouter = createTRPCRouter({
       });
       const programId = check.resource.courseUnit.course.programId;
 
-      const rows = await roomAttempts(ctx.db, check.id, programId);
+      const rows = await roomAttempts(ctx.db, check.id, programId, selection);
       const answered = rows.filter((row) => row.attempts.length > 0);
       if (answered.length === 0) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "Nobody has answered this check yet.",
+          message:
+            selection.kind === "all"
+              ? "Nobody has answered this check yet."
+              : "Nobody in this cohort has answered this check yet.",
         });
       }
 
@@ -485,6 +515,7 @@ export const checksRouter = createTRPCRouter({
         subject: { id: check.id, label: check.resource.title },
         program: { id: programId },
         course: { id: check.resource.courseUnit.courseId },
+        detail: { cohort: cohortKey },
       });
 
       const byLabel = new Map<string, string>();
@@ -521,20 +552,25 @@ export const checksRouter = createTRPCRouter({
 
       const summary = storeSummary(result.summary, byLabel);
       const summaryAt = new Date();
-      await ctx.db.checkForUnderstanding.update({
-        where: { id: check.id },
-        data: {
+      // The shape the other two `model_metadata` columns use, so `npm run cost` prices it.
+      const modelMetadata = {
+        provider: result.provider,
+        modelId: result.modelId,
+        promptVersion: result.promptVersion,
+        usage: result.usage,
+        sectionsGraded: ["check_summary"],
+      };
+      await ctx.db.checkSummary.upsert({
+        where: { checkId_cohortKey: { checkId: check.id, cohortKey } },
+        create: {
+          checkId: check.id,
+          cohortKey,
+          cohortId: selection.kind === "cohort" ? selection.cohortId : null,
           summary,
-          summaryAt,
-          // The shape the other two `model_metadata` columns use, so `npm run cost` prices it.
-          summaryModelMetadata: {
-            provider: result.provider,
-            modelId: result.modelId,
-            promptVersion: result.promptVersion,
-            usage: result.usage,
-            sectionsGraded: ["check_summary"],
-          },
+          writtenAt: summaryAt,
+          modelMetadata,
         },
+        update: { summary, writtenAt: summaryAt, modelMetadata },
         select: { id: true },
       });
 
