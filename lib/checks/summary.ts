@@ -30,18 +30,17 @@ import type { UnderstandingTally } from "./table";
  */
 
 /**
- * Haiku, the tier the review runs on. A room of twenty-five fellows making three attempts each is
- * at most about thirty thousand input tokens, a few cents a call. Whether its reading is good
- * enough is judged on real answers; `CHECK_SUMMARY_MODEL` moves it to Sonnet 5 without a code
- * change if it is not.
+ * Sonnet 5, the tier the review and grading run on. A room of twenty-five fellows making three
+ * attempts each is at most about thirty thousand input tokens, well under a dime a call.
+ * `CHECK_SUMMARY_MODEL` tries another tier without a code change.
  */
-const DEFAULT_MODEL = "claude-haiku-4-5";
+const DEFAULT_MODEL = "claude-sonnet-5";
 
 /**
  * Generous. Three short lists and up to five failure modes need a few thousand tokens at most, but
- * Sonnet 5, if `CHECK_SUMMARY_MODEL` names it, thinks before it answers and the thinking counts
- * against this limit. A response cut off by it fails to parse and is reported as an error rather
- * than stored.
+ * Sonnet 5 thinks before it answers when nothing says otherwise and the thinking counts against
+ * this limit. A response cut off by it fails to parse and is reported as an error rather than
+ * stored.
  */
 const MAX_TOKENS = 16_000;
 
@@ -258,8 +257,8 @@ export async function summarizeCheck(input: CheckSummaryInput): Promise<CheckSum
 
   try {
     /*
-      No `thinking` and no `effort`: Haiku 4.5 rejects the adaptive form and refuses `effort`.
-      Sonnet 5, if CHECK_SUMMARY_MODEL names it, thinks adaptively when neither is given.
+      No `thinking` and no `effort`: Sonnet 5 thinks adaptively when neither is given, and Haiku
+      4.5, which CHECK_SUMMARY_MODEL may name, rejects the adaptive form and refuses `effort`.
     */
     const response = await client.messages.parse({
       model,

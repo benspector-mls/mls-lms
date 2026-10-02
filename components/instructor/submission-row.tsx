@@ -29,6 +29,7 @@ export function SubmissionRow({
   dueAt,
   primary,
   primaryHref,
+  primaryDetail,
   secondary,
   active,
   onSelect,
@@ -57,6 +58,11 @@ export function SubmissionRow({
    * down the page can turn at any row and read that assignment across the cohort instead.
    */
   primaryHref?: string;
+  /**
+   * Beside the label, muted, and outside its link — who is on a team, on a team's row in the
+   * queue. Last on the line, so a long team name cuts this off rather than the name itself.
+   */
+  primaryDetail?: string;
   /**
    * Under it. The queue shows when the submission last moved; a student's overview shows the
    * module, because forty rows all saying "3 days ago" order nothing.
@@ -112,6 +118,9 @@ export function SubmissionRow({
                 </Link>
               ) : (
                 primary
+              )}
+              {primaryDetail && (
+                <span className="font-normal text-muted-foreground"> · {primaryDetail}</span>
               )}
             </span>
             <span className="truncate text-xs text-muted-foreground">

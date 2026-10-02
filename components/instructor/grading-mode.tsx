@@ -122,6 +122,7 @@ export function GradingModeBar({
   currentId,
   currentLabel,
   currentHref,
+  currentDetail,
   listLabel,
   badges,
   onSelect,
@@ -144,6 +145,8 @@ export function GradingModeBar({
    * nowhere, because a team has no screen of its own, and that caller passes nothing.
    */
   currentHref?: string;
+  /** Beside the name, muted, as the row in the list draws it — who is on a team. */
+  currentDetail?: string;
   /** What the list is currently showing, in the words its own tab uses. */
   listLabel: string;
   /**
@@ -219,20 +222,23 @@ export function GradingModeBar({
         <div aria-hidden="true" className="flex-1 md:order-2" />
 
         <div className="flex min-w-0 items-center gap-2 md:order-4">
-          {currentLabel &&
-            (currentHref ? (
-              <Link
-                href={currentHref}
-                className="truncate text-sm font-medium hover:underline"
-                title={currentLabel}
-              >
-                {currentLabel}
-              </Link>
-            ) : (
-              <span className="truncate text-sm font-medium" title={currentLabel}>
-                {currentLabel}
-              </span>
-            ))}
+          {currentLabel && (
+            <span
+              className="truncate text-sm font-medium"
+              title={currentDetail ? `${currentLabel} · ${currentDetail}` : currentLabel}
+            >
+              {currentHref ? (
+                <Link href={currentHref} className="hover:underline">
+                  {currentLabel}
+                </Link>
+              ) : (
+                currentLabel
+              )}
+              {currentDetail && (
+                <span className="font-normal text-muted-foreground"> · {currentDetail}</span>
+              )}
+            </span>
+          )}
         </div>
 
         {/* Worded where there is room, arrows alone where there is not. */}

@@ -61,8 +61,8 @@ const RELATIONAL: CheckReview = {
   level: "RELATIONAL",
   explanation: "You connected the facts. That is what the question asked for.",
   usage: { promptTokens: 800, completionTokens: 90, cachedPromptTokens: 400, cacheWriteTokens: 0 },
-  modelId: "claude-haiku-4-5",
-  provider: "claude:claude-haiku-4-5:none",
+  modelId: "claude-sonnet-5",
+  provider: "claude:claude-sonnet-5:none",
   promptVersion: "test",
 };
 
@@ -88,8 +88,8 @@ const SUMMARY: CheckSummaryResult = {
     cachedPromptTokens: 0,
     cacheWriteTokens: 900,
   },
-  modelId: "claude-haiku-4-5",
-  provider: "claude:claude-haiku-4-5:none",
+  modelId: "claude-sonnet-5",
+  provider: "claude:claude-sonnet-5:none",
   promptVersion: "test",
 };
 
@@ -143,7 +143,7 @@ describe("a fellow answering a check", () => {
     });
 
     expect(row.modelMetadata).toMatchObject({
-      provider: "claude:claude-haiku-4-5:none",
+      provider: "claude:claude-sonnet-5:none",
       usage: RELATIONAL.usage,
     });
   });
@@ -571,8 +571,8 @@ describe("summarizing a check's answers", () => {
     });
     expect(row.cohortId).toBeNull();
     expect(row.modelMetadata).toEqual({
-      provider: "claude:claude-haiku-4-5:none",
-      modelId: "claude-haiku-4-5",
+      provider: "claude:claude-sonnet-5:none",
+      modelId: "claude-sonnet-5",
       promptVersion: "test",
       usage: SUMMARY.usage,
       sectionsGraded: ["check_summary"],

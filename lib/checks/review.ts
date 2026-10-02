@@ -31,17 +31,20 @@ import {
  */
 
 /**
- * Haiku, because the judgment is small and the call runs while a fellow watches a spinner. Whether
- * it agrees with an instructor as often as a larger tier would is what `npm run calibrate:checks`
- * measures; `CHECK_REVIEW_MODEL` is how another tier is tried without a code change.
+ * Sonnet 5, the tier grading uses, because the level is something a fellow acts on and the call
+ * still returns in a few seconds while they watch the spinner. Whether a cheaper tier agrees with
+ * an instructor as often is what `npm run calibrate:checks` measures; `CHECK_REVIEW_MODEL` is how
+ * one is tried without a code change.
  */
-const DEFAULT_MODEL = "claude-haiku-4-5";
+const DEFAULT_MODEL = "claude-sonnet-5";
 
 /**
- * Two sentences and a level need very little room. Generous against that, because a response cut
- * off by the limit fails to parse and records a review error rather than a level.
+ * Two sentences and a level need very little room, but Sonnet 5 thinks before it answers when
+ * nothing says otherwise and the thinking counts against this limit. Generous against that,
+ * because a response cut off by the limit fails to parse and records a review error rather than a
+ * level.
  */
-const MAX_TOKENS = 1024;
+const MAX_TOKENS = 4_096;
 
 /** Recorded on every attempt, so a change of prompt is visible when reading old reviews. */
 export const PROMPT_VERSION = "2026-09-28.2";
@@ -154,9 +157,9 @@ export async function reviewCheckAnswer(input: CheckReviewInput): Promise<CheckR
 
   try {
     /*
-      No `thinking` and no `effort`: Haiku 4.5 takes neither in that form, and `effort` is refused
-      on it. Both are optional on the larger tiers, so the same request still works when
-      CHECK_REVIEW_MODEL names one of them.
+      No `thinking` and no `effort`: Sonnet 5 thinks adaptively when neither is given, and Haiku
+      4.5, which CHECK_REVIEW_MODEL may name to try the cheaper tier, rejects the adaptive form and
+      refuses `effort`. The one request shape serves both.
     */
     const response = await client.messages.parse({
       model,
