@@ -42,6 +42,29 @@ type Row = Data["submissions"][number];
 
 type Filter = "needs_review" | "graded" | "all";
 
+/**
+ * What a row is called everywhere this screen names it — the list, the grading mode bar, and the
+ * batch's failure list. A team's work is the team's, so its row is the team's name; heading it with
+ * whichever member claimed it would name somebody the work is not about.
+ */
+function rowLabel(row: Row): string {
+  return row.team ? row.team.name : displayNameOf(row.student, "Unknown student");
+}
+
+/**
+ * Who is on a team, by first name, for the muted text beside the team's name.
+ *
+ * First names because the list is 360px wide and shares the line with the score, and three full
+ * names do not fit in it. Full names for everybody when two members share a first name, because
+ * "Ana, Ana, Ben" cannot be told apart. The full names, each linked to its fellow's record, are on
+ * the review pane's team line either way.
+ */
+function teamMembers(team: NonNullable<Row["team"]>): string {
+  const names = team.members.map((member) => displayNameOf(member, "Unknown"));
+  const firstNames = names.map((name) => name.trim().split(/\s+/)[0] || name);
+  return (new Set(firstNames).size === firstNames.length ? firstNames : names).join(", ");
+}
+
 export function GradingQueue({
   data,
   cohorts,
@@ -379,7 +402,7 @@ export function GradingQueue({
               <BatchGenerate
                 candidates={filtered.map((row) => ({
                   submissionId: row.id,
-                  label: displayNameOf(row.student, "Unknown student"),
+                  label: rowLabel(row),
                   bucket: row.bucket,
                 }))}
                 // One assignment, one rubric, one set of answer keys — so every subject shares a
@@ -425,14 +448,13 @@ export function GradingQueue({
                     dueAt={data.assignment.dueAt}
                     /*
                       A team's row is headed by the team, because that is what the pile is a pile
-                      of: one piece of work per team, not one per member. Who is on it is left to
-                      the review header, so the line under the name goes on saying when the work
-                      last moved — which is what this list is ordered by and what an instructor
-                      reads it for.
+                      of: one piece of work per team, not one per member. Its members follow on
+                      the same line, so an instructor can tell which team is which without opening
+                      it, and the line under the name goes on saying when the work last moved —
+                      which is what this list is ordered by.
                     */
-                    primary={
-                      row.team ? row.team.name : displayNameOf(row.student, "Unknown student")
-                    }
+                    primary={rowLabel(row)}
+                    primaryDetail={row.team ? teamMembers(row.team) : undefined}
                     /*
                       The name leads to the fellow's record in this course, which answers the
                       question a name in a queue prompts: what else has this person handed in,
@@ -508,25 +530,17 @@ export function GradingQueue({
           */}
           <GradingModeBar
             className={grading.on ? undefined : "lg:hidden"}
-            /*
-                Named the way the row beside it was named: a team's work is the team's, and
-                heading it with whichever member claimed it would name somebody the work is not
-                about.
-              */
-            submissions={filtered.map((row) => ({
-              id: row.id,
-              label: row.team ? row.team.name : displayNameOf(row.student, "Unknown student"),
-            }))}
+            // Named the way the row beside it was named, members included.
+            submissions={filtered.map((row) => ({ id: row.id, label: rowLabel(row) }))}
             currentId={selected?.id ?? null}
             currentLabel={
               selected
-                ? selected.team
-                  ? selected.team.name
-                  : displayNameOf(selected.student, "Unknown student")
+                ? rowLabel(selected)
                 : selectedFellow
                   ? displayNameOf(selectedFellow, "Unknown student")
                   : null
             }
+            currentDetail={selected?.team ? teamMembers(selected.team) : undefined}
             /*
                 The same record the rows in the list link to, which is why it is here at all: in
                 this mode the list is put away, so the bar carries the only name on the screen and
