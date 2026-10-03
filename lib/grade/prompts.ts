@@ -164,6 +164,12 @@ one entry with \`criterion: "writing_quality"\`, and give each question its own 
 with \`criterion: "technical"\`. Do not add a per-question writing score — that
 inflates the denominator.
 
+**Do not write the total score into the report.** No score heading, and no "Technical
+score" or "Writing score" line. The LMS shows the recorded score beside the report, so a
+number repeated in the text is a second place an instructor has to edit whenever they
+change the score. The per-question \`X/3\` lines and the Writing Quality \`X/3\` line
+stay — they are the breakdown, and the sample shows where they go.
+
 Markdown that does not render (a wrong code fence language, escaped characters) is a
 **writing** deduction, never a technical one. If the underlying content is correct,
 the technical score stands — deduct from writing and raise \`MARKDOWN\`.
@@ -257,10 +263,10 @@ export function buildSystemPrompt(params: {
     "Put the rendered report in the `reportMarkdown` field, following this sample",
     "exactly.",
     "",
-    "**Copy its two headings verbatim**, changing only the numbers — including the",
-    "report title. Do not substitute the assignment's name into the title or shorten",
-    "the score line. An instructor reads many of these side by side, and a report whose",
-    "headings differ from the others is harder to scan.",
+    "**Copy its headings verbatim**, changing only the numbers — including the report",
+    "title. Do not substitute the assignment's name into the title, and do not add a",
+    "heading or a score line the sample does not have. An instructor reads many of these",
+    "side by side, and a report whose headings differ from the others is harder to scan.",
     "",
     "Match its ordering and its level of detail too: one line per graded item, with",
     "notes nested beneath the specific item they concern rather than collected at the",

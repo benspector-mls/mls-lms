@@ -11,7 +11,9 @@
 /**
  * The score a report's own text claims, or null if it states none.
  *
- * Matches the score line the report templates put under the heading. An instructor can
+ * Matches the score line the coding report templates put under the heading. The short
+ * response template states no total — the LMS shows the score beside the report — so for
+ * that section there is nothing to compare and the check passes. An instructor can
  * change the prose and the recorded number independently, and editing "28/30" into the
  * text while the column still says 30 would hand the student one figure and the
  * gradebook another.

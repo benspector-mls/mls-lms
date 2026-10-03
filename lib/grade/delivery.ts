@@ -182,8 +182,8 @@ export function blankSectionRefusal(
  * Joins each section's report into the single document posted to the pull request.
  *
  * Sections are separated by a rule rather than merged, because they are graded against different
- * rubrics and each already carries its own heading and score line. Rewriting them into one
- * narrative would mean editing text an instructor has already approved.
+ * rubrics and each already carries its own heading. Rewriting them into one narrative would mean
+ * editing text an instructor has already approved.
  */
 export function buildFeedbackMarkdown(
   sections: { sectionType: string; reportMarkdown: string | null }[],

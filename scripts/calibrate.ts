@@ -102,10 +102,29 @@ function parseExpected(markdown: string): ExpectedScores {
     });
   }
 
+  // A short response report states no total — the LMS shows the score beside the report —
+  // so the instructor's totals are rebuilt from the breakdown: the per-question lines are the
+  // technical score, the Writing Quality line is the writing score, and the two together are
+  // the total the pipeline must reproduce.
+  const technical =
+    questions.length > 0
+      ? {
+          earned: questions.reduce((sum, q) => sum + q.earned, 0),
+          possible: questions.reduce((sum, q) => sum + q.possible, 0),
+        }
+      : null;
+  const writing = pair(
+    /\*\*Writing Quality Score \(Entire Assignment\):\*\*\s*([\d.]+)\s*\/\s*(\d+)/i,
+  );
+  const total =
+    technical && writing
+      ? { earned: technical.earned + writing.earned, possible: technical.possible + writing.possible }
+      : null;
+
   return {
-    total: pair(/Score:\s*([\d.]+)\s*\/\s*(\d+)/),
-    technical: pair(/Technical score:\s*([\d.]+)\s*\/\s*(\d+)/i),
-    writing: pair(/Writing score:\s*([\d.]+)\s*\/\s*(\d+)/i),
+    total,
+    technical,
+    writing,
     questions,
     mechanicalErrorsFlag: /FLAG:\s*MECHANICAL\s+ERRORS/i.test(markdown) ? true : null,
   };
