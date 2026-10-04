@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import { formatDateTime } from "@/lib/status";
@@ -362,17 +362,18 @@ function UpdateEditor({
           <Markdown content={body} />
         </div>
       ) : (
-        <Textarea
+        <MarkdownEditor
           autoFocus
           value={body}
-          onChange={(event) => setBody(event.target.value)}
+          onChange={setBody}
+          ariaLabel="Update"
           rows={4}
           maxLength={20_000}
           placeholder="How is it going? What did you try, and what happened?"
         />
       )}
       <p className="text-xs text-muted-foreground">
-        Markdown. To include a link, write it as <code>[what it is](https://…)</code>.
+        To include a link, write it as <code>[what it is](https://…)</code>.
       </p>
 
       {/* Files already attached, each with its own remove — the words above are saved separately. */}

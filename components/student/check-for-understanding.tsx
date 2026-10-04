@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { panelSurface } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import { describeRetryWait, latestAttempt, MAX_ATTEMPTS, nextAttempt } from "@/lib/checks/attempts";
 import { effectiveLevel } from "@/lib/checks/levels";
@@ -246,15 +246,16 @@ function AnswerForm({
       <label className="text-sm font-medium" htmlFor={fieldId}>
         {attemptNumber === 1 ? "Your answer" : `Attempt ${attemptNumber} of ${MAX_ATTEMPTS}`}
       </label>
-      <Textarea
+      <MarkdownEditor
         id={fieldId}
+        ariaLabel="Your answer"
         rows={5}
         value={answer}
         maxLength={5_000}
         disabled={pending}
-        onChange={(event) => setAnswer(event.target.value)}
+        onChange={setAnswer}
       />
-      <p className="text-xs text-muted-foreground">Markdown works here, including code blocks.</p>
+      <p className="text-xs text-muted-foreground">Code blocks work here too.</p>
 
       <label className="flex cursor-pointer items-center gap-2 text-sm">
         <Checkbox

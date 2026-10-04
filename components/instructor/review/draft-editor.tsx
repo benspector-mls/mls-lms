@@ -219,6 +219,7 @@ export function DraftEditor({
   /** Whether anything was typed this visit, so leaving an untouched pane refetches nothing. */
   const dirtiedRef = React.useRef(false);
   const barRef = React.useRef<HTMLDivElement>(null);
+  const confirmRef = React.useRef<HTMLButtonElement>(null);
 
   /*
     Which round this editor's local state belongs to, adjusted during render so a new round never
@@ -579,6 +580,30 @@ export function DraftEditor({
     };
   }, [armed]);
 
+  /*
+    Focus goes to the confirm button whenever the bar arms, so the second press can be Enter. Armed
+    from the keyboard, focus is otherwise still in the feedback box, where Enter types a new line;
+    armed with the mouse, the button that was pressed is gone, and focus with it.
+  */
+  React.useEffect(() => {
+    if (armed) confirmRef.current?.focus();
+  }, [armed]);
+
+  /**
+   * Ctrl+Enter, or Cmd+Enter on a Mac, from anywhere in the form arms the release — the first of
+   * its two presses, so nothing is sent until Enter confirms it. Refused exactly when the button
+   * is disabled, so the keyboard cannot release what the button would not.
+   */
+  function armFromKeyboard(event: React.KeyboardEvent) {
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+    /*
+      Always, even when release is refused. Otherwise the feedback box takes the keystroke as a new
+      line, and the editor's own binding for it inserts a blank one.
+    */
+    event.preventDefault();
+    if (canApprove) setArmed(true);
+  }
+
   /**
    * What the release hands to the hook: everything on the screen saved, then the round's id.
    *
@@ -672,7 +697,7 @@ export function DraftEditor({
         </Alert>
       )}
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4" onKeyDown={armFromKeyboard}>
         {rows.map((row) => (
           <SectionEditor
             key={row.key}
@@ -797,13 +822,30 @@ export function DraftEditor({
               >
                 <X />
               </Button>
-              <Button variant="destructive" onClick={releaseNow}>
+              <Button
+                ref={confirmRef}
+                variant="destructive"
+                onClick={releaseNow}
+                /*
+                  A held Enter repeats, and focus arrives here while the Enter of Ctrl+Enter may
+                  still be down — so a repeat would release with no second press at all. Only a
+                  fresh press counts.
+                */
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && event.repeat) event.preventDefault();
+                }}
+              >
                 <CheckCircle2 data-icon="inline-start" />
                 Confirm: Feedback will be sent to the student
               </Button>
             </>
           ) : (
-            <Button disabled={!canApprove} onClick={() => setArmed(true)}>
+            <Button
+              disabled={!canApprove}
+              onClick={() => setArmed(true)}
+              // The shortcut, where somebody who hovers the button will find it.
+              title="Ctrl+Enter, or ⌘+Enter on a Mac"
+            >
               {releasing ? (
                 <Loader2 data-icon="inline-start" className="animate-spin" />
               ) : (

@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
 import { studentRepoName } from "@/lib/courses/course-slug";
 import { Markdown } from "@/components/markdown";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -1284,7 +1285,7 @@ function Editor({
                     {previewingInstructions ? "Edit" : "Preview"}
                   </Button>
                 }
-                hint="Optional, in markdown. Instructions for how to set up and hand in this assignment."
+                hint="Optional. Instructions for how to set up and hand in this assignment."
               >
                 {/*
                   A trimmed-empty field falls back to the textarea, so switching kind — which
@@ -1296,13 +1297,11 @@ function Editor({
                     <Markdown content={state.submissionInstructions} />
                   </div>
                 ) : (
-                  <textarea
+                  <MarkdownEditor
                     rows={10}
                     value={state.submissionInstructions}
-                    onChange={(event) =>
-                      setState({ ...state, submissionInstructions: event.target.value })
-                    }
-                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    onChange={(next) => setState({ ...state, submissionInstructions: next })}
+                    ariaLabel="Assignment instructions"
                   />
                 )}
               </Field>

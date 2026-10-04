@@ -16,7 +16,7 @@ import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { sectionLabel } from "@/lib/status";
 import { Section, readRubricItems } from "@/components/instructor/review/shared";
 export function SectionEditor({
@@ -195,9 +195,10 @@ export function SectionEditor({
           </div>
 
           {editing ? (
-            <Textarea
+            <MarkdownEditor
               value={report}
-              onChange={(event) => onReport(event.target.value)}
+              onChange={onReport}
+              ariaLabel={`${sectionLabel(section.sectionType)} feedback`}
               rows={16}
               // Focused on opening, which is what a box asked for by a click wants.
               autoFocus

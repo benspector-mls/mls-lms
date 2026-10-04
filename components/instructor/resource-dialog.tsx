@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import {
   DEFAULT_RETRY_WAIT_HOURS,
   MAX_ATTEMPTS,
@@ -431,7 +431,7 @@ function ResourceForm({
             rows={10}
             maxLength={50_000}
             placeholder={"## Before you start\n\nRun `npm i` first, then…"}
-            hint="Markdown, rendered the same way feedback is."
+            hint="Rendered the same way feedback is."
           />
         )}
 
@@ -535,10 +535,11 @@ function MarkdownField({
           <Markdown content={value} />
         </div>
       ) : (
-        <Textarea
+        <MarkdownEditor
           id={inputId}
+          ariaLabel={label}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
           rows={rows}
           placeholder={placeholder}
           maxLength={maxLength}
@@ -651,7 +652,7 @@ function CheckSection({
             onPreviewChange={onPreviewChange}
             rows={4}
             maxLength={10_000}
-            hint="Markdown, so a question can show code."
+            hint="A question can show code."
           />
 
           <MarkdownField

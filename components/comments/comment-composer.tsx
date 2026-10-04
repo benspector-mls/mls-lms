@@ -6,7 +6,7 @@ import * as React from "react";
 
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { shownInPlace } from "@/hooks/use-server-mutation";
 import { MAX_COMMENT_LENGTH } from "@/lib/submissions/comments";
 import { useTRPC } from "@/trpc/client";
@@ -15,7 +15,7 @@ import { useTRPC } from "@/trpc/client";
 export type ComposerAnchor = { id: string; number: number };
 
 /**
- * Writing one message, in a textarea with an Edit and Preview toggle — the pattern
+ * Writing one message, in a `MarkdownEditor` with an Edit and Preview toggle — the pattern
  * `section-editor.tsx` established for the other place markdown is written here.
  *
  * **The draft is held by the caller**: the fellow's Comments tab is unmounted while another tab
@@ -55,7 +55,7 @@ export function CommentComposer({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [editing, setEditing] = React.useState(true);
-  const fieldRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const fieldRef = React.useRef<{ focus: () => void } | null>(null);
   const fieldId = React.useId();
 
   const post = useMutation(
@@ -122,8 +122,9 @@ export function CommentComposer({
       )}
 
       {editing ? (
-        <Textarea
+        <MarkdownEditor
           id={fieldId}
+          ariaLabel={label}
           ref={fieldRef}
           rows={4}
           autoFocus={autoFocus}
@@ -131,7 +132,7 @@ export function CommentComposer({
           maxLength={MAX_COMMENT_LENGTH}
           placeholder={placeholder}
           className="font-mono text-xs"
-          onChange={(event) => onValueChange(event.target.value)}
+          onChange={onValueChange}
           /*
             Cmd or Ctrl and Enter, never Enter alone: the body is markdown. `requestSubmit` uses the
             same handler as the button, so this cannot drift into a second submit path.
@@ -139,7 +140,7 @@ export function CommentComposer({
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
+              event.currentTarget.closest("form")?.requestSubmit();
             }
           }}
         />

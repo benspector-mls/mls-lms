@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
@@ -33,7 +33,7 @@ type Note = RouterOutputs["coaching"]["forStudent"]["notes"][number];
  * their record, so the caption states the fact rather than promising secrecy.
  *
  * One dialog for adding and editing, keyed on which note it was opened with — the resource-dialog
- * shape, markdown `Textarea` and Eye/Pencil preview toggle included. Deleting lives inside the
+ * shape, `MarkdownEditor` and Eye/Pencil preview toggle included. Deleting lives inside the
  * edit dialog rather than on the row: reaching it means having deliberately opened the note.
  */
 export function InstructorNotes({
@@ -165,9 +165,10 @@ export function InstructorNotes({
                   <Markdown content={body} />
                 </div>
               ) : (
-                <Textarea
+                <MarkdownEditor
                   value={body}
-                  onChange={(event) => setBody(event.target.value)}
+                  onChange={setBody}
+                  ariaLabel="Note"
                   rows={10}
                   maxLength={50_000}
                   className="max-h-[35vh] font-mono text-sm"
