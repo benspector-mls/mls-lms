@@ -304,6 +304,8 @@ Open a fellow from the roster and their record has two tabs under their details.
 - **Grading failed** — the run errored. Try again, or grade it by hand.
 - **Approved, never delivered** — you approved a grade but the comment never reached GitHub. Retry sends it.
 
+Piles with work in them come first; an empty pile drops to the bottom of the screen and shows only its count of 0. Each pile can be folded closed from its heading, and every pile is open again the next time you visit.
+
 Triage is one course at a time, on purpose: what you should do next depends on which course you are teaching this hour. The cohort picker narrows it further, to the fellows you grade.
 
 Because it is the first screen of a course, it is also where a course name takes you. Clicking one in the sidebar from a program's roster, from the program list, or from anywhere else outside a course opens that course's triage. Clicking one while you are already inside a different course keeps the screen you are on instead — from one course's gradebook, another course's name opens *its* gradebook.

@@ -6,7 +6,7 @@ import * as React from "react";
 import {
   Archive,
   ArrowRight,
-  CircleCheck,
+  ChevronRight,
   Clock,
   FileText,
   Inbox,
@@ -21,7 +21,8 @@ import { ResolveQuestionButton } from "@/components/comments/resolve-button";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { TestStudentBadge } from "@/components/test-student-badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { WorkFilter } from "@/components/instructor/work-filter";
@@ -71,12 +72,20 @@ type BucketKey =
 
 /** Every bucket that counts toward "how much is left", in the order they are worked. */
 const WORK_BUCKETS: BucketKey[] = [
-  "needs_report",
   "needs_manual_grade",
+  "needs_report",
   "draft_ready",
   "grading_failed",
   "comment_not_posted",
 ];
+
+/**
+ * The buckets drawn even when they hold nothing, as a card whose count reads 0. The other two are
+ * left out when empty: a course with no hand-graded assignments would otherwise show a permanently
+ * empty pile for a kind of work it never has, and an empty "approved, never delivered" card reads
+ * as a warning on a screen where every other empty card reads as being caught up.
+ */
+const SHOWN_WHEN_EMPTY: BucketKey[] = ["needs_report", "draft_ready", "grading_failed"];
 
 const BUCKET_META: Record<
   BucketKey,
@@ -202,6 +211,16 @@ export function TriageOverview({
   // of the screen and the piles below it are the same claim stated two ways.
   const remaining = WORK_BUCKETS.reduce((total, key) => total + buckets[key].length, 0);
 
+  /*
+    The buckets with work in them first, in the order the work is done, and the empty ones beneath
+    them in the same order. An empty card above a full one is a card the instructor has to scroll
+    past to reach the next thing to do, and its count of 0 already says everything it has to say.
+  */
+  const orderedBuckets = [
+    ...WORK_BUCKETS.filter((key) => buckets[key].length > 0),
+    ...WORK_BUCKETS.filter((key) => buckets[key].length === 0 && SHOWN_WHEN_EMPTY.includes(key)),
+  ];
+
   // Not folded into `remaining`, which is spent in "N submissions left to grade".
   const waiting = questions.length;
 
@@ -303,38 +322,9 @@ export function TriageOverview({
         />
       ) : remaining === 0 ? null : (
         <div className="flex flex-col gap-4">
-          {/*
-            Ordered as the work is done: everything without a report, then everything with
-            one to read, then the two ways a run can end badly. The cards for those last
-            two are usually empty and sit side by side so they take one row rather than
-            two.
-          */}
-          {/*
-            Only when it has something in it. A course with no hand-graded assignments would
-            otherwise show a permanently empty pile for a kind of work it never has.
-            */}
-          {buckets.needs_manual_grade.length > 0 && (
-            <TriageBucket
-              bucketKey="needs_manual_grade"
-              rows={buckets.needs_manual_grade}
-              now={now}
-            />
-          )}
-          <TriageBucket bucketKey="needs_report" rows={buckets.needs_report} now={now} />
-          <TriageBucket bucketKey="draft_ready" rows={buckets.draft_ready} now={now} />
-          <TriageBucket bucketKey="grading_failed" rows={buckets.grading_failed} now={now} />
-          {/*
-            Rendered only when it has something in it. An empty "approved, never
-            delivered" card reads as a warning on a screen where every other empty card
-            reads as being caught up.
-          */}
-          {buckets.comment_not_posted.length > 0 && (
-            <TriageBucket
-              bucketKey="comment_not_posted"
-              rows={buckets.comment_not_posted}
-              now={now}
-            />
-          )}
+          {orderedBuckets.map((key) => (
+            <TriageBucket key={key} bucketKey={key} rows={buckets[key]} now={now} />
+          ))}
         </div>
       )}
 
@@ -390,6 +380,13 @@ function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
 /**
  * The box every pile on this screen is drawn in. It knows nothing about buckets, which is how the
  * questions list uses it without being one.
+ *
+ * **Collapsible, and open on every visit.** An instructor working through drafts can fold away the
+ * piles above it, and folding is not remembered, because a pile left closed from last week is work
+ * the screen would be hiding. An empty pile has nothing to fold, so it is drawn as a header alone.
+ *
+ * The heading is built from spans rather than `CardTitle` and `CardDescription`, which render
+ * `div`s: the trigger is a `button`, and a `div` inside a `button` is invalid markup.
  */
 function TriageSection({
   label,
@@ -408,34 +405,54 @@ function TriageSection({
   count: number;
   children: React.ReactNode;
 }) {
+  const heading = (
+    <>
+      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", accent)}>
+        <Icon className={cn("size-5", tone)} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2 text-base leading-snug font-medium">
+          {label}
+          {/*
+            Submissions, not assignments. This is the figure the whole screen is counted in,
+            and it stays the count of rows even though the rows beneath are now grouped —
+            otherwise a bucket holding twelve submissions across four assignments would read
+            as four pieces of work outstanding.
+          */}
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+            {count}
+          </span>
+        </span>
+        <span className="mt-1 block text-sm text-muted-foreground">{description}</span>
+      </span>
+    </>
+  );
+
+  if (count === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">{heading}</div>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
+    <Collapsible defaultOpen render={<Card />}>
       <CardHeader>
-        <div className="flex items-start gap-3">
-          <div
-            className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", accent)}
-          >
-            <Icon className={cn("size-5", tone)} />
-          </div>
-          <div className="flex-1">
-            <CardTitle className="flex items-center gap-2 text-base">
-              {label}
-              {/*
-                Submissions, not assignments. This is the figure the whole screen is counted in,
-                and it stays the count of rows even though the rows beneath are now grouped —
-                otherwise a bucket holding twelve submissions across four assignments would read
-                as four pieces of work outstanding.
-              */}
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                {count}
-              </span>
-            </CardTitle>
-            <CardDescription className="mt-1">{description}</CardDescription>
-          </div>
-        </div>
+        <CollapsibleTrigger className="group flex w-full cursor-pointer items-start gap-3 text-left">
+          {heading}
+          <ChevronRight
+            aria-hidden="true"
+            className="mt-2.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90"
+          />
+        </CollapsibleTrigger>
       </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
+      <CollapsibleContent>
+        <CardContent>{children}</CardContent>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -542,20 +559,11 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
       accent={meta.accent}
       count={rows.length}
     >
-      <>
-        {groups.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-6 text-sm text-muted-foreground">
-            <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
-            Nothing here.
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {groups.map((group) => (
-              <AssignmentRow key={group.assignmentId} group={group} now={now} />
-            ))}
-          </div>
-        )}
-      </>
+      <div className="flex flex-col gap-1">
+        {groups.map((group) => (
+          <AssignmentRow key={group.assignmentId} group={group} now={now} />
+        ))}
+      </div>
     </TriageSection>
   );
 }
