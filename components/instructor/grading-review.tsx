@@ -139,6 +139,14 @@ export function GradingReview({
     enabled: diffAside,
   });
 
+  /*
+    The width the instructor dragged the grade column to, read from storage rather than held in
+    state. Every caller keys this pane on the submission, so it is built afresh for each student,
+    and a width held in state would return to the default on every one of them.
+  */
+  const gradeColumn = React.useRef<HTMLDivElement>(null);
+  const gradeWidth = useStoredGradeWidth();
+
   if (drafts.isPending) {
     return (
       <div className="flex flex-col gap-4 p-5">
@@ -405,10 +413,15 @@ export function GradingReview({
             **Every pixel past the first thousand or so belongs to the work.** A score box and a
             paragraph of feedback have a size they want and no use for more: below 26rem the
             markdown box is too narrow to write in, and past 34rem the prose runs to a measure
-            nobody reads a paragraph across. So the grade is clamped between those two and the
+            nobody reads a paragraph across. So the grade starts clamped between those two and the
             other column takes the rest. 26rem is also exactly half the room at the width the
             columns appear, so the grade is never squeezed below the work at the point where they
             are both smallest.
+
+            **The instructor can move the line between them**, with `GradeColumnHandle`, because
+            the right split depends on the work: a long diff wants the room, and a long piece of
+            feedback being written wants it back. The drag keeps the 26rem floor and stops the
+            grade at 60% of the row, so neither column can be pushed out of use.
 
             **A row of flex children rather than grid columns, and `order` rather than placement.**
             Stacked, this is a column and the evidence sits last; split, it is a row and the
@@ -436,7 +449,7 @@ export function GradingReview({
             is clipped away, leaving cards with their sides and top missing. The padding is what
             keeps the outline inside the box that clips it.
           */}
-        <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-6">
+        <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-0">
           {/*
               Stacked, the work reads last: an instructor on a narrow pane reads the feedback the
               student will read, then the conversation, then scrolls to what the grade is about.
@@ -450,7 +463,18 @@ export function GradingReview({
             <div className="flex min-w-0 flex-col gap-5">{aside}</div>
           </div>
 
-          <div className="relative min-w-0 @4xl:min-h-0 @4xl:w-[clamp(26rem,40%,34rem)] @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1">
+          <GradeColumnHandle column={gradeColumn} />
+
+          {/*
+            The width is a custom property rather than a class, because a drag rewrites it on every
+            pointer move and does so directly on this element: a React render per move would
+            re-render the editor beneath the pointer sixty times a second.
+          */}
+          <div
+            ref={gradeColumn}
+            style={{ "--grade-w": gradeColumnWidth(gradeWidth) } as React.CSSProperties}
+            className="relative min-w-0 @4xl:min-h-0 @4xl:w-(--grade-w) @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1"
+          >
             <div className="flex min-w-0 flex-col gap-5">
               {/*
                   The team is named at the head of the grade column rather than over the work,
@@ -503,6 +527,171 @@ export function GradingReview({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Where the dragged width of the grade column is kept. One value for every screen drawing this pane. */
+const GRADE_WIDTH_KEY = "grading-review:grade-width";
+
+/** The narrowest the grade column may be dragged: the floor its default width is clamped to. */
+const GRADE_MIN_REM = 26;
+
+/** The largest share of the row the grade column may be dragged to, so the work keeps the rest. */
+const GRADE_MAX_SHARE = 0.6;
+
+/** How far one press of an arrow key moves the line, in pixels. */
+const GRADE_KEY_STEP = 32;
+
+const gradeWidthListeners = new Set<() => void>();
+
+/**
+ * The width for this sitting when storage refuses — a browser set to block site data throws on
+ * touch. Without it the line would jump back to the default the moment a drag ended.
+ */
+let unstoredGradeWidth: string | null = null;
+
+function subscribeGradeWidth(listener: () => void): () => void {
+  gradeWidthListeners.add(listener);
+  // Another tab moving the line moves it here too, which is what one stored value means.
+  window.addEventListener("storage", listener);
+  return () => {
+    gradeWidthListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function readGradeWidth(): string | null {
+  try {
+    return window.localStorage.getItem(GRADE_WIDTH_KEY);
+  } catch {
+    return unstoredGradeWidth;
+  }
+}
+
+/** `null` forgets the width, which returns the column to its default. */
+function writeGradeWidth(px: number | null): void {
+  unstoredGradeWidth = px === null ? null : String(px);
+  try {
+    if (px === null) window.localStorage.removeItem(GRADE_WIDTH_KEY);
+    else window.localStorage.setItem(GRADE_WIDTH_KEY, String(px));
+  } catch {
+    // Nothing to do: `unstoredGradeWidth` holds it for this sitting.
+  }
+  for (const listener of gradeWidthListeners) listener();
+}
+
+/**
+ * The stored width in pixels, or null where none is stored.
+ *
+ * Null on the server and through hydration, because the server cannot read the browser's storage:
+ * the first paint has the default width and the stored one follows. A pane opened after that, which
+ * is every student after the first, reads storage before it paints.
+ */
+function useStoredGradeWidth(): number | null {
+  const stored = React.useSyncExternalStore(subscribeGradeWidth, readGradeWidth, () => null);
+  const px = stored === null ? Number.NaN : Number(stored);
+  return Number.isFinite(px) ? px : null;
+}
+
+/**
+ * The grade column's width as CSS. A dragged width is still clamped, because it was chosen on a
+ * pane of one width and may be drawn on a narrower one: grading mode is wider than the queue, which
+ * is wider than a fellow's record.
+ */
+function gradeColumnWidth(px: number | null): string {
+  return px === null
+    ? `clamp(${GRADE_MIN_REM}rem, 40%, 34rem)`
+    : `clamp(${GRADE_MIN_REM}rem, ${px}px, ${GRADE_MAX_SHARE * 100}%)`;
+}
+
+/**
+ * The line between the work and the grade, which an instructor drags to give one of them more room.
+ *
+ * Hidden while the pane is stacked, where there is no line to move. Arrow keys move it for anyone
+ * not using a pointer, and a double-click returns it to the default.
+ *
+ * **A drag writes the width onto the column directly and stores it when the pointer lifts.** Stored
+ * on every move, each move would re-render the whole pane, editor included; stored only at the end,
+ * the pane renders once, with the value already on the element.
+ */
+function GradeColumnHandle({ column }: { column: React.RefObject<HTMLDivElement | null> }) {
+  const drag = React.useRef<{ startX: number; startWidth: number; width: number | null } | null>(
+    null,
+  );
+  const [dragging, setDragging] = React.useState(false);
+
+  /** The same bounds `gradeColumnWidth` gives CSS, so a stored width is one CSS would draw. */
+  function clampToRow(px: number): number {
+    const row = column.current?.parentElement?.getBoundingClientRect().width ?? 0;
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Math.round(Math.max(GRADE_MIN_REM * rem, Math.min(px, row * GRADE_MAX_SHARE)));
+  }
+
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !column.current) return;
+    // Otherwise the drag also selects the text of both columns as it passes over them.
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = {
+      startX: event.clientX,
+      startWidth: column.current.getBoundingClientRect().width,
+      width: null,
+    };
+    setDragging(true);
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!drag.current || !column.current) return;
+    // The grade is the right-hand column, so moving the line left widens it.
+    const width = clampToRow(drag.current.startWidth - (event.clientX - drag.current.startX));
+    drag.current.width = width;
+    column.current.style.setProperty("--grade-w", `${width}px`);
+  }
+
+  function endDrag() {
+    if (!drag.current) return;
+    // A press that never moved stores nothing, so clicking the line does not fix the default width.
+    if (drag.current.width !== null) writeGradeWidth(drag.current.width);
+    drag.current = null;
+    setDragging(false);
+  }
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const step =
+      event.key === "ArrowLeft" ? GRADE_KEY_STEP : event.key === "ArrowRight" ? -GRADE_KEY_STEP : 0;
+    if (step === 0 || !column.current) return;
+    event.preventDefault();
+    writeGradeWidth(clampToRow(column.current.getBoundingClientRect().width + step));
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the work and grade columns"
+      tabIndex={0}
+      title="Drag to resize. Double-click to reset."
+      data-dragging={dragging || undefined}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
+      onKeyDown={onKeyDown}
+      onDoubleClick={() => writeGradeWidth(null)}
+      className="group relative hidden shrink-0 cursor-col-resize touch-none outline-none @4xl:block @4xl:w-6"
+    >
+      {/* The line itself, drawn only while it is being pointed at, focused, or dragged. */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors group-hover:bg-border group-focus-visible:bg-ring group-data-dragging:bg-ring"
+      />
+      {/* The grip, always drawn, so the line can be found before it is pointed at. */}
+      <span
+        aria-hidden
+        className="absolute top-1/2 left-1/2 h-10 w-1.5 -translate-1/2 rounded-full bg-border transition-colors group-hover:bg-muted-foreground/60 group-focus-visible:bg-ring group-data-dragging:bg-ring"
+      />
     </div>
   );
 }
