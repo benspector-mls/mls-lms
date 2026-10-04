@@ -857,7 +857,15 @@ export const assignmentsRouter = createTRPCRouter({
     const [course, courseUnits, rubrics, siblings, teamSets, activeCount] = await Promise.all([
       ctx.db.course.findUnique({
         where: { id: input.courseId },
-        select: { id: true, name: true, programId: true, program: { select: { term: true } } },
+        // `slug` so the form can show the exact repository name a student will get, built by the
+        // same function `accept` calls rather than described in words that drift from it.
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          programId: true,
+          program: { select: { term: true } },
+        },
       }),
       // The course's own units, which are the only ones an assignment may be filed under.
       // Empty is a real state and the form has to say so rather than offering an empty select:
@@ -929,6 +937,7 @@ export const assignmentsRouter = createTRPCRouter({
       course: {
         id: course.id,
         name: course.name,
+        slug: course.slug,
         term: course.program.term,
         courseUnits,
       },

@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 
 import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
+import { studentRepoName } from "@/lib/courses/course-slug";
 import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -1067,7 +1068,25 @@ function Editor({
                     hint={
                       existing && existing.submissionCount > 0
                         ? `${existing.submissionCount} student(s) have accepted this. Their repositories are named after it, so it cannot be changed.`
-                        : "Each student gets {this}-{their github login}. Follows the template’s name until you change it."
+                        : /*
+                            The exact name, with the one part this screen cannot know left as a
+                            placeholder. Built by `studentRepoName`, the function `accept` calls,
+                            so the hint cannot drift from the repositories it describes. Written
+                            in words before, as "{this}-{their github login}", which left out the
+                            course's short name in front and so described a repository nobody
+                            would find.
+
+                            The team case is spelled out instead, because `teamRepoName` slugifies
+                            its last part and would turn a placeholder into "team-name". The shape
+                            is the student's with the team's short name where the login goes.
+                          */
+                          chosenTeamSet
+                          ? `Each team gets ${context.course.slug}-${state.assignmentRepoName}-{team’s short name}. Follows the template’s name until you change it.`
+                          : `Each student gets ${studentRepoName({
+                              courseSlug: context.course.slug,
+                              assignmentRepoName: state.assignmentRepoName,
+                              githubLogin: "{their github login}",
+                            })}. Follows the template’s name until you change it.`
                     }
                   >
                     <Input
@@ -1135,9 +1154,7 @@ function Editor({
                       lastDueClock.current = clock;
                       setState({
                         ...state,
-                        dueAt: state.dueAt
-                          ? instantAtSchoolClock(dueDay, clock)
-                          : null,
+                        dueAt: state.dueAt ? instantAtSchoolClock(dueDay, clock) : null,
                       });
                     }}
                   />
