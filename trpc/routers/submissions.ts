@@ -6,7 +6,7 @@ import { auditActor, auditEventData } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { inTransaction, type Tx } from "@/lib/prisma";
 import type { ResolvedTeam } from "@/lib/submissions/team";
-import { HandInMethod } from "@/lib/generated/prisma/enums";
+import { HandInMethod, type SubmissionStatus } from "@/lib/generated/prisma/enums";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import {
   teamAwareWork,
@@ -326,6 +326,27 @@ function decorateSubmission<T extends ReviewableSubmission>(
     commentsAwaitReply: awaitsReply(thread.comments, thread.commentsResolvedAt),
   };
 }
+
+/**
+ * The order the grading queue lists statuses in, earliest first; within one status, the earliest
+ * hand-in comes first.
+ *
+ * Written out rather than left to the database, which sorts an enum in the order its values were
+ * declared. That order puts `RESUBMITTED` after `GRADED`, because the status was added later, and
+ * so a revision waiting to be read sat beneath every finished grade, where an instructor scanning
+ * the top of the list for work would not see it. A `Record` over the enum, so a status added later
+ * fails to compile until it is given a place here.
+ */
+const QUEUE_STATUS_ORDER: Record<SubmissionStatus, number> = {
+  NOT_STARTED: 0,
+  ACCEPTED: 1,
+  SUBMITTED: 2,
+  DRAFT_READY: 3,
+  RESUBMITTED: 4,
+  GRADED: 5,
+  GRADING_FAILED: 6,
+  NEEDS_MANUAL_REVIEW: 7,
+};
 
 export const submissionsRouter = createTRPCRouter({
   /**
@@ -1998,11 +2019,15 @@ export const submissionsRouter = createTRPCRouter({
       */
       const manualOnly = isManualOnly(assignment.sections);
 
-      const submissions = await ctx.db.submission.findMany({
-        where: { assignmentId: assignment.id },
-        orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
-        select: reviewableSubmissionSelect,
-      });
+      // Hand-in order from the database, then status order here: `sort` is stable, so each status
+      // keeps its earliest hand-in first.
+      const submissions = (
+        await ctx.db.submission.findMany({
+          where: { assignmentId: assignment.id },
+          orderBy: { submittedAt: "asc" },
+          select: reviewableSubmissionSelect,
+        })
+      ).sort((a, b) => QUEUE_STATUS_ORDER[a.status] - QUEUE_STATUS_ORDER[b.status]);
 
       const undelivered = await ctx.db.gradingDraft.findMany({
         where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
