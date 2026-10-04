@@ -909,6 +909,22 @@ function ModelMetaBar({ draft }: { draft: Draft }) {
       value: typeof meta.answerKeyCommitSha === "string" ? shortSha(meta.answerKeyCommitSha) : "—",
     },
     { label: "Tokens", value: tokens > 0 ? tokens.toLocaleString() : "—" },
+    /*
+      The two cache counts beside the total, because the total hides them. The system prompt
+      is about nine thousand tokens of the total whether it was read from the cache at a tenth
+      of the input price or written to it at one and a quarter times, so one figure cannot say
+      which happened. A run either reads the prefix or writes it, never both: "Cached" above
+      zero means the run shared a warm prefix, "Cache written" above zero means it paid to
+      warm one. Zero is shown rather than a dash, because zero cached is the finding.
+    */
+    {
+      label: "Cached",
+      value: tokens > 0 ? asNumber(usage.cachedPromptTokens).toLocaleString() : "—",
+    },
+    {
+      label: "Cache written",
+      value: tokens > 0 ? asNumber(usage.cacheWriteTokens).toLocaleString() : "—",
+    },
   ];
 
   if (items.every((item) => item.value === "—")) return null;
