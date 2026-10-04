@@ -858,12 +858,25 @@ export function DraftEditor({
       </div>
 
       {/*
-        Absent when there is nothing to generate. Offering "grade again" on a hand-written
-        draft would offer to replace the instructor's own writing with a report the pipeline
-        cannot produce — and their way of starting over is to edit what is in front of them.
+        Absent when there is nothing to generate, and absent on a round a person wrote. On a
+        hand-graded assignment the pipeline cannot produce a report at all. On one it grades, a
+        round with no `modelMetadata` is the instructor's own writing — a report they wrote, or a
+        correction to a released grade — and generating does not discard the round on top: it adds
+        a newer one, which would leave the instructor's writing underneath as a second round still
+        waiting. Their way of starting over is to edit what is in front of them, or to discard it.
       */}
-      {!manualOnly && draft && (
+      {!manualOnly && draft && draft.modelMetadata !== null && (
         <RegenerateRow submissionId={submission.id} unsaved={unsaved || saving} />
+      )}
+
+      {/*
+        The counterpart for a round a person wrote that the student has since pushed past. Here
+        rather than in the warning above the form, because this component is the one that knows
+        whether the latest edit has reached the server — starting again before it has would copy
+        the text from before it.
+      */}
+      {draft && draft.modelMetadata === null && approvalBlocked && (
+        <RestartRow draftId={draft.id} unsaved={unsaved || saving} />
       )}
 
       {/*
@@ -913,6 +926,53 @@ function RegenerateRow({ submissionId, unsaved }: { submissionId: string; unsave
           <RotateCcw data-icon="inline-start" />
         )}
         {generate.isPending ? "Grading again…" : "Grade again"}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Carrying a hand-written round onto the commit the work is at now.
+ *
+ * Approval refuses a round written against an older commit, and the alternative to this was
+ * discarding the round and retyping it. The text and scores move to a new round at the current
+ * commit; the old round is kept, out of sight, as the record of what was first written.
+ */
+function RestartRow({ draftId, unsaved }: { draftId: string; unsaved: boolean }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+  const restart = useMutation(
+    trpc.gradingDrafts.restartFromText.mutationOptions(
+      settled({
+        onSuccess: () => {
+          toast.success("Started again on the newer commit, with what you wrote.");
+        },
+      }),
+    ),
+  );
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-3">
+      <div className="flex min-w-0 flex-col">
+        <span className="text-sm font-medium">Written against older code</span>
+        <span className="text-xs text-muted-foreground">
+          {unsaved
+            ? "Your latest change is still being saved — a moment, then this offers again."
+            : "Starting again carries every score and every word onto the newer commit, so you can check them against the code that is there and release."}
+        </span>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={unsaved || restart.isPending}
+        onClick={() => restart.mutate({ draftId })}
+      >
+        {restart.isPending ? (
+          <Loader2 data-icon="inline-start" className="animate-spin" />
+        ) : (
+          <RotateCcw data-icon="inline-start" />
+        )}
+        {restart.isPending ? "Starting again…" : "Start again from this text"}
       </Button>
     </div>
   );

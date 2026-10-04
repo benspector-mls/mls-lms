@@ -8,7 +8,8 @@
  * that offers to write a report, and the panel for correcting a grade that has already gone out.
  * A hand-graded submission with no round yet is not a state of its own: it takes the same editor
  * branch as a round that exists, with `draft` null, so the round arriving replaces nothing on the
- * screen. The editor itself owns that transition — see `DraftEditor`.
+ * screen. The editor itself owns that transition — see `DraftEditor`. An instructor who chooses to
+ * write the report on an assignment the pipeline grades takes that same branch.
  */
 
 import * as React from "react";
@@ -79,11 +80,23 @@ export function DraftBody({
     back, where leaving this set would open another round on the spot.
   */
   const [correcting, setCorrecting] = React.useState(false);
+
+  /*
+    Whether the instructor chose to write the report on an assignment the pipeline grades, in
+    place of generating one. Set by "Write it yourself" and cleared with `correcting`: the round
+    the instructor opens by typing arrives as a new draft on top and routes to the editor on its
+    own, and a round they later discard should put the offer to generate back.
+  */
+  const [writing, setWriting] = React.useState(false);
   const [heldDraftId, setHeldDraftId] = React.useState<string | null>(draft?.id ?? null);
   if ((draft?.id ?? null) !== heldDraftId) {
     setHeldDraftId(draft?.id ?? null);
     if (correcting) setCorrecting(false);
+    if (writing) setWriting(false);
   }
+
+  // The offer beside "Generate", wherever the assignment declares sections to write into.
+  const offerWriting = data.handSections.length > 0 ? () => setWriting(true) : undefined;
 
   if (!draft) {
     /*
@@ -93,11 +106,19 @@ export function DraftBody({
     if (submission.status === "NOT_STARTED" || submission.status === "ACCEPTED") {
       return null;
     }
-    // One of the two, never both. Which one is decided on the server, from the same reading
-    // of the assignment that put this submission in its triage bucket. A hand-graded
-    // submission falls through to the editor below, with no round to hand it yet.
-    if (!data.manualOnly) {
-      return <GeneratePanel submission={submission} data={data} label="Generate report" />;
+    // Which one is offered is decided on the server, from the same reading of the assignment
+    // that put this submission in its triage bucket. A hand-graded submission, or one whose
+    // instructor chose to write the report, falls through to the editor below, with no round
+    // to hand it yet.
+    if (!data.manualOnly && !writing) {
+      return (
+        <GeneratePanel
+          submission={submission}
+          data={data}
+          label="Generate report"
+          onWrite={offerWriting}
+        />
+      );
     }
     if (data.handSections.length === 0) {
       return <NothingToScore />;
@@ -115,7 +136,7 @@ export function DraftBody({
     );
   }
 
-  if (draft?.status === "FAILED") {
+  if (draft?.status === "FAILED" && !writing) {
     return (
       <div className="flex flex-col gap-4">
         <Alert variant="destructive">
@@ -133,7 +154,13 @@ export function DraftBody({
             )}
           </AlertDescription>
         </Alert>
-        <GeneratePanel submission={submission} data={data} label="Try again" retry />
+        <GeneratePanel
+          submission={submission}
+          data={data}
+          label="Try again"
+          retry
+          onWrite={offerWriting}
+        />
       </div>
     );
   }
@@ -159,7 +186,9 @@ export function DraftBody({
     student was sent, which is also what `reviseReleased` seeds the round with server-side.
   */
   const correction = draft?.status === "APPROVED" ? draft : null;
-  const editorDraft = correction ? null : draft;
+  // A failed run reaches here only when the instructor chose to write the report instead, and it
+  // holds no sections to edit, so the editor starts blank exactly as it does with no round at all.
+  const editorDraft = correction || draft?.status === "FAILED" ? null : draft;
 
   const blueprint: Blueprint[] = correction
     ? correction.sections.map((section) => ({
@@ -177,7 +206,7 @@ export function DraftBody({
 
   const start = correction
     ? () => client.gradingDrafts.reviseReleased.mutate({ submissionId: submission.id })
-    : data.manualOnly
+    : data.manualOnly || writing
       ? () => client.gradingDrafts.startManual.mutate({ submissionId: submission.id })
       : undefined;
 
@@ -206,8 +235,10 @@ export function DraftBody({
             <p>
               The report was written against <code>{shortSha(editorDraft.headSha)}</code>, and the
               pull request is now at <code>{shortSha(data.currentHeadSha)}</code>. Approving is
-              refused while that is true — generate a new report so the grade describes the code
-              that is there.
+              refused while that is true —{" "}
+              {editorDraft.modelMetadata === null
+                ? "start again from this text, at the foot of the form, to carry what you wrote onto the newer commit."
+                : "generate a new report so the grade describes the code that is there."}
             </p>
           </AlertDescription>
         </Alert>
@@ -218,6 +249,12 @@ export function DraftBody({
       )}
 
       {editorDraft && <WithheldFilesNotice draft={editorDraft} />}
+
+      {/*
+        The way back while nothing has been written. Gone once the round exists, because from
+        then on the round is discarded from the editor like any other.
+      */}
+      {writing && editorDraft === null && <GenerateInstead onClick={() => setWriting(false)} />}
 
       {editorDraft === null || editorDraft.sections.length > 0 ? (
         <DraftEditor
@@ -255,7 +292,12 @@ export function DraftBody({
         </StateCard>
       )}
 
-      {stale && (
+      {/*
+        Only beneath a report a model wrote. Generating adds a round on top rather than replacing
+        the one here, so beneath a round a person wrote it would bury their writing as a second
+        round still waiting; starting again from that text is offered in the form instead.
+      */}
+      {stale && editorDraft?.modelMetadata !== null && (
         <GeneratePanel submission={submission} data={data} label="Generate a new report" retry />
       )}
     </div>
@@ -390,16 +432,34 @@ function FindingsNotice({ draft, hasSections }: { draft: Draft; hasSections: boo
   );
 }
 
+/** Returns from a blank report the instructor chose to write to the offer to generate one. */
+function GenerateInstead({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="flex justify-end">
+      <Button variant="ghost" size="sm" onClick={onClick}>
+        <Bot data-icon="inline-start" />
+        Generate a report instead
+      </Button>
+    </div>
+  );
+}
+
 function GeneratePanel({
   submission,
   data,
   label,
   retry = false,
+  onWrite,
 }: {
   submission: QueueSubmission;
   data: DraftList;
   label: string;
   retry?: boolean;
+  /**
+   * Opens a blank report for the instructor to write instead. Absent where writing is not what
+   * comes next — beside a report that already exists, which has to be discarded first.
+   */
+  onWrite?: () => void;
 }) {
   const generate = useGenerateReport();
 
@@ -414,6 +474,7 @@ function GeneratePanel({
           Runs the assignment&apos;s tests if they have not run at this commit, then reads the
           submission against the rubric and drafts per-section feedback. It records no grade and
           posts nothing — you review the result first.
+          {onWrite && " Or write the report yourself, scored out of the same sections."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -437,6 +498,13 @@ function GeneratePanel({
             )}
             {generate.isPending ? "Running tests and grading…" : label}
           </Button>
+
+          {onWrite && !generate.isPending && (
+            <Button variant="outline" onClick={onWrite}>
+              <PencilLine data-icon="inline-start" />
+              Write it yourself
+            </Button>
+          )}
 
           {generate.isPending && (
             <span className="text-sm text-muted-foreground">
@@ -588,6 +656,13 @@ function ReleasedBody({
     (submission.headSha !== null && submission.headSha !== submission.gradedHeadSha);
 
   /*
+    Whether the instructor chose to write the next round on an assignment the pipeline grades —
+    the same choice `DraftBody` holds for a first grade. Needs no clearing: the round it opens
+    arrives as a draft on top, which takes this component off the screen.
+  */
+  const [writing, setWriting] = React.useState(false);
+
+  /*
     The grade, then the way to change it. The offer to open another round comes second because
     deciding to change a grade is something an instructor does having read it — a button above the
     report invites a correction before there is anything to correct.
@@ -607,34 +682,45 @@ function ReleasedBody({
 
         Which round is offered depends on whether there is new work to judge. Revised work needs
         assessing from the work itself — a blank hand-graded round on a hand-graded assignment, a
-        fresh report on one the pipeline can read, which is the same choice `DraftBody` makes for
-        a first grade.
+        fresh report on one the pipeline can read, or a blank round there too when the instructor
+        chooses to write it, which is the same choice `DraftBody` makes for a first grade.
       */}
       {revised &&
-        (data.manualOnly ? (
+        (data.manualOnly || writing ? (
           data.handSections.length === 0 ? (
             <NothingToScore />
           ) : (
-            <DraftEditor
-              submission={submission}
-              completionThreshold={completionThreshold}
-              draft={null}
-              blueprint={data.handSections.map((section) => ({
-                key: section.label,
-                scorePossible: section.pointValue,
-                score: null,
-                report: "",
-              }))}
-              start={() => client.gradingDrafts.startManual.mutate({ submissionId: submission.id })}
-              approvalBlocked={false}
-              manualOnly={data.manualOnly}
-              onApproved={onApproved}
-              release={release}
-              releasing={releasing}
-            />
+            <>
+              {writing && <GenerateInstead onClick={() => setWriting(false)} />}
+              <DraftEditor
+                submission={submission}
+                completionThreshold={completionThreshold}
+                draft={null}
+                blueprint={data.handSections.map((section) => ({
+                  key: section.label,
+                  scorePossible: section.pointValue,
+                  score: null,
+                  report: "",
+                }))}
+                start={() =>
+                  client.gradingDrafts.startManual.mutate({ submissionId: submission.id })
+                }
+                approvalBlocked={false}
+                manualOnly={data.manualOnly}
+                onApproved={onApproved}
+                release={release}
+                releasing={releasing}
+              />
+            </>
           )
         ) : (
-          <GeneratePanel submission={submission} data={data} label="Grade the newer commit" retry />
+          <GeneratePanel
+            submission={submission}
+            data={data}
+            label="Generate report"
+            retry
+            onWrite={data.handSections.length > 0 ? () => setWriting(true) : undefined}
+          />
         ))}
     </div>
   );

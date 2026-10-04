@@ -395,20 +395,30 @@ export function isManualOnly(sections: unknown): boolean {
  * reverse would quietly hide the only way to grade real work.
  */
 /**
- * The hand-graded sections of a stored `sections` column, as the blank draft needs them.
+ * The sections of a stored `sections` column, as a blank draft for an instructor to write into
+ * needs them.
  *
- * Reads the label and the point value and nothing else, because that is all a manual section
- * has: no rubric, no answer keys, no type. A row missing either is skipped rather than
- * defaulted — a section scored out of an invented total is the failure the whole
- * "`pointValue` is required and never defaulted" rule exists to prevent, and skipping it is
- * visible where a zero would not be.
+ * Every section, whichever way the assignment is graded. A hand-graded assignment has no other
+ * way to be graded, and an instructor may also set aside the pipeline on an assignment it grades
+ * and write the report themselves — the draft is the same blank form either way.
+ *
+ * `label` is the value the draft section's `sectionType` takes: a manual section's own label, and
+ * an AI section's `type`, which `sectionLabel` turns into words. That is the key `inDeclaredOrder`
+ * matches on, so a hand-written round on an AI assignment sorts and reads exactly as a generated
+ * one does. The field keeps the name `label` because the review screen already reads it under
+ * that name.
+ *
+ * Reads the key and the point value and nothing else, because a blank section needs nothing
+ * else: no rubric, no answer keys. A row missing either is skipped rather than defaulted — a
+ * section scored out of an invented total is the failure the whole "`pointValue` is required and
+ * never defaulted" rule exists to prevent, and skipping it is visible where a zero would not be.
  */
-export function manualSections(sections: unknown): { label: string; pointValue: number }[] {
+export function blankSections(sections: unknown): { label: string; pointValue: number }[] {
   return readSections(sections).flatMap((entry) => {
-    if (entry.grading !== "manual") return [];
-    if (typeof entry.label !== "string" || entry.label.length === 0) return [];
+    const key = entry.grading === "manual" ? entry.label : entry.type;
+    if (typeof key !== "string" || key.length === 0) return [];
     if (typeof entry.pointValue !== "number" || !Number.isFinite(entry.pointValue)) return [];
-    return [{ label: entry.label, pointValue: entry.pointValue }];
+    return [{ label: key, pointValue: entry.pointValue }];
   });
 }
 

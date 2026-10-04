@@ -857,3 +857,300 @@ describe("a round whose sections are stored in one order and declared in another
     });
   });
 });
+
+/**
+ * An instructor writing the report on an assignment the pipeline grades.
+ *
+ * The blank round is the one hand grading uses, opened against the assignment's AI sections and
+ * keyed by their types, so it sorts and reads as a generated round does. What needs a database is
+ * the refusal: a generated report already open blocks the blank one, because two rounds waiting on
+ * one submission leave the instructor's writing or the model's underneath as work still to do.
+ *
+ * No model is called. The generated report is a row written directly, with the `modelMetadata` a
+ * real run would carry, which is all `startManual` reads to tell the two apart.
+ */
+describe("a report written by hand on an assignment the pipeline grades", () => {
+  const tx = withRollback();
+
+  let world: World;
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  let assignmentId: string;
+  let submissionId: string;
+  let generatedId: string;
+  let refusedWhileOpen: string;
+  let openedId: string;
+  let againId: string;
+  let blank: Awaited<ReturnType<ReturnType<typeof asInstructor>["gradingDrafts"]["get"]>>;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      kind: "REPO",
+      pointValue: 30,
+      sections: [
+        { grading: "ai", type: "coding_algorithm", pointValue: 20, rubricId: crypto.randomUUID() },
+        { grading: "ai", type: "short_response", pointValue: 10, rubricId: crypto.randomUUID() },
+      ],
+    });
+    assignmentId = assignment.id;
+    const submission = await makeSubmission(tx(), {
+      assignmentId,
+      studentId: world.student.studentId,
+      status: "SUBMITTED",
+    });
+    submissionId = submission.id;
+
+    const generated = await tx().gradingDraft.create({
+      data: {
+        submissionId,
+        status: "READY",
+        modelMetadata: { model: "integration-fixture" },
+        sections: {
+          create: [
+            {
+              sectionType: "coding_algorithm",
+              reportMarkdown: "The model's reading.",
+              scoreEarned: 12,
+              scorePossible: 20,
+            },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    generatedId = generated.id;
+
+    refusedWhileOpen = await refusal(() =>
+      asInstructor().gradingDrafts.startManual({ submissionId }),
+    );
+
+    await asInstructor().gradingDrafts.discard({ draftId: generatedId });
+
+    openedId = (await asInstructor().gradingDrafts.startManual({ submissionId })).id;
+    againId = (await asInstructor().gradingDrafts.startManual({ submissionId })).id;
+    blank = await asInstructor().gradingDrafts.get({ draftId: openedId });
+  });
+
+  it("the review screen is sent the AI sections to write into", async () => {
+    const listed = await asInstructor().gradingDrafts.listForSubmission({ submissionId });
+    expect([listed.manualOnly, listed.canGradeByHand, listed.handSections]).toEqual([
+      false,
+      true,
+      [
+        { label: "coding_algorithm", pointValue: 20 },
+        { label: "short_response", pointValue: 10 },
+      ],
+    ]);
+  });
+
+  it("a blank round is refused while a generated report is open", () => {
+    expect(refusedWhileOpen).toBe("CONFLICT");
+  });
+
+  it("once the report is discarded, the blank round has one section per AI section", () => {
+    expect(
+      blank.sections.map((section) => [
+        section.sectionType,
+        section.scoreEarned,
+        section.scorePossible,
+        section.reportMarkdown,
+      ]),
+    ).toEqual([
+      ["coding_algorithm", null, 20, null],
+      ["short_response", null, 10, null],
+    ]);
+  });
+
+  it("...and no model wrote it", () => {
+    expect(blank.modelMetadata).toBeNull();
+  });
+
+  it("starting twice opens the same round", () => {
+    expect(againId).toBe(openedId);
+  });
+
+  it("while it is being written, it is a report waiting for review", async () => {
+    const queued = await asInstructor().submissions.listForAssignment({ assignmentId });
+    expect(queued.submissions.find((entry) => entry.id === submissionId)?.bucket).toBe(
+      "draft_ready",
+    );
+  });
+
+  describe("written, released", () => {
+    let released: Awaited<ReturnType<ReturnType<typeof asInstructor>["gradingDrafts"]["approve"]>>;
+
+    beforeAll(async () => {
+      const [coding, short] = blank.sections;
+      await asInstructor().gradingDrafts.updateSection({
+        sectionId: coding!.id,
+        reportMarkdown: "Handles every case the prompt names.",
+        scoreEarned: 18,
+      });
+      await asInstructor().gradingDrafts.updateSection({
+        sectionId: short!.id,
+        reportMarkdown: "A clear explanation of the trade-off.",
+        scoreEarned: 8,
+      });
+      released = await asInstructor().gradingDrafts.approve({ draftId: openedId });
+    });
+
+    it("releasing records the grade out of the assignment's own total", () => {
+      expect([released.finalScore, released.finalScorePossible, released.isComplete]).toEqual([
+        26,
+        30,
+        true,
+      ]);
+    });
+
+    it("the discarded report stays on record and out of the way", async () => {
+      const listed = await asInstructor().gradingDrafts.listForSubmission({ submissionId });
+      expect(listed.drafts.map((draft) => [draft.id, draft.status])).toEqual([
+        [openedId, "APPROVED"],
+        [generatedId, "SUPERSEDED"],
+      ]);
+    });
+  });
+});
+
+/**
+ * Starting a hand-written round again after the student pushes past the commit it describes.
+ *
+ * Approval refuses the old round, so before this the instructor's only way through was discarding
+ * it and retyping. What needs a database is that the move is whole: the old round superseded, the
+ * new one at the current commit holding exactly what the instructor wrote, and only the new one
+ * releasable. No pull request is opened, so nothing is posted anywhere.
+ */
+describe("a hand-written round started again on a newer commit", () => {
+  const tx = withRollback();
+
+  const NEWER_SHA = "2222222222222222222222222222222222222222";
+
+  let world: World;
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  let submissionId: string;
+  let oldId: string;
+  let refusedBeforePush: string;
+  let refusedApproval: string;
+  let refusedForModel: string;
+  let restartedId: string;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      kind: "REPO",
+      pointValue: 20,
+      sections: [
+        { grading: "ai", type: "coding_algorithm", pointValue: 20, rubricId: crypto.randomUUID() },
+      ],
+    });
+    const submission = await makeSubmission(tx(), {
+      assignmentId: assignment.id,
+      studentId: world.student.studentId,
+      status: "SUBMITTED",
+    });
+    submissionId = submission.id;
+    await tx().submission.update({ where: { id: submissionId }, data: { headSha: HEAD_SHA } });
+
+    const opened = await asInstructor().gradingDrafts.startManual({ submissionId });
+    oldId = opened.id;
+    await asInstructor().gradingDrafts.updateSection({
+      sectionId: opened.sections[0]!.id,
+      reportMarkdown: "Handles the empty input and the long one.",
+      scoreEarned: 16,
+    });
+
+    refusedBeforePush = await refusal(() =>
+      asInstructor().gradingDrafts.restartFromText({ draftId: oldId }),
+    );
+
+    // The student pushes again.
+    await tx().submission.update({ where: { id: submissionId }, data: { headSha: NEWER_SHA } });
+
+    refusedApproval = await refusal(() => asInstructor().gradingDrafts.approve({ draftId: oldId }));
+
+    restartedId = (await asInstructor().gradingDrafts.restartFromText({ draftId: oldId })).id;
+  });
+
+  it("is refused while the round still describes the code that is there", () => {
+    expect(refusedBeforePush).toBe("BAD_REQUEST");
+  });
+
+  it("the old round cannot be released once the student has pushed past it", () => {
+    expect(refusedApproval).toBe("BAD_REQUEST");
+  });
+
+  it("the new round is at the current commit and holds what the instructor wrote", async () => {
+    const restarted = await asInstructor().gradingDrafts.get({ draftId: restartedId });
+    expect([
+      restarted.headSha,
+      restarted.modelMetadata,
+      restarted.sections.map((section) => [
+        section.sectionType,
+        section.reportMarkdown,
+        section.scoreEarned,
+        section.scorePossible,
+      ]),
+    ]).toEqual([
+      NEWER_SHA,
+      null,
+      [["coding_algorithm", "Handles the empty input and the long one.", 16, 20]],
+    ]);
+  });
+
+  it("the old round is kept, superseded", async () => {
+    const listed = await asInstructor().gradingDrafts.listForSubmission({ submissionId });
+    expect(listed.drafts.map((draft) => [draft.id, draft.status])).toEqual([
+      [restartedId, "READY"],
+      [oldId, "SUPERSEDED"],
+    ]);
+  });
+
+  it("starting again from the superseded round is refused", async () => {
+    expect(
+      await refusal(() => asInstructor().gradingDrafts.restartFromText({ draftId: oldId })),
+    ).toBe("BAD_REQUEST");
+  });
+
+  it("the new round can be released", async () => {
+    const released = await asInstructor().gradingDrafts.approve({ draftId: restartedId });
+    expect([released.finalScore, released.finalScorePossible]).toEqual([16, 20]);
+  });
+
+  describe("a report a model wrote", () => {
+    beforeAll(async () => {
+      const generated = await tx().gradingDraft.create({
+        data: {
+          submissionId,
+          headSha: HEAD_SHA,
+          status: "READY",
+          modelMetadata: { model: "integration-fixture" },
+          sections: {
+            create: [
+              {
+                sectionType: "coding_algorithm",
+                reportMarkdown: "The model's reading.",
+                scoreEarned: 12,
+                scorePossible: 20,
+              },
+            ],
+          },
+        },
+        select: { id: true },
+      });
+
+      refusedForModel = await refusal(() =>
+        asInstructor().gradingDrafts.restartFromText({ draftId: generated.id }),
+      );
+    });
+
+    it("is refused, because its way through is generating again", () => {
+      expect(refusedForModel).toBe("BAD_REQUEST");
+    });
+  });
+});

@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { inDeclaredOrder, isManualOnly, manualSections } from "@/lib/assignments/spec";
+import { blankSections, inDeclaredOrder, isManualOnly } from "@/lib/assignments/spec";
 import { assertWithinRate, DRAFT_GENERATION_LIMIT } from "@/lib/audit/rate-limit";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
@@ -13,6 +13,7 @@ import {
   retryComment,
 } from "@/lib/grade/approve";
 import { teachableSubmission } from "@/lib/courses/scope";
+import { inTransaction } from "@/lib/prisma";
 import { GradingAssetsError } from "@/lib/grade/assets";
 import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
 import { ProviderError } from "@/lib/grade/provider";
@@ -198,6 +199,11 @@ export const gradingDraftsRouter = createTRPCRouter({
    *
    * One row per section the assignment declares, so the point total the instructor scores out
    * of is the assignment's own rather than a number typed twice.
+   *
+   * **Open on an assignment the pipeline grades, too.** An instructor who would rather write the
+   * report than read the model's — or who has read the model's and discarded it — gets the same
+   * blank draft, with one section per AI section keyed by its type. Approval does not ask who
+   * wrote a draft, so nothing after this point changes.
    */
   startManual: instructorProcedure
     .input(z.object({ submissionId: z.string().uuid() }))
@@ -213,14 +219,14 @@ export const gradingDraftsRouter = createTRPCRouter({
 
       refuseIfMirror(submission, "graded");
 
-      const sections = manualSections(submission.assignment.sections);
+      const sections = blankSections(submission.assignment.sections);
 
       if (sections.length === 0) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message:
-            "This assignment has no sections graded by hand, so there is nothing to open. " +
-            "Generate a report instead.",
+            "None of this assignment's sections carries both a name and a point value, so " +
+            "there is nothing to score out of. Correct the assignment's sections first.",
         });
       }
 
@@ -245,6 +251,31 @@ export const gradingDraftsRouter = createTRPCRouter({
       });
 
       if (open) return open;
+
+      /*
+        Any other unreleased round — a generated report, or one still being generated — is
+        refused rather than written beside. Two rounds waiting on one submission leave an
+        instructor approving one while the other sits underneath as work still to do, and the
+        screen only offers this where no round is open, so reaching here means a double click or
+        a tab left open across a generation. Discarding the report is the way through.
+      */
+      const generated = await ctx.db.gradingDraft.findFirst({
+        where: {
+          submissionId: submission.id,
+          approvedAt: null,
+          status: { in: ["GENERATING", "READY", "NEEDS_MANUAL_REVIEW"] },
+        },
+        select: { id: true },
+      });
+
+      if (generated) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "A generated report is already open for this submission. Discard it first, then " +
+            "write your own.",
+        });
+      }
 
       return ctx.db.gradingDraft.create({
         data: {
@@ -399,6 +430,135 @@ export const gradingDraftsRouter = createTRPCRouter({
     }),
 
   /**
+   * Starts a hand-written round again at the commit the work is at now, carrying its text.
+   *
+   * A round describes one commit, and approval refuses it once the student has pushed past that
+   * commit. For a generated report the way through is generating again. For a round a person
+   * wrote, the only way through was discarding it and opening a blank one — which threw away every
+   * word the instructor had written, when most of a report usually survives a small push.
+   *
+   * **The old round is superseded and a new one created, in one transaction.** The text moves; the
+   * record of which commit it was first written against stays on the old row. Doing the two apart
+   * could leave either two open rounds or none holding the instructor's writing.
+   *
+   * Copies the effective values, as `reviseReleased` does, so what the instructor sees in the new
+   * round is exactly what they were looking at in the old one.
+   *
+   * Three refusals: a round that is not open, a round a model wrote — whose way through is
+   * generating again — and a round that is not out of date, which wants editing rather than this.
+   */
+  restartFromText: instructorProcedure
+    .input(z.object({ draftId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const draft = await ctx.db.gradingDraft.findUnique({
+        where: { id: input.draftId },
+        select: {
+          id: true,
+          submissionId: true,
+          status: true,
+          approvedAt: true,
+          headSha: true,
+          modelMetadata: true,
+          sections: {
+            // Deterministic, so the new round's rows are written in the order the old one's were.
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: {
+              sectionType: true,
+              reportMarkdown: true,
+              scoreEarned: true,
+              scorePossible: true,
+              editedReportMarkdown: true,
+              editedScoreEarned: true,
+            },
+          },
+        },
+      });
+
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
+
+      const submission = await teachableSubmission(ctx, draft.submissionId, {
+        id: true,
+        headSha: true,
+        teamSubmissionId: true,
+      });
+
+      refuseIfMirror(submission, "graded");
+
+      if (draft.approvedAt !== null || !["READY", "NEEDS_MANUAL_REVIEW"].includes(draft.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This round is no longer open, so there is nothing to start again from.",
+        });
+      }
+
+      if (draft.modelMetadata !== null) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A model wrote this report. Generate a new report so it describes the newer commit.",
+        });
+      }
+
+      // The same comparison approval refuses on, so this is offered exactly where approval is not.
+      const stale =
+        submission.headSha !== null &&
+        draft.headSha !== null &&
+        draft.headSha !== submission.headSha;
+
+      if (!stale) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This round already describes the code that is there, so edit it rather than " +
+            "starting again.",
+        });
+      }
+
+      return inTransaction(ctx.db, async (tx) => {
+        /*
+          Guarded on the status read above, so a round discarded or released in another tab since
+          then is not superseded a second time and copied from — the count says whether this
+          request is the one that moved it.
+        */
+        const moved = await tx.gradingDraft.updateMany({
+          where: { id: draft.id, status: draft.status, approvedAt: null },
+          data: { status: "SUPERSEDED" },
+        });
+
+        if (moved.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This round changed while you were starting again. Reload and try once more.",
+          });
+        }
+
+        return tx.gradingDraft.create({
+          data: {
+            submissionId: submission.id,
+            // The commit the work is at now, which is what makes the new round releasable.
+            headSha: submission.headSha,
+            status: "READY",
+            // Null, because a person wrote this — the same marker every hand-written round carries.
+            modelMetadata: undefined,
+            sections: {
+              create: draft.sections.map((section) => {
+                const sent = effectiveSection(section);
+
+                return {
+                  sectionType: sent.sectionType,
+                  reportMarkdown: sent.reportMarkdown,
+                  scoreEarned: sent.scoreEarned,
+                  scorePossible: sent.scorePossible,
+                };
+              }),
+            },
+          },
+          select: openedManualDraft,
+        });
+      });
+    }),
+
+  /**
    * Discards an unreleased round without sending it.
    *
    * The way back out. Opening a correction, or generating a report and deciding not to use it,
@@ -508,6 +668,7 @@ export const gradingDraftsRouter = createTRPCRouter({
       // triage asks to decide the bucket and the two must not disagree — one saying there is
       // a report to generate while the other says the work is waiting on a person.
       const manualOnly = isManualOnly(submission.assignment.sections);
+      const handSections = blankSections(submission.assignment.sections);
 
       const graded = await ctx.db.submission.findUnique({
         where: { id: input.submissionId },
@@ -543,18 +704,20 @@ export const gradingDraftsRouter = createTRPCRouter({
          */
         manualOnly,
         /** Whether an empty draft can be opened to write a grade into. */
-        canGradeByHand: manualOnly && manualSections(submission.assignment.sections).length > 0,
+        canGradeByHand: handSections.length > 0,
         /**
-         * The sections a person scores by hand: what each is called and what it is out of.
+         * The sections a person scores when writing the report themselves: the key each is
+         * stored under and what it is out of. See `blankSections` for why an AI section's key is
+         * its type.
          *
          * Sent so the review screen can draw the form before any round exists. Grading by hand
          * means typing into boxes, and the boxes are the assignment's own sections — reading them
          * from a round would mean creating a round first, which is the button this replaces.
          *
-         * Empty on an assignment the pipeline grades, where the sections a report is written
-         * against are not something a person fills in.
+         * Filled on an assignment the pipeline grades as well, because an instructor may write
+         * that report themselves instead of generating one.
          */
-        handSections: manualOnly ? manualSections(submission.assignment.sections) : [],
+        handSections,
         /**
          * True when there is something to grade. A submission with no pull request,
          * or an assignment with no sections mapping, cannot produce a report — and

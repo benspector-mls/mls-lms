@@ -1,8 +1,8 @@
 import {
   derivesTestEvidence,
   inDeclaredOrder,
+  blankSections,
   isManualOnly,
-  manualSections,
   sectionGradingModes,
 } from "@/lib/assignments/spec";
 
@@ -81,13 +81,32 @@ describe("isManualOnly", () => {
   });
 });
 
-describe("manualSections", () => {
-  it("reads the label and the point value, which is all a manual section has", () => {
-    expect(manualSections([manual])).toEqual([{ label: "Reflection", pointValue: 10 }]);
+describe("blankSections", () => {
+  it("reads a manual section's label and point value", () => {
+    expect(blankSections([manual])).toEqual([{ label: "Reflection", pointValue: 10 }]);
   });
 
-  it("ignores the pipeline's sections", () => {
-    expect(manualSections([ai, manual])).toEqual([{ label: "Reflection", pointValue: 10 }]);
+  it("keys an AI section by its type, which is what a generated round stores", () => {
+    /*
+      An instructor may write the report on an assignment the pipeline grades. The blank round's
+      sections have to carry the same key a generated one does, or `inDeclaredOrder` would sort
+      them last and `sectionLabel` would have nothing it recognises to put into words.
+    */
+    expect(blankSections([ai])).toEqual([{ label: "coding_algorithm", pointValue: 30 }]);
+  });
+
+  it("keys an entry with no grading mode by its type, because that counts as ai", () => {
+    expect(blankSections([{ type: "coding_algorithm", pointValue: 30 }])).toEqual([
+      { label: "coding_algorithm", pointValue: 30 },
+    ]);
+  });
+
+  it("keeps the declared order", () => {
+    const technical = { grading: "ai", type: "technical", pointValue: 20 };
+    expect(blankSections([ai, technical]).map((section) => section.label)).toEqual([
+      "coding_algorithm",
+      "technical",
+    ]);
   });
 
   it("skips a section with no point value rather than defaulting one", () => {
@@ -96,23 +115,25 @@ describe("manualSections", () => {
       never defaulted" rule exists to prevent. Skipping is visible where a zero would not be:
       `startManual` refuses to open a draft with no sections.
     */
-    expect(manualSections([{ grading: "manual", label: "Reflection" }])).toEqual([]);
+    expect(blankSections([{ grading: "manual", label: "Reflection" }])).toEqual([]);
+    expect(blankSections([{ grading: "ai", type: "coding_algorithm" }])).toEqual([]);
   });
 
-  it("skips a section with no label", () => {
-    expect(manualSections([{ grading: "manual", pointValue: 10 }])).toEqual([]);
-    expect(manualSections([{ grading: "manual", label: "", pointValue: 10 }])).toEqual([]);
+  it("skips a section with no key", () => {
+    expect(blankSections([{ grading: "manual", pointValue: 10 }])).toEqual([]);
+    expect(blankSections([{ grading: "manual", label: "", pointValue: 10 }])).toEqual([]);
+    expect(blankSections([{ grading: "ai", pointValue: 30 }])).toEqual([]);
   });
 
   it("skips a point value that is not a finite number", () => {
     for (const pointValue of ["10", NaN, Infinity, null]) {
-      expect(manualSections([{ grading: "manual", label: "Reflection", pointValue }])).toEqual([]);
+      expect(blankSections([{ grading: "manual", label: "Reflection", pointValue }])).toEqual([]);
     }
   });
 
   it("is empty for a column that is not an array", () => {
-    expect(manualSections(null)).toEqual([]);
-    expect(manualSections("Reflection")).toEqual([]);
+    expect(blankSections(null)).toEqual([]);
+    expect(blankSections("Reflection")).toEqual([]);
   });
 });
 
