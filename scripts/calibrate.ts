@@ -92,11 +92,11 @@ function parseExpected(markdown: string): ExpectedScores {
   };
 
   const questions: ExpectedScores["questions"] = [];
-  // Matches "**Question 3: Flexbox vs. CSS Grid:** 2/3".
-  const questionPattern = /\*\*Question (\d+):([^*]*)\*\*\s*([\d.]+)\s*\/\s*(\d+)/g;
+  // Matches "## Question 3: Flexbox vs. CSS Grid: 2/3" and the untitled "## Question 3: 2/3".
+  const questionPattern = /^##\s+Question (\d+)(?::\s*(.*?))?:\s*([\d.]+)\s*\/\s*(\d+)\s*$/gm;
   for (const match of markdown.matchAll(questionPattern)) {
     questions.push({
-      label: `Q${match[1]}${match[2].trim().replace(/:$/, "") ? ` ${match[2].trim().replace(/:$/, "")}` : ""}`,
+      label: `Q${match[1]}${match[2] ? ` ${match[2]}` : ""}`,
       earned: Number(match[3]),
       possible: Number(match[4]),
     });
@@ -114,7 +114,7 @@ function parseExpected(markdown: string): ExpectedScores {
         }
       : null;
   const writing = pair(
-    /\*\*Writing Quality Score \(Entire Assignment\):\*\*\s*([\d.]+)\s*\/\s*(\d+)/i,
+    /^##\s+Writing Quality Score \(Entire Assignment\):\s*([\d.]+)\s*\/\s*(\d+)/im,
   );
   const total =
     technical && writing
@@ -205,6 +205,23 @@ async function main() {
     const expected = parseExpected(expectedMarkdown);
 
     /*
+      Refused rather than defaulted, for the reason the pipeline refuses a section with no
+      pointValue. The instructor's total is the maximum the model is told to score against, so
+      a report whose score lines this parser cannot read would otherwise send an 18-point pair
+      in as a 15-point one, and the model's attempt to fit one into the other is what gets
+      measured.
+    */
+    if (!expected.total) {
+      console.error(
+        `Could not read the instructor's scores from ${pair.reportFile}. The parser expects ` +
+          `"## Question N: Title: x/y" (or "## Question N: x/y") and ` +
+          `"## Writing Quality Score (Entire Assignment): x/y" headings.`,
+      );
+      process.exit(1);
+    }
+    const pointValue = expected.total.possible;
+
+    /*
       Graded with the answer key, because that is what production does and a calibration
       that omits it measures a configuration nobody runs.
 
@@ -234,7 +251,7 @@ async function main() {
           addressees: [{ githubUsername: "sample-student" }],
           teamName: null,
           assignmentTitle: `short response calibration sample ${pair.n}`,
-          pointValue: expected.total?.possible ?? 15,
+          pointValue,
           // The sample file carries the questions as well as the answers, so it is
           // self-contained and there is no separate README to supply.
           readme: null,
@@ -270,7 +287,7 @@ async function main() {
       tamperedPaths: [],
       // The same maximum the prompt was given, so a report scored out of a different one is
       // reported here rather than silently compared against the instructor's on another scale.
-      pointValue: expected.total?.possible ?? 15,
+      pointValue,
     });
     const actualTechnical = sumCriterion(items, (c) => c.includes("technical"));
     const actualWriting = sumCriterion(items, (c) => c.includes("writing"));
