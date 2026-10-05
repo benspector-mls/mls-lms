@@ -186,6 +186,104 @@ export function parseUnifiedPatch(patch: string): ParsedPatch {
   return { hunks, unparsed };
 }
 
+/** The characters of a line that changed, as offsets into its `text`: `start` up to, not including, `end`. */
+export type ChangedRange = { start: number; end: number };
+
+/**
+ * For every line of `hunks`, in the order they are rendered, the part of it that changed — or null
+ * for a line with no counterpart to compare against.
+ *
+ * **The problem it solves.** A removed line and the added line that replaces it are each tinted
+ * from end to end, so a one-word edit to a long line leaves the reader comparing the two by eye,
+ * where a `<` that became `<=` is easy to miss. Marking the changed characters points at the edit.
+ *
+ * **Pairing.** A run of removed lines followed directly by a run of added lines is one region in
+ * two states. When the two runs are the same length, the nth removed line is paired with the nth
+ * added line. When they are not, which removed line became which added line is a guess, and a
+ * wrong guess marks characters that did not change — so those lines are left unmarked.
+ *
+ * **One range per line.** The changed range is whatever lies between the characters the two lines
+ * share at the start and the characters they share at the end. A line with two separate edits is
+ * marked from the first edit to the last, unchanged characters between them included.
+ */
+export function changedRanges(hunks: DiffHunk[]): (ChangedRange | null)[] {
+  const ranges: (ChangedRange | null)[] = [];
+
+  // Hunk by hunk, so a run never crosses a gap in the file.
+  for (const hunk of hunks) {
+    const { lines } = hunk;
+    let i = 0;
+
+    while (i < lines.length) {
+      if (lines[i].kind !== "remove") {
+        ranges.push(null);
+        i += 1;
+        continue;
+      }
+
+      const removeStart = i;
+      while (i < lines.length && lines[i].kind === "remove") i += 1;
+      const addStart = i;
+      while (i < lines.length && lines[i].kind === "add") i += 1;
+
+      const removed = addStart - removeStart;
+      const added = i - addStart;
+      const run: (ChangedRange | null)[] = new Array(removed + added).fill(null);
+
+      if (removed === added) {
+        for (let k = 0; k < removed; k += 1) {
+          const pair = pairRanges(lines[removeStart + k].text, lines[addStart + k].text);
+          if (pair) [run[k], run[removed + k]] = pair;
+        }
+      }
+
+      ranges.push(...run);
+    }
+  }
+
+  return ranges;
+}
+
+/**
+ * The changed range on each of two lines, or null when they share too little for marking to help.
+ *
+ * **The threshold.** When less than half of the longer line is shared, the line was rewritten
+ * rather than edited, and marking it would shade nearly all of it — the same information the row
+ * tint already gives. Indentation the two lines share is left out of that count: in indented code
+ * it would otherwise let a rewritten line pass as an edited one.
+ *
+ * A trailing carriage return is part of `text`, so a line whose only change is its line ending
+ * gets a range covering exactly that character, which the renderer draws as `␍`.
+ */
+function pairRanges(before: string, after: string): [ChangedRange, ChangedRange] | null {
+  const shorter = Math.min(before.length, after.length);
+
+  let prefix = 0;
+  while (prefix < shorter && before[prefix] === after[prefix]) prefix += 1;
+
+  // Never overlapping the prefix, so `aa` → `aaa` is one inserted `a` rather than a range ending
+  // before it starts.
+  let suffix = 0;
+  while (
+    suffix < shorter - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+
+  if (prefix === before.length && prefix === after.length) return null;
+
+  const indent = Math.min(prefix, before.length - before.trimStart().length);
+  const shared = prefix + suffix - indent;
+  const longer = Math.max(before.length, after.length) - indent;
+  if (shared * 2 < longer) return null;
+
+  return [
+    { start: prefix, end: before.length - suffix },
+    { start: prefix, end: after.length - suffix },
+  ];
+}
+
 /** Bytes rather than characters, because a ceiling on a payload is a ceiling on bytes. */
 function byteLength(text: string): number {
   return new TextEncoder().encode(text).length;

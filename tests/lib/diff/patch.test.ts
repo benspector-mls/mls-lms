@@ -1,4 +1,4 @@
-import { parseUnifiedPatch, truncateAtHunkBoundary } from "@/lib/diff/patch";
+import { changedRanges, parseUnifiedPatch, truncateAtHunkBoundary } from "@/lib/diff/patch";
 
 /**
  * The unified diff parser.
@@ -217,5 +217,76 @@ describe("truncateAtHunkBoundary", () => {
     // Four characters, and more than four bytes of UTF-8, so a character count would keep it.
     const wide = "@@ -1,1 +1,1 @@\n+💥💥💥💥";
     expect(truncateAtHunkBoundary(wide, 20)).toBe("");
+  });
+});
+
+describe("changedRanges", () => {
+  /** The ranges for a patch, which is how the renderer asks for them. */
+  const rangesOf = (patch: string) => changedRanges(parseUnifiedPatch(patch).hunks);
+
+  it("marks the one word that changed on a replaced line, and nothing around it", () => {
+    const ranges = rangesOf(
+      "@@ -1,2 +1,2 @@\n-if attackerRef.isEmpty:\n+if attackerRef.nonALive:\n     pass",
+    );
+    expect(ranges).toEqual([{ start: 15, end: 22 }, { start: 15, end: 23 }, null]);
+    expect("if attackerRef.isEmpty:".slice(15, 22)).toBe("isEmpty");
+    expect("if attackerRef.nonALive:".slice(15, 23)).toBe("nonALive");
+  });
+
+  it("gives an empty range to the side a pure insertion added nothing to", () => {
+    expect(rangesOf("@@ -1,1 +1,1 @@\n-x < 10\n+x <= 10")).toEqual([
+      { start: 3, end: 3 },
+      { start: 3, end: 4 },
+    ]);
+  });
+
+  it("pairs the nth removed line with the nth added line in a run", () => {
+    const ranges = rangesOf(
+      "@@ -1,2 +1,2 @@\n-const a = 1;\n-const b = 2;\n+const a = 9;\n+const b = 8;",
+    );
+    expect(ranges).toEqual([
+      { start: 10, end: 11 },
+      { start: 10, end: 11 },
+      { start: 10, end: 11 },
+      { start: 10, end: 11 },
+    ]);
+  });
+
+  it("marks nothing in a run whose two sides differ in length, since the pairing would be a guess", () => {
+    expect(rangesOf("@@ -1,1 +1,2 @@\n-const b = 2;\n+const b = 3;\n+const c = 4;")).toEqual([
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("marks nothing on a line rewritten rather than edited", () => {
+    expect(rangesOf("@@ -1,1 +1,1 @@\n-return total;\n+throw new Error(x);")).toEqual([null, null]);
+  });
+
+  it("does not count shared indentation toward the half a line must share", () => {
+    expect(rangesOf("@@ -1,1 +1,1 @@\n-        return foo;\n+        x = bar();")).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("marks exactly the carriage return on a line whose only change is its ending", () => {
+    expect(rangesOf("@@ -1,1 +1,1 @@\n-const a = 1;\r\n+const a = 1;")).toEqual([
+      { start: 12, end: 13 },
+      { start: 12, end: 12 },
+    ]);
+  });
+
+  it("never pairs a removed line at the end of one hunk with an added line opening the next", () => {
+    expect(rangesOf("@@ -1,1 +1,0 @@\n-const a = 1;\n@@ -9,0 +8,1 @@\n+const a = 2;")).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("keeps one entry per line, in render order, around context and lone additions", () => {
+    const ranges = rangesOf("@@ -1,3 +1,4 @@\n a\n-b = 1\n+b = 2\n+c\n d");
+    expect(ranges).toHaveLength(5);
   });
 });

@@ -6,7 +6,13 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useDiffHighlight } from "@/hooks/use-diff-highlight";
-import { parseUnifiedPatch, type DiffHunk, type DiffLine } from "@/lib/diff/patch";
+import {
+  changedRanges,
+  parseUnifiedPatch,
+  type ChangedRange,
+  type DiffHunk,
+  type DiffLine,
+} from "@/lib/diff/patch";
 import { DIFF_KIND_META, TONE_CLASSES } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
@@ -52,6 +58,9 @@ export function DiffFileCard({
   );
 
   const tokens = useDiffHighlight(hunks, file.language);
+
+  // Indexed the same way as `tokens`: the nth line drawn is the nth entry.
+  const changed = React.useMemo(() => (hunks ? changedRanges(hunks) : null), [hunks]);
 
   const rendered = React.useMemo(() => {
     if (!hunks) return null;
@@ -185,6 +194,7 @@ export function DiffFileCard({
                         key={row.key}
                         line={row.line}
                         tokens={tokens?.[row.index] ?? null}
+                        changed={changed?.[row.index] ?? null}
                       />
                     ),
                   )}
@@ -290,14 +300,59 @@ const LINE_TINT = {
   context: "",
 } as const;
 
+/** The darker shade over the characters that changed within a row, on top of `LINE_TINT`. */
+const CHANGED_TINT = {
+  add: "bg-emerald-500/25 dark:bg-emerald-400/25",
+  remove: "bg-destructive/20 dark:bg-destructive/35",
+  context: "",
+} as const;
+
 const LINE_MARKER = { add: "+", remove: "−", context: "" } as const;
+
+type Piece = { content: string; htmlStyle?: Record<string, string> };
+
+/**
+ * The line's pieces, cut again wherever the changed range begins or ends, each marked with whether
+ * it lies inside the range.
+ *
+ * Needed because the range is measured in characters and a syntax-coloured piece can be a whole
+ * identifier: in `attackerRef.isEmpty` the edit may begin partway through a piece, and shading the
+ * whole piece would mark characters that did not change.
+ */
+function splitAtRange(pieces: Piece[], range: ChangedRange | null) {
+  if (!range) return pieces.map((piece) => ({ ...piece, changed: false }));
+
+  const out: (Piece & { changed: boolean })[] = [];
+  let offset = 0;
+  for (const piece of pieces) {
+    const end = offset + piece.content.length;
+    const cuts = [
+      offset,
+      Math.min(Math.max(range.start, offset), end),
+      Math.min(Math.max(range.end, offset), end),
+      end,
+    ];
+    for (let k = 0; k < 3; k += 1) {
+      if (cuts[k] === cuts[k + 1]) continue;
+      out.push({
+        content: piece.content.slice(cuts[k] - offset, cuts[k + 1] - offset),
+        htmlStyle: piece.htmlStyle,
+        changed: k === 1,
+      });
+    }
+    offset = end;
+  }
+  return out;
+}
 
 function CodeLine({
   line,
   tokens,
+  changed,
 }: {
   line: DiffLine;
-  tokens: { content: string; htmlStyle?: Record<string, string> }[] | null;
+  tokens: Piece[] | null;
+  changed: ChangedRange | null;
 }) {
   // Shown as a visible mark rather than left invisible. Without it a student's line-ending commit
   // is a diff where every line changed and every line looks identical, and there is nothing on
@@ -327,14 +382,26 @@ function CodeLine({
           break at, and `break-words` leaves such a line to widen the grid column instead.
         */}
         <code className="shiki-code min-w-0 pr-3 whitespace-pre-wrap wrap-anywhere">
-          {tokens
-            ? tokens.map((token, index) => (
-                <span key={index} style={token.htmlStyle as React.CSSProperties}>
-                  {token.content}
-                </span>
-              ))
-            : text}
-          {carriageReturn && <span className="text-muted-foreground/60">␍</span>}
+          {splitAtRange(tokens ?? [{ content: text }], changed).map((piece, index) => (
+            <span
+              key={index}
+              style={piece.htmlStyle as React.CSSProperties}
+              className={piece.changed ? CHANGED_TINT[line.kind] : undefined}
+            >
+              {piece.content}
+            </span>
+          ))}
+          {carriageReturn && (
+            <span
+              className={cn(
+                "text-muted-foreground/60",
+                // The range reaches past the visible text only when it covers the carriage return.
+                changed && changed.end > text.length && CHANGED_TINT[line.kind],
+              )}
+            >
+              ␍
+            </span>
+          )}
         </code>
       </div>
 
