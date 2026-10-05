@@ -344,7 +344,7 @@ Three things are refused rather than warned about, because each one would produc
 
 **A report you wrote, after the student pushes again.** A report describes one commit, so once the student pushes past it, approving is refused. Beneath a report you wrote, **Start again from this text** carries every score and every word onto the newer commit in a new draft, so you can check them against the code that is there and release; the old draft is kept, out of sight. It waits while your latest change is still being saved, so nothing you typed is left behind. Beneath a report the model wrote, the way through is generating a new one.
 
-**A resubmission is graded fresh**, and its feedback is a new comment rather than an edit of the first, so the two read in order are the record of what the student changed.
+**A resubmission is graded fresh**, and its feedback is a new comment rather than an edit of the first, so the two read in order are the record of what the student changed. While you write the new round, **Previous feedback** beneath it lists every round the student was sent before, each opening to the scores and report they received, so you can check the new work against what you told them last time.
 
 ### The gradebook
 

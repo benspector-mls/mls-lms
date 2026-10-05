@@ -186,14 +186,13 @@ export function GradingReview({
   /*
     Rounds worth listing under the grade: released, and not the round on screen. A discarded
     round was never sent to anybody, so it is not previous feedback; the current round is on the
-    card above, so listing it here would call the thing being read "previous"; and while a round
-    is being drafted nothing is previous yet — the list appears once the new round has gone out,
-    which is when the one before it becomes history.
+    card above, so listing it here would call the thing being read "previous". The list shows
+    while a resubmission's round is still being written, because that is when the instructor
+    checks the new work against what the student was told last time.
   */
-  const previous =
-    draft?.status === "APPROVED"
-      ? data.drafts.filter((entry) => entry.status === "APPROVED" && entry.id !== draft.id)
-      : [];
+  const previous = data.drafts.filter(
+    (entry) => entry.status === "APPROVED" && entry.id !== draft?.id,
+  );
 
   // The run that describes the code currently on the pull request. An older run is not
   // evidence about this commit, so it is not offered as if it were.
