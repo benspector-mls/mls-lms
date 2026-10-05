@@ -57,8 +57,12 @@ function resolveEffort(): Effort {
  * Generous, and deliberately so. Thinking is on by default on this model and
  * `max_tokens` caps thinking plus response text together, so a limit sized to the
  * report alone would truncate it mid-sentence.
+ *
+ * 20,000 sits just under the SDK's ceiling for a request that is not streamed: it refuses any
+ * `max_tokens` above 128,000 × 10 ÷ 60, about 21,333, because that much output could take
+ * longer than ten minutes. Going higher means switching this call to streaming.
  */
-const MAX_TOKENS = 16_000;
+const MAX_TOKENS = 20_000;
 
 export function createClaudeGenerator(): ReportGenerator {
   const apiKey = process.env.ANTHROPIC_API_KEY;
