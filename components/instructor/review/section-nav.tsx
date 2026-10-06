@@ -154,9 +154,9 @@ export function SectionAnchor({
  * actions to hold, which is how the way into grading mode keeps one position on the screen whether
  * or not a submission is open.
  *
- * **Actions are expected to be hidden below `lg`**, as the grading-mode controls are: there is no
- * two-pane layout to enter or leave at those widths. With no jumps to draw either, everything in
- * the row would then be invisible, so the row hides itself on the same rule its contents follow.
+ * The row is drawn whenever it holds either, and some of what it holds decides its own width:
+ * the grading-mode controls draw nothing below `lg`, where there is no two-pane layout to enter or
+ * leave, while the way to agree a deadline is offered at every width.
  */
 export function SectionNavBar({
   className,
@@ -192,7 +192,7 @@ export function SectionNavBar({
         );
 
   return (
-    <div className={cn("flex shrink-0 items-center gap-2", !jumps && "max-lg:hidden", className)}>
+    <div className={cn("flex shrink-0 items-center gap-2", className)}>
       {jumps && (
         <nav
           aria-label="Jump to a part of this review"

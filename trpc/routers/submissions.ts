@@ -2003,6 +2003,9 @@ export const submissionsRouter = createTRPCRouter({
         kind: true,
         // So the review pane can draw the icon every other screen draws for this kind of work.
         handInMethods: true,
+        // Whether a deadline can be agreed from this screen: an unpublished assignment is one
+        // nobody has been given a deadline for, and `grantExtensions` refuses it.
+        distributedAt: true,
         // Whether fellows may mark a task themselves. Read for the page rather than per row: it is
         // a property of the assignment, and the pane says different things about an unmarked task
         // depending on the answer.
@@ -2113,6 +2116,7 @@ export const submissionsRouter = createTRPCRouter({
           dueAt: assignment.dueAt,
           kind: assignment.kind,
           handInMethods: assignment.handInMethods,
+          distributedAt: assignment.distributedAt,
           studentMayMarkDone: assignment.studentMayMarkDone,
           manualOnly,
         },

@@ -15,6 +15,7 @@ import {
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
 import { SectionNavBar, SectionNavProvider } from "@/components/instructor/review/section-nav";
+import { ExtensionButton } from "@/components/instructor/extension-button";
 import { FellowConversation, TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
@@ -250,6 +251,29 @@ export function GradingQueue({
         data.asideSubmissions.find((row) => row.id === selectedId) ??
         filtered[0] ??
         null);
+
+  /*
+    Whose deadline the button above the pane would agree, and null where there is nobody to agree
+    one with or nothing to agree it against.
+
+    **A team where the work is a team's.** The work is handed in once and the deadline belongs to
+    all of them: the server refuses one member of a team by name, and granting the team brings
+    every member's row into agreement. A fellow otherwise — including one who has started nothing,
+    whose row the grant creates.
+
+    **Nothing on an assignment nobody has been given, or one with no deadline.** `grantExtensions`
+    refuses both, so offering the button would open a panel whose every answer the server rejects.
+  */
+  const extensionTarget: { kind: "student" | "team"; id: string } | null =
+    data.assignment.distributedAt === null || data.assignment.dueAt === null
+      ? null
+      : selected?.team
+        ? { kind: "team", id: selected.team.id }
+        : selected
+          ? { kind: "student", id: selected.student.id }
+          : selectedFellow
+            ? { kind: "student", id: selectedFellow.id }
+            : null;
 
   /** Why the open submission is not in the list beside it, or null when it is. */
   const asideReason =
@@ -615,11 +639,24 @@ export function GradingQueue({
             <SectionNavBar
               className="border-b border-border bg-card px-3 py-1.5"
               actions={
-                grading.on ? (
-                  <GradingModeExitButton onExit={grading.exit} />
-                ) : (
-                  <GradingModeButton onEnter={grading.enter} />
-                )
+                <>
+                  {/*
+                    Before the way into grading mode rather than after it, so that control keeps
+                    the far right of the row it has had since it moved there.
+                  */}
+                  {extensionTarget && (
+                    <ExtensionButton
+                      assignmentId={data.assignment.id}
+                      target={extensionTarget}
+                      extendedDueAt={selected?.extendedDueAt ?? null}
+                    />
+                  )}
+                  {grading.on ? (
+                    <GradingModeExitButton onExit={grading.exit} />
+                  ) : (
+                    <GradingModeButton onEnter={grading.enter} />
+                  )}
+                </>
               }
             />
 
