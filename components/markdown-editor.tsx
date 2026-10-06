@@ -137,10 +137,7 @@ export function MarkdownEditor({
               ]),
           editable.current.of(EditorView.editable.of(!disabled)),
           EditorView.updateListener.of((update) => {
-            if (
-              update.docChanged &&
-              !update.transactions.some((tr) => tr.annotation(fromProps))
-            ) {
+            if (update.docChanged && !update.transactions.some((tr) => tr.annotation(fromProps))) {
               callbacks.current.onChange(update.state.doc.toString());
             }
           }),
@@ -179,11 +176,56 @@ export function MarkdownEditor({
     });
   }, [disabled]);
 
+  /*
+    A press anywhere in the box puts the caret in the text, as a press anywhere in a `textarea`
+    does.
+
+    **The box and the editable element are not the same shape, which is the problem this solves.**
+    The element CodeMirror makes editable holds the lines and is as tall as they are, and it sits
+    inside the box's own padding. A box asked for sixteen rows and holding one line of text is
+    therefore editable across one line near the top and inert everywhere else — and a reader who
+    pressed in the middle of it got no caret, no focus ring, and nothing to type into, which reads
+    as a field that is broken rather than as one they have missed by a few pixels.
+
+    The caret goes to the position nearest the pointer, so pressing below the last line lands at
+    the end of the text and pressing in the padding beside a line lands on that line. `posAtCoords`
+    with `precise: false` is what answers "nearest", and it always answers, which is why there is
+    no fallback position here.
+
+    **Only for a press that missed the editable element.** A press that landed in the text is
+    CodeMirror's to handle: dragging from it selects a range, and pressing twice takes a word.
+    Both would be lost if this put a bare caret down on every press.
+  */
+  function onMouseDown(event: React.MouseEvent<HTMLDivElement>) {
+    const current = view.current;
+    if (!current || disabled) return;
+    if (current.contentDOM.contains(event.target as Node)) return;
+
+    /*
+      A press on a scrollbar is a scroll and not a place to put the caret. A box capped with a
+      class such as `max-h-[35vh]` grows one as soon as the text outruns the cap, and taking that
+      press would leave the reader unable to drag it. `clientWidth` and `clientHeight` leave the
+      scrollbars out of the element's box, so a press past either edge of them is a press on one.
+    */
+    const target = event.target as HTMLElement;
+    const box = target.getBoundingClientRect();
+    if (event.clientX > box.left + target.clientWidth) return;
+    if (event.clientY > box.top + target.clientHeight) return;
+
+    // Without this the press moves focus to the box itself, and the editor never receives it.
+    event.preventDefault();
+    current.focus();
+    current.dispatch({
+      selection: { anchor: current.posAtCoords({ x: event.clientX, y: event.clientY }, false) },
+    });
+  }
+
   return (
     <div className="flex w-full flex-col gap-1.5">
       <div
         ref={host}
         onKeyDown={onKeyDown}
+        onMouseDown={onMouseDown}
         // The empty box's height, held before the editor arrives so the page does not jump.
         style={{ minHeight: `calc(${rows} * 1.5em + 1rem + 2px)` }}
         className={cn(
@@ -254,14 +296,7 @@ const markdownStyle = HighlightStyle.define([
     borderRadius: "0.25rem",
   },
   {
-    tag: [
-      tags.heading1,
-      tags.heading2,
-      tags.heading3,
-      tags.heading4,
-      tags.heading5,
-      tags.heading6,
-    ],
+    tag: [tags.heading1, tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6],
     fontWeight: "700",
   },
   { tag: tags.processingInstruction, color: "var(--muted-foreground)" },
