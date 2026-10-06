@@ -12,7 +12,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
-import { describeRetryWait, latestAttempt, MAX_ATTEMPTS, nextAttempt } from "@/lib/checks/attempts";
+import {
+  describeAttemptGap,
+  describeRetryWait,
+  latestAttempt,
+  MAX_ATTEMPTS,
+  nextAttempt,
+} from "@/lib/checks/attempts";
 import { effectiveLevel } from "@/lib/checks/levels";
 import { formatDate, formatDateTime } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -76,8 +82,15 @@ export function CheckForUnderstanding({
       ? submit.data
       : progress;
   const attempts = current?.attempts ?? [];
-  const state = nextAttempt(attempts, check.retryWaitHours, now);
   const latest = latestAttempt(attempts);
+  /*
+    The page's clock is the moment the server rendered it, and an attempt answered since then was
+    submitted after that moment. Read against the render time, a check with no wait would call the
+    attempt the fellow just made "in the future" and hide the form until a reload, so the clock is
+    never earlier than the latest attempt.
+  */
+  const clock = latest && latest.submittedAt > now ? latest.submittedAt : now;
+  const state = nextAttempt(attempts, check.retryWaitHours, clock);
   const latestLevel = latest ? effectiveLevel(latest) : null;
 
   return (
@@ -109,7 +122,7 @@ export function CheckForUnderstanding({
           {teaches ? (
             <p className="text-sm text-muted-foreground">
               Fellows answer this here, up to {MAX_ATTEMPTS} times,{" "}
-              {describeRetryWait(check.retryWaitHours)} apart. Their attempts are on the Curriculum
+              {describeAttemptGap(check.retryWaitHours)}. Their attempts are on the Curriculum
               screen.
             </p>
           ) : (
@@ -272,8 +285,8 @@ function AnswerForm({
           {pending ? "Reviewing…" : "Submit answer"}
         </Button>
         <span className="text-xs text-muted-foreground">
-          You can try again {describeRetryWait(retryWaitHours)} after each attempt, up to{" "}
-          {MAX_ATTEMPTS} attempts in all.
+          You can try again {retryWaitHours === 0 ? "right" : describeRetryWait(retryWaitHours)}{" "}
+          after each attempt, up to {MAX_ATTEMPTS} attempts in all.
         </span>
       </div>
 

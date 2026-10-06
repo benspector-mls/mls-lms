@@ -18,9 +18,9 @@ describe("checkSpecSchema", () => {
     expect(checkSpecSchema.safeParse({ ...valid, factsExample: "" }).success).toBe(false);
   });
 
-  it("refuses a wait of nothing, and one that is not whole hours", () => {
+  it("accepts a wait of nothing, and refuses one that is not whole hours", () => {
     expect(checkSpecSchema.safeParse({ ...valid, retryWait: { days: 0, hours: 0 } }).success).toBe(
-      false,
+      true,
     );
     expect(
       checkSpecSchema.safeParse({ ...valid, retryWait: { days: 0, hours: 1.5 } }).success,

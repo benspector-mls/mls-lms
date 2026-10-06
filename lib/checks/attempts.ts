@@ -17,10 +17,11 @@
 export const MAX_ATTEMPTS = 3;
 
 /**
- * One hour, which is what a check is given unless the instructor says otherwise: long enough that a
- * second attempt is not a reflex, short enough to try again the same day after asking a question.
+ * No wait, which is what a check is given unless the instructor says otherwise: a fellow who reads
+ * the review and sees what they missed may answer again while the review is in front of them. The
+ * cap of three attempts is what keeps a fellow from answering until the review says level 3.
  */
-export const DEFAULT_RETRY_WAIT_HOURS = 1;
+export const DEFAULT_RETRY_WAIT_HOURS = 0;
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -74,6 +75,15 @@ export function retryWaitParts(hours: number): { days: number; hours: number } {
 /** Days and hours from the authoring form, as the one number the column stores. */
 export function retryWaitHoursOf(parts: { days: number; hours: number }): number {
   return parts.days * 24 + parts.hours;
+}
+
+/**
+ * "7 days apart", "with no wait between them" — how far apart attempts are, as the end of a
+ * sentence about them. A wait of zero gets its own words because "0 hours apart" reads as a
+ * mistake.
+ */
+export function describeAttemptGap(hours: number): string {
+  return hours === 0 ? "with no wait between them" : `${describeRetryWait(hours)} apart`;
 }
 
 /** "7 days", "1 day and 6 hours", "12 hours" — a wait as a fellow reads it. */

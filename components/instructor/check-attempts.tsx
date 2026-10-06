@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useServerMutation } from "@/hooks/use-server-mutation";
-import { describeRetryWait, latestAttempt, MAX_ATTEMPTS } from "@/lib/checks/attempts";
+import { describeAttemptGap, latestAttempt, MAX_ATTEMPTS } from "@/lib/checks/attempts";
 import {
   type AttemptsSort,
   type AttemptsSortColumn,
@@ -141,7 +141,7 @@ export function CheckAttempts({
         <CardContent className="flex flex-col gap-3">
           <Markdown content={check.question} />
           <p className="text-xs text-muted-foreground">
-            Up to {MAX_ATTEMPTS} attempts, {describeRetryWait(check.retryWaitHours)} apart.
+            Up to {MAX_ATTEMPTS} attempts, {describeAttemptGap(check.retryWaitHours)}.
           </p>
           <Collapsible>
             <CollapsibleTrigger className="group flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">

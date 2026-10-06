@@ -1,5 +1,6 @@
 import {
   DEFAULT_RETRY_WAIT_HOURS,
+  describeAttemptGap,
   describeRetryWait,
   latestAttempt,
   nextAttempt,
@@ -41,6 +42,16 @@ describe("nextAttempt", () => {
     expect(nextAttempt(attempts, 1, hoursAfter(1))).toEqual({ kind: "open", attempt: 2 });
   });
 
+  it("opens the next attempt the moment the last one lands when there is no wait", () => {
+    const attempts = [{ attempt: 1, submittedAt: start }];
+
+    expect(nextAttempt(attempts, 0, start)).toEqual({ kind: "open", attempt: 2 });
+    expect(nextAttempt([...attempts, { attempt: 2, submittedAt: start }], 0, start)).toEqual({
+      kind: "open",
+      attempt: 3,
+    });
+  });
+
   it("measures from the latest attempt, in whatever order the rows arrive", () => {
     const attempts = [
       { attempt: 2, submittedAt: hoursAfter(200) },
@@ -79,10 +90,10 @@ describe("latestAttempt", () => {
 
 describe("the wait between attempts", () => {
   it("round-trips between the form's days and hours and the stored hours", () => {
-    for (const hours of [1, 23, 24, 25, 168, 170, 8784]) {
+    for (const hours of [0, 1, 23, 24, 25, 168, 170, 8784]) {
       expect(retryWaitHoursOf(retryWaitParts(hours))).toBe(hours);
     }
-    expect(retryWaitParts(DEFAULT_RETRY_WAIT_HOURS)).toEqual({ days: 0, hours: 1 });
+    expect(retryWaitParts(DEFAULT_RETRY_WAIT_HOURS)).toEqual({ days: 0, hours: 0 });
   });
 
   it("reads as a fellow would say it", () => {
@@ -91,5 +102,10 @@ describe("the wait between attempts", () => {
     expect(describeRetryWait(30)).toBe("1 day and 6 hours");
     expect(describeRetryWait(1)).toBe("1 hour");
     expect(describeRetryWait(12)).toBe("12 hours");
+  });
+
+  it("says a zero wait in words rather than as 0 hours", () => {
+    expect(describeAttemptGap(0)).toBe("with no wait between them");
+    expect(describeAttemptGap(30)).toBe("1 day and 6 hours apart");
   });
 });

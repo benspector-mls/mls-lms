@@ -10,8 +10,7 @@ import { retryWaitHoursOf } from "./attempts";
  * refuses. **No `server-only` import**; nothing here touches the database or a secret.
  */
 
-const markdown = (what: string) =>
-  z.string().trim().min(1, `${what} cannot be empty.`).max(10_000);
+const markdown = (what: string) => z.string().trim().min(1, `${what} cannot be empty.`).max(10_000);
 
 /*
   `.strict()`, the same as every spec in this application. Zod's default is to strip an unknown key
@@ -38,11 +37,7 @@ export const checkSpecSchema = z
       })
       .strict(),
   })
-  .strict()
-  .refine((spec) => retryWaitHoursOf(spec.retryWait) >= 1, {
-    message: "The wait between attempts must be at least an hour.",
-    path: ["retryWait"],
-  });
+  .strict();
 
 export type CheckSpec = z.infer<typeof checkSpecSchema>;
 

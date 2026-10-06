@@ -27,12 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MarkdownEditor } from "@/components/markdown-editor";
-import {
-  DEFAULT_RETRY_WAIT_HOURS,
-  MAX_ATTEMPTS,
-  retryWaitHoursOf,
-  retryWaitParts,
-} from "@/lib/checks/attempts";
+import { DEFAULT_RETRY_WAIT_HOURS, MAX_ATTEMPTS, retryWaitParts } from "@/lib/checks/attempts";
 import type { ResourceKind } from "@/lib/generated/prisma/enums";
 import {
   IMPLEMENTED_RESOURCE_KINDS,
@@ -248,11 +243,8 @@ function ResourceForm({
   const video = kind === "VIDEO" && url.trim() !== "" ? parseVideoUrl(url) : null;
   const videoProblem = kind === "VIDEO" && url.trim() !== "" && video === null;
 
-  const waitTotal = retryWaitHoursOf({ days: waitDays, hours: waitHours });
   const checkComplete =
-    !hasCheck ||
-    ([objective, question, factsExample, exemplar].every((text) => text.trim() !== "") &&
-      waitTotal >= 1);
+    !hasCheck || [objective, question, factsExample, exemplar].every((text) => text.trim() !== "");
 
   /*
     Unticking the box on a check fellows have answered removes their attempts along with it, so the
@@ -451,7 +443,6 @@ function ResourceForm({
           onWaitDaysChange={setWaitDays}
           waitHours={waitHours}
           onWaitHoursChange={setWaitHours}
-          waitTooShort={hasCheck && waitTotal < 1}
           previewing={previewing}
           onPreviewChange={setPreviewing}
         />
@@ -577,7 +568,6 @@ function CheckSection({
   onWaitDaysChange,
   waitHours,
   onWaitHoursChange,
-  waitTooShort,
   previewing,
   onPreviewChange,
 }: {
@@ -597,7 +587,6 @@ function CheckSection({
   onWaitDaysChange: (value: number) => void;
   waitHours: number;
   onWaitHoursChange: (value: number) => void;
-  waitTooShort: boolean;
   previewing: MarkdownFieldId | null;
   onPreviewChange: (id: MarkdownFieldId | null) => void;
 }) {
@@ -694,7 +683,6 @@ function CheckSection({
                 value={waitDays}
                 onChange={(event) => onWaitDaysChange(wholeNumber(event.target.value, 365))}
                 className="w-20"
-                aria-invalid={waitTooShort || undefined}
               />
               <Label htmlFor="check-wait-days" className="font-normal">
                 days
@@ -707,20 +695,14 @@ function CheckSection({
                 value={waitHours}
                 onChange={(event) => onWaitHoursChange(wholeNumber(event.target.value, 23))}
                 className="w-20"
-                aria-invalid={waitTooShort || undefined}
               />
               <Label htmlFor="check-wait-hours" className="font-normal">
                 hours
               </Label>
             </div>
-            <p
-              className={
-                waitTooShort ? "text-xs text-destructive" : "text-xs text-muted-foreground"
-              }
-            >
-              {waitTooShort
-                ? "The wait must be at least an hour."
-                : "How long a fellow waits after one attempt before they may make the next."}
+            <p className="text-xs text-muted-foreground">
+              How long a fellow waits after one attempt before they may make the next. A wait of 0
+              days and 0 hours lets them try again right away.
             </p>
           </div>
         </>
