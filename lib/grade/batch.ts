@@ -72,13 +72,21 @@ export function planBatch(candidates: readonly BatchCandidate[]): BatchPlan {
 }
 
 /**
- * What the button says, given a plan.
+ * What the button says, given a plan, and `null` where it should not be drawn at all.
  *
  * Here rather than in the component because it is the sentence a reader acts on, it has five
  * cases, and every one of them is a decision about what is worth telling somebody. A component
  * is where this would be written as nested ternaries and never checked.
+ *
+ * **Two of the empty cases are worth drawing and one is not.** A run in flight will finish and
+ * change the screen, and an assignment graded by hand is a standing fact about the work that
+ * explains why no report is coming — an instructor who did not know either would wonder what the
+ * screen was doing. "Nothing outstanding" is the ordinary state of a queue that has been worked
+ * through, and a greyed button saying so is a control the reader has to look at, read, and
+ * dismiss on every visit to tell them what the list beneath it already shows. So that case
+ * returns `null` and the caller draws nothing.
  */
-export function batchLabel(plan: BatchPlan): string {
+export function batchLabel(plan: BatchPlan): string | null {
   const count = plan.subjects.length;
   if (count > 0) return `Generate ${count} ${count === 1 ? "report" : "reports"}`;
 
@@ -86,5 +94,5 @@ export function batchLabel(plan: BatchPlan): string {
   // so it is worth saying even when something else is also true.
   if (plan.generating > 0) return "Already generating";
   if (plan.manual > 0 && plan.settled === 0) return "Graded by hand";
-  return "Nothing to generate";
+  return null;
 }

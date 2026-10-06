@@ -147,10 +147,24 @@ export function SectionAnchor({
 }
 
 /**
- * The bar itself. Drawn only when there are at least two cards to move between, because a bar
- * with one icon offers a jump to the only place there is.
+ * The bar itself: the jumps on the left, and whatever the screen puts at the right end of the row.
+ *
+ * The jumps are drawn only where there are at least two cards to move between, because a bar with
+ * one icon offers a jump to the only place there is. The row survives without them when there are
+ * actions to hold, which is how the way into grading mode keeps one position on the screen whether
+ * or not a submission is open.
+ *
+ * **Actions are expected to be hidden below `lg`**, as the grading-mode controls are: there is no
+ * two-pane layout to enter or leave at those widths. With no jumps to draw either, everything in
+ * the row would then be invisible, so the row hides itself on the same rule its contents follow.
  */
-export function SectionNavBar({ className }: { className?: string }) {
+export function SectionNavBar({
+  className,
+  actions,
+}: {
+  className?: string;
+  actions?: React.ReactNode;
+}) {
   const entries = React.useContext(EntriesContext);
 
   /*
@@ -163,39 +177,51 @@ export function SectionNavBar({ className }: { className?: string }) {
     return () => window.removeEventListener("resize", resized);
   }, []);
 
-  if (entries.size < 2) return null;
+  const jumps = entries.size >= 2;
+  if (!jumps && !actions) return null;
 
-  const ordered = [...entries]
-    .map(([key, entry]) => ({ key, ...entry, rect: entry.element.getBoundingClientRect() }))
-    .sort((a, b) =>
-      // A pixel of tolerance, so two columns whose edges differ by rounding read as one.
-      Math.abs(a.rect.left - b.rect.left) > 1 ? a.rect.left - b.rect.left : a.rect.top - b.rect.top,
-    );
+  const ordered = !jumps
+    ? []
+    : [...entries]
+        .map(([key, entry]) => ({ key, ...entry, rect: entry.element.getBoundingClientRect() }))
+        .sort((a, b) =>
+          // A pixel of tolerance, so two columns whose edges differ by rounding read as one.
+          Math.abs(a.rect.left - b.rect.left) > 1
+            ? a.rect.left - b.rect.left
+            : a.rect.top - b.rect.top,
+        );
 
   return (
-    <nav
-      aria-label="Jump to a part of this review"
-      className={cn("flex shrink-0 items-center gap-0.5 overflow-x-auto", className)}
-    >
-      {ordered.map((entry) => (
-        <Tooltip key={entry.key}>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={entry.label}
-                onClick={() => jumpTo(entry.element)}
-              />
-            }
-          >
-            <entry.icon className={cn("size-4 text-muted-foreground", entry.iconClassName)} />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{entry.label}</TooltipContent>
-        </Tooltip>
-      ))}
-    </nav>
+    <div className={cn("flex shrink-0 items-center gap-2", !jumps && "max-lg:hidden", className)}>
+      {jumps && (
+        <nav
+          aria-label="Jump to a part of this review"
+          className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
+        >
+          {ordered.map((entry) => (
+            <Tooltip key={entry.key}>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={entry.label}
+                    onClick={() => jumpTo(entry.element)}
+                  />
+                }
+              >
+                <entry.icon className={cn("size-4 text-muted-foreground", entry.iconClassName)} />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{entry.label}</TooltipContent>
+            </Tooltip>
+          ))}
+        </nav>
+      )}
+
+      {/* The far right of the row, whichever width it is drawn at and whatever is to its left. */}
+      {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
+    </div>
   );
 }
 

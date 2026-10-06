@@ -81,20 +81,27 @@ export function BatchGenerate({
     );
   }
 
+  /*
+    Nothing to run and nothing worth saying about it, so there is no button. `batchLabel` decides
+    which of the empty cases is which — see the note on it.
+  */
+  const label = batchLabel(plan);
+  if (label === null) return null;
+
   return (
     <div className={className}>
       <Button
         variant="outline"
         size="sm"
         className="w-full"
-        // Disabled with the reason *in the label* rather than in a tooltip, because the reasons
-        // are not interchangeable: a run already in flight resolves itself, hand-graded work
-        // never had a report to generate, and everything else is simply done.
+        // Disabled with the reason *in the label* rather than in a tooltip, because the two
+        // remaining reasons are not interchangeable: a run already in flight resolves itself, and
+        // hand-graded work never had a report to generate.
         disabled={plan.subjects.length === 0}
         onClick={() => run(plan.subjects, { warmFirst })}
       >
         <Bot data-icon="inline-start" />
-        {batchLabel(plan)}
+        {label}
       </Button>
     </div>
   );

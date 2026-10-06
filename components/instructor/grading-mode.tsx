@@ -81,30 +81,45 @@ export function useGradingMode() {
   };
 }
 
-/**
- * The way in, which sits in the list it is about to put away.
- *
- * Beside the search box and the tabs, where an instructor deciding what to work on is already
- * looking. It goes with the list, which is why the way out lives on the other side of the divider.
- */
-export function GradingModeButton({
-  onEnter,
-  className,
-}: {
-  onEnter: () => void;
-  className?: string;
-}) {
+/*
+  **The way in and the way out, drawn in one place on the screen.**
+
+  Both sit at the right end of the bar above the pane, and only one of them is ever drawn, so
+  entering and leaving the mode happen under the same pointer without the eye moving. The way in
+  used to stand in the list and the way out in the bar that replaced the list, which put them a
+  column apart: an instructor who entered the mode had to find the way back somewhere else.
+
+  Only at `lg` and up, both of them. Below that width there is no second pane to put away, so the
+  layout already is what this mode produces — a button to enter it would collapse a sidebar that is
+  already collapsed, and a button to leave it would go nowhere.
+*/
+
+/** The way in: offered while the list is docked beside the pane. */
+export function GradingModeButton({ onEnter }: { onEnter: () => void }) {
   return (
-    <Button variant="outline" size="sm" onClick={onEnter} className={className}>
+    <Button variant="outline" size="sm" onClick={onEnter} className="max-lg:hidden">
       <Maximize2 data-icon="inline-start" />
       Grading mode
     </Button>
   );
 }
 
+/** The way out: offered in the same position, while the mode is on. */
+export function GradingModeExitButton({ onExit }: { onExit: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" onClick={onExit} className="max-lg:hidden">
+      <Minimize2 data-icon="inline-start" />
+      Exit
+    </Button>
+  );
+}
+
 /**
- * What is left of the list once it is gone: the way back to it, the way to either side of where
- * you are, and who is open.
+ * What is left of the list once it is gone: the way to it, the way to either side of where you
+ * are, and who is open.
+
+ * The way out of the mode is not here — it is at the right end of the bar below this one, beside
+ * where the way in stands when the list is docked. See `GradingModeExitButton`.
  *
  * **Movement follows the list as it is currently filtered.** The rows arrive in the order they
  * were drawn, so a search narrowed to one group, or the To do tab, is still in force here — Next
@@ -114,8 +129,7 @@ export function GradingModeButton({
  * replaced could not carry.
  *
  * Movement on the left, directly above where the queue list used to sit; the open row's name and
- * state on the right, because the pane below draws no header of its own. Exit is only drawn at
- * widths where a two-pane layout exists to go back to.
+ * state on the right, because the pane below draws no header of its own.
  */
 export function GradingModeBar({
   submissions,
@@ -127,7 +141,6 @@ export function GradingModeBar({
   badges,
   onSelect,
   onOpenList,
-  onExit,
   className,
 }: {
   /** Every submission in the list, in the order it is drawn, under the name to reach it by. */
@@ -161,7 +174,6 @@ export function GradingModeBar({
   onSelect: (id: string) => void;
   /** Slides the list in as a sheet over the pane. */
   onOpenList: () => void;
-  onExit: () => void;
   className?: string;
 }) {
   const at = currentId === null ? -1 : submissions.findIndex((row) => row.id === currentId);
@@ -202,16 +214,6 @@ export function GradingModeBar({
           <List data-icon="inline-start" />
           {listLabel}
           <span className="text-muted-foreground tabular-nums">({submissions.length})</span>
-        </Button>
-
-        {/*
-          With the movement, not with the name: leaving the mode is the last move of the sitting.
-          Only where the wider layout exists to go back to — below `lg` the bar and the sheet are
-          the layout, so there is nothing to exit.
-        */}
-        <Button variant="ghost" size="sm" onClick={onExit} className="max-lg:hidden">
-          <Minimize2 data-icon="inline-start" />
-          Exit
         </Button>
 
         {/*

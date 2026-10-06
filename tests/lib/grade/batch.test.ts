@@ -113,8 +113,13 @@ describe("batchLabel", () => {
   it("says why there is nothing to do", () => {
     expect(batchLabel(planBatch([candidate("generating")]))).toBe("Already generating");
     expect(batchLabel(planBatch([candidate("needs_manual_grade")]))).toBe("Graded by hand");
-    expect(batchLabel(planBatch([candidate("draft_ready")]))).toBe("Nothing to generate");
-    expect(batchLabel(planBatch([]))).toBe("Nothing to generate");
+  });
+
+  // Nothing outstanding is what a worked-through queue looks like, and the list beneath the
+  // button already shows it. Null is the instruction to draw no button at all.
+  it("says nothing where the screen is simply done", () => {
+    expect(batchLabel(planBatch([candidate("draft_ready")]))).toBeNull();
+    expect(batchLabel(planBatch([]))).toBeNull();
   });
 
   // A run in flight is the one thing that changes on its own, so it is worth saying even when
@@ -125,10 +130,11 @@ describe("batchLabel", () => {
     );
   });
 
-  // "Graded by hand" would be a lie on a screen that also holds pipeline work already done.
+  // "Graded by hand" would be a lie on a screen that also holds pipeline work already done, so
+  // the mixed screen falls through to drawing nothing.
   it("does not call a mixed screen hand-graded", () => {
-    expect(batchLabel(planBatch([candidate("needs_manual_grade"), candidate("draft_ready")]))).toBe(
-      "Nothing to generate",
-    );
+    expect(
+      batchLabel(planBatch([candidate("needs_manual_grade"), candidate("draft_ready")])),
+    ).toBeNull();
   });
 });
