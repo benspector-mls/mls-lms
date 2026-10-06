@@ -235,29 +235,60 @@ function useBreadcrumbs(
   */
   const courseLabel = (id: string) => courses.find((c) => c.id === id)?.name ?? "Course";
 
+  /*
+    A step that leads to the screen already open is drawn as plain text instead.
+
+    A course's step leads to its triage and a program's leads to its roster, and both of those are
+    screens a reader can be standing on — so on triage the course would link to triage, and on the
+    roster the program would link to the roster. Clicking such a step reloads the page and nothing
+    about the screen changes, which reads as a broken control rather than as a trail that has run
+    out of places to go. The destination is compared without its query string, because a step's
+    address is the screen and not the row selected on it.
+  */
+  const unlessHere = (href: string) => (href.split("?")[0] === pathname ? undefined : href);
+
   /**
-   * Every crumb before the view, for an instructor screen scoped to a course.
+   * Every crumb before the view, for a screen scoped to a course, on either side of the
+   * application.
    *
    * **Two steps rather than one, and this is what the program above the course changed.** The
    * trail used to begin with the course, because a course was the whole scope; a course now
    * belongs to a program, and reading "Fullstack Software Engineering" without knowing
    * which year of it leaves the same question the sidebar used to answer wrongly.
    *
-   * Both are plain text rather than links. There is no program home and no course home — the bare
-   * course address redirects to Triage — and a breadcrumb whose first step lands somewhere the
-   * reader did not name is worse than one that only says where they are.
+   * **Where each step leads, given that neither a program nor a course has a home screen.** The
+   * program leads to its roster, because the roster is the list of everybody in the program and
+   * "the program" is what a reader means when they are looking for a person in it. The course
+   * leads to its triage, which is where the bare course address already redirects — so the step
+   * lands where naming the course has always landed.
+   *
+   * **A fellow's trail keeps both as plain text.** Both addresses are an instructor's and are
+   * refused to anybody else, so a fellow following one would be turned away from a step their own
+   * breadcrumb offered them. There is nothing above a fellow's course to point at instead: the
+   * sidebar lists every course they are in, and a step leading somewhere they did not ask for
+   * would be worse than a trail that only says where they are.
    */
-  const courseTrail = (courseId: string): Crumb[] => {
+  const courseTrail = (courseId: string, instructor: boolean): Crumb[] => {
     const programId = programOfCourse(courses, courseId);
     return [
-      ...(programId ? [{ label: programLabel(programId) }] : []),
-      { label: courseLabel(courseId) },
+      ...(programId
+        ? [
+            {
+              label: programLabel(programId),
+              href: instructor ? unlessHere(rosterHref(programId)) : undefined,
+            },
+          ]
+        : []),
+      {
+        label: courseLabel(courseId),
+        href: instructor ? unlessHere(triageHref(courseId)) : undefined,
+      },
     ];
   };
 
   if (inCourse) {
     const courseId = segments[2];
-    const crumbs: Crumb[] = courseTrail(courseId);
+    const crumbs: Crumb[] = courseTrail(courseId, true);
 
     if (rest[0] === "triage") crumbs.push({ label: "Grading triage" });
     else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
@@ -290,7 +321,9 @@ function useBreadcrumbs(
   if (segments[0] === "instructor" && segments[1] === "programs" && segments[2]) {
     const programId = segments[2];
     const programRest = segments.slice(3);
-    const crumbs: Crumb[] = [{ label: programLabel(programId) }];
+    const crumbs: Crumb[] = [
+      { label: programLabel(programId), href: unlessHere(rosterHref(programId)) },
+    ];
 
     if (programRest[0] === "attendance") {
       crumbs.push({
@@ -342,12 +375,10 @@ function useBreadcrumbs(
     its term, then the course — because the question a bare course name leaves open is the same on
     both sides: a program runs every year under one name, and only the term tells two of them apart.
 
-    Both are plain text. There is no screen above a fellow's course to point at: the sidebar lists
-    every course they are in, and a first step that led somewhere they did not ask for would be
-    worse than a trail that only says where they are.
+    Neither step leads anywhere, which is what the `false` says. `courseTrail` records why.
   */
   if (segments[0] === "courses" && segments[1]) {
-    return courseTrail(segments[1]);
+    return courseTrail(segments[1], false);
   }
 
   /*
