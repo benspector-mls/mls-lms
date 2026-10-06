@@ -293,7 +293,7 @@ function PanelBody({
 
   return (
     <>
-      <PanelHeader assignment={assignment} submission={submission} />
+      <PanelHeader assignment={assignment} submission={submission} readOnly={preview || readOnly} />
 
       {/*
         Said once, above everything, because it is the one sentence that explains every greyed
@@ -476,14 +476,33 @@ function PanelBody({
 function PanelHeader({
   assignment,
   submission,
+  readOnly,
 }: {
   assignment: Assignment;
   submission: Submission | null;
+  /**
+   * True in a preview and for an instructor viewing as the fellow. Passed explicitly because the
+   * header sits outside the disabled fieldsets that make the tabs read-only.
+   */
+  readOnly: boolean;
 }) {
   const status = submission?.status ?? "NOT_STARTED";
   const graded = submission?.finalScore != null;
   const verdict = graded ? completionMeta(submission?.isComplete) : null;
   const percent = scorePercent(submission?.finalScore, submission?.finalScorePossible);
+
+  /*
+    A student who has pushed commits since their grade is asked to say when they are finished,
+    and an instructor sees them as still working until they do. At the foot of the Submission tab
+    the button was below the instructions and the attachments, where a student who opened the
+    panel to read their feedback never scrolled. Beside the status and the score, it sits next to
+    the two facts it changes.
+
+    Only on `GRADED`: `declareResubmission` refuses anything not yet graded, and on `RESUBMITTED`
+    the request has already been made.
+  */
+  const canAskForReview =
+    submission != null && status === "GRADED" && pushedSinceGrading(submission);
 
   return (
     <SheetHeader className="gap-2 border-b border-border p-4 pr-14">
@@ -579,6 +598,13 @@ function PanelHeader({
             <span className="text-muted-foreground">{assignment.pointValue} pts</span>
           )}
         </span>
+        {canAskForReview && (
+          <RequestReviewButton
+            submissionId={submission.id}
+            disabled={readOnly}
+            className="ml-auto items-end"
+          />
+        )}
       </div>
     </SheetHeader>
   );
@@ -660,11 +686,7 @@ function SubmissionTab({
   onOpenComments: () => void;
 }) {
   const status = submission?.status ?? "NOT_STARTED";
-  const revised =
-    submission != null &&
-    submission.gradedHeadSha != null &&
-    submission.headSha != null &&
-    submission.headSha !== submission.gradedHeadSha;
+  const revised = submission != null && pushedSinceGrading(submission);
 
   /*
     Graded below the threshold, which is a second attempt outstanding rather than a finished
@@ -916,9 +938,9 @@ function SubmissionTab({
             <p>
               Your feedback describes commit {shortSha(submission.gradedHeadSha)}; your repository
               is now at {shortSha(submission.headSha)}. Pushing on its own does not ask for another
-              review — say so when you are finished.
+              review — when you are finished, press <strong>Ask for another review</strong> at the
+              top of this panel, beside your score.
             </p>
-            <RequestReviewButton submissionId={submission.id} />
           </AlertDescription>
         </Alert>
       ) : needsAnotherAttempt ? (
@@ -930,8 +952,8 @@ function SubmissionTab({
 
           No button, because there is nothing yet to ask a review of: `declareResubmission` refuses
           while `headSha` still equals `gradedHeadSha`, so offering it here would hand the student
-          an error instead of a second attempt. It appears in the branch above, the moment there is
-          a commit to review.
+          an error instead of a second attempt. It appears in the panel header, the moment there
+          is a commit to review.
 
           REPO and TASK. The two link and file kinds carry their own hand-in form directly above
           this, and `handInMode` already labels it "Submit your revised work" — an alert repeating
@@ -957,8 +979,9 @@ function SubmissionTab({
             ) : (
               <>
                 Your feedback is on the tab beside this one. Push your improved work to the same
-                pull request, and an <strong>Ask for another review</strong> button will appear here
-                — your instructor sees a student still working until you press it.
+                pull request, and an <strong>Ask for another review</strong> button will appear at
+                the top of this panel, beside your score — your instructor sees a student still
+                working until you press it.
               </>
             )}
           </AlertDescription>
@@ -1595,7 +1618,15 @@ function UploadWorkForm({
  * treating every push as a request would fill the instructor's queue with work nobody
  * asked to have reviewed.
  */
-function RequestReviewButton({ submissionId }: { submissionId: string }) {
+function RequestReviewButton({
+  submissionId,
+  disabled = false,
+  className,
+}: {
+  submissionId: string;
+  disabled?: boolean;
+  className?: string;
+}) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
@@ -1604,11 +1635,10 @@ function RequestReviewButton({ submissionId }: { submissionId: string }) {
   );
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className={cn("flex flex-col items-start gap-1", className)}>
       <Button
         size="sm"
-        variant="outline"
-        disabled={declare.isPending}
+        disabled={disabled || declare.isPending}
         onClick={() => declare.mutate({ submissionId })}
       >
         {declare.isPending ? "Sending…" : "Ask for another review"}
@@ -1619,6 +1649,15 @@ function RequestReviewButton({ submissionId }: { submissionId: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+/** Whether the repository holds commits newer than the one the feedback describes. */
+function pushedSinceGrading(submission: Submission): boolean {
+  return (
+    submission.gradedHeadSha != null &&
+    submission.headSha != null &&
+    submission.headSha !== submission.gradedHeadSha
   );
 }
 
