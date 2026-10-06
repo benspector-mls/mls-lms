@@ -2001,6 +2001,8 @@ export const submissionsRouter = createTRPCRouter({
         courseId: true,
         dueAt: true,
         kind: true,
+        // So the review pane can draw the icon every other screen draws for this kind of work.
+        handInMethods: true,
         // Whether fellows may mark a task themselves. Read for the page rather than per row: it is
         // a property of the assignment, and the pane says different things about an unmarked task
         // depending on the answer.
@@ -2110,6 +2112,7 @@ export const submissionsRouter = createTRPCRouter({
           courseId: assignment.courseId,
           dueAt: assignment.dueAt,
           kind: assignment.kind,
+          handInMethods: assignment.handInMethods,
           studentMayMarkDone: assignment.studentMayMarkDone,
           manualOnly,
         },
@@ -2227,6 +2230,8 @@ export const submissionsRouter = createTRPCRouter({
           id: true,
           title: true,
           kind: true,
+          // So the review pane can draw the icon every other screen draws for this kind of work.
+          handInMethods: true,
           dueAt: true,
           pointValue: true,
           completionThreshold: true,

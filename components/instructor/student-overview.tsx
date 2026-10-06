@@ -480,6 +480,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 assignmentId={selected.assignment.id}
                 assignmentDueAt={selected.assignment.dueAt}
                 assignmentKind={selected.assignment.kind}
+                assignmentHandInMethods={selected.assignment.handInMethods}
                 // Per row here, where the queue reads it once for the page: every row on this
                 // screen is a different assignment, and the threshold is what decides whether a
                 // score passes.

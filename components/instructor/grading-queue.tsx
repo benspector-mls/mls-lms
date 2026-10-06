@@ -732,6 +732,7 @@ export function GradingQueue({
                 // Read here rather than by the review pane, which would have to wait on its
                 // own request to find out whether this assignment can have tests at all.
                 assignmentKind={data.assignment.kind}
+                assignmentHandInMethods={data.assignment.handInMethods}
                 completionThreshold={completionThreshold}
                 now={now}
                 onApproved={advanceAfterApproval}

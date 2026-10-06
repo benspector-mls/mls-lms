@@ -26,6 +26,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { PrDiffPanel } from "@/components/instructor/pr-diff-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -53,6 +54,8 @@ export function DiffPanel({
   prUrl: string | null;
   prNumber: number | null;
 }) {
+  const anchor = useSectionAnchor({ label: "Changed files", icon: FileDiff });
+
   if (loading) return <Skeleton className="h-20 w-full" />;
 
   const pullRequestLink = prUrl ? (
@@ -69,7 +72,7 @@ export function DiffPanel({
   ) : null;
 
   return (
-    <Card>
+    <Card ref={anchor}>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -140,11 +143,13 @@ export function TestEvidence({
     ),
   );
 
+  const anchor = useSectionAnchor({ label: "Test evidence", icon: FlaskConical });
+
   if (loading) return <Skeleton className="h-20 w-full" />;
   if (!runs) return null;
 
   return (
-    <Card>
+    <Card ref={anchor}>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base">

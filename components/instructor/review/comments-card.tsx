@@ -8,6 +8,7 @@ import { CommentThread } from "@/components/comments/comment-thread";
 import { ResolveQuestionButton } from "@/components/comments/resolve-button";
 import type { Thread } from "@/components/comments/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 
 /**
  * The conversation about one fellow's work.
@@ -41,9 +42,10 @@ export function CommentsCard({
   const [announcement, setAnnouncement] = React.useState("");
 
   const count = thread?.comments.length ?? 0;
+  const anchor = useSectionAnchor({ label: "Conversation", icon: MessagesSquare });
 
   return (
-    <Card id={`comments-${studentId}`}>
+    <Card ref={anchor} id={`comments-${studentId}`}>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">

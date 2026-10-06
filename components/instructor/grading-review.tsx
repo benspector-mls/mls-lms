@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FolderGit2,
   GitPullRequest,
+  ListChecks,
   Loader2,
   RotateCcw,
   Users,
@@ -20,6 +21,8 @@ import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import type { HandInShape } from "@/lib/assignments/spec";
+import { kindIconFor } from "@/components/status-badge";
 import { lateness } from "@/lib/submissions/hand-in";
 import { useTRPC } from "@/trpc/client";
 import { CommentsCard } from "@/components/instructor/review/comments-card";
@@ -34,12 +37,18 @@ import {
   StateCard,
 } from "@/components/instructor/review/shared";
 import { DiffPanel, TestEvidence } from "@/components/instructor/review/work-panels";
+import {
+  SectionAnchor,
+  SectionNavBar,
+  SectionNavProvider,
+} from "@/components/instructor/review/section-nav";
 import { displayNameOf } from "@/lib/people";
 export function GradingReview({
   submission,
   assignmentId,
   assignmentDueAt,
   assignmentKind,
+  assignmentHandInMethods,
   completionThreshold,
   studentHref,
   now,
@@ -70,6 +79,12 @@ export function GradingReview({
    * have to decide about it rather than a union two files disagree about.
    */
   assignmentKind: AssignmentKind;
+  /**
+   * How this assignment is handed in, which with the kind decides the icon the attachments carry in
+   * the navigation bar. The same pair `AssignmentKindIcon` reads everywhere else, so the bar shows
+   * the picture an instructor already learned for this kind of work.
+   */
+  assignmentHandInMethods: HandInShape["handInMethods"];
   completionThreshold: number;
   /**
    * Where this student's own record lives, if there is somewhere to go.
@@ -301,7 +316,13 @@ export function GradingReview({
   */
   const work =
     attachments.length > 0 ? (
-      <div className="flex flex-col gap-3">{attachments}</div>
+      <SectionAnchor
+        label="What the student handed in"
+        icon={kindIconFor({ kind: assignmentKind, handInMethods: assignmentHandInMethods })}
+        className="flex flex-col gap-3"
+      >
+        {attachments}
+      </SectionAnchor>
     ) : diffAside ? (
       <DiffPanel
         diff={diff.data}
@@ -357,9 +378,21 @@ export function GradingReview({
   const aside = (
     <>
       {work}
-      {rubricSections.map((section) => (
-        <RubricBreakdown key={section.id} section={section} />
-      ))}
+      {/*
+          One entry in the bar for all the rubric cards, because each carries the same icon and a
+          row of identical icons would not say which was which.
+        */}
+      {rubricSections.length > 0 && (
+        <SectionAnchor
+          label="How this score was reached"
+          icon={ListChecks}
+          className="flex flex-col gap-5"
+        >
+          {rubricSections.map((section) => (
+            <RubricBreakdown key={section.id} section={section} />
+          ))}
+        </SectionAnchor>
+      )}
       {testEvidence}
     </>
   );
@@ -374,8 +407,15 @@ export function GradingReview({
     the work.
   */
   return (
-    <div className="flex h-full flex-col">
-      {/*
+    <SectionNavProvider>
+      <div className="flex h-full flex-col">
+        {/*
+          One icon per card below, in the order the cards sit on the screen, each a jump to that
+          card. Outside the box that scrolls, so it is on the screen whatever has been scrolled to
+          and never covers the top of a card it has just scrolled to.
+        */}
+        <SectionNavBar className="border-b border-border px-4 py-1.5" />
+        {/*
           `@container`, so the two columns below turn on at a width of this pane rather than of the
           window. It is the pane that has to hold them, and what is left of the window after the
           360px queue list and the application sidebar is not something the window knows.
@@ -388,7 +428,7 @@ export function GradingReview({
           needs, and which split leaves with nothing to scroll because its one child is then
           exactly as tall as it is.
         */}
-      {/*
+        {/*
           `relative` on this scroller and on the two column scrollers below, because `sr-only`
           content is `position: absolute` and an absolute box is clipped only by ancestors on the
           way to its containing block. Without a positioned ancestor down here, the comment
@@ -398,8 +438,8 @@ export function GradingReview({
           scroller is the containing block, and the invisible box scrolls and clips with the
           content it belongs to.
         */}
-      <div className="@container relative flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
-        {/*
+        <div className="@container relative flex min-h-0 flex-1 flex-col overflow-y-auto scroll-pt-5 px-5 py-5">
+          {/*
             One column until there is both something to put beside the grade and the room to put it
             there, and two after that.
 
@@ -448,8 +488,8 @@ export function GradingReview({
             is clipped away, leaving cards with their sides and top missing. The padding is what
             keeps the outline inside the box that clips it.
           */}
-        <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-0">
-          {/*
+          <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-0">
+            {/*
               Stacked, the work reads last: an instructor on a narrow pane reads the feedback the
               student will read, then the conversation, then scrolls to what the grade is about.
               Split, it is the left column. `order-last` and its undoing at the breakpoint are what
@@ -458,75 +498,76 @@ export function GradingReview({
               Its own scroll, so a diff and the working beneath it can be read to the end without
               the report leaving the screen. The padding is there for the cards' outlines.
             */}
-          <div className="relative order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:p-1">
-            <div className="flex min-w-0 flex-col gap-5">{aside}</div>
-          </div>
+            <div className="relative order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:scroll-pt-1 @4xl:overflow-y-auto @4xl:p-1">
+              <div className="flex min-w-0 flex-col gap-5">{aside}</div>
+            </div>
 
-          <GradeColumnHandle column={gradeColumn} />
+            <GradeColumnHandle column={gradeColumn} />
 
-          {/*
+            {/*
             The width is a custom property rather than a class, because a drag rewrites it on every
             pointer move and does so directly on this element: a React render per move would
             re-render the editor beneath the pointer sixty times a second.
           */}
-          <div
-            ref={gradeColumn}
-            style={{ "--grade-w": gradeColumnWidth(gradeWidth) } as React.CSSProperties}
-            className="relative min-w-0 @4xl:min-h-0 @4xl:w-(--grade-w) @4xl:shrink-0 @4xl:overflow-y-auto @4xl:p-1"
-          >
-            <div className="flex min-w-0 flex-col gap-5">
-              {/*
+            <div
+              ref={gradeColumn}
+              style={{ "--grade-w": gradeColumnWidth(gradeWidth) } as React.CSSProperties}
+              className="relative min-w-0 @4xl:min-h-0 @4xl:w-(--grade-w) @4xl:shrink-0 @4xl:scroll-pt-1 @4xl:overflow-y-auto @4xl:p-1"
+            >
+              <div className="flex min-w-0 flex-col gap-5">
+                {/*
                   The team is named at the head of the grade column rather than over the work,
                   because who is on the team is a fact about where the release goes — the same
                   reason the release dialog spells the members out — and the work column is the
                   same work whoever it is released to.
                 */}
-              {submission.team && (
-                <TeamLine
-                  team={submission.team}
-                  studentId={submission.student.id}
-                  studentHref={studentHref}
-                />
-              )}
+                {submission.team && (
+                  <TeamLine
+                    team={submission.team}
+                    studentId={submission.student.id}
+                    studentHref={studentHref}
+                  />
+                )}
 
-              <CommentRecoveryNotice submission={submission} grade={data.grade} />
+                <CommentRecoveryNotice submission={submission} grade={data.grade} />
 
-              {/*
+                {/*
                 No key on the round, deliberately. A hand-graded round coming into being, or a
                 refetch of the same round, must not remount the editor under the instructor's
                 hands — the editor itself decides when a *different* round means starting over.
               */}
-              <DraftBody
-                submission={submission}
-                completionThreshold={completionThreshold}
-                draft={draft}
-                data={data}
-                onApproved={onApproved}
-                release={release}
-                releasing={releasing}
-              />
+                <DraftBody
+                  submission={submission}
+                  completionThreshold={completionThreshold}
+                  draft={draft}
+                  data={data}
+                  onApproved={onApproved}
+                  release={release}
+                  releasing={releasing}
+                />
 
-              {previous.length > 0 && <DraftHistory drafts={previous} now={now} />}
+                {previous.length > 0 && <DraftHistory drafts={previous} now={now} />}
 
-              {/*
+                {/*
                   Last in the column of things said to this fellow — after the report and the
                   rounds that came before it, which is the order they happened in.
                 */}
-              <CommentsCard
-                assignmentId={assignmentId}
-                studentId={submission.student.id}
-                studentName={displayNameOf(submission.student, "this fellow")}
-                thread={comments.data}
-                loading={comments.isPending}
-                error={comments.isError}
-                onRetry={() => void comments.refetch()}
-                now={now}
-              />
+                <CommentsCard
+                  assignmentId={assignmentId}
+                  studentId={submission.student.id}
+                  studentName={displayNameOf(submission.student, "this fellow")}
+                  thread={comments.data}
+                  loading={comments.isPending}
+                  error={comments.isError}
+                  onRetry={() => void comments.refetch()}
+                  now={now}
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </SectionNavProvider>
   );
 }
 

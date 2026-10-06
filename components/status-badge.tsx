@@ -349,7 +349,7 @@ function KindIcon({
  * answers. `Files` is the either case — two sheets, one behind the other, reading as "more than
  * one form of the same thing" where `Upload` and `LinkIcon` each name exactly one.
  */
-function kindIconFor(assignment: HandInShape): React.ElementType {
+export function kindIconFor(assignment: HandInShape): React.ElementType {
   switch (assignment.kind) {
     case "REPO":
       return Code;

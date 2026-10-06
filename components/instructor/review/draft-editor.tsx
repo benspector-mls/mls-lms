@@ -15,7 +15,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
-import { AlertTriangle, CheckCircle2, Loader2, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, PenLine, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import type { ReleaseGrade } from "@/hooks/use-release-grade";
@@ -27,6 +27,7 @@ import { completionMeta, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import { SectionEditor } from "@/components/instructor/review/section-editor";
+import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 import {
   Draft,
   QueueSubmission,
@@ -176,6 +177,14 @@ export function DraftEditor({
     document, a section not attempted — is a grade an instructor is entitled to give, and the
     approval guard has always been willing to record it. It was never reaching the server.
   */
+  /*
+    One entry in the bar for the whole form rather than one per section, because the sections'
+    cards all carry the same icon and a row of identical icons would not say which was which.
+    "Not yet released" is what is true of every report this editor holds — a hand grade being
+    written, a generated report being read, or a correction to a released one.
+  */
+  const anchor = useSectionAnchor({ label: "Report not yet released", icon: PenLine });
+
   const [scores, setScores] = React.useState<Record<string, number | null>>(() =>
     scoresOf(savedOf(rows, blueprint)),
   );
@@ -642,7 +651,7 @@ export function DraftEditor({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={anchor} className="flex flex-col gap-4">
       {openFailure && (
         <Alert variant="destructive">
           <AlertTriangle />

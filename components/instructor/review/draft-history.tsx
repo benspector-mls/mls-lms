@@ -9,6 +9,7 @@
 
 import { ChevronDown, History } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 import { formatRelative, shortSha } from "@/lib/status";
 import { ReleasedSection } from "@/components/instructor/review/draft-body";
 import { Draft, effectiveScore } from "@/components/instructor/review/shared";
@@ -26,8 +27,10 @@ import { Draft, effectiveScore } from "@/components/instructor/review/shared";
  * given.
  */
 export function DraftHistory({ drafts, now }: { drafts: Draft[]; now: Date }) {
+  const anchor = useSectionAnchor({ label: "Previous feedback", icon: History });
+
   return (
-    <Collapsible className="rounded-lg border border-border bg-card">
+    <Collapsible ref={anchor} className="rounded-lg border border-border bg-card">
       <CollapsibleTrigger className="group flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium">
         <span className="flex items-center gap-2">
           <History className="size-4 text-muted-foreground" />
