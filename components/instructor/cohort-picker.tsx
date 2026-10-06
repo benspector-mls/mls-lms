@@ -147,7 +147,13 @@ export function CohortPicker({
         )}
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      {/*
+        Under the trigger, not over it, as the program switcher does. The default positioning puts
+        the selected row on top of the trigger, so choosing a cohort low in the list pushes All
+        fellows and the cohorts above it past the top of the window, where an instructor cannot
+        reach them. Anchoring the popup below the trigger starts the list at its first row.
+      */}
+      <SelectContent alignItemWithTrigger={false} align="start">
         {/*
           First, and not a cohort. Every screen's default is the whole roster, which is what makes
           "no fellow is hidden unless somebody chose to hide them" true.

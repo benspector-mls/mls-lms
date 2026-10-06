@@ -7,6 +7,7 @@ import { ProgramStudentPicker } from "@/components/instructor/program-student-pi
 import { RenameStudent } from "@/components/instructor/rename-student";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
 import { Trends } from "@/components/instructor/trends";
+import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { coachingSessionHref, studentHref } from "@/lib/links";
 import { formatDate } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -131,13 +132,21 @@ export function ProgramStudent({
           somebody sent, and reading a term's fellows one after another otherwise means going back
           to the roster between every one.
         */}
-        <ProgramStudentPicker
-          programId={data.program.id}
-          studentId={data.student.id}
-          studentName={name}
-          fellows={fellows}
-          className="w-full sm:w-56"
-        />
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          {/*
+            The same entry into a fellow's view the roster row offers, so somebody reading a record
+            does not have to go back to the roster to see what the fellow sees. Hidden for a removed
+            fellow, as it is on the roster.
+          */}
+          {!removed && <ViewAsButton studentId={data.student.id} programId={data.program.id} />}
+          <ProgramStudentPicker
+            programId={data.program.id}
+            studentId={data.student.id}
+            studentName={name}
+            fellows={fellows}
+            className="min-w-0 flex-1 sm:w-56 sm:flex-none"
+          />
+        </div>
       </section>
 
       {/*

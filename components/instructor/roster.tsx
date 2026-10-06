@@ -9,7 +9,6 @@ import {
   Check,
   ChevronsUpDown,
   Copy,
-  Eye,
   FlaskConical,
   GitBranch,
   RotateCcw,
@@ -23,6 +22,7 @@ import { useServerMutation } from "@/hooks/use-server-mutation";
 import { EmptyState } from "@/components/list-states";
 import { RemoveTestStudentDialog } from "@/components/instructor/remove-test-student-dialog";
 import { TestStudentDialog } from "@/components/instructor/test-student-dialog";
+import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -505,27 +505,12 @@ function RosterTable({
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
-                    {/*
-                      A form rather than a button with an onClick, because entering the view is a
-                      cookie and a full navigation — see `app/api/view-as/route.ts`. Offered to
-                      every instructor for every active fellow: whoever can open this roster
-                      instructs the program, and the server decides whether the view is read-only,
-                      which it is for everybody but an admin looking through a test student. Only
-                      for an active enrollment: looking through somebody removed from this program
-                      would show courses they cannot act in.
-                    */}
                     {!removed && (
-                      <form method="post" action="/api/view-as">
-                        <input type="hidden" name="studentId" value={enrollment.student.id} />
-                        {/* Where to come back to. A test student can be on several rosters, so
-                            leaving cannot work this out later — this is the one moment that knows
-                            which one is being checked. */}
-                        <input type="hidden" name="programId" value={programId} />
-                        <Button size="sm" variant="ghost" type="submit" disabled={busy}>
-                          <Eye data-icon="inline-start" />
-                          View as
-                        </Button>
-                      </form>
+                      <ViewAsButton
+                        studentId={enrollment.student.id}
+                        programId={programId}
+                        disabled={busy}
+                      />
                     )}
 
                     {removed ? (
