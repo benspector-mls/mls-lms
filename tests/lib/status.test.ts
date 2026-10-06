@@ -10,6 +10,7 @@ import {
   flagMeta,
   formatDueDate,
   formatDueDateShort,
+  formatDueDayNumeric,
   formatDuration,
   formatPercent,
   formatRelative,
@@ -588,6 +589,32 @@ describe("formatDueDateShort", () => {
   it("has an em dash for no deadline", () => {
     expect(formatDueDateShort(null)).toBe("—");
     expect(formatDueDateShort(undefined)).toBe("—");
+  });
+});
+
+describe("formatDueDayNumeric", () => {
+  it("names the day in digits, with the year and without the time", () => {
+    // The same instant the two above render as "Friday, Oct 9 at 11:59 PM" and "Oct 9, 11:59 PM".
+    // This is the form that fits a button beside other buttons on one line.
+    expect(formatDueDayNumeric(new Date("2026-10-10T03:59:00Z"))).toBe("10/9/26");
+  });
+
+  it("reads the same either side of the clocks changing", () => {
+    // Eastern Daylight Time, then Eastern Standard Time: a different offset from UTC, the same
+    // deadline in Brooklyn.
+    expect(formatDueDayNumeric(new Date("2026-10-02T03:59:00Z"))).toBe("10/1/26");
+    expect(formatDueDayNumeric(new Date("2026-12-04T04:59:00Z"))).toBe("12/3/26");
+  });
+
+  it("keeps a midnight deadline on the day it belongs to", () => {
+    // 04:00Z is exactly midnight in New York, which is the tenth rather than the ninth — and this
+    // formatter drops the time, so the day it files the deadline under is all the reader gets.
+    expect(formatDueDayNumeric(new Date("2026-10-10T04:00:00Z"))).toBe("10/10/26");
+  });
+
+  it("has an em dash for no deadline", () => {
+    expect(formatDueDayNumeric(null)).toBe("—");
+    expect(formatDueDayNumeric(undefined)).toBe("—");
   });
 });
 

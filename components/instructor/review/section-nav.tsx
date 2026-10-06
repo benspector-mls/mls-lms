@@ -157,6 +157,14 @@ export function SectionAnchor({
  * The row is drawn whenever it holds either, and some of what it holds decides its own width:
  * the grading-mode controls draw nothing below `lg`, where there is no two-pane layout to enter or
  * leave, while the way to agree a deadline is offered at every width.
+ *
+ * **`@container`, so what is in the row measures itself against the row.** How much room a control
+ * here has is not a question the window can answer: the pane loses 360px to the docked list and
+ * takes it back when grading mode puts the list away, so the same window gives this row two very
+ * different widths. A control that has a long form and a short one asks the row which it has room
+ * for. **Nothing on the row element itself may carry an `@` class**, because an element cannot
+ * answer its own container query — such a class would ask about the nearest container *above* this
+ * one and silently never apply.
  */
 export function SectionNavBar({
   className,
@@ -192,7 +200,7 @@ export function SectionNavBar({
         );
 
   return (
-    <div className={cn("flex shrink-0 items-center gap-2", className)}>
+    <div className={cn("@container flex shrink-0 items-center gap-2", className)}>
       {jumps && (
         <nav
           aria-label="Jump to a part of this review"

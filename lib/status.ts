@@ -795,6 +795,31 @@ export function formatDueDate(d: Date | null | undefined): string {
 }
 
 /**
+ * The same deadline where there is room for almost nothing. "10/9/26".
+ *
+ * **Numbers and no time, which is what the narrow case can afford.** This goes in a control whose
+ * words have to fit beside other controls on one line — the agreed deadline on the review pane's
+ * toolbar — and at that width the choice is between the day in digits and no date at all. The day
+ * is the part of a deadline somebody acts on, so it is the part that survives.
+ *
+ * **The year is here although the two formatters above drop it**, and for the same reason they
+ * drop it: a reader works out what they are looking at from the shape of what they are shown.
+ * "Oct 9" reads as a date in the term being taught. "10/9" reads as an incomplete number, and
+ * telling the ninth of October from the tenth of September is exactly the ambiguity digits
+ * introduce — so the year closes the shape.
+ */
+export function formatDueDayNumeric(d: Date | null | undefined): string {
+  if (!d) return "—";
+
+  return d.toLocaleDateString("en-US", {
+    timeZone: SCHOOL_TIME_ZONE,
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+  });
+}
+
+/**
  * The same deadline in a list column. "Oct 9, 11:59 PM".
  *
  * **The time is here because an instructor sets one.** A due date carries a time of day chosen in

@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import { END_OF_DAY, instantAtSchoolClock, schoolDayOf, type SchoolDay } from "@/lib/school-time";
-import { formatDueDateShort } from "@/lib/status";
+import { formatDueDayNumeric, formatDueDateShort } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
 
 /**
@@ -115,9 +115,24 @@ export function ExtensionButton({
         render={
           <Button type="button" variant={extendedDueAt ? "secondary" : "outline"} size="sm">
             <CalendarClock data-icon="inline-start" />
-            {extendedDueAt
-              ? `Extended until ${formatDueDateShort(extendedDueAt)}`
-              : "Grant extension"}
+            {/*
+              Two labels for one agreed deadline, and the row decides which of them there is room
+              for — it is the container these measure against, and it is narrowest when the list is
+              docked beside the pane.
+
+              Hidden with `hidden`, which is `display: none`, so the one that is not shown is not
+              read out either. A screen reader meets one label rather than the same deadline twice.
+            */}
+            {extendedDueAt ? (
+              <>
+                <span className="@2xl:hidden">Extended: {formatDueDayNumeric(extendedDueAt)}</span>
+                <span className="hidden @2xl:inline">
+                  Extended until {formatDueDateShort(extendedDueAt)}
+                </span>
+              </>
+            ) : (
+              "Grant extension"
+            )}
           </Button>
         }
       />
