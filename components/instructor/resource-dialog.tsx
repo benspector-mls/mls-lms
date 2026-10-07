@@ -131,9 +131,23 @@ export function ResourceDialog({
     A failed read is said rather than shown as an empty module picker, which would read as "this
     course has no modules" — a claim this dialog is in no position to make, and one whose obvious
     next move is to go and create a module that already exists.
+
+    Escape does not close the dialog. The markdown boxes use Escape followed by Tab as the way out
+    of the box to the next field, and an instructor who pressed Escape for that reason would see
+    the dialog vanish with everything typed into it. Cancel, the close button, and a click outside
+    still close it.
   */
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next, details) => {
+        if (!next && details.reason === "escape-key") {
+          details.cancel();
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{resource ? "Edit resource" : "Add a resource"}</DialogTitle>
