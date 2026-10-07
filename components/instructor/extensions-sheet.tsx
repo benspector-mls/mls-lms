@@ -333,7 +333,7 @@ function SheetBody({ data, assignmentId }: { data: Data; assignmentId: string })
         >
           {selected.size === 0
             ? `Select ${data.grantedTo === "team" ? "teams" : "fellows"}`
-            : `Give ${selected.size} ${selected.size === 1 ? noun : `${noun}s`} until this`}
+            : `Give ${selected.size} ${selected.size === 1 ? noun : `${noun}s`} this extension`}
         </Button>
       </SheetFooter>
     </div>
