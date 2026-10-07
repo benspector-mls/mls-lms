@@ -1,6 +1,6 @@
 import { addressBlock, buildSystemPrompt, buildUserPrompt } from "@/lib/grade/prompts";
 import type { GradingAssets } from "@/lib/grade/assets";
-import type { SubmissionContext } from "@/lib/grade/prompts";
+import type { PreviousReview, SubmissionContext } from "@/lib/grade/prompts";
 
 /**
  * Who a report is written to.
@@ -33,6 +33,7 @@ const context = (over: Partial<SubmissionContext> = {}): SubmissionContext => ({
   testResults: null,
   tamperedPaths: [],
   headBranch: "draft",
+  previousReview: null,
   ...over,
 });
 
@@ -152,6 +153,19 @@ describe("the cache boundary", () => {
     expect(buildSystemPrompt({ sectionType: "coding_algorithm", assets })).toBe(system);
   });
 
+  it("holds the resubmission rules for every submission, so they never vary the prefix", () => {
+    expect(system).toContain("## Resubmissions");
+    expect(system).not.toContain("Review 1");
+  });
+
+  it("puts the previous review in the user half, under its own heading", () => {
+    const user = buildUserPrompt({ assets, context: context({ previousReview: review() }) });
+    // After the section's point value, so it is plainly past the cacheable prefix.
+    expect(user.indexOf("## Previous review")).toBeGreaterThan(
+      user.indexOf("This section is out of"),
+    );
+  });
+
   it("puts the whole address block in the user half instead", () => {
     const user = buildUserPrompt({
       assets,
@@ -165,5 +179,87 @@ describe("the cache boundary", () => {
     expect(user).toContain('working as "Team 3"');
     // Before the section's point value, so the prefix boundary is visibly unchanged.
     expect(user.indexOf("@ada")).toBeLessThan(user.indexOf("This section is out of"));
+  });
+});
+
+const review = (over: Partial<PreviousReview> = {}): PreviousReview => ({
+  number: 1,
+  headSha: "a1b2c3d4e5f6",
+  reportMarkdown: "# Short Response Score Report\n\n## Question 1: 2/3\n\n- Name the base case.",
+  scoreEarned: 7,
+  scorePossible: 10,
+  changes: [{ path: "short-response.md", kind: "modified", patch: "@@ -1,1 +1,1 @@\n-old\n+new" }],
+  ...over,
+});
+
+/**
+ * What a resubmission's prompt tells the model about the review the student already has.
+ *
+ * Without this block the model writing a second report does not know a first exists: it
+ * re-explains what the student fixed and can move the score on work nobody touched.
+ */
+describe("the previous review block", () => {
+  const user = (over: Partial<PreviousReview> = {}) =>
+    buildUserPrompt({ assets, context: context({ previousReview: review(over) }) });
+
+  it("is absent for a first submission", () => {
+    expect(buildUserPrompt({ assets, context: context() })).not.toContain("## Previous review");
+  });
+
+  it("names the round as the student saw it and the commit it described", () => {
+    const text = user();
+    expect(text).toContain("already received Review 1 of this section");
+    expect(text).toContain("written against commit a1b2c3d");
+  });
+
+  it("reproduces the previous report and its score", () => {
+    const text = user();
+    expect(text).toContain("it scored 7 out of 10");
+    expect(text).toContain("- Name the base case.");
+  });
+
+  it("sits after the student's files and before the test results", () => {
+    const text = user();
+    expect(text.indexOf("## The student's submission")).toBeLessThan(
+      text.indexOf("## Previous review"),
+    );
+    expect(text.indexOf("## Previous review")).toBeLessThan(
+      text.indexOf("## Verified test results"),
+    );
+  });
+
+  it("includes each changed file's diff", () => {
+    const text = user();
+    expect(text).toContain("#### short-response.md (modified)");
+    expect(text).toContain("+new");
+  });
+
+  it("fences the previous report so a code fence inside it cannot close the quote", () => {
+    const text = user({ reportMarkdown: "Use this:\n\n```js\nreturn n;\n```\n\nThen test it." });
+    expect(text).toContain("````markdown\nUse this:");
+    expect(text).toContain("Then test it.\n````");
+  });
+
+  it("says the student changed nothing rather than omitting the diff", () => {
+    expect(user({ changes: [] })).toContain("has changed none of this section's files");
+  });
+
+  it("says so when there was no earlier commit to compare against", () => {
+    const text = user({ headSha: null, changes: null });
+    expect(text).toContain("written before this pull request existed");
+    expect(text).not.toContain("written against commit");
+  });
+
+  it("says so when the changes could not be fetched", () => {
+    expect(user({ changes: null })).toContain(
+      "The changes since commit a1b2c3d could not be fetched",
+    );
+  });
+
+  it("truncates a long patch rather than sending all of it", () => {
+    const patch = `@@ -1,1 +1,1 @@\n+${"x".repeat(40_000)}`;
+    const text = user({ changes: [{ path: "short-response.md", kind: "modified", patch }] });
+    expect(text).toContain("truncated at 30000 characters");
+    expect(text).not.toContain("x".repeat(31_000));
   });
 });

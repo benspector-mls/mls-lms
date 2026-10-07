@@ -118,7 +118,10 @@ function parseExpected(markdown: string): ExpectedScores {
   );
   const total =
     technical && writing
-      ? { earned: technical.earned + writing.earned, possible: technical.possible + writing.possible }
+      ? {
+          earned: technical.earned + writing.earned,
+          possible: technical.possible + writing.possible,
+        }
       : null;
 
   return {
@@ -259,6 +262,8 @@ async function main() {
           testResults: null,
           tamperedPaths: [],
           headBranch: null,
+          // Every calibration sample is a first submission.
+          previousReview: null,
         },
       }),
     });

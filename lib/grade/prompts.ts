@@ -140,6 +140,34 @@ when you have nothing to raise.
 A note here does not by itself send the draft to an instructor. If you could not
 assess the work, set \`confidence\` to \`"low"\` as well.
 
+## Resubmissions
+
+When the submission below contains a heading "## Previous review", the student has
+already received a report on an earlier version of this work and has read it, and yours
+is the next report in that series. Four rules apply, and none of them applies where that
+heading is absent.
+
+1. **Open with what changed.** Directly beneath the report title, before the first \`##\`
+   heading, write one short paragraph — three sentences at most — saying what the student
+   changed since the previous review and what that review asked for that is still
+   missing. Do not give this paragraph a heading of its own. Every heading after it
+   follows the sample verbatim, as always.
+2. **Grade the whole work as it stands.** The score describes the work in the submission
+   section, not the size of the improvement. A student who fixed everything earns what the
+   fixed work earns, and a student who changed nothing earns what they earned before.
+3. **An item the changes did not touch keeps its previous score.** The previous review
+   was approved by an instructor and read by the student, so moving the score on work
+   that has not changed needs a reason an instructor can check. Where you believe the
+   earlier score was wrong, change it and say so in \`instructorNotes\`, naming the item,
+   the old score, and the reason. Reading the same work differently is not a reason on
+   its own.
+4. **Do not re-explain a problem the student has fixed.** Acknowledge the fix in a clause
+   or a single line under the item, not a paragraph; the explanation was already given.
+   Spend the words on what is still wrong and on anything new the changes introduced.
+
+The previous review is context for you. Do not grade it, and do not quote it back at
+length.
+
 ## Do not include a "Recommended Resources" section
 
 The curriculum link index this would need does not exist yet, and invented
@@ -322,17 +350,139 @@ export type SubmissionContext = {
   tamperedPaths: { path: string; kind: string }[];
   /** The branch the pull request was opened from, for the submission process note. */
   headBranch: string | null;
+  /**
+   * The review of this section the student last received, or null on a first submission and on
+   * a regeneration at the commit that review already described.
+   *
+   * Without it, a resubmission is graded by a model that does not know a first report exists: it
+   * re-explains problems the student already fixed, can move the score on work nobody touched,
+   * and cannot say which of the earlier requests are still open.
+   */
+  previousReview: PreviousReview | null;
+};
+
+export type PreviousReview = {
+  /** The round's number as the student sees it on their Feedback tab: 1 for "Review 1". */
+  number: number;
+  /** The commit that round graded; null for a round written before the pull request existed. */
+  headSha: string | null;
+  /** What the student was sent: the instructor's edit where there is one, else the model's. */
+  reportMarkdown: string | null;
+  scoreEarned: number | null;
+  scorePossible: number | null;
+  /**
+   * This section's files changed since `headSha`, or null when there was no commit to compare
+   * from or GitHub could not compare the two.
+   */
+  changes: { path: string; kind: string; patch: string | null }[] | null;
 };
 
 /** Truncated per file. A minified bundle would otherwise dominate the prompt. */
 const MAX_FILE_CHARS = 30_000;
 
+function truncate(content: string): string {
+  return content.length > MAX_FILE_CHARS
+    ? `${content.slice(0, MAX_FILE_CHARS)}\n… truncated at ${MAX_FILE_CHARS} characters`
+    : content;
+}
+
 function fence(path: string, content: string): string {
-  const truncated =
-    content.length > MAX_FILE_CHARS
-      ? `${content.slice(0, MAX_FILE_CHARS)}\n… truncated at ${MAX_FILE_CHARS} characters`
-      : content;
-  return [`### ${path}`, "", "```", truncated, "```", ""].join("\n");
+  return [`### ${path}`, "", "```", truncate(content), "```", ""].join("\n");
+}
+
+/**
+ * A code fence that the content cannot close: one backtick longer than the longest run of
+ * backticks inside it, and never shorter than three.
+ *
+ * A previous report routinely contains code fences of its own, and so does a diff of a markdown
+ * file. Wrapped in three backticks, the first one inside would close the wrapper and leave the
+ * rest to read as part of this prompt rather than as quoted material.
+ */
+function safeFence(content: string): string {
+  const longestRun = Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length));
+  return "`".repeat(Math.max(3, longestRun + 1));
+}
+
+/** The "Previous review" block of a resubmission's prompt, as lines. */
+function previousReviewBlock(review: PreviousReview): string[] {
+  const name = `Review ${review.number}`;
+  const commit = review.headSha ? `, written against commit ${review.headSha.slice(0, 7)}` : "";
+  const score =
+    review.scoreEarned !== null && review.scorePossible !== null
+      ? `, and it scored ${review.scoreEarned} out of ${review.scorePossible}`
+      : "";
+
+  const lines = [
+    "---",
+    "",
+    "## Previous review",
+    "",
+    `This is a resubmission. The student has already received ${name} of this section${commit}` +
+      `${score}. It is reproduced below exactly as the student read it, followed by the changes ` +
+      `they have made to this section's files since then. The rules for grading a resubmission ` +
+      `are in your instructions.`,
+    "",
+    `### ${name}, as the student read it`,
+    "",
+  ];
+
+  const report = review.reportMarkdown?.trim();
+  if (report) {
+    const outer = safeFence(report);
+    lines.push(`${outer}markdown`, report, outer, "");
+  } else {
+    lines.push(`${name} gave this section a score and no written feedback.`, "");
+  }
+
+  lines.push(`### What changed since ${name}`, "");
+
+  if (review.changes === null) {
+    lines.push(
+      review.headSha
+        ? `The changes since commit ${review.headSha.slice(0, 7)} could not be fetched. Judge ` +
+            `what changed by reading the previous review against the files above.`
+        : `${name} was written before this pull request existed, so there is no earlier commit ` +
+            `to compare against. Judge what changed by reading the previous review against the ` +
+            `files above.`,
+      "",
+    );
+    return lines;
+  }
+
+  if (review.changes.length === 0) {
+    lines.push(
+      `The student has changed none of this section's files since ${name}. The work above is ` +
+        `what ${name} described.`,
+      "",
+    );
+    return lines;
+  }
+
+  lines.push(
+    "Each file below is a unified diff: lines beginning with `+` were added and lines " +
+      "beginning with `-` were removed.",
+    "",
+  );
+  for (const change of review.changes) {
+    const label = `${change.path} (${change.kind})`;
+    if (change.kind === "removed") {
+      lines.push(`#### ${label}`, "", "The student deleted this file.", "");
+    } else if (change.patch === null) {
+      lines.push(
+        `#### ${label}`,
+        "",
+        "GitHub sent no diff for this file: it is binary, too large, or renamed without a " +
+          "change to its contents. Its current contents, where it has any, are in the files above.",
+        "",
+      );
+    } else {
+      const patch = truncate(change.patch);
+      const outer = safeFence(patch);
+      lines.push(`#### ${label}`, "", `${outer}diff`, patch, outer, "");
+    }
+  }
+
+  return lines;
 }
 
 /**
@@ -505,6 +655,12 @@ export function buildUserPrompt(params: {
     for (const file of context.studentFiles) {
       parts.push(fence(file.path, file.content));
     }
+  }
+
+  // After the files, so the changes sit beside the work they describe, and before the test
+  // results, which describe the work as it stands rather than what changed.
+  if (context.previousReview) {
+    parts.push(...previousReviewBlock(context.previousReview));
   }
 
   parts.push("---");

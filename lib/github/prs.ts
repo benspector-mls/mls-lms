@@ -208,48 +208,7 @@ export async function getPullRequestDiff(
 ): Promise<PullRequestDiff> {
   const files = await listPullRequestFiles(installationId, params);
 
-  const mapped = files.map((file): PullRequestFileDiff => {
-    const kind =
-      file.status === "added" || file.status === "removed" || file.status === "renamed"
-        ? file.status
-        : ("modified" as const);
-
-    /*
-      GitHub omits `patch` for a binary file, for a diff it considers very large, and for a rename
-      or mode change with no content difference — and it does not say which. So the reason is
-      inferred, and this is a heuristic rather than something reported: nothing changed means there
-      is genuinely nothing to show, and anything else means GitHub declined to send it. The two are
-      different sentences on screen, and reversing them would tell an instructor that a renamed
-      file is unreadable.
-    */
-    const raw = file.patch ?? null;
-    if (raw === null) {
-      return {
-        path: file.filename,
-        kind,
-        ...(file.previous_filename ? { previousPath: file.previous_filename } : {}),
-        additions: file.additions,
-        deletions: file.deletions,
-        patch: null,
-        patchAbsence: file.changes === 0 ? "no-content-change" : "binary-or-too-large",
-        truncated: false,
-        blobUrl: file.blob_url ?? "",
-      };
-    }
-
-    const cut = truncateAtHunkBoundary(raw, MAX_PATCH_BYTES);
-    return {
-      path: file.filename,
-      kind,
-      ...(file.previous_filename ? { previousPath: file.previous_filename } : {}),
-      additions: file.additions,
-      deletions: file.deletions,
-      patch: cut,
-      patchAbsence: null,
-      truncated: cut !== raw,
-      blobUrl: file.blob_url ?? "",
-    };
-  });
+  const mapped = files.map(toFileDiff);
 
   return {
     files: mapped,
@@ -257,4 +216,100 @@ export async function getPullRequestDiff(
     totalDeletions: mapped.reduce((sum, file) => sum + file.deletions, 0),
     githubCapReached: files.length >= 3000,
   };
+}
+
+/**
+ * The fields of GitHub's `diff-entry` that the mapping below reads. The pull request files
+ * endpoint and the comparison endpoint both return this shape for each file.
+ */
+type DiffEntry = {
+  filename: string;
+  status: string;
+  previous_filename?: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  blob_url?: string | null;
+};
+
+/**
+ * One file of a diff as this application represents it, with the patch cut to `MAX_PATCH_BYTES`.
+ *
+ * Shared by `getPullRequestDiff` and `compareCommits`, so the two cannot disagree about what a
+ * missing patch means or where a long one is cut.
+ */
+function toFileDiff(file: DiffEntry): PullRequestFileDiff {
+  const kind =
+    file.status === "added" || file.status === "removed" || file.status === "renamed"
+      ? file.status
+      : ("modified" as const);
+
+  /*
+    GitHub omits `patch` for a binary file, for a diff it considers very large, and for a rename
+    or mode change with no content difference — and it does not say which. So the reason is
+    inferred, and this is a heuristic rather than something reported: nothing changed means there
+    is genuinely nothing to show, and anything else means GitHub declined to send it. The two are
+    different sentences on screen, and reversing them would tell an instructor that a renamed
+    file is unreadable.
+  */
+  const raw = file.patch ?? null;
+  if (raw === null) {
+    return {
+      path: file.filename,
+      kind,
+      ...(file.previous_filename ? { previousPath: file.previous_filename } : {}),
+      additions: file.additions,
+      deletions: file.deletions,
+      patch: null,
+      patchAbsence: file.changes === 0 ? "no-content-change" : "binary-or-too-large",
+      truncated: false,
+      blobUrl: file.blob_url ?? "",
+    };
+  }
+
+  const cut = truncateAtHunkBoundary(raw, MAX_PATCH_BYTES);
+  return {
+    path: file.filename,
+    kind,
+    ...(file.previous_filename ? { previousPath: file.previous_filename } : {}),
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: cut,
+    patchAbsence: null,
+    truncated: cut !== raw,
+    blobUrl: file.blob_url ?? "",
+  };
+}
+
+/**
+ * Every file that differs between two commits of one repository, with the change itself.
+ *
+ * Used when grading a resubmission, to show the model what a student changed since the commit
+ * their previous review described. The pull request diff cannot answer that question, because it
+ * is measured from the template snapshot and so contains the first submission's work as well.
+ *
+ * Three dots rather than two, so the comparison runs from the merge base. A student who rebased
+ * their branch still gets a diff of their own changes rather than of the rebase.
+ *
+ * GitHub returns at most 300 files for a comparison and does not paginate them. No assignment
+ * repository approaches that. A student who committed a dependency tree between the two commits
+ * could, and the comparison would then omit some files they changed; the model still has the
+ * full current files, so the cost is a less precise account of what changed, not a wrong grade.
+ *
+ * Throws when GitHub cannot compare the two, which happens when a force push removed the earlier
+ * commit. The caller decides what that means.
+ */
+export async function compareCommits(
+  installationId: number,
+  params: { owner: string; repo: string; base: string; head: string },
+): Promise<PullRequestFileDiff[]> {
+  const octokit = await getInstallationOctokit(installationId);
+  const { data } = await octokit.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+    owner: params.owner,
+    repo: params.repo,
+    basehead: `${params.base}...${params.head}`,
+  });
+
+  return (data.files ?? []).map(toFileDiff);
 }

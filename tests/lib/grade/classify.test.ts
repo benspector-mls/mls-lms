@@ -238,6 +238,12 @@ describe("what is detected is also what is sent", () => {
     },
   );
 
+  // Fellows edit these by accident. Admitting them would present a LICENSE change to a
+  // resubmission's report as a change to the answers.
+  it.each(["LICENSE", "README.md", "src/notes.md"])("%s is not short response content", (path) => {
+    expect(belongsToSection(path, "short_response")).toBe(false);
+  });
+
   // And never sent as frontend as well, or the same answers would be graded twice against two
   // different rubrics.
   it.each(["SHORT_RESPONSE.MD", "short_response.md", "src/short-response.md"])(

@@ -6,7 +6,7 @@ import { db, type Tx } from "../prisma";
 import { readSections, repositorySource } from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
-import { getPullRequestFiles } from "../github/prs";
+import { compareCommits, getPullRequestFiles } from "../github/prs";
 import type { GradingDraft } from "../generated/prisma/client";
 import type { NormalizedTest } from "../sandbox/parsers";
 import { resolveRunner } from "../sandbox/presets";
@@ -17,13 +17,15 @@ import {
   classifySections,
   findSection,
   partitionForPrompt,
+  promptExclusionReason,
   resolveSectionTests,
   summarizeExclusions,
   TEST_EVIDENCE_FLAG,
   type AssignmentSection,
 } from "./classify";
 import { crossCheck, type Facts } from "./cross-check";
-import { buildSystemPrompt, buildUserPrompt } from "./prompts";
+import { effectiveSection } from "./delivery";
+import { buildSystemPrompt, buildUserPrompt, type PreviousReview } from "./prompts";
 import { getReportGenerator, ProviderError } from "./provider";
 import { ReportValidationError } from "./schema";
 
@@ -297,6 +299,40 @@ export async function generateReportForSubmission(submissionId: string): Promise
     ? (testRun.tamperedPaths as unknown as { path: string; kind: string }[])
     : [];
 
+  // ---- The review the student last received, if this is a resubmission ----
+  //
+  // Every released round, oldest first: the ordering the student's Feedback tab and the comment
+  // thread both number from, so "Review 2" here is the "Review 2" the student sees.
+  //
+  // The latest round counts as the previous review only when it graded a different commit. When
+  // it graded this one, the run is a regeneration of work that round already described, and the
+  // prompt is built exactly as for a first submission. A round with no commit at all — written by
+  // hand before the pull request existed — counts as different, since the student read it and it
+  // describes none of this code.
+  const releasedRounds = await db.gradingDraft.findMany({
+    where: { submissionId: submission.id, status: "APPROVED" },
+    orderBy: { approvedAt: "asc" },
+    select: {
+      id: true,
+      headSha: true,
+      sections: {
+        select: {
+          sectionType: true,
+          reportMarkdown: true,
+          scoreEarned: true,
+          scorePossible: true,
+          editedReportMarkdown: true,
+          editedScoreEarned: true,
+        },
+      },
+    },
+  });
+  const latestRound = releasedRounds.at(-1);
+  const previousRound =
+    latestRound && latestRound.headSha !== submission.headSha
+      ? { ...latestRound, number: releasedRounds.length }
+      : null;
+
   // ---- What the pull request contains -------------------------------------
   //
   // Filtered before anything reads it. A student can commit a file git was told to
@@ -321,6 +357,35 @@ export async function generateReportForSubmission(submissionId: string): Promise
           .map((e) => `${e.path} (${e.reason})`)
           .join(", "),
     );
+  }
+
+  // ---- What changed since the previous review -------------------------------
+  //
+  // A failure here is not a reason to refuse grading. A force push can remove the commit the
+  // previous review described, and GitHub then cannot compare against it; the report is still
+  // written with the previous review in view, and the instructor is told the diff was missing.
+  const reviewReasons: string[] = [];
+  let changesSincePrevious: Awaited<ReturnType<typeof compareCommits>> | null = null;
+
+  if (previousRound?.headSha) {
+    try {
+      changesSincePrevious = await compareCommits(installationId, {
+        ...studentRepo,
+        base: previousRound.headSha,
+        head: submission.headSha,
+      });
+    } catch (err) {
+      console.warn(
+        `generate-report: could not compare ${submission.id} against its previous review — ` +
+          `continuing without the diff. ${err instanceof Error ? err.message : String(err)}`,
+      );
+      reviewReasons.push(
+        `Review ${previousRound.number} was written against ` +
+          `${previousRound.headSha.slice(0, 7)}, which GitHub could not compare against the ` +
+          `current commit. Graded with the previous review in view but without a diff of what ` +
+          `changed.`,
+      );
+    }
   }
 
   const classification = classifySections({
@@ -360,8 +425,6 @@ export async function generateReportForSubmission(submissionId: string): Promise
   // GENERATING is written first, so a run that dies partway through leaves a row
   // explaining that it was attempted rather than no trace at all.
   const draft = await claimRun(db, submission.id, submission.headSha);
-
-  const reviewReasons: string[] = [];
 
   // An unexpected section means either the student submitted something the
   // assignment does not describe, or the sections mapping is wrong. Both need a
@@ -463,6 +526,39 @@ export async function generateReportForSubmission(submissionId: string): Promise
         paths: changedPaths.filter((path) => belongsToSection(path, sectionType)),
       });
 
+      // Matched by section type, which is also what a hand-written round stores for a section
+      // graded by the pipeline. A section the previous round did not have — one added to the
+      // assignment since — is graded as a first submission.
+      const previousSection = previousRound?.sections.find(
+        (candidate) => candidate.sectionType === sectionType,
+      );
+      const previousReview: PreviousReview | null =
+        previousRound && previousSection
+          ? {
+              number: previousRound.number,
+              headSha: previousRound.headSha,
+              ...effectiveSection(previousSection),
+              /*
+                Through the same two filters as the student's files. The exclusion list first,
+                because the comparison's file list is independent of the pull request's, and a
+                committed `.env` withheld there would otherwise reach the model here as a patch.
+                Then `belongsToSection`, which for a short response section admits only the
+                short response file — so an edit to LICENSE or README.md made by accident is not
+                presented as a change to the answers.
+              */
+              changes:
+                changesSincePrevious === null
+                  ? null
+                  : changesSincePrevious
+                      .filter(
+                        (file) =>
+                          promptExclusionReason(file.path) === null &&
+                          belongsToSection(file.path, sectionType),
+                      )
+                      .map((file) => ({ path: file.path, kind: file.kind, patch: file.patch })),
+            }
+          : null;
+
       const readme = await fetchFile(installationId, {
         ...studentRepo,
         ref: submission.headSha,
@@ -493,6 +589,7 @@ export async function generateReportForSubmission(submissionId: string): Promise
             testResults: sectionResults,
             tamperedPaths,
             headBranch: submission.headBranch,
+            previousReview,
           },
         }),
       });
@@ -571,6 +668,11 @@ export async function generateReportForSubmission(submissionId: string): Promise
           sectionsGraded: classification.present,
           sectionsNotSubmitted: classification.notSubmitted,
           testRunId: testRun?.id ?? null,
+          // The round this report was written with in view, so a report on a resubmission traces
+          // to the review it was told about. Null on a first submission and on a regeneration.
+          previousRound: previousRound
+            ? { id: previousRound.id, headSha: previousRound.headSha }
+            : null,
           // Null when nothing was withheld, which is the ordinary case. Recorded rather
           // than only logged so that a report whose prompt was missing files the student
           // did commit says so, and a committed `.env` is traceable after the fact — a
@@ -605,10 +707,10 @@ export async function generateReportForSubmission(submissionId: string): Promise
  */
 /*
   Bumped when the prompt changes in a way that changes what comes back, so a stored report can be
-  traced to the wording that produced it. `.4` is the team address block: an individual
-  submission's prompt is byte-identical to what `.3` produced, and a team's is not.
+  traced to the wording that produced it. `2026-10-07.1` adds the resubmission rules to the system
+  half of every prompt, and a previous-review block to the user half of a resubmission's.
 */
-const PROMPT_VERSION = "2026-08-20.4";
+const PROMPT_VERSION = "2026-10-07.1";
 
 /**
  * Narrows the suite to the tests that count toward one section.
