@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { ChevronRight, Download, FileUp, Loader2 } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { UploadedCode } from "@/components/uploaded-code";
@@ -162,8 +162,21 @@ export function UploadedFileRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, framed, previewUrl, sourceKey]);
 
-  const heading = (
-    <div className="flex flex-wrap items-center justify-between gap-3">
+  /*
+    The row this card is headed by, and the controls at the right end of it.
+
+    **One line, and the filename gives way rather than the controls.** A row allowed to wrap put
+    whatever sat beside the name onto a second line as soon as the name was long, so the control
+    landed in a different place on every card and an instructor working down a column had to look
+    for it on each one. The name truncates instead, and the controls are `shrink-0`.
+
+    **A function rather than a value, because what is at that end depends on the file.** A file with
+    nothing to preview has only the way to download it; one with a preview has the way to put the
+    preview away beside it. Both are drawn by this, so the two cannot drift into looking like
+    different kinds of row.
+  */
+  const headingRow = (collapse?: React.ReactNode) => (
+    <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2">
         <FileUp className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex min-w-0 flex-col">
@@ -185,41 +198,52 @@ export function UploadedFileRow({
         </div>
       </div>
 
-      <Button variant="outline" size="sm" disabled={downloading} onClick={download}>
-        {downloading ? (
-          <Loader2 data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <Download data-icon="inline-start" />
-        )}
-        {downloading ? "Preparing…" : "Download"}
-      </Button>
+      <div className="flex shrink-0 items-center gap-2">
+        {collapse}
+
+        <Button variant="outline" size="sm" disabled={downloading} onClick={download}>
+          {downloading ? (
+            <Loader2 data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <Download data-icon="inline-start" />
+          )}
+          {downloading ? "Preparing…" : "Download"}
+        </Button>
+      </div>
     </div>
   );
 
   return (
     <div className={cn(panelSurface, "flex flex-col gap-2 p-4")}>
       {previewKind === null ? (
-        heading
+        headingRow()
       ) : (
         <Collapsible open={open} onOpenChange={setOpen}>
-          {heading}
-
           {/*
-            The trigger sits below the heading rather than wrapping it, because the heading holds
-            the download button and a button inside a button is invalid markup.
+            The trigger goes into the heading beside **Download**, so the two things an instructor
+            does with an attachment are in one place. It is a sibling of that button and never a
+            parent of it: a button inside a button is invalid markup.
+
+            **One word.** What it puts away fills the card directly beneath it, so a noun here
+            would name what the reader is already looking at — and it would charge the filename a
+            different amount for a document, for code and for an image. **Hide** is the documented
+            way an instructor takes the width of the pane back, named in FEATURES.md and in the "No
+            toggle,
+            deliberately" note in ARCHITECTURE.md, because no screen here stores an interface
+            preference.
           */}
-          <CollapsibleTrigger className="group mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-            <ChevronRight
-              aria-hidden="true"
-              className="size-3.5 transition-transform group-data-[panel-open]:rotate-90"
-            />
-            {open ? "Hide" : "Show"}{" "}
-            {previewKind === "pdf"
-              ? "the document"
-              : previewKind === "code"
-                ? "the code"
-                : "the image"}
-          </CollapsibleTrigger>
+          {headingRow(
+            <CollapsibleTrigger
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "group")}
+            >
+              <ChevronRight
+                aria-hidden="true"
+                data-icon="inline-start"
+                className="transition-transform group-data-[panel-open]:rotate-90"
+              />
+              {open ? "Hide" : "Show"}
+            </CollapsibleTrigger>,
+          )}
 
           <CollapsibleContent>
             <div className="mt-2">

@@ -4,6 +4,7 @@ import { ChevronRight, FileText } from "lucide-react";
 import * as React from "react";
 
 import { SubmittedLinkHeading, SubmittedLinkRow } from "@/components/submitted-link";
+import { buttonVariants } from "@/components/ui/button";
 import { insetSurface, panelSurface } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DRIVE_DOC_KIND_LABEL, driveEmbedUrl, parseDriveDocUrl } from "@/lib/drive/embed";
@@ -26,8 +27,8 @@ import { cn } from "@/lib/utils";
  * differently.
  *
  * **Nothing here asks Google anything.** The frame is a page the instructor's own browser fetches,
- * with their own session, which is what makes a document shared to the school open through
- * **Open** even when it will not render in a cross-origin frame. The alternative — this server
+ * with their own session, which is what makes a document shared to the school open through its own
+ * address even when it will not render in a cross-origin frame. The alternative — this server
  * checking whether a document is readable before showing it — cannot tell "not shared" from
  * "no such document", because Google answers 404 to an anonymous request either way. It would buy
  * a request per card, a state per outcome, and a worse answer than the frame gives by rendering.
@@ -83,9 +84,19 @@ export function SubmittedDocumentRow({
     <div className={cn(panelSurface, "flex flex-col gap-2 p-4", className)}>
       <Collapsible open={open} onOpenChange={setOpen}>
         {/*
-          Above the trigger rather than wrapped by it, for the reason `UploadedFileRow` gives: the
-          heading holds the **Open** anchor, and an anchor inside a button is invalid markup and
-          unreachable by keyboard.
+          The trigger is handed to the heading rather than drawn under it, so the one control this
+          card has sits on the line the card is headed by rather than on a line of its own. It stays
+          a sibling of the address beside it and never a parent of it: an anchor inside a button is
+          invalid markup and cannot be reached by keyboard.
+
+          **One word.** It shares its line with the address, which is the thing on this card worth
+          reading and the thing that loses room to everything beside it. The document it puts away
+          fills the card directly beneath the control, so a noun here would name what the reader is
+          already looking at, and charge the address for saying it.
+
+          **Hide** is the documented way an instructor takes the width of the pane back, named in
+          FEATURES.md and in the "No toggle, deliberately" note in ARCHITECTURE.md, because no
+          screen here stores an interface preference.
         */}
         <SubmittedLinkHeading
           url={url}
@@ -93,23 +104,19 @@ export function SubmittedDocumentRow({
           lateness={lateness}
           addedAt={addedAt}
           icon={FileText}
+          actions={
+            <CollapsibleTrigger
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "group")}
+            >
+              <ChevronRight
+                aria-hidden="true"
+                data-icon="inline-start"
+                className="transition-transform group-data-[panel-open]:rotate-90"
+              />
+              {open ? "Hide" : "Show"}
+            </CollapsibleTrigger>
+          }
         />
-
-        {/*
-          **"Hide the document", in those words.** It is the documented way an instructor takes the
-          width of the pane back — named in FEATURES.md and in the "No toggle, deliberately" note
-          in ARCHITECTURE.md, because no screen here stores an interface preference. An uploaded
-          file already offers it under this name, and a Drive document in the same column has to
-          offer the same thing under the same name or the documented way out is missing for half
-          the kinds that reach this column.
-        */}
-        <CollapsibleTrigger className="group mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-          <ChevronRight
-            aria-hidden="true"
-            className="size-3.5 transition-transform group-data-[panel-open]:rotate-90"
-          />
-          {open ? "Hide" : "Show"} the document
-        </CollapsibleTrigger>
 
         <CollapsibleContent>
           <div className="mt-2 flex flex-col gap-2">
@@ -167,8 +174,7 @@ export function SubmittedDocumentRow({
             <p className="text-xs text-muted-foreground">
               If Google asks for access above, the student has not shared this document — ask them
               to set it to “Anyone with the link can view”. If they shared it with the school
-              instead, <span className="font-medium text-foreground">Open</span> still works for you
-              even though the preview cannot.
+              instead, the address above still opens for you even though the preview cannot.
             </p>
           </div>
         </CollapsibleContent>
