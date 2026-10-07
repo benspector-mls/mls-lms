@@ -331,21 +331,31 @@ function decorateSubmission<T extends ReviewableSubmission>(
  * The order the grading queue lists statuses in, earliest first; within one status, the earliest
  * hand-in comes first.
  *
+ * **Ordered by what the instructor has to do about it.** Work handed in and waiting to be read
+ * leads, because that is what somebody opening this screen came for. A revision follows it: it is
+ * also waiting, and it is second only because the fellow has already been answered once. Then work
+ * taken up but not handed in, then work not begun — both of which are somebody to chase rather than
+ * something to read — and finished grades last, where they can be found but are never in the way.
+ *
+ * **Three of these are never written to a submission.** The pipeline records what it is doing on
+ * the grading draft, and only approving moves a submission, so `DRAFT_READY`, `GRADING_FAILED` and
+ * `NEEDS_MANUAL_REVIEW` describe a draft and never a row in this list. They are placed with the
+ * work they would describe rather than parked at the end, so that a day on which something does
+ * write one puts it among the work waiting to be read instead of under the finished grades.
+ *
  * Written out rather than left to the database, which sorts an enum in the order its values were
- * declared. That order puts `RESUBMITTED` after `GRADED`, because the status was added later, and
- * so a revision waiting to be read sat beneath every finished grade, where an instructor scanning
- * the top of the list for work would not see it. A `Record` over the enum, so a status added later
- * fails to compile until it is given a place here.
+ * declared — an order that reflects when each status was added and nothing else. A `Record` over
+ * the enum, so a status added later fails to compile until it is given a place here.
  */
 const QUEUE_STATUS_ORDER: Record<SubmissionStatus, number> = {
-  NOT_STARTED: 0,
-  ACCEPTED: 1,
-  SUBMITTED: 2,
-  DRAFT_READY: 3,
-  RESUBMITTED: 4,
-  GRADED: 5,
-  GRADING_FAILED: 6,
-  NEEDS_MANUAL_REVIEW: 7,
+  SUBMITTED: 0,
+  RESUBMITTED: 1,
+  DRAFT_READY: 2,
+  GRADING_FAILED: 3,
+  NEEDS_MANUAL_REVIEW: 4,
+  ACCEPTED: 5,
+  NOT_STARTED: 6,
+  GRADED: 7,
 };
 
 export const submissionsRouter = createTRPCRouter({

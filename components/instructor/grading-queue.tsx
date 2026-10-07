@@ -215,6 +215,55 @@ export function GradingQueue({
   });
 
   /*
+    The list in two halves, because the fellows with no row at all belong between them.
+
+    `QUEUE_STATUS_ORDER` puts a finished grade last, behind work not begun, so that what is left to
+    do is at the top and what is done is out of the way. A fellow who has no submission row is in
+    exactly that state — nothing has happened — and drawing every one of them after the grades
+    would put the people most worth chasing below the work that needs nothing. So the rows that are
+    still open are drawn, then those fellows, then the grades.
+
+    Splitting on `GRADED` rather than on a rank, because this is the one boundary the screen cares
+    about and a number compared here would have to be kept in step with a table in another file.
+  */
+  const open = filtered.filter((row) => row.status !== "GRADED");
+  const done = filtered.filter((row) => row.status === "GRADED");
+
+  /*
+    One row of the list, named so that each half of it is drawn by the same thing. The two halves
+    are the same rows in the same shape — what separates them is only where the fellows with no row
+    at all belong — so a second copy of this markup would be two places for a change to be made in
+    and one place for it to be forgotten.
+  */
+  const submissionRow = (row: Row) => (
+    <SubmissionRow
+      key={row.id}
+      row={row}
+      dueAt={data.assignment.dueAt}
+      /*
+        A team's row is headed by the team, because that is what the pile is a pile of: one piece
+        of work per team, not one per member. Its members follow on the same line, so an instructor
+        can tell which team is which without opening it, and the line under the name goes on saying
+        when the work last moved — which is what this list is ordered by.
+      */
+      primary={rowLabel(row)}
+      primaryDetail={row.team ? teamMembers(row.team) : undefined}
+      /*
+        The name leads to the fellow's record in this course, which answers the question a name in
+        a queue prompts: what else has this person handed in, and how did it go. A team's row is
+        headed by the team, and a team has no record of its own — sending it to whichever member
+        claimed the work would name somebody the work is not about — so that row's heading stays
+        plain text and the members are linked from the review pane instead.
+      */
+      primaryHref={row.team ? undefined : studentHref(data.assignment.courseId, row.student.id)}
+      active={selected?.id === row.id}
+      onSelect={() => select(row.id)}
+      now={now}
+      pending={(batch?.inFlight.has(row.id) ?? false) || releasing.inFlight.has(row.id)}
+    />
+  );
+
+  /*
     The selection survives a filter that no longer contains it, so switching tabs does not
     quietly swap the student being read.
 
@@ -448,51 +497,24 @@ export function GradingQueue({
               </div>
             ) : (
               <ul className="flex flex-col gap-1">
-                {filtered.map((row) => (
-                  <SubmissionRow
-                    key={row.id}
-                    row={row}
-                    dueAt={data.assignment.dueAt}
-                    /*
-                      A team's row is headed by the team, because that is what the pile is a pile
-                      of: one piece of work per team, not one per member. Its members follow on
-                      the same line, so an instructor can tell which team is which without opening
-                      it, and the line under the name goes on saying when the work last moved —
-                      which is what this list is ordered by.
-                    */
-                    primary={rowLabel(row)}
-                    primaryDetail={row.team ? teamMembers(row.team) : undefined}
-                    /*
-                      The name leads to the fellow's record in this course, which answers the
-                      question a name in a queue prompts: what else has this person handed in,
-                      and how did it go. A team's row is headed by the team, and a team has no
-                      record of its own — sending it to whichever member claimed the work would
-                      name somebody the work is not about — so that row's heading stays plain
-                      text and the members are linked from the review pane instead.
-                    */
-                    primaryHref={
-                      row.team ? undefined : studentHref(data.assignment.courseId, row.student.id)
-                    }
-                    active={selected?.id === row.id}
-                    onSelect={() => select(row.id)}
-                    now={now}
-                    pending={
-                      (batch?.inFlight.has(row.id) ?? false) || releasing.inFlight.has(row.id)
-                    }
-                  />
-                ))}
+                {open.map(submissionRow)}
 
                 {/*
-                  Fellows with nothing on record, after the rows that have something.
+                  Fellows with nothing on record, between the work still open and the work already
+                  graded.
 
                   Their own row rather than a `SubmissionRow` fed a blank, because every line that
                   component draws — when the work last moved, whether it was late, what it scored —
-                  is a fact about a submission, and these have none. What is worth saying about
-                  them is their name and that nothing has happened, which is one line.
+                  is a fact about a submission, and these have none. What is worth saying about them
+                  is their name and that nothing has happened, which is one line.
 
-                  Below rather than interleaved: the list is ordered by what has happened, and
-                  nothing having happened comes last. An instructor scanning for who to chase finds
-                  them together at the bottom rather than scattered through the roster.
+                  **Here because this is where the list says nothing has happened.** A row whose
+                  status is `NOT_STARTED` sits immediately above them and means the same thing to a
+                  reader, so the two kinds read as one group. Drawn after the grades instead, the
+                  people most worth chasing would be below the work that needs nothing done to it.
+
+                  Together rather than interleaved through the roster, so an instructor scanning for
+                  who to chase finds them in one place.
                 */}
                 {notStarted.map((student) => (
                   <li key={student.id} className="relative">
@@ -526,6 +548,12 @@ export function GradingQueue({
                     </div>
                   </li>
                 ))}
+
+                {/*
+                  The grades, last. They are the record of what this screen has already done, so
+                  they are kept where they can be found and never where they are in the way.
+                */}
+                {done.map(submissionRow)}
               </ul>
             )}
           </div>
