@@ -282,7 +282,7 @@ function decorateSubmission<T extends ReviewableSubmission>(
   // The thread, resolved to whichever row holds it.
   const thread = teamSubmission ?? { comments, commentsResolvedAt };
   const draft = gradingDrafts[0] ?? null;
-  const draftIsStale = draft != null && rest.headSha != null && draft.headSha !== rest.headSha;
+  const draftIsStale = reportIsStale(draft, rest.headSha);
 
   return {
     ...rest,
@@ -325,6 +325,21 @@ function decorateSubmission<T extends ReviewableSubmission>(
     commentCount: thread.comments.filter((comment) => comment.deletedAt === null).length,
     commentsAwaitReply: awaitsReply(thread.comments, thread.commentsResolvedAt),
   };
+}
+
+/**
+ * Whether a report describes code the student has since replaced.
+ *
+ * Two columns compared and nothing asked of GitHub: the commit the report was written against,
+ * and the commit the pull request is on now. It is true the instant a push lands.
+ *
+ * Its own function because two readers need the same answer and they are not near each other —
+ * the row's **Report out of date** badge, and the order the queue puts the grades in. Written
+ * twice, the badge and the ordering could disagree, which would be a row sorted to the top of the
+ * grades with nothing on it saying why.
+ */
+function reportIsStale(draft: { headSha: string | null } | null, headSha: string | null): boolean {
+  return draft !== null && headSha !== null && draft.headSha !== headSha;
 }
 
 /**
@@ -2034,15 +2049,39 @@ export const submissionsRouter = createTRPCRouter({
       */
       const manualOnly = isManualOnly(assignment.sections);
 
-      // Hand-in order from the database, then status order here: `sort` is stable, so each status
-      // keeps its earliest hand-in first.
+      /*
+        Hand-in order from the database, then status order here: `sort` is stable, so each status
+        keeps its earliest hand-in first.
+
+        **Except that a grade whose report is out of date leads the grades.** Everything above the
+        grades is waiting on the instructor, and the fair order to work through waiting people in is
+        the order they handed in. Nothing in the grades is waiting, so the order there is free to
+        answer a different question — which of these is not finished after all. A student who pushed
+        after their grade went out has a report describing code that is gone, and at the bottom of a
+        cohort's worth of finished work nobody would find it.
+
+        Only within the grades, because the first key has already separated them: the comparison
+        below is reached only for two rows of the same status, and `GRADED` is the one status where
+        being out of date is the most interesting thing about a row.
+      */
+      const gradedAndStale = (row: {
+        status: SubmissionStatus;
+        headSha: string | null;
+        gradingDrafts: { headSha: string | null }[];
+      }) =>
+        row.status === "GRADED" && reportIsStale(row.gradingDrafts[0] ?? null, row.headSha) ? 0 : 1;
+
       const submissions = (
         await ctx.db.submission.findMany({
           where: { assignmentId: assignment.id },
           orderBy: { submittedAt: "asc" },
           select: reviewableSubmissionSelect,
         })
-      ).sort((a, b) => QUEUE_STATUS_ORDER[a.status] - QUEUE_STATUS_ORDER[b.status]);
+      ).sort(
+        (a, b) =>
+          QUEUE_STATUS_ORDER[a.status] - QUEUE_STATUS_ORDER[b.status] ||
+          gradedAndStale(a) - gradedAndStale(b),
+      );
 
       const undelivered = await ctx.db.gradingDraft.findMany({
         where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
