@@ -154,6 +154,7 @@ model Profile {
   gcfIdentities          GcfIdentity[]           @relation("GcfIdentities")
   instructorNotesWritten InstructorNote[]        @relation("InstructorNotesWritten")
   coachingSessionsLed    CoachingSession[]       @relation("CoachingSessionsLed")
+  goalCommentsWritten    GoalComment[]           @relation("GoalCommentsWritten")
   handedIn               Submission[]            @relation("HandedInBy")
   commentsWritten        SubmissionComment[]     @relation("CommentsWritten")
   commentsResolved       Submission[]            @relation("CommentsResolved")
@@ -682,6 +683,7 @@ model Enrollment {
   instructorNotes  InstructorNote[]
   coachingSessions CoachingSession[]
   goals            Goal[]
+  topics           CoachingTopic[]
 
   @@unique([programId, studentId])
   /// Redundant on its own — `id` is already the primary key — and bought for two readers:
@@ -2164,11 +2166,13 @@ enum AuditAction {
   COACHING_NOTE_CREATED
   COACHING_NOTE_UPDATED
   COACHING_NOTE_DELETED
-  /// The release act: the snapshot is written and the session's goals become visible to the
-  /// fellow, so this is coaching's counterpart of GRADE_APPROVED.
+  /// The release act: the snapshot is written and shared with the fellow, so this is coaching's
+  /// counterpart of GRADE_APPROVED. The fellow's goals are theirs from the moment they write
+  /// them and are not released by anything.
   COACHING_SESSION_COMPLETED
-  /// Deleting a completed session deletes a snapshot the fellow has seen (its goals survive),
-  /// which is worth being able to find without reading every edit.
+  /// Deleting a completed session deletes a snapshot the fellow has seen (the goals are untouched,
+  /// because they never belonged to it), which is worth being able to find without reading every
+  /// edit.
   COACHING_SESSION_DELETED
   /// Nothing writes either of these. They are left from the design where an instructor owned a
   /// fellow's goals; a fellow keeping their own is not an act this log records. Postgres has no
@@ -2769,14 +2773,15 @@ model CompetencyEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Coaching: instructor notes, coaching sessions, and goals.
+// Coaching: instructor notes, coaching sessions, discussion topics, and goals.
 //
-// Three kinds of record staff keep on one fellow in one program, with one visibility line
-// through them: notes and a session's answers are staff-only forever; a goal and a completed
-// session's snapshot are the fellow's to read. All three key to the enrollment the way
-// `AttendanceRecord` does — `(enrollmentId, programId)` against the enrollment's redundant
-// unique — so a row written against another program's fellow is unrepresentable, and `programId`
-// is always copied from the enrollment the server just loaded, never taken from input.
+// Four kinds of record kept on one fellow in one program, with one visibility line through them:
+// notes and a session's answers are staff-only forever; a goal, the topics a fellow wants to
+// raise, the conversation under a goal, and a completed session's snapshot are read by both
+// sides. All four key to the enrollment the way `AttendanceRecord` does — `(enrollmentId,
+// programId)` against the enrollment's redundant unique — so a row written against another
+// program's fellow is unrepresentable, and `programId` is always copied from the enrollment the
+// server just loaded, never taken from input.
 // ---------------------------------------------------------------------------
 
 /// Where a fellow stands on one goal, assessed by an instructor in a coaching conversation.
@@ -2815,6 +2820,31 @@ model InstructorNote {
   @@schema("public")
 }
 
+/// What a fellow wants to raise at their next coaching session, one topic per row, written as the
+/// week goes on. The coach reads the list on the fellow's record and on a draft session form;
+/// the fellow removes a topic once it has been talked about, which is why no row names a session.
+///
+/// The fellow's row, like a goal: no author column, because the enrollment is the author, and
+/// nothing here is instructor-writable or audited.
+model CoachingTopic {
+  id           String @id @default(uuid()) @db.Uuid
+  programId    String @map("program_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+
+  /// Plain text, a line or a paragraph. Capped by the migration's CHECK as well as by zod, at
+  /// `TOPIC_MAX_LENGTH` in `lib/coaching.ts`.
+  body String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+
+  @@index([enrollmentId, createdAt])
+  @@map("coaching_topics")
+  @@schema("public")
+}
+
 /// One coaching conversation with one fellow: a temperature check and the check-in answers. A
 /// draft until `endedAt` is written; completing it stores the snapshot, which is the half of a
 /// session the fellow sees.
@@ -2826,6 +2856,15 @@ model CoachingSession {
   id           String @id @default(uuid()) @db.Uuid
   programId    String @map("program_id") @db.Uuid
   enrollmentId String @map("enrollment_id") @db.Uuid
+
+  /// The day the conversation is held, as a civil date in the school's timezone — what every list
+  /// of sessions is dated and sorted by. Set to the day the draft was started and changed by the
+  /// instructor on the form, because a coach who opens a session early to prepare is writing about
+  /// a conversation on a later day. Fixed once the session is completed, like everything else on it.
+  ///
+  /// The database default is the previous release's: it never wrote this column, and a draft it
+  /// starts during a deploy still needs a day. The application always writes the school day itself.
+  heldOn DateTime @default(dbgenerated("CURRENT_DATE")) @map("held_on") @db.Date
 
   /// How the fellow said they were feeling, 1 to 10. Staff-only, like the answers. Null until
   /// asked; the range is a CHECK constraint in the migration, so a bypassed procedure cannot
@@ -2857,7 +2896,7 @@ model CoachingSession {
   enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
   author     Profile?   @relation("CoachingSessionsLed", fields: [authorId], references: [id], onDelete: SetNull)
 
-  @@index([enrollmentId, createdAt(sort: Desc)])
+  @@index([enrollmentId, heldOn(sort: Desc), createdAt(sort: Desc)])
   @@map("coaching_sessions")
   @@schema("public")
 }
@@ -2871,10 +2910,12 @@ model CoachingSession {
 /// sees every goal the moment it exists, which is the opposite of the notes and answers beside it
 /// and the reason the two live in different tables.
 ///
-/// **Nothing here is instructor-writable.** An instructor who thinks a fellow has placed
-/// themselves wrongly says so in the coaching session, which is what the session is for — so
-/// there is no reply column, and no audit trail either: a fellow setting, moving or deleting
-/// their own goal is their record rather than an act needing accountability.
+/// **Every column here is the fellow's to write, and the conversation beneath it is both sides'.**
+/// An instructor who thinks a goal is not yet specific, or that a fellow has placed themselves
+/// wrongly, writes a comment under it in `goal_comments`, and the fellow replies there or changes
+/// the goal. Nobody edits the other's words, and nothing a fellow does to their own goal is
+/// audited: setting, moving or deleting it is their record rather than an act needing
+/// accountability.
 model Goal {
   id           String @id @default(uuid()) @db.Uuid
   programId    String @map("program_id") @db.Uuid
@@ -2915,13 +2956,23 @@ model Goal {
   /// down. Null until they have placed themselves.
   marker DevelopmentMarker?
 
+  /// The fellow's receipt for the conversation beneath this goal: the `createdAt` of the newest
+  /// instructor comment standing when they last opened it, or null if they never have. What the
+  /// sidebar count and the "new" labels are computed against.
+  ///
+  /// **A column here rather than a receipt table**, because a goal has exactly one fellow reader,
+  /// so there is exactly one receipt per goal — `Submission.feedbackReviewedAt` is the same shape
+  /// for the same reason. Instructors keep no receipt: they read replies on the record.
+  commentsReadAt DateTime? @map("comments_read_at") @db.Timestamptz(6)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   /// No author column: the enrollment is the author. A goal belongs to the fellow whose record it
   /// is on, and there is no second person who could have written one.
-  enrollment Enrollment   @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+  enrollment Enrollment    @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
   updates    GoalUpdate[]
+  comments   GoalComment[]
 
   @@index([enrollmentId, createdAt(sort: Desc)])
   @@map("goals")
@@ -2930,7 +2981,7 @@ model Goal {
 
 /// One progress note a fellow writes under a goal: how it is going, in markdown, with files
 /// attached as evidence. Theirs to write, rewrite and remove, like the goal; instructors read it
-/// on the record and in the session form and write nothing.
+/// on the record and in the session form, and respond in the comments beneath the goal.
 ///
 /// **No program, enrollment, or author column.** Ownership is one join through the goal, and the
 /// goal's enrollment is the author — the same reasoning as `Goal` itself. Links are written in the
@@ -2980,5 +3031,59 @@ model GoalUpdateAttachment {
 
   @@index([updateId])
   @@map("goal_update_attachments")
+  @@schema("public")
+}
+
+/// Which side of the conversation under a goal a comment was written from, recorded at write time
+/// from the procedure's own knowledge of the caller — never from input, and never from the
+/// author's `role`, which can change. ADMIN folds into INSTRUCTOR, as `SubmissionCommentAuthor`
+/// folds it: the only question a reader asks is which of the two sides wrote. Its own type rather
+/// than that one, because a Postgres enum's name is permanent and this column is not about
+/// submissions.
+enum GoalCommentAuthor {
+  STUDENT
+  INSTRUCTOR
+
+  @@schema("public")
+}
+
+/// One message in the conversation under a goal: a coach asking for a timeframe, a fellow
+/// answering, a coach replying. Both sides write here and both read it, which is the one way the
+/// instructor's words reach a goal — the goal's own columns stay the fellow's.
+///
+/// The shape of `SubmissionComment` wherever the question is the same. `authorRole` is a snapshot
+/// of the side, `authorId` is `SetNull` so an account going does not remove what somebody said from
+/// the other person's conversation, and `deletedAt` is a tombstone rather than a removal: a reply
+/// answers the message above it, and closing up around a removed one leaves the reply answering
+/// whatever floats into its place. The author withdraws their own and nobody else's; the body stays
+/// in the column and the router withholds it. There is no edit, because editing rewrites what
+/// somebody already replied to.
+///
+/// No program, enrollment or author-side receipt column: ownership is one join through the goal,
+/// and the fellow's receipt is `Goal.commentsReadAt`. Not audited — a comment is read by the other
+/// side the moment it exists, which is the accountability; the notes are audited because the
+/// fellow never sees them.
+model GoalComment {
+  id     String @id @default(uuid()) @db.Uuid
+  goalId String @map("goal_id") @db.Uuid
+
+  authorId   String?           @map("author_id") @db.Uuid
+  authorRole GoalCommentAuthor @map("author_role")
+
+  /// Markdown, rendered through components/markdown.tsx. Capped by the migration's CHECK as well as
+  /// by zod, at `GOAL_COMMENT_MAX_LENGTH` in `lib/coaching.ts`.
+  body String
+
+  /// When the author withdrew this. See the model comment.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  goal   Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  author Profile? @relation("GoalCommentsWritten", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([goalId, createdAt])
+  @@map("goal_comments")
   @@schema("public")
 }

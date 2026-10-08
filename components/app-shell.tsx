@@ -35,6 +35,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -1073,6 +1074,17 @@ function StudentWork({ pathname }: { pathname: string }) {
  * ones they are in would be the sidebar telling them something false.
  */
 function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; pathname: string }) {
+  const trpc = useTRPC();
+
+  /*
+    How many comments from a coach sit unopened under this fellow's goals, per program, for the
+    badge on each Goals row. `useQuery` rather than suspense: the sidebar must never wait on it,
+    and a count that arrives a moment late is a count rather than a blank rail.
+  */
+  const unread = useQuery(trpc.coaching.unreadGoalComments.queryOptions());
+  const newComments = (programId: string) =>
+    unread.data?.find((row) => row.programId === programId)?.count ?? 0;
+
   /*
     Grouped by program, current ones first and finished ones after, preserving the order
     `listMine` sent — the same ordering the instructor switchers apply and for the same reason: this
@@ -1145,12 +1157,19 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
               <SidebarMenuItem>
                 <SidebarMenuButton
                   isActive={pathname === goals}
-                  tooltip={`Goals · ${program.term}`}
+                  tooltip={
+                    newComments(program.id) > 0
+                      ? `Goals · ${program.term} · ${newComments(program.id)} new ${newComments(program.id) === 1 ? "comment" : "comments"}`
+                      : `Goals · ${program.term}`
+                  }
                   render={<Link href={goals} />}
                 >
                   <Target />
                   <span>Goals</span>
                 </SidebarMenuButton>
+                {newComments(program.id) > 0 && (
+                  <SidebarMenuBadge>{newComments(program.id)}</SidebarMenuBadge>
+                )}
               </SidebarMenuItem>
 
               {programCourses.map((course) => {

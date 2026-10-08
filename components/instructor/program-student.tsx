@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Archive, ArrowRight, CircleCheck, EyeOff, GitBranch, UserMinus } from "lucide-react";
 
+import { CoachingTopics } from "@/components/coaching-topics";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
@@ -10,7 +11,7 @@ import { StartCoachingSession } from "@/components/instructor/start-coaching-ses
 import { Trends } from "@/components/instructor/trends";
 import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { coachingSessionHref, studentHref } from "@/lib/links";
-import { attendanceProvenance, formatDate } from "@/lib/status";
+import { attendanceProvenance } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -377,17 +378,36 @@ export function ProgramStudent({
         </TabsContent>
 
         {/*
-          Goals and coaching sessions are agreed with the fellow; notes are not, and each
-          section's caption says which.
+          Topics, goals and coaching sessions are shared with the fellow; notes are not, and each
+          section's caption says which. The topics come first because they are what to read before
+          the next conversation.
         */}
         <TabsContent value="coaching" className="mt-4 flex flex-col gap-6">
+          <section className="flex flex-col gap-2">
+            <div className="flex flex-col gap-0.5">
+              <h2 className="text-sm font-medium">
+                Before the next session · {coaching.topics.length}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                What {name} wants to talk about, in their words, added from their Goals page. Theirs
+                to keep or remove.
+              </p>
+            </div>
+            <CoachingTopics
+              topics={coaching.topics}
+              programId={data.program.id}
+              editable={false}
+              empty="They have not added anything yet."
+            />
+          </section>
+
           <section className="flex flex-col gap-2">
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-medium">Goals · {coaching.goals.length}</h2>
               <p className="text-xs text-muted-foreground">
                 {name}&apos;s own, usually agreed in a coaching session and theirs to change any
-                time — including where they say they stand. Read-only here: if an assessment looks
-                off, that is a conversation rather than an edit.
+                time — including where they say they stand. The goal itself is theirs to edit; open
+                one to write to them under it, which they see and can answer.
               </p>
             </div>
 
@@ -423,7 +443,7 @@ export function ProgramStudent({
                       className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm hover:bg-muted/50"
                     >
                       <span className="min-w-0 flex-1 truncate font-medium">
-                        {formatDate(session.endedAt ?? session.createdAt)}
+                        {formatSchoolDay(session.heldOn)}
                       </span>
                       {session.endedAt === null && (
                         <Badge

@@ -6,11 +6,12 @@ import { GoalsRecord } from "@/components/student/goals-record";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * A fellow's own goals and coaching history in one program.
+ * A fellow's own topics, goals and coaching history in one program.
  *
- * The reading half of coaching: the goals agreed in sessions, each with its development marker,
- * and a dated performance snapshot per completed session. The staff half — the check-in answers
- * and the notes — is not in this payload at all; see `coaching.myGoals`.
+ * The fellow's half of coaching: what they want to raise next time, the goals agreed in sessions
+ * with the conversation under each, and a dated performance snapshot per completed session. The
+ * staff half — the check-in answers and the notes — is not in this payload at all; see
+ * `coaching.myGoals`.
  *
  * Beside Attendance in the sidebar and shaped like it: one address per program, because goals are
  * agreed within a program's coaching, and readable after removal for the same reason a removed

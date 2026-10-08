@@ -7,6 +7,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
+import { CoachingTopics } from "@/components/coaching-topics";
 import { Trends } from "@/components/instructor/trends";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useServerMutation } from "@/hooks/use-server-mutation";
@@ -26,6 +28,7 @@ import {
   ADDITIONAL_NOTES_PROMPT,
   ALL_PROMPTS,
   CHECK_IN_PROMPTS,
+  PREPARATION_PROMPT,
   REVISITING_GOALS_PROMPTS,
   TEMPERATURE_MAX,
   TEMPERATURE_MIN,
@@ -33,6 +36,7 @@ import {
 } from "@/lib/coaching";
 import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
+import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
 import { formatDateTime } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
 import { cn } from "@/lib/utils";
@@ -43,21 +47,26 @@ type SessionData = RouterOutputs["coaching"]["session"];
 const SAVE_DEBOUNCE_MS = 2500;
 
 /** The staff-only half of the form, as the autosave holds it between a keystroke and a write. */
-type PendingSave = { temperature: number | null; answers: Record<string, string> };
+type PendingSave = {
+  temperature: number | null;
+  answers: Record<string, string>;
+  heldOn: SchoolDay;
+};
 
 /**
- * One coaching conversation: the strip saying what completing will record, the staff-only
- * check-in, and the fellow's own goals to talk through.
+ * One coaching conversation: the strip saying what completing will record, what the fellow
+ * wants to raise and the coach's own preparation, the staff-only check-in, and the fellow's own
+ * goals to talk through.
  *
  * **The visibility labels are the design.** Every section says who reads it — the temperature and
  * the check-in answers are marked staff-only, the goals are marked as the fellow's — because the
  * form is on screen during a shared conversation and the person typing should never have to
  * remember which half is which, or which half is even theirs to write.
  *
- * **Nothing here writes a goal.** They belong to the fellow, who sets and edits them on their own
+ * **Nothing here edits a goal.** They belong to the fellow, who sets and edits them on their own
  * screen; this form shows them so a session can be spent guiding somebody to set one or to move
- * where they say they stand. An instructor who thinks an assessment is off the mark says so out
- * loud, which is what the conversation is for.
+ * where they say they stand. What an instructor writes on a goal is a comment beneath it, which
+ * the fellow reads on their own screen and can answer.
  *
  * **Autosaved, the draft-editor way.** A coaching conversation is half an hour of prose, and an
  * unpressed Save button is how it gets lost: edits debounce for a moment and then save, blur
@@ -79,6 +88,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
   // ---- The staff-only half: temperature and answers, autosaved. --------------------------------
 
   const [temperature, setTemperature] = React.useState<number | null>(data.temperature);
+  const [heldOn, setHeldOn] = React.useState<SchoolDay>(data.heldOn);
   const [answers, setAnswers] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(data.answers.map((answer) => [answer.promptId, answer.answer])),
   );
@@ -111,6 +121,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
       programId,
       sessionId: data.id,
       temperature: held.temperature,
+      heldOn: held.heldOn,
       answers: ALL_PROMPTS.flatMap((prompt) => {
         const answer = held.answers[prompt.id] ?? "";
         return answer.trim() === "" ? [] : [{ promptId: prompt.id, answer }];
@@ -135,16 +146,32 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
   */
   const editTemperature = (next: number) => {
     setTemperature(next);
-    pending.current = { temperature: next, answers };
+    pending.current = { temperature: next, answers, heldOn };
+    flush();
+  };
+
+  /*
+    The day the conversation is held. A coach who opens the session early to prepare moves it to
+    the day they will actually meet; it is what every list dates the session by, on both sides.
+    Saved at once, like the temperature: a chosen date is one act, not a stream of keystrokes. The
+    browser's date input yields "" while a date is half-typed, which is not a day to save.
+  */
+  const editHeldOn = (next: string) => {
+    if (next === "") return;
+    setHeldOn(next);
+    pending.current = { temperature, answers, heldOn: next };
     flush();
   };
 
   const storedNotes = data.answers.find((answer) => answer.promptId === ADDITIONAL_NOTES_PROMPT.id);
+  const storedPreparation = data.answers.find(
+    (answer) => answer.promptId === PREPARATION_PROMPT.id,
+  );
 
   const editAnswer = (promptId: string, value: string) => {
     const next = { ...answers, [promptId]: value };
     setAnswers(next);
-    queue({ temperature, answers: next });
+    queue({ temperature, answers: next, heldOn });
   };
 
   // ---- Completing. -----------------------------------------------------------------------------
@@ -248,6 +275,79 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         )}
       </section>
 
+      <section className="flex flex-col gap-1.5">
+        <Label htmlFor="coaching-held-on" className="text-sm font-medium">
+          Session date
+        </Label>
+        {completed ? (
+          <p className="text-sm">{formatSchoolDay(data.heldOn)}</p>
+        ) : (
+          <>
+            <Input
+              id="coaching-held-on"
+              type="date"
+              value={heldOn}
+              onChange={(event) => editHeldOn(event.target.value)}
+              className="w-fit"
+            />
+            <p className="text-xs text-muted-foreground">
+              The day you meet. Started early to prepare? Move it to the day of the conversation —
+              it is what the session is listed under for both of you, and it cannot be changed after
+              completion.
+            </p>
+          </>
+        )}
+      </section>
+
+      {/*
+        The preparation half, before the conversation itself: what the fellow wants to raise, in
+        their words and theirs to keep or remove, then what the coach means to raise. The topics
+        are shown on a draft only — a completed session is the record of one conversation, and the
+        fellow's current list is not part of it.
+      */}
+      {!completed && (
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-medium">
+              What {fellowName} wants to discuss · {data.topics.length}
+            </h2>
+            <Badge variant="outline" className="font-normal text-muted-foreground">
+              Theirs
+            </Badge>
+          </div>
+          <CoachingTopics
+            topics={data.topics}
+            programId={programId}
+            editable={false}
+            empty="They have not added anything for this session."
+          />
+        </section>
+      )}
+
+      {/*
+        Stored among the answers under its own prompt id, like the additional notes, so it saves,
+        copies its label, and stays staff-only exactly as the check-in does.
+      */}
+      <section className="flex flex-col gap-3">
+        <SectionHeading title="Preparing for this session" audience="staff" />
+        {completed ? (
+          <p className={cn("text-sm", !storedPreparation && "text-muted-foreground")}>
+            {storedPreparation?.answer || "Nothing was written beforehand."}
+          </p>
+        ) : (
+          <Textarea
+            id={`coaching-${PREPARATION_PROMPT.id}`}
+            aria-label="Preparing for this session"
+            value={answers[PREPARATION_PROMPT.id] ?? ""}
+            onChange={(event) => editAnswer(PREPARATION_PROMPT.id, event.target.value)}
+            onBlur={flush}
+            rows={3}
+            maxLength={20_000}
+            placeholder="Observations, trends, and questions you want to be sure to raise."
+          />
+        )}
+      </section>
+
       <section className="flex flex-col gap-3">
         <SectionHeading title="Temperature check" audience="staff" />
         {completed && data.temperature === null ? (
@@ -314,10 +414,10 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           </Badge>
         </div>
         {/*
-          Read-only, and the badge says why: the goals are the fellow's own. A session is where
-          they are talked through — guiding somebody to set one, or to move where they say they
-          stand — and they do the typing on their own screen, during the conversation or after
-          it.
+          The badge says whose they are: the goals are the fellow's own. A session is where they
+          are talked through — guiding somebody to set one, or to move where they say they stand
+          — and they do the typing on their own screen, during the conversation or after it. The
+          one thing an instructor writes here is a comment under a goal.
         */}
         <FellowGoals
           goals={data.goals}
@@ -387,9 +487,10 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           <DialogHeader>
             <DialogTitle>Complete this session?</DialogTitle>
             <DialogDescription>
-              {fellowName} will see the performance figures in the strip above, recorded as of this
-              moment and dated. The temperature check and the check-in answers stay staff-only, and
-              what is recorded cannot be edited afterwards. Their goals are their own either way —
+              This session is dated {formatSchoolDay(heldOn)}. {fellowName} will see the performance
+              figures in the strip above, recorded as of this moment, under that date. The
+              temperature check and the check-in answers stay staff-only, and nothing recorded — the
+              date included — can be edited afterwards. Their goals are their own either way:
               completing this changes nothing about them.
             </DialogDescription>
           </DialogHeader>

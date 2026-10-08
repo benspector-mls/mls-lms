@@ -4,6 +4,8 @@ import { ChevronDown, ChevronRight, Target } from "lucide-react";
 import * as React from "react";
 
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
+import { CoachingTopics } from "@/components/coaching-topics";
+import { GoalComments } from "@/components/goal-comments";
 import { GoalUpdates } from "@/components/goal-updates";
 import { EmptyState } from "@/components/list-states";
 import { AddGoal, GoalEditor } from "@/components/student/goal-editor";
@@ -12,18 +14,24 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { parseSnapshot } from "@/lib/coaching";
 import type { CompetencyGroup } from "@/lib/competencies";
+import { formatSchoolDay } from "@/lib/school-time";
 import { formatDate } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
 
 type Data = RouterOutputs["coaching"]["myGoals"];
 
 /**
- * A fellow's own goals and coaching history: everything of coaching that is theirs to read.
+ * A fellow's own topics, goals and coaching history: everything of coaching that is theirs to
+ * read.
+ *
+ * **The topics come first**, because they are the thing a fellow comes here to add in passing:
+ * something to raise at the next session, written down the moment it comes up and removed once it
+ * has been talked about. Their coach reads the list before the two meet.
  *
  * **The goals are the fellow's to keep.** They set them, rewrite them, say where they stand on
  * them and remove them — usually agreed with an instructor in a coaching session, but nothing
- * here waits on one. An instructor sees every goal the moment it exists and writes none of it; if
- * they think an assessment is off the mark, they say so in the session.
+ * here waits on one. An instructor sees every goal the moment it exists and edits none of it; what
+ * they write is a comment under it, which the fellow reads here and can answer.
  *
  * The competency wording on a goal is the copy made when it was chosen, so later edits to the
  * competency list never rewrite what somebody set out to work on. Each completed session
@@ -42,27 +50,53 @@ export function GoalsRecord({
   /** The competencies this fellow may build a goal on, fetched beside their goals. */
   groups: readonly CompetencyGroup[];
 }) {
+  const topics = (
+    <section className="flex flex-col gap-2">
+      <div className="flex flex-col gap-0.5">
+        <h2 className="text-sm font-medium">
+          Before your next coaching session · {data.topics.length}
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Things you want to raise with your coach. Add them as they come up during the week; your
+          coach reads them before you meet. Remove a topic once you have talked about it.
+        </p>
+      </div>
+      <CoachingTopics
+        topics={data.topics}
+        programId={data.program.id}
+        editable
+        empty="Nothing yet. A question, a decision, something you want help with — add it here as it comes up."
+      />
+    </section>
+  );
+
   if (data.goals.length === 0 && data.sessions.length === 0) {
     return (
-      <div className="flex flex-col gap-4">
-        <EmptyState
-          icon={<Target />}
-          title="No goals yet"
-          description="Set a goal for something you want to get better at — a skill to build, or a habit to break. Your instructor sees it and can talk it through with you in a coaching session."
-        />
-        <AddGoal programId={data.program.id} groups={groups} />
+      <div className="flex flex-col gap-6">
+        {topics}
+        <div className="flex flex-col gap-4">
+          <EmptyState
+            icon={<Target />}
+            title="No goals yet"
+            description="Set a goal for something you want to get better at — a skill to build, or a habit to break. Your instructor sees it and can talk it through with you in a coaching session."
+          />
+          <AddGoal programId={data.program.id} groups={groups} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {topics}
+
       <section className="flex flex-col gap-2">
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">Your goals · {data.goals.length}</h2>
           <p className="text-xs text-muted-foreground">
             Yours to set and change whenever you like. Your instructors can see them, which is what
-            makes them worth talking through in a coaching session.
+            makes them worth talking through in a coaching session, and can write to you under each
+            one.
           </p>
         </div>
 
@@ -96,7 +130,7 @@ export function GoalsRecord({
                   className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4"
                 >
                   <span className="text-xs font-medium text-muted-foreground">
-                    {session.endedAt === null ? "" : formatDate(session.endedAt)}
+                    {formatSchoolDay(session.heldOn)}
                   </span>
                   {snapshot === null ? (
                     <p className="text-sm text-muted-foreground">
@@ -119,9 +153,10 @@ export function GoalsRecord({
  * One goal, closed to what it is and open to the plan behind it.
  *
  * Closed shows the goal in the fellow's own words, the competency it is about if it is about one,
- * and where they say they stand — enough to answer "what am I working on" down a list. Open adds
- * the three parts of the plan, the updates they have written under it, when it was set, and the
- * way to change any of it.
+ * where they say they stand, and how many comments from a coach they have not yet opened — enough
+ * to answer "what am I working on, and is anybody waiting on me" down a list. Open adds the three
+ * parts of the plan, the updates they have written under it, the conversation beneath it, when it
+ * was set, and the way to change any of it.
  *
  * The whole row is the trigger, because on a list where every row opens, a chevron nobody hits is
  * the failure mode. Editing is a button inside the opened row rather than a second thing to hit
@@ -139,6 +174,14 @@ function GoalRow({
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const hasPlan = goal.successCriteria !== "" || goal.objectives !== "" || goal.actionPlan !== "";
+
+  // Instructor comments newer than the receipt on this goal: what the sidebar's count is made of.
+  const unread = goal.comments.filter(
+    (comment) =>
+      comment.authorRole === "INSTRUCTOR" &&
+      !comment.withdrawn &&
+      (goal.commentsReadAt === null || comment.createdAt > goal.commentsReadAt),
+  ).length;
 
   return (
     <li className="flex flex-col">
@@ -169,6 +212,14 @@ function GoalRow({
           )}
         </span>
 
+        {!open && unread > 0 && (
+          <Badge
+            variant="outline"
+            className="mt-0.5 shrink-0 font-normal text-emerald-700 dark:text-emerald-300"
+          >
+            {unread} new
+          </Badge>
+        )}
         <GoalMarkerBadge marker={goal.marker} className="mt-0.5 shrink-0" />
       </button>
 
@@ -198,6 +249,8 @@ function GoalRow({
             </p>
           )}
           <GoalUpdates goal={goal} programId={programId} editable />
+
+          <GoalComments goal={goal} programId={programId} side="fellow" />
 
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-xs text-muted-foreground">Set {formatDate(goal.createdAt)}</span>

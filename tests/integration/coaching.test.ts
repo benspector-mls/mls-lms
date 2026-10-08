@@ -7,7 +7,8 @@
  * completed session freezes are the figures the student record shows, because both are
  * `courseFiguresFor` called twice.
  */
-import { parseSnapshot } from "@/lib/coaching";
+import { parseSnapshot, PREPARATION_PROMPT } from "@/lib/coaching";
+import { schoolDayOf } from "@/lib/school-time";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
@@ -295,6 +296,40 @@ describe("a coaching session, drafted and completed", () => {
     ).toBe("BAD_REQUEST");
   });
 
+  it("is dated today until the instructor moves it, and the lists on both sides follow", async () => {
+    const draft = await asInstructor().coaching.session({ programId: world.programId, sessionId });
+    expect(draft.heldOn).toBe(schoolDayOf(new Date()));
+
+    await asInstructor().coaching.saveSession({
+      programId: world.programId,
+      sessionId,
+      temperature: null,
+      answers: [],
+      heldOn: "2031-03-14",
+    });
+
+    const moved = await asInstructor().coaching.session({ programId: world.programId, sessionId });
+    expect(moved.heldOn).toBe("2031-03-14");
+
+    const record = await asInstructor().coaching.forStudent({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    expect(record.sessions.find((row) => row.id === sessionId)?.heldOn).toBe("2031-03-14");
+
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.saveSession({
+          programId: world.programId,
+          sessionId,
+          temperature: null,
+          answers: [],
+          heldOn: "2031-02-30",
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
   it("a draft session is invisible to the fellow", async () => {
     const mine = await asFellow().coaching.myGoals({ programId: world.programId });
     expect(mine.sessions).toEqual([]);
@@ -341,7 +376,7 @@ describe("a coaching session, drafted and completed", () => {
     const mine = await asFellow().coaching.myGoals({ programId: world.programId });
 
     expect(mine.sessions).toHaveLength(1);
-    expect(Object.keys(mine.sessions[0]).sort()).toEqual(["endedAt", "id", "snapshot"]);
+    expect(Object.keys(mine.sessions[0]).sort()).toEqual(["endedAt", "heldOn", "id", "snapshot"]);
     expect(mine).not.toHaveProperty("notes");
     expect(JSON.stringify(mine)).not.toContain("temperature");
   });
@@ -1093,6 +1128,492 @@ describe("discarding a coaching session", () => {
         asFellow().coaching.deleteSession({ programId: world.programId, sessionId }),
       ),
     ).toBe("FORBIDDEN");
+  });
+});
+
+/*
+  ---- Preparing for a session -------------------------------------------------------------------
+
+  The coach's own notes before the conversation are an answer like any other: stored under the
+  `preparation` prompt id with the label copied in, staff-only by the same construction as the
+  check-in.
+*/
+describe("preparing for a session", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let sessionId: string;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+  const asFellow = () => createCaller(tx(), world.student.studentId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    sessionId = (
+      await asInstructor().coaching.startSession({
+        programId: world.programId,
+        studentId: world.student.studentId,
+      })
+    ).id;
+  });
+
+  it("is stored among the answers with its label copied in, and reaches no fellow", async () => {
+    await asInstructor().coaching.saveSession({
+      programId: world.programId,
+      sessionId,
+      temperature: null,
+      answers: [
+        { promptId: PREPARATION_PROMPT.id, answer: "Late three mornings; ask about the commute." },
+      ],
+    });
+
+    const stored = await asInstructor().coaching.session({ programId: world.programId, sessionId });
+    expect(stored.answers).toEqual([
+      {
+        promptId: "preparation",
+        prompt: "Preparing for this session",
+        answer: "Late three mornings; ask about the commute.",
+      },
+    ]);
+
+    await asInstructor().coaching.completeSession({ programId: world.programId, sessionId });
+
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.sessions).toHaveLength(1);
+    expect(JSON.stringify(mine)).not.toContain("commute");
+  });
+});
+
+/*
+  ---- Topics, which are the fellow's ------------------------------------------------------------
+
+  What a fellow wants to raise next time: theirs to add, rewrite and remove, with the goal's
+  ownership exactly. An instructor reads them on the record and on a draft session, and nothing
+  about a session changes them.
+*/
+describe("discussion topics, which are the fellow's", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let topicId: string;
+
+  const asFellow = () => createCaller(tx(), world.student.studentId);
+  const asOtherFellow = () => createCaller(tx(), world.students[1]!.studentId);
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 2 });
+  });
+
+  it("the fellow adds one, and reads it back with the date it was added", async () => {
+    const topic = await asFellow().coaching.addTopic({
+      programId: world.programId,
+      body: "How do I ask for a code review without feeling like a nuisance?",
+    });
+    topicId = topic.id;
+
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.topics.map((row) => row.id)).toEqual([topicId]);
+    expect(mine.topics[0]?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("a topic needs words", async () => {
+    expect(
+      await refusal(() =>
+        asFellow().coaching.addTopic({ programId: world.programId, body: "   " }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  it("the instructor reads it on the record and on a draft, and not on a completed session", async () => {
+    const record = await asInstructor().coaching.forStudent({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    expect(record.topics.map((row) => row.id)).toEqual([topicId]);
+
+    const { id: sessionId } = await asInstructor().coaching.startSession({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    const draft = await asInstructor().coaching.session({ programId: world.programId, sessionId });
+    expect(draft.topics.map((row) => row.id)).toEqual([topicId]);
+
+    await asInstructor().coaching.completeSession({ programId: world.programId, sessionId });
+    const done = await asInstructor().coaching.session({ programId: world.programId, sessionId });
+    expect(done.topics).toEqual([]);
+
+    // Completing a session changes nothing about the list: the fellow removes a topic themselves.
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.topics).toHaveLength(1);
+  });
+
+  it("another fellow finds nothing, and an instructor may not write one", async () => {
+    expect(
+      await refusal(() =>
+        asOtherFellow().coaching.editTopic({ programId: world.programId, topicId, body: "no" }),
+      ),
+    ).toBe("NOT_FOUND");
+
+    const theirs = await asOtherFellow().coaching.myGoals({ programId: world.programId });
+    expect(theirs.topics).toEqual([]);
+
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.addTopic({ programId: world.programId, body: "Be on time." }),
+      ),
+    ).toBe("FORBIDDEN");
+  });
+
+  it("the fellow rewrites and removes their own", async () => {
+    const edited = await asFellow().coaching.editTopic({
+      programId: world.programId,
+      topicId,
+      body: "How do I ask for a code review?",
+    });
+    expect(edited.body).toBe("How do I ask for a code review?");
+
+    await asFellow().coaching.deleteTopic({ programId: world.programId, topicId });
+
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.topics).toEqual([]);
+  });
+
+  it("the database holds the cap too", async () => {
+    await tx().$executeRaw`SAVEPOINT a_long_topic`;
+    await expect(
+      tx().$executeRaw`
+        INSERT INTO coaching_topics (id, program_id, enrollment_id, body)
+        VALUES (gen_random_uuid(), ${world.programId}::uuid, ${world.student.id}::uuid,
+                ${"x".repeat(2001)})
+      `,
+    ).rejects.toThrow(/coaching_topics_body_length/);
+    await tx().$executeRaw`ROLLBACK TO SAVEPOINT a_long_topic`;
+  });
+});
+
+/*
+  ---- The conversation under a goal ------------------------------------------------------------
+
+  The one thing both sides write. The side is recorded from the guard's own answer, the words
+  reach the other side at once, withdrawing is the author's alone, and none of it is audited.
+*/
+describe("the conversation under a goal", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let outsider: World;
+  let adminId: string;
+  let goalId: string;
+  let instructorCommentId: string;
+
+  const asFellow = () => createCaller(tx(), world.student.studentId);
+  const asOtherFellow = () => createCaller(tx(), world.students[1]!.studentId);
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+  const asOutsider = () => createCaller(tx(), outsider.instructorId);
+  const asAdmin = () => createCaller(tx(), adminId);
+
+  const goalOf = <G extends { id: string }>(payload: { goals: G[] }) =>
+    payload.goals.find((row) => row.id === goalId)!;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 2 });
+    outsider = await makeWorld(tx());
+    adminId = await makeAccount(tx(), { role: "ADMIN" });
+
+    const goal = await asFellow().coaching.setGoal({
+      programId: world.programId,
+      title: "Ask for help sooner.",
+      entryId: null,
+      successCriteria: "",
+      objectives: "",
+      actionPlan: "",
+      marker: null,
+    });
+    goalId = goal.id;
+  });
+
+  it("an instructor writes under the goal, and the fellow reads it as a coach's", async () => {
+    const posted = await asInstructor().coaching.postGoalComment({
+      programId: world.programId,
+      goalId,
+      body: "Can you add a timeframe?",
+    });
+    instructorCommentId = posted.id;
+
+    const goal = goalOf(await asFellow().coaching.myGoals({ programId: world.programId }));
+    expect(goal.comments).toHaveLength(1);
+    expect(goal.comments[0]).toMatchObject({
+      id: instructorCommentId,
+      authorRole: "INSTRUCTOR",
+      body: "Can you add a timeframe?",
+      withdrawn: false,
+      mine: false,
+    });
+    expect(goal.comments[0]?.author).not.toBeNull();
+    expect(goal.comments[0]).not.toHaveProperty("authorId");
+  });
+
+  it("the fellow replies, and the instructor reads it as the fellow's", async () => {
+    await asFellow().coaching.postGoalComment({
+      programId: world.programId,
+      goalId,
+      body: "By the end of the module.",
+    });
+
+    const goal = goalOf(
+      await asInstructor().coaching.forStudent({
+        programId: world.programId,
+        studentId: world.student.studentId,
+      }),
+    );
+    expect(goal.comments.map((row) => [row.authorRole, row.mine])).toEqual([
+      ["INSTRUCTOR", true],
+      ["STUDENT", false],
+    ]);
+  });
+
+  it("an admin writes as staff", async () => {
+    const posted = await asAdmin().coaching.postGoalComment({
+      programId: world.programId,
+      goalId,
+      body: "Agreed.",
+    });
+    const stored = await tx().goalComment.findUniqueOrThrow({
+      where: { id: posted.id },
+      select: { authorRole: true },
+    });
+    expect(stored.authorRole).toBe("INSTRUCTOR");
+  });
+
+  it("an instructor of another program is refused; a fellow naming somebody else's goal finds nothing", async () => {
+    expect(
+      await refusal(() =>
+        asOutsider().coaching.postGoalComment({ programId: world.programId, goalId, body: "x" }),
+      ),
+    ).toBe("FORBIDDEN");
+
+    expect(
+      await refusal(() =>
+        asOtherFellow().coaching.postGoalComment({ programId: world.programId, goalId, body: "x" }),
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
+  it("a comment needs words", async () => {
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.postGoalComment({ programId: world.programId, goalId, body: " " }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  it("a removed fellow keeps reading the conversation, and stops writing in it", async () => {
+    await tx().enrollment.update({
+      where: { id: world.student.id },
+      data: { status: "REMOVED" },
+    });
+
+    const goal = goalOf(await asFellow().coaching.myGoals({ programId: world.programId }));
+    expect(goal.comments).toHaveLength(3);
+
+    expect(
+      await refusal(() =>
+        asFellow().coaching.postGoalComment({
+          programId: world.programId,
+          goalId,
+          body: "Still here.",
+        }),
+      ),
+    ).toBe("FORBIDDEN");
+
+    await tx().enrollment.update({
+      where: { id: world.student.id },
+      data: { status: "ACTIVE" },
+    });
+  });
+
+  it("only the author withdraws, and a withdrawn comment keeps its place and loses its words", async () => {
+    for (const caller of [asAdmin, asFellow]) {
+      expect(
+        await refusal(() =>
+          caller().coaching.withdrawGoalComment({
+            programId: world.programId,
+            commentId: instructorCommentId,
+          }),
+        ),
+      ).toBe("NOT_FOUND");
+    }
+
+    await asInstructor().coaching.withdrawGoalComment({
+      programId: world.programId,
+      commentId: instructorCommentId,
+    });
+
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    const goal = goalOf(mine);
+    expect(goal.comments).toHaveLength(3);
+    expect(goal.comments[0]).toMatchObject({ id: instructorCommentId, withdrawn: true, body: "" });
+    expect(JSON.stringify(mine)).not.toContain("timeframe");
+
+    // Withdrawn is withdrawn: a second press finds nothing to withdraw.
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.withdrawGoalComment({
+          programId: world.programId,
+          commentId: instructorCommentId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
+  it("none of it reaches the audit log", async () => {
+    const events = await tx().auditEvent.findMany({
+      where: {
+        subjectId: world.student.studentId,
+        action: {
+          in: [
+            "COACHING_NOTE_CREATED",
+            "COACHING_NOTE_UPDATED",
+            "COACHING_NOTE_DELETED",
+            "COACHING_SESSION_COMPLETED",
+            "COACHING_SESSION_DELETED",
+            "GOAL_UPDATED",
+            "GOAL_DELETED",
+          ],
+        },
+      },
+    });
+    expect(events).toEqual([]);
+  });
+
+  it("deleting the goal takes the conversation with it", async () => {
+    await asFellow().coaching.deleteGoal({ programId: world.programId, goalId });
+    expect(await tx().goalComment.count({ where: { goalId } })).toBe(0);
+  });
+
+  it("the database holds the cap too", async () => {
+    const goal = await asFellow().coaching.setGoal({
+      programId: world.programId,
+      title: "Another.",
+      entryId: null,
+      successCriteria: "",
+      objectives: "",
+      actionPlan: "",
+      marker: null,
+    });
+
+    await tx().$executeRaw`SAVEPOINT a_long_comment`;
+    await expect(
+      tx().$executeRaw`
+        INSERT INTO goal_comments (id, goal_id, author_id, author_role, body)
+        VALUES (gen_random_uuid(), ${goal.id}::uuid, ${world.instructorId}::uuid,
+                'INSTRUCTOR'::"GoalCommentAuthor", ${"x".repeat(5001)})
+      `,
+    ).rejects.toThrow(/goal_comments_body_length/);
+    await tx().$executeRaw`ROLLBACK TO SAVEPOINT a_long_comment`;
+  });
+});
+
+/*
+  ---- What the fellow has not yet read ---------------------------------------------------------
+
+  The receipt on a goal, and the count the sidebar draws from it: instructor comments newer than
+  the receipt, never the fellow's own, never a withdrawn one, and the receipt moves forwards only.
+*/
+describe("what the fellow has not yet read under their goals", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let goalId: string;
+  let first: string;
+  let second: string;
+
+  const asFellow = () => createCaller(tx(), world.student.studentId);
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+
+  const post = async (caller: typeof asFellow, body: string) =>
+    (await caller().coaching.postGoalComment({ programId: world.programId, goalId, body })).id;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+
+    goalId = (
+      await asFellow().coaching.setGoal({
+        programId: world.programId,
+        title: "Ask for help sooner.",
+        entryId: null,
+        successCriteria: "",
+        objectives: "",
+        actionPlan: "",
+        marker: null,
+      })
+    ).id;
+
+    first = await post(asInstructor, "One.");
+    await post(asFellow, "Mine.");
+    second = await post(asInstructor, "Two.");
+  });
+
+  it("counts every instructor comment until the fellow opens the goal, and never their own", async () => {
+    expect(await asFellow().coaching.unreadGoalComments()).toEqual([
+      { programId: world.programId, count: 2 },
+    ]);
+    expect(await asInstructor().coaching.unreadGoalComments()).toEqual([]);
+  });
+
+  it("reading as far as the newest clears the count, and the receipt only moves forwards", async () => {
+    const marked = await asFellow().coaching.markGoalCommentsRead({
+      programId: world.programId,
+      goalId,
+      upTo: second,
+    });
+    expect(await asFellow().coaching.unreadGoalComments()).toEqual([]);
+
+    await asFellow().coaching.markGoalCommentsRead({
+      programId: world.programId,
+      goalId,
+      upTo: first,
+    });
+    expect(await asFellow().coaching.unreadGoalComments()).toEqual([]);
+
+    const mine = await asFellow().coaching.myGoals({ programId: world.programId });
+    expect(mine.goals[0]?.commentsReadAt).toEqual(marked.readAt);
+  });
+
+  it("a newer comment counts again, and a withdrawn one does not", async () => {
+    const third = await post(asInstructor, "Three.");
+    expect(await asFellow().coaching.unreadGoalComments()).toEqual([
+      { programId: world.programId, count: 1 },
+    ]);
+
+    await asInstructor().coaching.withdrawGoalComment({
+      programId: world.programId,
+      commentId: third,
+    });
+    expect(await asFellow().coaching.unreadGoalComments()).toEqual([]);
+  });
+
+  it("only the owner marks, and only with a comment on that goal", async () => {
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.markGoalCommentsRead({
+          programId: world.programId,
+          goalId,
+          upTo: first,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+
+    expect(
+      await refusal(() =>
+        asFellow().coaching.markGoalCommentsRead({
+          programId: world.programId,
+          goalId,
+          upTo: "00000000-0000-4000-8000-000000000000",
+        }),
+      ),
+    ).toBe("NOT_FOUND");
   });
 });
 

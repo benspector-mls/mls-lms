@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
 
+import { GoalComments } from "@/components/goal-comments";
 import { GoalUpdates } from "@/components/goal-updates";
 import { GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +13,10 @@ import type { RouterOutputs } from "@/trpc/types";
 /**
  * A fellow's goals as an instructor reads them: rows that open onto the plan behind each one.
  *
- * **Nothing here is a control.** The goals are the fellow's — they set them, rewrite them and place
- * themselves on them — so this renders and writes nothing. An instructor who thinks an assessment
- * is off the mark says so in the coaching session.
+ * **The goal is the fellow's; the conversation under it is both sides'.** They set the goal,
+ * rewrite it and place themselves on it, so nothing here edits a goal. What an instructor writes
+ * is a comment beneath one — "can you add a timeframe?" — which the fellow reads on their own
+ * screen and answers there or by changing the goal.
  *
  * **One component for the two places an instructor meets them**: the Coaching tab of the student
  * record, and the session form where they are the thing being talked through. The two used to
@@ -117,6 +119,8 @@ function GoalCard({ goal, programId }: { goal: Goal; programId: string }) {
           )}
 
           <GoalUpdates goal={goal} programId={programId} editable={false} />
+
+          <GoalComments goal={goal} programId={programId} side="instructor" />
 
           <span className="text-xs text-muted-foreground">Set {formatDate(goal.createdAt)}</span>
         </div>

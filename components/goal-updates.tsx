@@ -33,7 +33,7 @@ type Update = Goal["updates"][number];
  * **The fellow's to write and nobody else's.** `editable` is true on their own goals page and
  * false on the two instructor screens, and that one flag is the whole difference: the same rows,
  * the same files, the same order, with the controls present or absent. An instructor who wants
- * to respond to an update says so in the coaching session.
+ * to respond to an update writes a comment under the goal.
  *
  * **Links are markdown.** A fellow pastes `[what it is](https://…)` into the text and the
  * renderer makes it a link, so there is no second kind of attachment to store, list, or remove.

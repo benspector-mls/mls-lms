@@ -6,6 +6,7 @@ import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
+import { formatSchoolDay } from "@/lib/school-time";
 import { formatDate } from "@/lib/status";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -47,8 +48,8 @@ async function Session({
         title={`Coaching · ${displayNameOf(data.student, "Fellow")}`}
         description={
           data.endedAt === null
-            ? `In progress · started ${formatDate(data.createdAt)}`
-            : `Completed ${formatDate(data.endedAt)}`
+            ? `${formatSchoolDay(data.heldOn)} · in progress`
+            : `${formatSchoolDay(data.heldOn)} · completed ${formatDate(data.endedAt)}`
         }
         eyebrow="Coaching session"
       />

@@ -5,9 +5,11 @@ import { auditActor, recordEvent, type AuditReference } from "@/lib/audit/record
 import {
   ALL_PROMPTS,
   DEVELOPMENT_MARKERS,
+  GOAL_COMMENT_MAX_LENGTH,
   SNAPSHOT_VERSION,
   TEMPERATURE_MAX,
   TEMPERATURE_MIN,
+  TOPIC_MAX_LENGTH,
   sessionAnswersSchema,
 } from "@/lib/coaching";
 import {
@@ -17,6 +19,13 @@ import {
   snapshotOf,
 } from "@/lib/coaching/snapshot";
 import { assertActiveInProgram, assertProgramMember } from "@/lib/courses/membership";
+import type { Prisma } from "@/lib/generated/prisma/client";
+import {
+  dateColumnFor,
+  schoolDayFromColumn,
+  schoolDayOf,
+  schoolDaySchema,
+} from "@/lib/school-time";
 import { inTransaction } from "@/lib/prisma";
 import {
   MAX_SUBMISSION_ARTIFACTS,
@@ -35,7 +44,8 @@ import { createTRPCRouter, profileProcedure, programProcedure } from "../init";
 import { displayNameOf, personNameSelect, personSelect } from "../selects";
 
 /**
- * Coaching records: instructor notes, coaching sessions, and the fellow's goals and updates.
+ * Coaching records: instructor notes, coaching sessions, the fellow's topics, goals and updates,
+ * and the conversation under each goal.
  *
  * **Two ownerships, opposite ways round, and every guard on the file follows from which.** A note,
  * a session's answers and the temperature score are the instructor's and staff-only forever: they
@@ -43,14 +53,18 @@ import { displayNameOf, personNameSelect, personSelect } from "../selects";
  * exist in any fellow-facing payload type. A **goal is the fellow's** — they write it, edit it,
  * say where they stand on it and delete it — so every procedure that touches one is guarded by
  * `assertActiveInProgram`, which refuses instructors as firmly as it refuses strangers. The
- * same is true of the **updates** beneath a goal — progress notes with files attached — which the
- * fellow writes and an instructor reads on the record and in the session form. An
- * instructor who thinks a fellow has placed themselves wrongly says so in the session; there is no
- * procedure here for writing it down.
+ * same is true of the **updates** beneath a goal — progress notes with files attached — and of
+ * the **topics** a fellow collects for their next session, all of which the fellow writes and an
+ * instructor reads on the record and in the session form.
  *
- * What the fellow reads — `myGoals` — is their own goals and completed sessions' snapshots, and
- * its input names only the program: there is no argument that could name somebody else, the
- * `gcf.mine` shape.
+ * **The comments under a goal are the one thing both sides write.** `postGoalComment` admits an
+ * instructor of the program to any goal in it and a fellow to their own, and records which side
+ * wrote; withdrawing is the author's alone. Nothing either side does there is audited, for the
+ * reason submission comments are not: the other side reads it the moment it exists.
+ *
+ * What the fellow reads — `myGoals` — is their own topics, goals and completed sessions'
+ * snapshots, and its input names only the program: there is no argument that could name somebody
+ * else, the `gcf.mine` shape.
  *
  * **Every row-level `where` names `programId` beside the id.** `programProcedure` proves the
  * caller instructs the program in the input; the second column is what makes an id stolen from
@@ -98,6 +112,29 @@ const NO_COMPETENCY = {
   competencyName: null,
 } as const;
 const noteBody = z.string().trim().min(1, "A note needs words in it.").max(50_000);
+const topicBody = z.string().trim().min(1, "A topic needs words in it.").max(TOPIC_MAX_LENGTH);
+const commentBody = z
+  .string()
+  .trim()
+  .min(1, "A comment needs words in it.")
+  .max(GOAL_COMMENT_MAX_LENGTH);
+
+const topicSelect = { id: true, body: true, createdAt: true, updatedAt: true } as const;
+type TopicRow = Prisma.CoachingTopicGetPayload<{ select: typeof topicSelect }>;
+
+/**
+ * One message under a goal as the database holds it. `authorId` and the body of a withdrawn one
+ * are selected here and withheld by `presentGoal`, which is the only way a goal leaves this file.
+ */
+const commentSelect = {
+  id: true,
+  authorId: true,
+  authorRole: true,
+  body: true,
+  deletedAt: true,
+  createdAt: true,
+  author: { select: personNameSelect },
+} as const;
 
 /** What every enrollment-scoped act needs: the key, and the names the audit log writes. */
 const enrollmentSelect = {
@@ -158,6 +195,7 @@ async function sessionOf(ctx: Ctx, programId: string, sessionId: string) {
     where: { id: sessionId, programId },
     select: {
       id: true,
+      heldOn: true,
       temperature: true,
       answers: true,
       endedAt: true,
@@ -212,14 +250,40 @@ const goalSelect = {
   objectives: true,
   actionPlan: true,
   marker: true,
+  commentsReadAt: true,
   createdAt: true,
   updatedAt: true,
   /*
-    Every update rides along with its goal, newest first. One read answers both screens, and a
-    fellow's goals are few enough that nothing here wants paging.
+    Every update rides along with its goal, newest first, and every comment, oldest first — a
+    conversation reads downwards. One read answers both screens, and a fellow's goals are few
+    enough that nothing here wants paging.
   */
   updates: { orderBy: { createdAt: "desc" }, select: updateSelect },
+  comments: { orderBy: { createdAt: "asc" }, select: commentSelect },
 } as const;
+
+type SelectedGoal = Prisma.GoalGetPayload<{ select: typeof goalSelect }>;
+
+/**
+ * A goal as either side receives it: the row, with each comment's words withheld once withdrawn
+ * and the author's id replaced by whether it is the viewer's own.
+ *
+ * Done here rather than in the select because a select cannot say "this column, unless that one
+ * is set". Every procedure that returns a goal passes through this, so no payload type anywhere
+ * carries a withdrawn body or a profile id.
+ */
+function presentGoal(goal: SelectedGoal, viewerId: string) {
+  const { comments, ...rest } = goal;
+  return {
+    ...rest,
+    comments: comments.map(({ authorId, body, deletedAt, ...comment }) => ({
+      ...comment,
+      withdrawn: deletedAt !== null,
+      body: deletedAt === null ? body : "",
+      mine: authorId !== null && authorId === viewerId,
+    })),
+  };
+}
 
 /**
  * Refuses a goal that is not this enrollment's — not found rather than forbidden, because to
@@ -246,6 +310,18 @@ async function assertOwnUpdate(ctx: FellowCtx, enrollmentId: string, updateId: s
 
   if (!update) {
     throw new TRPCError({ code: "NOT_FOUND", message: "No such update of yours." });
+  }
+}
+
+/** And for a topic. */
+async function assertOwnTopic(ctx: FellowCtx, enrollmentId: string, topicId: string) {
+  const topic = await ctx.db.coachingTopic.findFirst({
+    where: { id: topicId, enrollmentId },
+    select: { id: true },
+  });
+
+  if (!topic) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "No such topic of yours." });
   }
 }
 
@@ -325,14 +401,15 @@ async function copiesOf(ctx: FellowCtx, programId: string, entryId: string) {
 export const coachingRouter = createTRPCRouter({
   /**
    * Everything the record page's coaching sections show for one fellow: the instructor's own
-   * notes and sessions, and the fellow's goals — read here and written nowhere on this side.
+   * notes and sessions, and the fellow's topics and goals — read here, and written on this side
+   * only in the comments under a goal.
    */
   forStudent: programProcedure
     .input(z.object({ studentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const enrollment = await enrollmentOf(ctx, input.programId, input.studentId);
 
-      const [notes, sessions, goals] = await Promise.all([
+      const [notes, sessions, goals, topics] = await Promise.all([
         ctx.db.instructorNote.findMany({
           where: { enrollmentId: enrollment.id },
           orderBy: { createdAt: "desc" },
@@ -346,9 +423,10 @@ export const coachingRouter = createTRPCRouter({
         }),
         ctx.db.coachingSession.findMany({
           where: { enrollmentId: enrollment.id },
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ heldOn: "desc" }, { createdAt: "desc" }],
           select: {
             id: true,
+            heldOn: true,
             createdAt: true,
             endedAt: true,
             author: { select: personNameSelect },
@@ -359,9 +437,23 @@ export const coachingRouter = createTRPCRouter({
           orderBy: { createdAt: "desc" },
           select: goalSelect,
         }),
+        ctx.db.coachingTopic.findMany({
+          where: { enrollmentId: enrollment.id },
+          orderBy: { createdAt: "asc" },
+          select: topicSelect,
+        }),
       ]);
 
-      return { student: enrollment.student, notes, sessions, goals };
+      return {
+        student: enrollment.student,
+        notes,
+        sessions: sessions.map((session) => ({
+          ...session,
+          heldOn: schoolDayFromColumn(session.heldOn),
+        })),
+        goals: goals.map((goal) => presentGoal(goal, ctx.profile.id)),
+        topics,
+      };
     }),
 
   /**
@@ -381,17 +473,28 @@ export const coachingRouter = createTRPCRouter({
       const session = await sessionOf(ctx, input.programId, input.sessionId);
 
       const now = new Date();
-      const [goals, courses, attendance] = await Promise.all([
+      const [goals, topics, courses, attendance] = await Promise.all([
         /*
-          The fellow's goals as they stand, for the instructor to talk through. Read-only here and
-          everywhere on this side: the form shows them so a session can be spent guiding somebody
-          to set or move one, which they do on their own screen.
+          The fellow's goals as they stand, for the instructor to talk through. The goal's own
+          columns are written on the fellow's screen; what an instructor writes here is a comment
+          beneath one.
         */
         ctx.db.goal.findMany({
           where: { enrollmentId: session.enrollment.id },
           orderBy: { createdAt: "desc" },
           select: goalSelect,
         }),
+        /*
+          What the fellow wants to raise, on a draft only. A completed session renders as the
+          record of that conversation, and the fellow's current list is not part of it.
+        */
+        session.endedAt === null
+          ? ctx.db.coachingTopic.findMany({
+              where: { enrollmentId: session.enrollment.id },
+              orderBy: { createdAt: "asc" },
+              select: topicSelect,
+            })
+          : Promise.resolve<TopicRow[]>([]),
         courseFiguresFor(ctx.db, session.enrollment, now),
         attendanceStandingFor(ctx.db, session.enrollment, now),
       ]);
@@ -401,12 +504,14 @@ export const coachingRouter = createTRPCRouter({
       return {
         id: session.id,
         student: session.enrollment.student,
+        heldOn: schoolDayFromColumn(session.heldOn),
         temperature: session.temperature,
         answers: answers.success ? answers.data : [],
         endedAt: session.endedAt,
         snapshot: session.snapshot,
         createdAt: session.createdAt,
-        goals,
+        goals: goals.map((goal) => presentGoal(goal, ctx.profile.id)),
+        topics,
         figures: snapshotOf(courses, attendance, now),
         trends: {
           recentAttendance: attendance.recentAttendance,
@@ -416,7 +521,10 @@ export const coachingRouter = createTRPCRouter({
       };
     }),
 
-  /** A new draft. No audit — a draft is staff-only scratch until completing releases it. */
+  /**
+   * A new draft, dated today in the school's timezone until the instructor says otherwise. No
+   * audit — a draft is staff-only scratch until completing releases it.
+   */
   startSession: programProcedure
     .input(z.object({ studentId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -427,6 +535,7 @@ export const coachingRouter = createTRPCRouter({
           enrollmentId: enrollment.id,
           programId: enrollment.programId,
           authorId: ctx.profile.id,
+          heldOn: dateColumnFor(schoolDayOf(new Date())),
         },
         select: { id: true },
       });
@@ -435,6 +544,9 @@ export const coachingRouter = createTRPCRouter({
   /**
    * The autosave target. The server re-derives each prompt's text from the template by id — an
    * unknown id is refused — so the stored copy is always the canonical wording at save time.
+   *
+   * `heldOn` rides along when the instructor changes the day the session is held. Optional, so a
+   * form from the release before this column keeps saving during a deploy.
    */
   saveSession: programProcedure
     .input(
@@ -442,6 +554,7 @@ export const coachingRouter = createTRPCRouter({
         sessionId: z.string().uuid(),
         temperature: temperatureInput,
         answers: z.array(z.object({ promptId: z.string(), answer: z.string().max(20_000) })),
+        heldOn: schoolDaySchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -461,7 +574,11 @@ export const coachingRouter = createTRPCRouter({
 
       await ctx.db.coachingSession.update({
         where: { id: session.id },
-        data: { temperature: input.temperature, answers },
+        data: {
+          temperature: input.temperature,
+          answers,
+          ...(input.heldOn === undefined ? {} : { heldOn: dateColumnFor(input.heldOn) }),
+        },
         select: { id: true },
       });
     }),
@@ -552,7 +669,7 @@ export const coachingRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const enrollmentId = await assertActiveInProgram(ctx, input.programId);
 
-      return ctx.db.goal.create({
+      const goal = await ctx.db.goal.create({
         data: {
           enrollmentId,
           programId: input.programId,
@@ -567,6 +684,8 @@ export const coachingRouter = createTRPCRouter({
         },
         select: goalSelect,
       });
+
+      return presentGoal(goal, ctx.profile.id);
     }),
 
   /**
@@ -596,7 +715,7 @@ export const coachingRouter = createTRPCRouter({
       const enrollmentId = await assertActiveInProgram(ctx, input.programId);
       await assertOwnGoal(ctx, enrollmentId, input.goalId);
 
-      return ctx.db.goal.update({
+      const goal = await ctx.db.goal.update({
         where: { id: input.goalId },
         data: {
           ...(input.title === undefined ? {} : { title: input.title }),
@@ -614,6 +733,8 @@ export const coachingRouter = createTRPCRouter({
         },
         select: goalSelect,
       });
+
+      return presentGoal(goal, ctx.profile.id);
     }),
 
   /**
@@ -849,6 +970,217 @@ export const coachingRouter = createTRPCRouter({
       };
     }),
 
+  /*
+    ---- Topics: what the fellow wants to raise at their next session -------------------------
+
+    The fellow's rows, the goal's ownership exactly: `assertActiveInProgram` first, then the row
+    must be theirs or it is not found. Nothing ties a topic to a session — the fellow removes one
+    once it has been talked about — and nothing here is audited.
+  */
+
+  addTopic: fellowGoalProcedure
+    .input(z.object({ body: topicBody }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+
+      return ctx.db.coachingTopic.create({
+        data: { enrollmentId, programId: input.programId, body: input.body },
+        select: topicSelect,
+      });
+    }),
+
+  editTopic: fellowGoalProcedure
+    .input(z.object({ topicId: z.string().uuid(), body: topicBody }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnTopic(ctx, enrollmentId, input.topicId);
+
+      return ctx.db.coachingTopic.update({
+        where: { id: input.topicId },
+        data: { body: input.body },
+        select: topicSelect,
+      });
+    }),
+
+  deleteTopic: fellowGoalProcedure
+    .input(z.object({ topicId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const enrollmentId = await assertActiveInProgram(ctx, input.programId);
+      await assertOwnTopic(ctx, enrollmentId, input.topicId);
+
+      await ctx.db.coachingTopic.delete({ where: { id: input.topicId }, select: { id: true } });
+    }),
+
+  /*
+    ---- The conversation under a goal ---------------------------------------------------------
+
+    The one place both sides write. `assertProgramMember` says which side the caller is on, and
+    the goal lookup differs by exactly that: a fellow may name their own goals, an instructor or
+    admin any goal in the program. The side is recorded on the row from that answer, never from
+    input. Withdrawing is the author's alone. Nothing here is audited, for the reason submission
+    comments are not: the other side reads a comment the moment it exists.
+  */
+
+  postGoalComment: profileProcedure
+    .input(
+      z.object({
+        programId: z.string().uuid(),
+        goalId: z.string().uuid(),
+        body: commentBody,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const membership = await assertProgramMember(ctx, input.programId);
+
+      // A removed fellow keeps reading the conversation, the rule their goals follow, and writes
+      // nothing — `assertActiveInProgram`'s answer, reached by the other guard.
+      if (membership.as === "student" && !membership.active) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are no longer enrolled in this program.",
+        });
+      }
+
+      const goal = await ctx.db.goal.findFirst({
+        where: {
+          id: input.goalId,
+          programId: input.programId,
+          ...(membership.as === "student" ? { enrollment: { studentId: ctx.profile.id } } : {}),
+        },
+        select: { id: true },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such goal here." });
+      }
+
+      return ctx.db.goalComment.create({
+        data: {
+          goalId: goal.id,
+          authorId: ctx.profile.id,
+          authorRole: membership.as === "student" ? "STUDENT" : "INSTRUCTOR",
+          body: input.body,
+        },
+        select: { id: true },
+      });
+    }),
+
+  /**
+   * Withdraw your own message. A tombstone, so a reply is not left answering whatever floats into
+   * the gap; the author only, which is what keeps this to one column and no audit event.
+   */
+  withdrawGoalComment: profileProcedure
+    .input(z.object({ programId: z.string().uuid(), commentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertProgramMember(ctx, input.programId);
+
+      const comment = await ctx.db.goalComment.findFirst({
+        where: {
+          id: input.commentId,
+          authorId: ctx.profile.id,
+          deletedAt: null,
+          goal: { programId: input.programId },
+        },
+        select: { id: true },
+      });
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such comment of yours." });
+      }
+
+      await ctx.db.goalComment.update({
+        where: { id: comment.id },
+        data: { deletedAt: new Date() },
+        select: { id: true },
+      });
+    }),
+
+  /**
+   * The fellow saying they have read the conversation under one of their goals, as far as one
+   * comment.
+   *
+   * `upTo` names a comment rather than sending a clock, so anything landing between the read and
+   * this write is genuinely later and stays unread; and the receipt only moves forwards, which one
+   * `updateMany` with the receipt in its `where` says in a single statement. Fired from an effect
+   * when the goal opens; nothing waits for it.
+   */
+  markGoalCommentsRead: profileProcedure
+    .input(
+      z.object({
+        programId: z.string().uuid(),
+        goalId: z.string().uuid(),
+        upTo: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertProgramMember(ctx, input.programId);
+
+      const goal = await ctx.db.goal.findFirst({
+        where: {
+          id: input.goalId,
+          programId: input.programId,
+          enrollment: { studentId: ctx.profile.id },
+        },
+        select: { id: true },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such goal of yours." });
+      }
+
+      const comment = await ctx.db.goalComment.findFirst({
+        where: { id: input.upTo, goalId: goal.id },
+        select: { createdAt: true },
+      });
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No such comment here." });
+      }
+
+      await ctx.db.goal.updateMany({
+        where: {
+          id: goal.id,
+          OR: [{ commentsReadAt: null }, { commentsReadAt: { lt: comment.createdAt } }],
+        },
+        data: { commentsReadAt: comment.createdAt },
+      });
+
+      return { goalId: goal.id, readAt: comment.createdAt };
+    }),
+
+  /**
+   * What the sidebar draws on a fellow's Goals rows: per program, how many instructor comments
+   * stand under their goals that they have not opened since. No input — it is about the caller
+   * and nobody else — and nothing for an instructor, who has no receipt.
+   *
+   * Counted in code rather than in the query, because a `where` cannot compare a comment's
+   * `createdAt` with its goal's `commentsReadAt`; a fellow's goals and comments are few.
+   */
+  unreadGoalComments: profileProcedure.query(async ({ ctx }) => {
+    const enrollments = await ctx.db.enrollment.findMany({
+      where: { studentId: ctx.profile.id },
+      select: {
+        programId: true,
+        goals: {
+          select: {
+            commentsReadAt: true,
+            comments: {
+              where: { authorRole: "INSTRUCTOR", deletedAt: null },
+              select: { createdAt: true },
+            },
+          },
+        },
+      },
+    });
+
+    return enrollments.flatMap((enrollment) => {
+      const count = enrollment.goals.reduce((sum, goal) => {
+        const readAt = goal.commentsReadAt;
+        return (
+          sum +
+          goal.comments.filter((comment) => readAt === null || comment.createdAt > readAt).length
+        );
+      }, 0);
+      return count === 0 ? [] : [{ programId: enrollment.programId, count }];
+    });
+  }),
+
   addNote: programProcedure
     .input(z.object({ studentId: z.string().uuid(), body: noteBody }))
     .mutation(async ({ ctx, input }) => {
@@ -929,8 +1261,8 @@ export const coachingRouter = createTRPCRouter({
 
   /**
    * The fellow's half, and the whole of it. Takes no student id — there is no argument that could
-   * name somebody else — and selects nothing staff-only: their own goals, and completed sessions
-   * as `{id, endedAt, snapshot}`.
+   * name somebody else — and selects nothing staff-only: their own topics and goals, and completed
+   * sessions as `{id, heldOn, endedAt, snapshot}`.
    *
    * **Every goal of theirs, with nothing filtered out**, because a goal is theirs from the moment
    * they write it and there is no state in which one exists but is not for them to see.
@@ -944,7 +1276,7 @@ export const coachingRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await assertProgramMember(ctx, input.programId);
 
-      const [program, goals, sessions] = await Promise.all([
+      const [program, goals, topics, sessions] = await Promise.all([
         ctx.db.program.findUniqueOrThrow({
           where: { id: input.programId },
           select: { id: true, name: true, term: true },
@@ -954,17 +1286,30 @@ export const coachingRouter = createTRPCRouter({
           orderBy: { createdAt: "desc" },
           select: goalSelect,
         }),
+        ctx.db.coachingTopic.findMany({
+          where: { programId: input.programId, enrollment: { studentId: ctx.profile.id } },
+          orderBy: { createdAt: "asc" },
+          select: topicSelect,
+        }),
         ctx.db.coachingSession.findMany({
           where: {
             programId: input.programId,
             enrollment: { studentId: ctx.profile.id },
             endedAt: { not: null },
           },
-          orderBy: { endedAt: "desc" },
-          select: { id: true, endedAt: true, snapshot: true },
+          orderBy: [{ heldOn: "desc" }, { endedAt: "desc" }],
+          select: { id: true, heldOn: true, endedAt: true, snapshot: true },
         }),
       ]);
 
-      return { program, goals, sessions };
+      return {
+        program,
+        goals: goals.map((goal) => presentGoal(goal, ctx.profile.id)),
+        topics,
+        sessions: sessions.map((session) => ({
+          ...session,
+          heldOn: schoolDayFromColumn(session.heldOn),
+        })),
+      };
     }),
 });

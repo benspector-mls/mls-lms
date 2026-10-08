@@ -29,6 +29,17 @@ export type { DevelopmentMarker };
  * Ids are permanent for the reason a competency entry's is: a stored session holds them forever.
  * The prompt text is the current wording, copied onto the row at save time.
  */
+/**
+ * What the coach writes before the conversation: what they have noticed, and what they mean to
+ * raise. Stored among the answers under its own id, like the additional notes, because it is
+ * staff-only prose on a draft session with its label copied in at save — the column already
+ * holds exactly that. First in `ALL_PROMPTS`, because it is the first thing the form asks for.
+ */
+export const PREPARATION_PROMPT = {
+  id: "preparation",
+  prompt: "Preparing for this session",
+} as const;
+
 export const CHECK_IN_PROMPTS = [
   { id: "on-your-mind", prompt: "What has been on your mind lately?" },
   { id: "excited", prompt: "What are you most excited to work on at the moment?" },
@@ -81,10 +92,11 @@ export const REVISITING_GOALS_PROMPTS = [
 ] as const;
 
 /**
- * Every prompt an answer may be stored under, in the order the form asks them: the check-ins, the
- * notes, and the goal questions.
+ * Every prompt an answer may be stored under, in the order the form asks them: the preparation,
+ * the check-ins, the notes, and the goal questions.
  */
 export const ALL_PROMPTS = [
+  PREPARATION_PROMPT,
   ...CHECK_IN_PROMPTS,
   ADDITIONAL_NOTES_PROMPT,
   ...REVISITING_GOALS_PROMPTS,
@@ -101,6 +113,18 @@ export const sessionAnswersSchema = z.array(
 );
 
 export type SessionAnswer = z.infer<typeof sessionAnswersSchema>[number];
+
+/**
+ * How long a discussion topic may be: a line or a paragraph the fellow wants to raise, never a
+ * document. The migration's CHECK holds the same number.
+ */
+export const TOPIC_MAX_LENGTH = 2_000;
+
+/**
+ * How long one comment under a goal may be — the submission-comment cap, for the same kind of
+ * message. The migration's CHECK holds the same number.
+ */
+export const GOAL_COMMENT_MAX_LENGTH = 5_000;
 
 /** The temperature check's bounds, stated once — the zod input, the form, and the migration's CHECK all say 1 to 10. */
 export const TEMPERATURE_MIN = 1;
