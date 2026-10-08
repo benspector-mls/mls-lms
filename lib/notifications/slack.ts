@@ -72,13 +72,13 @@ export async function resolveSlackUserId(client: Tx, profile: SendProfile): Prom
 
 /**
  * The recipients who want a DM right now: the named profiles, minus test students, minus
- * everyone whose cadence is not IMMEDIATE. One query, and the `testStudentNumber: null` here is
+ * everyone whose event cadence is not IMMEDIATE. One query, and the `testStudentNumber: null` is
  * the single place every immediate send excludes test rows.
  */
 async function immediateProfiles(client: Tx, profileIds: string[]): Promise<SendProfile[]> {
   if (profileIds.length === 0) return [];
   return client.profile.findMany({
-    where: { id: { in: profileIds }, testStudentNumber: null, slackCadence: "IMMEDIATE" },
+    where: { id: { in: profileIds }, testStudentNumber: null, slackEventCadence: "IMMEDIATE" },
     select: sendProfileSelect,
   });
 }

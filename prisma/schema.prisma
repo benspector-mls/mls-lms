@@ -44,13 +44,31 @@ enum Role {
   @@schema("public")
 }
 
-/// How often somebody hears about their own events over Slack. **The default is OFF.** A direct
+/// How often somebody hears about events on their own work over Slack. **The default is OFF.** A direct
 /// message arrives in a workspace a person shares with their whole cohort, so being messaged
 /// there is a claim on their attention that nobody should make on the strength of a default.
 /// The profile card beside the calendar feed is where somebody turns notifications on, and the
 /// three other values are the cadences they may then choose between.
+///
+/// Events only. A summary of standing state has no moment to be immediate about, so it takes
+/// `SummaryCadence` instead, which is the same set without `IMMEDIATE`.
 enum NotificationCadence {
   IMMEDIATE
+  DAILY
+  WEEKLY
+  OFF
+
+  @@schema("public")
+}
+
+/// How often somebody receives a summary of what is outstanding — the grading pile for staff, work
+/// due and overdue for fellows. **The default is OFF**, for the reason `NotificationCadence` gives.
+///
+/// Its own type rather than `NotificationCadence` with a note saying `IMMEDIATE` does not apply.
+/// A summary describes standing state rather than an event, so there is no instant to send it at:
+/// "immediately" could only mean a message per hand-in, which is a different notification and a
+/// due date's worth of noise. A separate enum makes that unrepresentable rather than discouraged.
+enum SummaryCadence {
   DAILY
   WEEKLY
   OFF
@@ -61,23 +79,23 @@ enum NotificationCadence {
 /// Application profile, 1:1 with auth.users. Owned by Prisma.
 model Profile {
   /// Same value as auth.users.id — this is the FK *and* the PK.
-  id                String   @id @db.Uuid
+  id                  String              @id @db.Uuid
   // Nullable because auth.users.email is nullable (anonymous, phone, and some
   // OAuth signups have no email). A NOT NULL here would make the on-signup
   // trigger throw and break signup entirely.
-  email             String?  @unique
-  displayName       String?  @map("display_name")
-  avatarUrl         String?  @map("avatar_url")
+  email               String?             @unique
+  displayName         String?             @map("display_name")
+  avatarUrl           String?             @map("avatar_url")
   /// GitHub login handle, populated on GitHub OAuth signup. Unique so one
   /// GitHub account maps to at most one profile. Nullable: email signups have
   /// none, and Postgres permits many NULLs under a unique constraint.
-  githubUsername    String?  @unique @map("github_username")
+  githubUsername      String?             @unique @map("github_username")
   /// GitHub's numeric user ID — the DURABLE identity key. A user can rename
   /// their GitHub account, which changes githubUsername but never this. Use
   /// this for identity; use githubUsername only where GitHub's API needs a
   /// login string (repository naming, collaborator invitations).
-  githubUserId      BigInt?  @unique @map("github_user_id")
-  role              Role     @default(STUDENT)
+  githubUserId        BigInt?             @unique @map("github_user_id")
+  role                Role                @default(STUDENT)
   /// Non-null marks this profile as a **test student** — a student-shaped identity an admin
   /// creates to look at a course the way a student meets it, accept its work, and grade the
   /// result. Its value is the number in the name: `Test Student 3`, handle `test-student-3`.
@@ -91,7 +109,7 @@ model Profile {
   /// (`where: { testStudentNumber: null }`) — a test row counted as a student is a figure
   /// somebody quotes. Readers that list students deliberately include them, badged, because
   /// grading one is the whole point.
-  testStudentNumber Int?     @unique @map("test_student_number")
+  testStudentNumber   Int?                @unique @map("test_student_number")
   /// The address of this person's own calendar feed, which a calendar application polls for their
   /// due dates. Written the first time they ask for the link and replaced whenever they ask again,
   /// so it is nullable: most profiles never ask, and an admin's never will.
@@ -103,37 +121,60 @@ model Profile {
   ///
   /// `@unique` because it is how the route finds this row, and because two profiles landing on one
   /// token must fail at the database rather than by having checked first and been overtaken.
-  calendarToken     String?  @unique @map("calendar_token")
-  /// How this person wants to hear about their own events — feedback released on their work,
-  /// comments written on it — as Slack direct messages. `OFF` until they say otherwise on their
-  /// profile, so an account that has never opened that card is never messaged. Every send path
-  /// filters on this column, which is what makes the default do the work. See
-  /// `lib/notifications/`.
-  slackCadence      NotificationCadence @default(OFF) @map("slack_cadence")
+  calendarToken       String?             @unique @map("calendar_token")
+  /// How this person hears about events on their own work — feedback released, comments written —
+  /// as Slack direct messages. `OFF` until they say otherwise on their profile, so an account that
+  /// has never opened that card is never messaged. Every event send path filters on this column,
+  /// which is what makes the default do the work. See `lib/notifications/`.
+  slackEventCadence   NotificationCadence @default(OFF) @map("slack_event_cadence")
+  /// How often this person receives a summary of what is outstanding: the grading pile for an
+  /// instructor, work due in the next week and work overdue for a fellow.
+  ///
+  /// A second setting rather than one cadence over everything, because the two kinds behave
+  /// differently. An event is worth hearing about the moment it happens; a standing pile is worth
+  /// hearing about on a rhythm. Both of the preferences people described — comments immediately
+  /// but the pile daily, feedback immediately but deadlines weekly — are this pair of columns.
+  slackSummaryCadence SummaryCadence      @default(OFF) @map("slack_summary_cadence")
+  /// When a digest or summary goes out, as an hour of the school's clock, 0 to 23.
+  ///
+  /// **One per setting rather than one per person.** An instructor who wants their questions first
+  /// thing and their grading pile at the end of the day is asking for two different hours, and a
+  /// single column would make the two controls on the card edit the same value — two inputs that
+  /// silently move each other. The cron wakes hourly and asks who is due now, so an hour is the
+  /// finest granularity that can be honoured; a minute here would be a promise nothing keeps.
+  slackEventHour      Int                 @default(9) @map("slack_event_hour")
+  slackSummaryHour    Int                 @default(9) @map("slack_summary_hour")
+  /// Which day a weekly digest or summary goes out, 0 for Sunday through 6 for Saturday — the
+  /// numbering `weekdayOf` returns, so the two cannot disagree about which day is which.
+  ///
+  /// Read only when the matching cadence is WEEKLY. A daily sender keeps whatever is stored here,
+  /// so switching to weekly and back does not lose the day they picked.
+  slackEventWeekday   Int                 @default(1) @map("slack_event_weekday")
+  slackSummaryWeekday Int                 @default(1) @map("slack_summary_weekday")
   /// Their Slack workspace member id (`U…`), written by the first successful
   /// `users.lookupByEmail` and read on every send after that. Deliberately NOT `@unique`: a
   /// duplicate would only mean one person pointed two of their own profiles at themselves, and a
   /// uniqueness violation inside a caught send path would silently and permanently unlink them.
-  slackUserId       String?  @map("slack_user_id")
+  slackUserId         String?             @map("slack_user_id")
   /// The email they use in Slack, saved by hand on the profile card only after the automatic
   /// lookup of their sign-in email failed. Null means "use `email`". Lowercased on write, like
   /// `GcfIdentity.email`, so matching is a lookup rather than a scan.
-  slackEmail        String?  @map("slack_email")
+  slackEmail          String?             @map("slack_email")
   /// When the last lookup answered `users_not_found` — the state the profile card renders as
   /// "we could not find you in the workspace". Cleared on a successful lookup and whenever a new
   /// `slackEmail` is saved.
-  slackLookupFailedAt DateTime? @map("slack_lookup_failed_at") @db.Timestamptz(6)
+  slackLookupFailedAt DateTime?           @map("slack_lookup_failed_at") @db.Timestamptz(6)
   /// Digest watermark: every event at or before this instant has been covered by a digest DM or
   /// deliberately skipped. Written to "now" when the cadence switches into DAILY/WEEKLY, advanced
   /// only when a digest goes out (or the window held nothing) — so a failed digest send needs no
   /// retry bookkeeping; the next digest re-covers the same window. Null for IMMEDIATE/OFF, whose
   /// sends are per-event.
-  slackDigestedTo   DateTime? @map("slack_digested_to") @db.Timestamptz(6)
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  slackDigestedTo     DateTime?           @map("slack_digested_to") @db.Timestamptz(6)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   // @default(now()) is deliberate alongside @updatedAt: it puts a real DB
   // default on the column so the on-signup trigger (which writes via raw SQL,
   // bypassing Prisma) can insert without specifying updated_at.
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
 
@@ -438,13 +479,13 @@ model Cohort {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  program    Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program        Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
   /// The fellows in this cohort. Their side of the key is `Restrict`, so `cohorts.remove` clears
   /// them inside the transaction that deletes it rather than the database emptying or cascading.
-  fellows    Enrollment[]
+  fellows        Enrollment[]
   /// The instructors currently filtered to this cohort. Present so that deleting one can null their
   /// column rather than orphan it.
-  filteredBy ProgramInstructor[]
+  filteredBy     ProgramInstructor[]
   /// Summaries of checks written for this cohort alone. Cascade: they are about a set that no
   /// longer exists.
   checkSummaries CheckSummary[]
@@ -1242,8 +1283,8 @@ model CheckAttempt {
 /// to the model and none can be invented. Read by instructors only; nothing a fellow can call
 /// selects this table.
 model CheckSummary {
-  id      String @id @default(uuid()) @db.Uuid
-  checkId String @map("check_id") @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  checkId   String  @map("check_id") @db.Uuid
   /// The picker's value the summary was written for — `all`, `unassigned`, or a cohort's id — as
   /// `cohortSelectionValue` in lib/programs/cohorts.ts spells it. The key the page looks up by.
   cohortKey String  @map("cohort_key")
@@ -1251,11 +1292,11 @@ model CheckSummary {
   /// leaving rows no picker can reach.
   cohortId  String? @map("cohort_id") @db.Uuid
 
-  summary   Json
-  writtenAt DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
+  summary       Json
+  writtenAt     DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
   /// Model id, prompt version, and the four token counts, in the shape the other two
   /// `model_metadata` columns use, so `npm run cost` prices it.
-  modelMetadata Json @map("model_metadata")
+  modelMetadata Json     @map("model_metadata")
 
   check  CheckForUnderstanding @relation(fields: [checkId], references: [id], onDelete: Cascade)
   cohort Cohort?               @relation(fields: [cohortId], references: [id], onDelete: Cascade)

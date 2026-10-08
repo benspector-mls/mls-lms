@@ -27,7 +27,7 @@ Everything else on that screen is read-only and says where it comes from: your e
 
 The one other thing that screen does is hand out the address of your own **calendar feed**, so your due dates appear in a calendar you already keep — see [your due dates in your own calendar](#your-due-dates-in-your-own-calendar).
 
-Directly beneath the calendar address sits your one notification setting: whether this application sends you a Slack message about your own work, and how often. It starts switched off, and nothing is sent until you turn it on. See [Slack notifications](#slack-notifications).
+Directly beneath the calendar address sit your two notification settings: whether this application sends you a Slack message when something happens to your work, and whether it sends you a summary of what is outstanding. Both start switched off, and nothing is sent until you turn them on. See [Slack notifications](#slack-notifications).
 
 Beyond those there are no settings. No email change, no way to delete your own account. The light and dark toggle in the header is the only other control, and it is not remembered between devices.
 
@@ -314,7 +314,7 @@ Only piles with work in them appear; an empty pile is left off the screen. Each 
 
 Triage is one course at a time, on purpose: what you should do next depends on which course you are teaching this hour. The cohort picker narrows it further, to the fellows you grade.
 
-**A fellow's question can also reach you as a Slack DM**, once you turn that on from your Profile — immediately, or as a 9am digest of the questions still waiting. See [Slack notifications](#slack-notifications); the digest and the questions list read the same rule, so neither shows a thread the other would not.
+**A fellow's question can also reach you as a Slack DM**, once you turn that on from your Profile — immediately, or as a 9am digest of the questions still waiting. A second setting there sends you a daily or weekly summary of everything in your grading pile, across all your courses. See [Slack notifications](#slack-notifications); the digest and the questions list read the same rule, so neither shows a thread the other would not.
 
 Because it is the first screen of a course, it is also where a course name takes you. Clicking one in the sidebar from a program's roster, from the program list, or from anywhere else outside a course opens that course's triage. Clicking one while you are already inside a different course keeps the screen you are on instead — from one course's gradebook, another course's name opens *its* gradebook.
 
@@ -442,11 +442,19 @@ It arrives called **Marcy Lab School — due dates**, and you can rename it in y
 
 Two things about your work produce a **direct message in the Marcy Lab Slack**: feedback on something you handed in is released, and an instructor writes on one of your submissions. The DM says what happened — the assignment, the score, an excerpt of the comment — and links to the place in this application where the whole of it lives.
 
-**Nothing is sent until you turn it on.** The setting lives on your Profile, directly below the calendar address, and it starts at **Off** for everybody — this application will not message you in a workspace you share with your whole cohort because somebody decided for you. Turning it on means choosing how often you hear: **immediately**, a **daily digest** at 9am carrying everything since the previous one, or a **weekly digest** on Monday at 9am. A digest never repeats what you already read here — a comment you opened in the application before 9am does not appear in the morning's summary.
+**Nothing is sent until you turn it on.** The settings live on your Profile, directly below the calendar address, and both start at **Off** for everybody — this application will not message you in a workspace you share with your whole cohort because somebody decided for you.
+
+**The first setting is for things that happen to your work**: feedback released, and comments. Choose **immediately**, a **daily digest** at 9am carrying everything since the previous one, or a **weekly digest** on Monday at 9am. A digest never repeats what you have already read here — feedback you opened last night, or a comment you read before 9am, does not appear in the morning.
+
+**The second is a summary of what is outstanding**, and it has three choices rather than four: **daily**, **weekly**, or off. There is no "immediately", because a pile of work has no moment to be immediate about. For a fellow the summary lists what is due in the next seven days and anything already overdue, worded as your dashboard words it. For an instructor it lists what is waiting in your grading pile, across every course you teach, broken down by cohort.
+
+**A summary arrives only when there is something in it.** Nothing due and nothing missed means no message, rather than a cheerful one saying so.
 
 **Connecting to Slack is automatic.** The first time something is sent, your sign-in email is looked up in the workspace. If you use a different email in Slack, the Profile card says the lookup failed and takes the address you actually use — that address changes nothing but where your own notifications go.
 
 Instructors get the other half of the conversation: a DM when a fellow writes on work they graded or on a thread they have written in, at the same choice of cadence. An instructor's daily digest only carries questions that are **still waiting** at 9am — one answered overnight, or resolved on the triage screen, says nothing.
+
+**An instructor's summary follows the cohort picker.** It covers whichever cohort you currently have selected, names that scope in its heading, and breaks the pile down by cohort. So widening the picker to look at the whole programme also widens the next morning's summary, which the heading tells you plainly rather than leaving you to work out.
 
 The DM is a courtesy, not the record. Everything it announces is on your dashboard and in **Feedback to read** whether or not Slack delivered it, and turning notifications off hides nothing from those screens.
 
@@ -546,7 +554,7 @@ For every other kind, attach your revised work. Adding or removing anything asks
 
 Said plainly, because an hour spent looking for one of these is an hour wasted.
 
-**Notifications are Slack DMs about two events, off until somebody turns them on, and nothing more.** Feedback released and comments written — see [Slack notifications](#slack-notifications). No email, no push, no in-app inbox. A task marked done or sent back produces no DM, and neither does anything about attendance. Inside the application, the **Feedback to read** list on a fellow's dashboard remains the record — which is why that list exists and why nothing on it can be dismissed, whatever Slack did or did not deliver.
+**Notifications are Slack DMs about two events and two summaries, off until somebody turns them on, and nothing more.** Feedback released, comments written, the grading pile, and work due or overdue — see [Slack notifications](#slack-notifications). No email, no push, no in-app inbox. A task marked done or sent back produces no DM, and neither does anything about attendance. Inside the application, the **Feedback to read** list on a fellow's dashboard remains the record — which is why that list exists and why nothing on it can be dismissed, whatever Slack did or did not deliver.
 
 **The application sends no email at all.** Every link — the join link, the instructor link, an instructor invitation — is one somebody copies and sends themselves. This is deliberate: the application holds no email credentials. The only email that ever reaches a fellow is GitHub's own, about the comment posted on their pull request.
 

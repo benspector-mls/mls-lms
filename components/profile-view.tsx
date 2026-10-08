@@ -10,6 +10,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
@@ -436,82 +443,123 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
   );
 }
 
-/** The four cadences as a person reads them, in the order they sit on the card. */
-const CADENCE_OPTIONS: { value: SlackNotifications["cadence"]; label: string; caption: string }[] = [
-  {
-    value: "IMMEDIATE",
-    label: "Immediately",
-    caption: "A DM the moment feedback is released or somebody writes on your work.",
-  },
-  {
-    value: "DAILY",
-    label: "Daily digest",
-    caption: "One DM at 9am with everything since the last one.",
-  },
-  {
-    value: "WEEKLY",
-    label: "Weekly digest",
-    caption: "One DM on Monday at 9am with everything since the last one.",
-  },
-  {
-    value: "OFF",
-    label: "Off",
-    caption: "Nothing is sent. Everything still appears in this application as it happens.",
-  },
+type EventCadence = SlackNotifications["eventCadence"];
+type SummaryCadence = SlackNotifications["summaryCadence"];
+
+/** Sunday first, the numbering `weekdayOf` returns and the columns store. */
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** `9` as "9am", `16` as "4pm". Midnight and noon say so rather than reading as 0 and 12. */
+function formatHour(hour: number): string {
+  if (hour === 0) return "midnight";
+  if (hour === 12) return "noon";
+  return hour < 12 ? `${hour}am` : `${hour - 12}pm`;
+}
+
+/**
+ * What each choice does, shown on hover rather than under the row.
+ *
+ * Written against the hour and day actually stored, so the tooltip on "Daily digest" says the time
+ * that digest would arrive rather than a time from the example in somebody's head.
+ */
+function captionFor(value: string, hour: number, weekday: number): string {
+  switch (value) {
+    case "IMMEDIATE":
+      return "A message is sent immediately.";
+    case "DAILY":
+      return `One message daily at ${formatHour(hour)}.`;
+    case "WEEKLY":
+      return `One message on ${WEEKDAYS[weekday]} at ${formatHour(hour)}.`;
+    default:
+      return "Nothing is sent.";
+  }
+}
+
+/** Every hour of the clock, as the dropdown offers them. */
+const HOURS = Array.from({ length: 24 }, (_, index) => index);
+
+/*
+  Required on the Root, for the reason `upcoming-window.tsx` gives: Base UI's trigger renders the
+  stored value unless it is handed a map from value to label, so without these the controls read
+  "1" and "9" instead of "Monday" and "9am". Built from the same arrays the options are built
+  from, so the label in the trigger is the label in the list.
+*/
+const WEEKDAY_ITEMS = Object.fromEntries(WEEKDAYS.map((day, index) => [String(index), day]));
+const HOUR_ITEMS = Object.fromEntries(HOURS.map((hour) => [String(hour), formatHour(hour)]));
+
+const EVENT_OPTIONS: { value: EventCadence; label: string }[] = [
+  { value: "IMMEDIATE", label: "Immediately" },
+  { value: "DAILY", label: "Daily digest" },
+  { value: "WEEKLY", label: "Weekly digest" },
+  { value: "OFF", label: "Off" },
 ];
 
 /**
- * Slack DMs about your own events, and the choice of how often.
+ * Three choices rather than four.
+ *
+ * There is no "immediately" because a standing pile has no moment to be immediate about: the
+ * nearest thing would be a message per hand-in, which is a different notification and a due
+ * date's worth of them.
+ */
+const SUMMARY_OPTIONS: { value: SummaryCadence; label: string }[] = [
+  { value: "DAILY", label: "Daily" },
+  { value: "WEEKLY", label: "Weekly" },
+  { value: "OFF", label: "Off" },
+];
+
+/**
+ * Slack messages about your own work, and how often.
  *
  * **Off until somebody turns it on**, and placed directly beneath the calendar feed because the
  * two are the same kind of thing: a channel outside this application that a person opens for
- * themselves, from their own profile. Somebody who came looking for one has found the other.
+ * themselves. Whoever found one has found the other.
  *
- * Linking still needs no action. The first send after a cadence is chosen looks the sign-in email
- * up in the workspace and records what comes back, so the ordinary state of this card is
- * "connected" without anything having been pressed. The two hand-operated controls exist for the
- * person whose Slack email differs from their sign-in email, which a failed lookup renders as the
- * amber box.
+ * **Two settings rather than one**, because the two kinds of message behave differently. An event
+ * — feedback released, somebody writing on your work — is worth hearing about the moment it
+ * happens. A pile of outstanding work is worth hearing about on a rhythm.
+ *
+ * **Each setting is labelled with what it sends and nothing else.** A sentence explaining what a
+ * comment is, on the screen where somebody is choosing how often to hear about comments, is a
+ * sentence they read past. What each cadence does is on the button, on hover.
+ *
+ * **The time appears with the choice that needs it**, which is why the hour and the weekday are
+ * two controls rather than always-present fields: an hour means nothing to somebody who picked
+ * "immediately", and a weekday means nothing to somebody who picked "daily".
  */
-function NotificationsCard({
-  slack,
-  role,
-}: {
-  slack: SlackNotifications;
-  role: Profile["role"];
-}) {
+function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: Profile["role"] }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
   /*
-    What the mutations last answered, held locally for the same reason `CalendarCard.written` is:
+    What the mutations last answered, held here for the reason `CalendarCard.written` is:
     `useServerMutation` refreshes the server component and the props catch up, but a beat later,
-    and the pressed button would otherwise not light until after the toast about it.
+    and the pressed control would otherwise not move until after the toast about it.
   */
-  const [chosen, setChosen] = React.useState<SlackNotifications["cadence"] | null>(null);
-  const cadence = chosen ?? slack.cadence;
+  type Chosen = { cadence: string; hour: number; weekday: number };
+  const [chosenEvent, setChosenEvent] = React.useState<Chosen | null>(null);
+  const [chosenSummary, setChosenSummary] = React.useState<Chosen | null>(null);
 
-  const [linkResult, setLinkResult] = React.useState<{
-    linked: boolean;
-    lookupFailed: boolean;
-  } | null>(null);
+  const event = chosenEvent ?? {
+    cadence: slack.eventCadence,
+    hour: slack.eventHour,
+    weekday: slack.eventWeekday,
+  };
+  const summary = chosenSummary ?? {
+    cadence: slack.summaryCadence,
+    hour: slack.summaryHour,
+    weekday: slack.summaryWeekday,
+  };
+
+  const [linkResult, setLinkResult] = React.useState<{ linked: boolean; lookupFailed: boolean } | null>(null);
   const linked = linkResult?.linked ?? slack.linked;
   const lookupFailed = linkResult?.lookupFailed ?? slack.lookupFailed;
-
   const [slackEmailInput, setSlackEmailInput] = React.useState("");
 
-  const setCadence = useMutation(
-    trpc.setSlackCadence.mutationOptions(
-      settled({
-        onSuccess: (result) => {
-          setChosen(result.cadence);
-          const option = CADENCE_OPTIONS.find((o) => o.value === result.cadence);
-          toast.success(
-            result.cadence === "OFF" ? "Slack notifications are off." : `Slack DMs: ${option?.label.toLowerCase()}.`,
-          );
-        },
-      }),
-    ),
+  const setEvent = useMutation(
+    trpc.setSlackEventCadence.mutationOptions(settled({ onSuccess: setChosenEvent })),
+  );
+  const setSummary = useMutation(
+    trpc.setSlackSummaryCadence.mutationOptions(settled({ onSuccess: setChosenSummary })),
   );
 
   const link = useMutation(
@@ -529,43 +577,35 @@ function NotificationsCard({
     ),
   );
 
-  const active = CADENCE_OPTIONS.find((option) => option.value === cadence);
   const lookupAddress = slack.slackEmail ?? slack.email ?? "your sign-in email";
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Slack notifications</h2>
-        <p className="text-xs text-muted-foreground">
-          {role === "STUDENT"
-            ? "A direct message in the Marcy Lab Slack when feedback on your work is released, and when an instructor writes on it."
-            : "A direct message in the Marcy Lab Slack when a fellow writes on work you graded or on a conversation you are part of."}{" "}
-          Nothing is sent until you turn it on here.
-        </p>
-      </div>
+    <section className="flex flex-col gap-5 rounded-lg border border-border p-4">
+      <h2 className="text-sm font-medium">Slack notifications</h2>
 
-      <div className="flex flex-wrap gap-2">
-        {CADENCE_OPTIONS.map((option) => (
-          <Button
-            key={option.value}
-            size="sm"
-            variant={option.value === cadence ? "default" : "outline"}
-            aria-pressed={option.value === cadence}
-            disabled={setCadence.isPending}
-            onClick={() => {
-              if (option.value !== cadence) setCadence.mutate({ cadence: option.value });
-            }}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
-      {active && <p className="text-xs text-muted-foreground">{active.caption}</p>}
+      <Setting
+        label={role === "STUDENT" ? "Feedback and comments" : "Comments"}
+        options={EVENT_OPTIONS}
+        current={event.cadence as EventCadence}
+        hour={event.hour}
+        weekday={event.weekday}
+        pending={setEvent.isPending}
+        onChange={(change) => setEvent.mutate(change)}
+      />
+
+      <Setting
+        label={role === "STUDENT" ? "Assignments due and overdue" : "Assignments to be graded"}
+        options={SUMMARY_OPTIONS}
+        current={summary.cadence as SummaryCadence}
+        hour={summary.hour}
+        weekday={summary.weekday}
+        pending={setSummary.isPending}
+        onChange={(change) => setSummary.mutate(change)}
+      />
 
       {!slack.configured ? (
         <p className="text-xs text-muted-foreground">
-          Slack is not connected in this environment, so nothing is sent from here. Your choice
-          above is saved and applies wherever it is.
+          Slack is not configured in this environment. Your choices are saved; nothing is sent.
         </p>
       ) : linked ? (
         <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -575,13 +615,13 @@ function NotificationsCard({
       ) : lookupFailed ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
           <p className="text-xs text-amber-800 dark:text-amber-200">
-            We could not find <span className="font-medium">{lookupAddress}</span> in the Marcy Lab
-            Slack workspace. If you use a different email there, paste it here.
+            <span className="font-medium">{lookupAddress}</span> is not in the Marcy Lab Slack
+            workspace. If you use a different email there, enter it.
           </p>
           <form
             className="flex flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
+            onSubmit={(formEvent) => {
+              formEvent.preventDefault();
               const email = slackEmailInput.trim();
               if (email) link.mutate({ email });
             }}
@@ -592,7 +632,7 @@ function NotificationsCard({
               className="h-8 max-w-64 text-xs"
               value={slackEmailInput}
               disabled={link.isPending}
-              onChange={(event) => setSlackEmailInput(event.target.value)}
+              onChange={(inputEvent) => setSlackEmailInput(inputEvent.target.value)}
             />
             <Button type="submit" size="sm" variant="outline" disabled={!slackEmailInput.trim() || link.isPending}>
               {link.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
@@ -604,8 +644,7 @@ function NotificationsCard({
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs text-muted-foreground">
-            Connects automatically using <span className="font-medium">{lookupAddress}</span> the
-            first time something is sent.
+            Connects using <span className="font-medium">{lookupAddress}</span>.
           </p>
           <Button size="sm" variant="outline" disabled={link.isPending} onClick={() => link.mutate({})}>
             {link.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
@@ -614,6 +653,98 @@ function NotificationsCard({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * One setting: what it sends, a row of buttons, and the time controls the chosen one needs.
+ *
+ * Buttons rather than a dropdown, because the whole set is three or four short words and a
+ * dropdown would hide them behind a press. The time and the day are dropdowns, because
+ * twenty-four hours and seven days are not a row.
+ */
+function Setting<Value extends string>({
+  label,
+  options,
+  current,
+  hour,
+  weekday,
+  pending,
+  onChange,
+}: {
+  label: string;
+  options: readonly { value: Value; label: string }[];
+  current: Value;
+  hour: number;
+  weekday: number;
+  pending: boolean;
+  onChange: (change: { cadence?: Value; hour?: number; weekday?: number }) => void;
+}) {
+  const showsTime = current === "DAILY" || current === "WEEKLY";
+  const showsDay = current === "WEEKLY";
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium">{label}</h3>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {options.map((option) => (
+          <Button
+            key={option.value}
+            size="sm"
+            variant={option.value === current ? "default" : "outline"}
+            aria-pressed={option.value === current}
+            title={captionFor(option.value, hour, weekday)}
+            disabled={pending}
+            onClick={() => {
+              if (option.value !== current) onChange({ cadence: option.value });
+            }}
+          >
+            {option.label}
+          </Button>
+        ))}
+
+        {showsDay && (
+          <Select
+            value={String(weekday)}
+            onValueChange={(value) => onChange({ weekday: Number(value) })}
+            items={WEEKDAY_ITEMS}
+            disabled={pending}
+          >
+            <SelectTrigger className="h-8 w-[130px] text-xs" aria-label={`${label}: which day`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {WEEKDAYS.map((day, index) => (
+                <SelectItem key={day} value={String(index)}>
+                  {day}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {showsTime && (
+          <Select
+            value={String(hour)}
+            onValueChange={(value) => onChange({ hour: Number(value) })}
+            items={HOUR_ITEMS}
+            disabled={pending}
+          >
+            <SelectTrigger className="h-8 w-[110px] text-xs" aria-label={`${label}: what time`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {HOURS.map((value) => (
+                <SelectItem key={value} value={String(value)}>
+                  {formatHour(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+    </div>
   );
 }
 

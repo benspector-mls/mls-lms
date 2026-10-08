@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { runDigests } from "@/lib/notifications/digest";
-import { digestCadencesDue } from "@/lib/notifications/recipients";
+import { runSummaries } from "@/lib/notifications/summary";
 import { sendDm } from "@/lib/slack/client";
 
 /**
@@ -41,11 +41,15 @@ export async function GET(request: NextRequest) {
   if (!authorized(request.headers.get("authorization"), secret)) return refused(401);
 
   const now = new Date();
-  const cadences = digestCadencesDue(now);
-  if (!cadences) {
-    return NextResponse.json({ skipped: "not the digest hour in school time" });
-  }
 
-  const counts = await runDigests(now, cadences, { send: sendDm });
-  return NextResponse.json({ cadences, ...counts });
+  /*
+    Two runs, two messages. A person who chose a daily cadence for both receives one message about
+    what happened and one about what is outstanding, rather than a single longer message carrying
+    both — two short messages about two different things are read, where one long one is skimmed.
+    Awaited in turn rather than together, so a slow database is not asked for everything at once.
+  */
+  const digests = await runDigests(now, { send: sendDm });
+  const summaries = await runSummaries(now, { send: sendDm });
+
+  return NextResponse.json({ digests, summaries });
 }

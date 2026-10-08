@@ -38,6 +38,15 @@ const profileFields = {
   testStudentNumber: true,
 } as const;
 
+/**
+ * The two values a send time is made of, written once because both settings take them and the
+ * database states the same bounds as CHECK constraints. An hour finer than this would be a
+ * promise nothing keeps: the cron wakes hourly.
+ */
+const sendHour = z.number().int().min(0).max(23);
+/** 0 for Sunday through 6 for Saturday, the numbering `weekdayOf` returns. */
+const sendWeekday = z.number().int().min(0).max(6);
+
 export const appRouter = createTRPCRouter({
   /** The signed-in user's own profile. */
   me: protectedProcedure.query(({ ctx }) =>
@@ -173,17 +182,33 @@ export const appRouter = createTRPCRouter({
     ===================================================================================
   */
 
-  /** The card's whole state: cadence, whether the account is linked, and how linking went. */
+  /** The card's whole state: both cadences, whether the account is linked, and how linking went. */
   slackNotifications: protectedProcedure.query(async ({ ctx }) => {
     const profile = await ctx.db.profile.findUnique({
       // Scoped to the caller — Prisma bypasses row level security, so this where clause is what
       // stops one person reading how another chose to be notified.
       where: { id: ctx.user.id },
-      select: { slackCadence: true, slackUserId: true, slackEmail: true, slackLookupFailedAt: true, email: true },
+      select: {
+        slackEventCadence: true,
+        slackEventHour: true,
+        slackEventWeekday: true,
+        slackSummaryCadence: true,
+        slackSummaryHour: true,
+        slackSummaryWeekday: true,
+        slackUserId: true,
+        slackEmail: true,
+        slackLookupFailedAt: true,
+        email: true,
+      },
     });
 
     return {
-      cadence: profile?.slackCadence ?? "OFF",
+      eventCadence: profile?.slackEventCadence ?? "OFF",
+      eventHour: profile?.slackEventHour ?? 9,
+      eventWeekday: profile?.slackEventWeekday ?? 1,
+      summaryCadence: profile?.slackSummaryCadence ?? "OFF",
+      summaryHour: profile?.slackSummaryHour ?? 9,
+      summaryWeekday: profile?.slackSummaryWeekday ?? 1,
       linked: profile?.slackUserId != null,
       lookupFailed: profile?.slackLookupFailedAt != null,
       slackEmail: profile?.slackEmail ?? null,
@@ -195,33 +220,83 @@ export const appRouter = createTRPCRouter({
   }),
 
   /**
-   * Choose how to hear about your own events.
+   * Choose how to hear about events on your own work.
    *
    * Switching *into* a digest from IMMEDIATE or OFF writes the watermark to now, so nobody's
    * first digest is their whole history. Switching between the two digests keeps it — nothing is
    * lost or repeated, the window just gets read on a different morning.
    */
-  setSlackCadence: protectedProcedure
-    .input(z.object({ cadence: z.enum(["IMMEDIATE", "DAILY", "WEEKLY", "OFF"]) }))
+  setSlackEventCadence: protectedProcedure
+    .input(
+      z.object({
+        cadence: z.enum(["IMMEDIATE", "DAILY", "WEEKLY", "OFF"]).optional(),
+        hour: sendHour.optional(),
+        weekday: sendWeekday.optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const current = await ctx.db.profile.findUnique({
         where: { id: ctx.user.id },
-        select: { slackCadence: true },
+        select: { slackEventCadence: true },
       });
 
-      const wasDigest = current?.slackCadence === "DAILY" || current?.slackCadence === "WEEKLY";
+      const wasDigest =
+        current?.slackEventCadence === "DAILY" || current?.slackEventCadence === "WEEKLY";
       const isDigest = input.cadence === "DAILY" || input.cadence === "WEEKLY";
 
       const profile = await ctx.db.profile.update({
         where: { id: ctx.user.id },
         data: {
-          slackCadence: input.cadence,
+          ...(input.cadence ? { slackEventCadence: input.cadence } : {}),
+          ...(input.hour !== undefined ? { slackEventHour: input.hour } : {}),
+          ...(input.weekday !== undefined ? { slackEventWeekday: input.weekday } : {}),
           ...(isDigest && !wasDigest ? { slackDigestedTo: new Date() } : {}),
         },
-        select: { slackCadence: true },
+        select: { slackEventCadence: true, slackEventHour: true, slackEventWeekday: true },
       });
 
-      return { cadence: profile.slackCadence };
+      return {
+        cadence: profile.slackEventCadence,
+        hour: profile.slackEventHour,
+        weekday: profile.slackEventWeekday,
+      };
+    }),
+
+  /**
+   * Choose how often to receive a summary of what is outstanding.
+   *
+   * **Its own mutation rather than a second branch of the one above**, because the two writes are
+   * not the same write: a summary is computed fresh from standing state every time it is sent, so
+   * it has no watermark to initialise and nothing to carry forward. One procedure covering both
+   * would be a branch that applies to one of its inputs and not the other.
+   *
+   * The input has three values rather than four, matching `SummaryCadence` — see that enum for why
+   * "immediately" is not among them.
+   */
+  setSlackSummaryCadence: protectedProcedure
+    .input(
+      z.object({
+        cadence: z.enum(["DAILY", "WEEKLY", "OFF"]).optional(),
+        hour: sendHour.optional(),
+        weekday: sendWeekday.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const profile = await ctx.db.profile.update({
+        where: { id: ctx.user.id },
+        data: {
+          ...(input.cadence ? { slackSummaryCadence: input.cadence } : {}),
+          ...(input.hour !== undefined ? { slackSummaryHour: input.hour } : {}),
+          ...(input.weekday !== undefined ? { slackSummaryWeekday: input.weekday } : {}),
+        },
+        select: { slackSummaryCadence: true, slackSummaryHour: true, slackSummaryWeekday: true },
+      });
+
+      return {
+        cadence: profile.slackSummaryCadence,
+        hour: profile.slackSummaryHour,
+        weekday: profile.slackSummaryWeekday,
+      };
     }),
 
   /**

@@ -62,20 +62,21 @@ export function commentRecipients(args: {
   ];
 }
 
-/** Nine in the morning, school time — when both digests go out. */
-export const DIGEST_HOUR = 9;
-
 /**
- * Which digest cadences are due at an instant, or null outside the send hour.
+ * The school clock's hour and weekday at an instant.
  *
- * Read from the school's wall clock rather than from a fixed UTC hour, which is why the cron runs
- * hourly and this function owns the 9am decision: a UTC hour is wrong for half the year across
- * the daylight-saving change. The weekly digest goes out Monday, read via `weekdayOf` on the
- * civil date so the UTC-midnight off-by-one that module documents cannot happen here.
+ * Everything about when a digest goes out is decided from this pair: the cron wakes every hour and
+ * each person is sent to when the hour they chose comes round, and on the weekday they chose if
+ * they asked for a weekly one. Read from the school's wall clock rather than from UTC, because
+ * nine in Brooklyn is a different UTC hour either side of the clock change — the reason the job
+ * wakes hourly rather than being scheduled once.
+ *
+ * The weekday is read from the civil date rather than from the instant, which is `weekdayOf`'s own
+ * reason for existing: a UTC-midnight timestamp reads as the previous day in the school's zone.
  */
-export function digestCadencesDue(now: Date): ("DAILY" | "WEEKLY")[] | null {
-  const hour = Number(schoolClockOf(now).slice(0, 2));
-  if (hour !== DIGEST_HOUR) return null;
-
-  return weekdayOf(schoolDayOf(now)) === 1 ? ["DAILY", "WEEKLY"] : ["DAILY"];
+export function schoolHourAndWeekday(now: Date): { hour: number; weekday: number } {
+  return {
+    hour: Number(schoolClockOf(now).slice(0, 2)),
+    weekday: weekdayOf(schoolDayOf(now)),
+  };
 }

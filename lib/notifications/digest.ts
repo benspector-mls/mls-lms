@@ -4,6 +4,9 @@ import { effectiveSection } from "@/lib/grade/delivery";
 import { displayNameOf } from "@/lib/people";
 import { db, type Tx } from "@/lib/prisma";
 import { gradingQueueHref, studentAssignmentHref } from "@/lib/links";
+import { feedbackIsUnread } from "@/lib/status";
+
+import { schoolHourAndWeekday } from "./recipients";
 import { awaitsReply, commentExcerpt, isUnread } from "@/lib/submissions/comments";
 
 import { absoluteHref, commentsDigestLine, digestDm, feedbackDigestLine } from "./messages";
@@ -58,6 +61,11 @@ export async function studentDigestLines(
       submission: {
         select: {
           assignmentId: true,
+          // What `feedbackIsUnread` reads, so a round the fellow has already opened is left out
+          // here exactly as a comment they have already opened is left out below.
+          status: true,
+          gradedAt: true,
+          feedbackReviewedAt: true,
           assignment: {
             select: { title: true, courseId: true, completionThreshold: true, course: { select: { name: true } } },
           },
@@ -66,7 +74,15 @@ export async function studentDigestLines(
     },
   });
 
-  const feedbackLines = rounds.map((round) => {
+  /*
+    Read state is one column per submission rather than one per round, so this is asked of the
+    submission and answers for every round released into the window. A fellow who opened their
+    feedback last night hears nothing this morning; a later round makes `feedbackReviewedAt`
+    older than `gradedAt` again, which is what puts the work back in the digest.
+  */
+  const feedbackLines = rounds
+    .filter((round) => feedbackIsUnread(round.submission))
+    .map((round) => {
     const sections = round.sections.map(effectiveSection);
     const finalScore = sections.reduce((total, s) => total + (s.scoreEarned ?? 0), 0);
     const finalScorePossible = sections.reduce((total, s) => total + (s.scorePossible ?? 0), 0);
@@ -220,21 +236,33 @@ export type DigestSend = (
  */
 export async function runDigests(
   now: Date,
-  cadences: readonly ("DAILY" | "WEEKLY")[],
   deps: { send: DigestSend; client?: Tx },
 ): Promise<{ digested: number; skipped: number; failed: number }> {
   const client = deps.client ?? db;
   const counts = { digested: 0, skipped: 0, failed: 0 };
+  const { hour, weekday } = schoolHourAndWeekday(now);
 
+  /*
+    Everybody whose chosen hour is the hour it now is in Brooklyn — and, for a weekly digest, whose
+    chosen day is today. Asked of the database rather than decided before the query, because the
+    hour is per person now: there is no single moment when "the digest" goes out.
+  */
   const users = await client.profile.findMany({
-    where: { slackCadence: { in: [...cadences] }, testStudentNumber: null },
+    where: {
+      testStudentNumber: null,
+      slackEventHour: hour,
+      OR: [
+        { slackEventCadence: "DAILY" },
+        { slackEventCadence: "WEEKLY", slackEventWeekday: weekday },
+      ],
+    },
     select: {
       id: true,
       role: true,
       email: true,
       slackEmail: true,
       slackUserId: true,
-      slackCadence: true,
+      slackEventCadence: true,
       slackDigestedTo: true,
     },
   });
@@ -242,7 +270,7 @@ export async function runDigests(
   for (const user of users) {
     // Defensive lower bound: the cadence mutation writes the watermark when a digest is chosen,
     // so a null here is a row written before that rule — one period back, never all history.
-    const days = user.slackCadence === "WEEKLY" ? 7 : 1;
+    const days = user.slackEventCadence === "WEEKLY" ? 7 : 1;
     const since = user.slackDigestedTo ?? new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     const window = { gt: since, lte: now };
 

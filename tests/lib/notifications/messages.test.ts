@@ -1,5 +1,10 @@
 import {
   commentDmText,
+  outstandingSummary,
+  summaryCohortLine,
+  summaryCourseLink,
+  summaryWorkLine,
+  upcomingSummary,
   commentsDigestLine,
   digestDm,
   escapeMrkdwn,
@@ -88,5 +93,54 @@ describe("digest lines and the digest itself", () => {
     expect(
       commentsDigestLine({ count: 1, assignmentTitle: "T", newestExcerpt: "x", href: null }),
     ).toContain("1 new comment on");
+  });
+});
+
+describe("summary messages", () => {
+  it("an instructor's heading names the scope and the size of the pile", () => {
+    expect(outstandingSummary({ scope: "All Fellows", total: 23 })).toBe(
+      "Waiting on you — All Fellows, 23 submissions to grade",
+    );
+    // Singular, because "1 submissions" is the kind of thing people notice and nothing else is.
+    expect(outstandingSummary({ scope: "Cohort A", total: 1 })).toContain("1 submission to grade");
+  });
+
+  it("a cohort line carries its share, and the course links carry their counts", () => {
+    expect(summaryCohortLine({ name: "Cohort A", count: 9 })).toBe("• Cohort A — 9");
+    expect(
+      summaryCourseLink([
+        { name: "Mod 3", href: "https://lms.example.org/instructor/courses/c1/triage", count: 12 },
+        { name: "Mod 4", href: null, count: 2 },
+      ]),
+    ).toBe(
+      "Open triage: <https://lms.example.org/instructor/courses/c1/triage|Mod 3> (12) · Mod 4 (2)",
+    );
+  });
+
+  /*
+    The headings state what the list holds and nothing about what the reader ought to feel. A
+    fellow who is behind already knows, and a summary that scolds is one people switch off.
+  */
+  it("a fellow's headings state the contents without urging anything", () => {
+    expect(upcomingSummary({ kind: "overdue", count: 2 })).toBe("*Overdue* — 2");
+    expect(upcomingSummary({ kind: "upcoming", count: 3 })).toBe("*Due in the next 7 days* — 3");
+  });
+
+  it("a line of work names the assignment, the course, and when it is wanted", () => {
+    const line = summaryWorkLine({
+      title: "Arrays & Loops",
+      courseName: "Mod 1",
+      dueAt: new Date("2026-05-19T23:59:00Z"),
+      href: null,
+    });
+    expect(line).toContain("Arrays &amp; Loops");
+    expect(line).toContain("(Mod 1)");
+    expect(line).toContain("due");
+  });
+
+  it("work with no deadline says nothing about when", () => {
+    expect(
+      summaryWorkLine({ title: "Reading", courseName: "Mod 1", dueAt: null, href: null }),
+    ).not.toContain("due");
   });
 });

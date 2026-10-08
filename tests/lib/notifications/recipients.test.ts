@@ -1,7 +1,7 @@
 import {
   commentRecipients,
-  digestCadencesDue,
   feedbackRecipients,
+  schoolHourAndWeekday,
 } from "@/lib/notifications/recipients";
 
 describe("feedbackRecipients", () => {
@@ -64,28 +64,31 @@ describe("commentRecipients", () => {
   });
 });
 
-describe("digestCadencesDue", () => {
-  // 9am in America/New_York is 13:00 UTC in summer and 14:00 UTC in winter. Reading the school's
-  // wall clock rather than a fixed UTC hour is the behaviour under test, so both halves of the
-  // year appear here.
-  it("a summer Monday at 13:00 UTC is the weekly send", () => {
-    expect(digestCadencesDue(new Date("2026-06-15T13:00:00Z"))).toEqual(["DAILY", "WEEKLY"]);
+describe("schoolHourAndWeekday", () => {
+  /*
+    Nine in Brooklyn is 13:00 UTC in summer and 14:00 UTC in winter. Reading the school's wall
+    clock rather than a UTC hour is the behaviour under test, so both halves of the year appear
+    here — a job scheduled at a fixed UTC hour would be an hour wrong for one of them.
+  */
+  it("reads the hour from the school's clock, not from UTC", () => {
+    expect(schoolHourAndWeekday(new Date("2026-06-15T13:00:00Z")).hour).toBe(9);
+    expect(schoolHourAndWeekday(new Date("2026-12-14T13:00:00Z")).hour).toBe(8);
+    expect(schoolHourAndWeekday(new Date("2026-12-14T14:00:00Z")).hour).toBe(9);
   });
 
-  it("a summer Tuesday at 13:00 UTC is the daily send only", () => {
-    expect(digestCadencesDue(new Date("2026-06-16T13:00:00Z"))).toEqual(["DAILY"]);
+  it("numbers the weekday as weekdayOf does, Sunday first", () => {
+    expect(schoolHourAndWeekday(new Date("2026-06-15T13:00:00Z")).weekday).toBe(1);
+    expect(schoolHourAndWeekday(new Date("2026-06-16T13:00:00Z")).weekday).toBe(2);
+    expect(schoolHourAndWeekday(new Date("2026-06-14T13:00:00Z")).weekday).toBe(0);
   });
 
-  it("13:00 UTC in winter is 8am school time, so nothing is due", () => {
-    expect(digestCadencesDue(new Date("2026-12-14T13:00:00Z"))).toBeNull();
-  });
-
-  it("a winter Monday at 14:00 UTC is the weekly send", () => {
-    expect(digestCadencesDue(new Date("2026-12-14T14:00:00Z"))).toEqual(["DAILY", "WEEKLY"]);
-  });
-
-  it("any other hour is quiet", () => {
-    expect(digestCadencesDue(new Date("2026-06-15T14:00:00Z"))).toBeNull();
-    expect(digestCadencesDue(new Date("2026-06-15T03:00:00Z"))).toBeNull();
+  /*
+    Late evening in Brooklyn is the next day in UTC. The weekday has to come from the civil date in
+    the school's zone or a Sunday-night instant would be filed under Monday and a weekly digest
+    would go out a day early.
+  */
+  it("a late evening does not roll over into the next weekday", () => {
+    const sundayNight = new Date("2026-06-15T02:00:00Z");
+    expect(schoolHourAndWeekday(sundayNight)).toEqual({ hour: 22, weekday: 0 });
   });
 });

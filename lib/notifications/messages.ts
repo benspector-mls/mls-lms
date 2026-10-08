@@ -1,3 +1,5 @@
+import { formatSchoolTime } from "@/lib/school-time";
+
 /**
  * The words a Slack DM says.
  *
@@ -104,4 +106,53 @@ export function commentsDigestLine(args: {
 export function digestDm(lines: readonly string[]): string {
   const count = lines.length === 1 ? "1 update" : `${lines.length} updates`;
   return `While you were away — ${count}:\n${lines.join("\n")}`;
+}
+
+/* ---- Summaries: what is outstanding, rather than what happened ---------------------------- */
+
+/** An instructor's heading. Names the scope, so a summary widened by the cohort picker says so. */
+export function outstandingSummary(args: { scope: string; total: number }): string {
+  const work = args.total === 1 ? "1 submission" : `${args.total} submissions`;
+  return `Waiting on you — ${escapeMrkdwn(args.scope)}, ${work} to grade`;
+}
+
+/** One cohort's share of that pile. Omitted by the caller when there is only one. */
+export function summaryCohortLine(args: { name: string; count: number }): string {
+  return `• ${escapeMrkdwn(args.name)} — ${args.count}`;
+}
+
+/** Where to go and do something about it, one link per course that has work waiting. */
+export function summaryCourseLink(
+  courses: readonly { name: string; href: string | null; count: number }[],
+): string {
+  const parts = courses.map((course) =>
+    course.href
+      ? `<${course.href}|${escapeMrkdwn(course.name)}> (${course.count})`
+      : `${escapeMrkdwn(course.name)} (${course.count})`,
+  );
+  return `Open triage: ${parts.join(" · ")}`;
+}
+
+/**
+ * A fellow's section heading.
+ *
+ * Stated rather than urged. The heading says what the list below it contains and nothing about
+ * what the reader ought to feel, which is the whole of the wording decision here: a fellow who is
+ * behind already knows, and a summary that scolds is one people turn off.
+ */
+export function upcomingSummary(args: { kind: "overdue" | "upcoming"; count: number }): string {
+  return args.kind === "overdue"
+    ? `*Overdue* — ${args.count}`
+    : `*Due in the next 7 days* — ${args.count}`;
+}
+
+/** One piece of work on either list. */
+export function summaryWorkLine(args: {
+  title: string;
+  courseName: string;
+  dueAt: Date | null;
+  href: string | null;
+}): string {
+  const when = args.dueAt ? ` — due ${formatSchoolTime(args.dueAt)}` : "";
+  return `• ${linked(args.title, args.href)} (${escapeMrkdwn(args.courseName)})${when}`;
 }

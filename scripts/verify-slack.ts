@@ -53,7 +53,7 @@ async function main() {
     const { db } = await import("../lib/prisma");
     const profile = await db.profile.findFirst({
       where: { OR: [{ email }, { slackEmail: email }] },
-      select: { id: true, role: true, email: true, slackEmail: true, slackUserId: true, slackCadence: true, slackDigestedTo: true },
+      select: { id: true, role: true, email: true, slackEmail: true, slackUserId: true, slackEventCadence: true, slackDigestedTo: true },
     });
 
     if (!profile) {
@@ -75,7 +75,7 @@ async function main() {
           : await instructorDigestLines(db, profile.id, window);
 
       console.log(
-        `${profile.role} ${email} — cadence ${profile.slackCadence}, watermark ` +
+        `${profile.role} ${email} — cadence ${profile.slackEventCadence}, watermark ` +
           `${profile.slackDigestedTo?.toISOString() ?? "unset"}.\n` +
           `Over the last 7 days their digest would say:\n`,
       );
