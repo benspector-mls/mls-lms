@@ -1289,8 +1289,8 @@ function Editor({
               >
                 {/*
                   A trimmed-empty field falls back to the textarea, so switching kind — which
-                  clears the instructions — cannot leave an empty panel on screen with the
-                  disabled toggle as the only way back.
+                  drops an untouched repository default — cannot leave an empty panel on screen
+                  with the disabled toggle as the only way back.
                 */}
                 {previewingInstructions && state.submissionInstructions.trim() !== "" ? (
                   <div className="rounded-md border border-input bg-muted/20 px-3 py-2">
@@ -1902,6 +1902,39 @@ function manualSection(): SectionDraft {
 }
 
 /**
+ * What a repository assignment says about setting up and handing in, until the instructor
+ * writes something else.
+ *
+ * Every repository assignment is cloned, worked on, pushed, and opened as a pull request the
+ * same way, so an instructor who wrote nothing would otherwise leave fellows to work those steps
+ * out from the pipeline's behaviour. The text is a starting point rather than a rule: it sits in
+ * the textarea like anything else typed there, and an instructor edits or clears it.
+ */
+const REPO_SUBMISSION_INSTRUCTIONS = `## Setup
+* Clone the repository
+* Read the instructions in \`README.md\` carefully before starting.
+
+## Submitting
+* Add, commit, and push your work to your GitHub repository on the draft branch.
+* Then, make a Pull Request. The LMS will update this assignment to "Submitted" once you make your pull request.`;
+
+/**
+ * The instructions a draft of this kind starts with, given what was already typed.
+ *
+ * Anything the instructor typed carries across a change of kind, because a change of kind is
+ * a decision about where the work lives and not about what the instructor said. The repository
+ * default is the one exception: it was not typed, it names a clone and a pull request, and a
+ * Google Drive assignment that kept it would tell fellows to clone a repository they do not
+ * have. So an untouched default is treated like an empty field, which a repository draft fills
+ * and every other kind leaves blank.
+ */
+function submissionInstructionsFor(kind: Kind, typed: string): string {
+  const untouched = typed.trim() === "" || typed === REPO_SUBMISSION_INSTRUCTIONS;
+  if (!untouched) return typed;
+  return kind === "REPO" ? REPO_SUBMISSION_INSTRUCTIONS : "";
+}
+
+/**
  * A starting draft for a kind.
  *
  * One per kind rather than one for repository assignments and one for the rest, because
@@ -1966,7 +1999,10 @@ function blankDraft({
       existingState?.acceptedFileTypes && existingState.acceptedFileTypes.length > 0
         ? existingState.acceptedFileTypes
         : ["pdf"],
-    submissionInstructions: existingState?.submissionInstructions ?? "",
+    submissionInstructions: submissionInstructionsFor(
+      kind,
+      existingState?.submissionInstructions ?? "",
+    ),
     // Kept across a change of kind. A team hands in a document, a file, a link or a repository;
     // which of those it is changes where the work lives, not whether it belongs to a team.
     teamSetId: existingState?.teamSetId ?? null,
