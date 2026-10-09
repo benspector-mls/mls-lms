@@ -247,6 +247,34 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
   return (
     <div className="flex flex-col gap-6">
       {/*
+        First, before anything else, because it is the one thing a coach who opened this early has
+        to change: the day the conversation is held, which every list dates the session by.
+      */}
+      <section className="flex flex-col gap-1.5">
+        <Label htmlFor="coaching-held-on" className="text-sm font-medium">
+          Session date
+        </Label>
+        {completed ? (
+          <p className="text-sm">{formatSchoolDay(data.heldOn)}</p>
+        ) : (
+          <>
+            <Input
+              id="coaching-held-on"
+              type="date"
+              value={heldOn}
+              onChange={(event) => editHeldOn(event.target.value)}
+              className="w-fit"
+            />
+            <p className="text-xs text-muted-foreground">
+              The day you meet. Started early to prepare? Move it to the day of the conversation —
+              it is what the session is listed under for both of you, and it cannot be changed after
+              completion.
+            </p>
+          </>
+        )}
+      </section>
+
+      {/*
         Where the conversation starts: the last few weeks, live, the same component and the same
         figures as the fellow's record. Above the strip, and labelled apart from it, because the
         strip is what the fellow will see and this is not.
@@ -272,30 +300,6 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           <p className="text-sm text-muted-foreground">The stored record cannot be read.</p>
         ) : (
           <CoachingSnapshotPanel snapshot={strip} compact />
-        )}
-      </section>
-
-      <section className="flex flex-col gap-1.5">
-        <Label htmlFor="coaching-held-on" className="text-sm font-medium">
-          Session date
-        </Label>
-        {completed ? (
-          <p className="text-sm">{formatSchoolDay(data.heldOn)}</p>
-        ) : (
-          <>
-            <Input
-              id="coaching-held-on"
-              type="date"
-              value={heldOn}
-              onChange={(event) => editHeldOn(event.target.value)}
-              className="w-fit"
-            />
-            <p className="text-xs text-muted-foreground">
-              The day you meet. Started early to prepare? Move it to the day of the conversation —
-              it is what the session is listed under for both of you, and it cannot be changed after
-              completion.
-            </p>
-          </>
         )}
       </section>
 
