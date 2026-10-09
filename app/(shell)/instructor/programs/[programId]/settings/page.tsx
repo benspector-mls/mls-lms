@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { ProgramSettings } from "@/components/instructor/program-settings";
 import { PageFallback } from "@/components/list-states";
+import { OutlinedPage, type OutlineSection } from "@/components/outlined-page";
 import { PageHeader } from "@/components/page-header";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -47,10 +48,34 @@ async function Settings({ params }: { params: Promise<{ programId: string }> }) 
     queryClient.fetchQuery(trpc.courses.listMine.queryOptions()),
   ]);
 
+  /*
+    The cards of `ProgramSettings` and of `ProgramInstructors` inside it, in their order and under
+    their conditions: the teaching grid needs a course to put somebody on, and the delete card is
+    for the owner of an archived program, as the component decides and the procedure enforces.
+  */
+  const archived = data.program.archivedAt !== null;
+  const sections: OutlineSection[] = [
+    { id: "program", label: "Program" },
+    { id: "discipline", label: "Discipline" },
+    { id: "test", label: data.program.isTest ? "Test program" : "Real program" },
+    { id: "courses", label: "Courses" },
+    { id: "instructors", label: "Instructors" },
+    ...(data.program.courses.length > 0 ? [{ id: "teaching", label: "Who teaches what" }] : []),
+    { id: "instructor-link", label: "Instructor link" },
+    { id: "attendance", label: "Attendance" },
+    { id: "archive", label: archived ? "Reopen" : "Archive" },
+    ...(archived && data.callerActsAsOwner ? [{ id: "delete", label: "Delete" }] : []),
+  ];
+
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader title="Settings" description={`${data.program.name} · ${data.program.term}`} />
+    <OutlinedPage
+      width="4xl"
+      header={
+        <PageHeader title="Settings" description={`${data.program.name} · ${data.program.term}`} />
+      }
+      sections={sections}
+    >
       <ProgramSettings data={data} courses={courses} />
-    </div>
+    </OutlinedPage>
   );
 }

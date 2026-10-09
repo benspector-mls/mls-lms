@@ -136,7 +136,7 @@ function NameCard({ data }: { data: Data }) {
   const changed = trimmed !== data.course.name;
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="name" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Course name</h2>
         <p className="text-xs text-muted-foreground">
@@ -221,7 +221,7 @@ function PublishCard({ data }: { data: Data }) {
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="visibility" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
           {published ? "Visible to fellows" : "Not published"}
@@ -312,7 +312,7 @@ function CourseTestCard({ data }: { data: Data }) {
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="test" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{isTest ? "A test course" : "A real course"}</h2>
         <p className="text-xs text-muted-foreground">
@@ -344,7 +344,7 @@ function RepositoryNamingCard({ data }: { data: Data }) {
   });
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="short-name" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Short name</h2>
         <p className="text-xs text-muted-foreground">
@@ -430,7 +430,7 @@ function TeachingCard({ data }: { data: Data }) {
   const others = data.course.program.instructors.filter((row) => !assigned.has(row.user.id));
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="instructors" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Who teaches this course</h2>
         <p className="text-xs text-muted-foreground">
@@ -531,7 +531,7 @@ function ArchiveCard({
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="archive" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{archived ? "Reopen" : "Archive"} this course</h2>
         <p className="text-xs text-muted-foreground">
@@ -667,7 +667,7 @@ function DeleteCourseCard({
 
   if (!open) {
     return (
-      <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+      <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Delete this course</h2>
           <p className="text-xs text-muted-foreground">
@@ -691,7 +691,7 @@ function DeleteCourseCard({
   }
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+    <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Delete {name}?</h2>
         <p className="text-xs text-muted-foreground">

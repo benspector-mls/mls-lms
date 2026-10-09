@@ -1539,7 +1539,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <React.Suspense fallback={null}>
           <ViewAsBanner />
         </React.Suspense>
-        <main className="flex-1 overflow-x-hidden">{children}</main>
+        {/*
+          `clip` rather than `hidden`. Both stop a wide child widening the page sideways, but
+          `hidden` also makes this element a scroll container, and a sticky element sticks to its
+          nearest scroll container — so a sticky outline inside a page stuck to `main`, which never
+          scrolls, and never moved. `clip` clips without becoming anything's scroll container, so
+          sticky children here measure against the viewport, where the page actually scrolls.
+        */}
+        <main className="flex-1 overflow-x-clip">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

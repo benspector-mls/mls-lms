@@ -115,7 +115,7 @@ function ownerNameIn(data: Data): string {
  */
 function IdentityCard({ data }: { data: Data }) {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="program" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{data.program.name}</h2>
         <p className="text-xs text-muted-foreground">
@@ -175,7 +175,7 @@ function DisciplineCard({ data }: { data: Data }) {
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="discipline" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Discipline</h2>
         <p className="text-xs text-muted-foreground">
@@ -244,7 +244,7 @@ function ProgramTestCard({ data }: { data: Data }) {
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="test" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{isTest ? "A test program" : "A real program"}</h2>
         <p className="text-xs text-muted-foreground">
@@ -384,7 +384,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="courses" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Courses</h2>
@@ -439,7 +439,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
  */
 function AttendancePointer({ data }: { data: Data }) {
   return (
-    <section className="flex flex-col gap-1 rounded-lg border border-border p-4">
+    <section id="attendance" className="scroll-mt-(--outline-offset) flex flex-col gap-1 rounded-lg border border-border p-4">
       <h2 className="text-sm font-medium">Attendance</h2>
       <p className="text-xs text-muted-foreground">
         When this program meets, what time class starts, when somebody counts as late, and the
@@ -496,7 +496,7 @@ function ArchiveCard({ data }: { data: Data }) {
   const courseCount = data.program.courses.length;
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section id="archive" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
           {archived ? "Reopen" : "Archive"} {data.program.term}
@@ -621,7 +621,7 @@ function DeleteProgramCard({ data }: { data: Data }) {
 
   if (!open) {
     return (
-      <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+      <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Delete this program</h2>
           <p className="text-xs text-muted-foreground">
@@ -646,7 +646,7 @@ function DeleteProgramCard({ data }: { data: Data }) {
   }
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+    <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
           Delete {data.program.name} · {data.program.term}?

@@ -58,12 +58,36 @@ export function ViewAsBanner() {
     return () => window.removeEventListener("pageshow", onPageShow);
   }, [queryClient, trpc]);
 
+  /*
+    Its height, published on the root as `--view-as-banner` for anything else that sticks below the
+    header: the outline on a settings page sticks under this bar rather than behind it. Measured
+    rather than declared, because the sentence wraps onto a second line on a narrow screen. Removed
+    when the bar goes, so the variable falls back to nothing.
+  */
+  const bannerRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const bar = bannerRef.current;
+    if (!bar) return;
+    const root = document.documentElement;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty("--view-as-banner", `${bar.offsetHeight}px`);
+    });
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--view-as-banner");
+    };
+  }, [viewingAs]);
+
   if (!viewingAs) return null;
 
   const name = viewingAs.student.name;
 
   return (
-    <div className="sticky top-14 z-20 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-500/50 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+    <div
+      ref={bannerRef}
+      className="sticky top-14 z-20 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-500/50 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+    >
       <Eye className="size-4 shrink-0" />
       {viewingAs.readOnly ? (
         <span className="min-w-0">

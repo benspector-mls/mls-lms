@@ -96,7 +96,7 @@ function InstructorsCard({ data }: { data: Data }) {
   const onlyOne = data.program.instructors.length <= 1;
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+    <section id="instructors" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Instructors</h2>
         <p className="text-xs text-muted-foreground">
@@ -309,7 +309,7 @@ function TeachingGrid({ data }: { data: Data }) {
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+    <section id="teaching" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Who teaches what</h2>
         <p className="text-xs text-muted-foreground">
@@ -441,7 +441,7 @@ function InstructorLinkCard({ data }: { data: Data }) {
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+    <section id="instructor-link" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
       <div className="flex flex-col gap-1">
         <span className="flex items-center gap-2 text-sm font-medium">
           <ShieldCheck className="size-4 text-muted-foreground" />

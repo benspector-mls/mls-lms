@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { ErrorState, PageFallback } from "@/components/list-states";
+import { OutlinedPage, type OutlineSection } from "@/components/outlined-page";
 import { PageHeader } from "@/components/page-header";
 import { ProfileView } from "@/components/profile-view";
 import { getQueryClient, trpc } from "@/trpc/server";
@@ -42,25 +43,45 @@ async function Profile() {
     queryClient.fetchQuery(trpc.slackNotifications.queryOptions()),
   ]);
 
-  return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader
-        title="Profile"
-        description="Your name, your account, and what this application stores about you."
-      />
-      {/*
-        `me` answers null for a signed-in account with no profile row, which the signup trigger
-        makes impossible and which is therefore worth reporting rather than rendering around. An
-        empty form here would invite somebody to type a name into a row that does not exist.
-      */}
-      {profile ? (
-        <ProfileView profile={profile} calendarToken={calendar.token} slack={slack} />
-      ) : (
+  const header = (
+    <PageHeader
+      title="Profile"
+      description="Your name, your account, and what this application stores about you."
+    />
+  );
+
+  /*
+    `me` answers null for a signed-in account with no profile row, which the signup trigger
+    makes impossible and which is therefore worth reporting rather than rendering around. An
+    empty form here would invite somebody to type a name into a row that does not exist.
+  */
+  if (!profile) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
+        {header}
         <ErrorState
           title="This account has no profile"
           description="Every account gets one when it is created, so this should not be possible. Signing out and back in is worth trying; if it persists, it is worth reporting."
         />
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  /*
+    The cards of `ProfileView`, in its order and under its one condition: the calendar card is
+    offered to students only, and the reasoning is on the card.
+  */
+  const sections: OutlineSection[] = [
+    { id: "name", label: "Name" },
+    { id: "account", label: "Account" },
+    ...(profile.role === "STUDENT" ? [{ id: "calendar", label: "Calendar" }] : []),
+    { id: "notifications", label: "Notifications" },
+    { id: "stored-data", label: "Stored data" },
+  ];
+
+  return (
+    <OutlinedPage width="3xl" header={header} sections={sections}>
+      <ProfileView profile={profile} calendarToken={calendar.token} slack={slack} />
+    </OutlinedPage>
   );
 }

@@ -126,7 +126,7 @@ function NameCard({ profile }: { profile: Profile }) {
   const previewName = trimmed || displayNameOf({ ...profile, displayName: null }, "you");
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+    <section id="name" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Your name</h2>
         <p className="text-xs text-muted-foreground">
@@ -313,7 +313,7 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
   const webcalLink = link.replace(/^https?:\/\//, "webcal://");
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+    <section id="calendar" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Due dates in your own calendar</h2>
         <p className="text-xs text-muted-foreground">
@@ -580,7 +580,7 @@ function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: P
   const lookupAddress = slack.slackEmail ?? slack.email ?? "your sign-in email";
 
   return (
-    <section className="flex flex-col gap-5 rounded-lg border border-border p-4">
+    <section id="notifications" className="scroll-mt-(--outline-offset) flex flex-col gap-5 rounded-lg border border-border p-4">
       <h2 className="text-sm font-medium">Slack notifications</h2>
 
       <Setting
@@ -765,7 +765,7 @@ const ROLE_LABEL: Record<Profile["role"], string> = {
  */
 function AccountCard({ profile }: { profile: Profile }) {
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
+    <section id="account" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Your account</h2>
         <p className="text-xs text-muted-foreground">
@@ -831,7 +831,7 @@ function AccountCard({ profile }: { profile: Profile }) {
  */
 function StoredDataCard() {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+    <section id="stored-data" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">What this application stores about you</h2>
       </div>
