@@ -92,7 +92,7 @@ export type ClassificationResult = {
  */
 type Rule = {
   type: SectionType;
-  matches: (path: string, context: { hasJest: boolean }) => boolean;
+  matches: (path: string, context: { hasTestRunner: boolean }) => boolean;
 };
 
 /**
@@ -127,14 +127,20 @@ const RULES: Rule[] = [
   },
   {
     type: "coding_sql",
-    matches: (path, ctx) => path.endsWith(".sql") && !ctx.hasJest,
+    matches: (path, ctx) => path.endsWith(".sql") && !ctx.hasTestRunner,
   },
   {
     // Flat files directly under src/, which is where algorithm exercises live:
-    // from-scratch.js, modify.js, debug.js. Requires Jest, because a src/*.js file
-    // in a frontend assignment is a browser script rather than an exercise.
+    // from-scratch.js, modify.js, debug.js, or from_scratch.py, modify.py, debug.py.
+    // Requires a test runner, because a src/*.js file in a frontend assignment is a
+    // browser script rather than an exercise.
+    //
+    // `.py` is here because a Python assignment with pytest matched nothing at all: all
+    // four of its exercise files were reported as unclassified and the run refused to
+    // grade. The sandbox already ran pytest; only this rule had been written for
+    // JavaScript.
     type: "coding_algorithm",
-    matches: (path, ctx) => ctx.hasJest && /^src\/[^/]+\.(js|ts)$/.test(path),
+    matches: (path, ctx) => ctx.hasTestRunner && /^src\/[^/]+\.(js|ts|py)$/.test(path),
   },
   {
     // Everything else that is web work. This deliberately covers JavaScript under
@@ -174,14 +180,16 @@ function isIgnorable(path: string): boolean {
  * Classifies the changed paths, then reconciles against what the assignment says
  * it contains.
  *
- * `hasJest` comes from the *template's* package.json, never the student's. A
- * student can edit their own copy, and the section a submission is graded under is
- * not something they should be able to change.
+ * `hasTestRunner` comes from the assignment's runner preset, never from the student's
+ * repository. A student can edit their own package.json, and the section a submission
+ * is graded under is not something they should be able to change. The preset is also
+ * what the sandbox runs, so the rule that says "an exercise with tests" and the code
+ * that runs those tests agree about whether tests exist.
  */
 export function classifySections(params: {
   changedPaths: string[];
   declaredSections: AssignmentSection[];
-  hasJest: boolean;
+  hasTestRunner: boolean;
 }): ClassificationResult {
   const detected = new Set<SectionType>();
   const unclassified: string[] = [];
@@ -189,7 +197,9 @@ export function classifySections(params: {
   for (const path of params.changedPaths) {
     if (isIgnorable(path)) continue;
 
-    const rule = RULES.find((candidate) => candidate.matches(path, { hasJest: params.hasJest }));
+    const rule = RULES.find((candidate) =>
+      candidate.matches(path, { hasTestRunner: params.hasTestRunner }),
+    );
     if (rule) detected.add(rule.type);
     else unclassified.push(path);
   }

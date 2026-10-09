@@ -19,16 +19,33 @@ import {
 const declared = [{ type: "coding_algorithm" as const }, { type: "short_response" as const }];
 
 describe("classifySections", () => {
-  it("classifies a flat src file with a Jest suite as an algorithm exercise", () => {
+  it("classifies a flat src file with a test runner as an algorithm exercise", () => {
     expect(
       classifySections({
         changedPaths: ["src/from-scratch.js"],
         declaredSections: declared,
-        hasJest: true,
+        hasTestRunner: true,
       }),
     ).toEqual({
       present: ["coding_algorithm"],
       notSubmitted: ["short_response"],
+      unexpected: [],
+      unclassified: [],
+    });
+  });
+
+  // A Python assignment's pull request was refused outright: the rule accepted only .js and
+  // .ts, so four exercise files classified as nothing while pytest was ready to run them.
+  it("classifies flat src Python files with a test runner as an algorithm exercise", () => {
+    expect(
+      classifySections({
+        changedPaths: ["src/from_scratch.py", "src/modify.py", "src/debug.py"],
+        declaredSections: [{ type: "coding_algorithm" }],
+        hasTestRunner: true,
+      }),
+    ).toEqual({
+      present: ["coding_algorithm"],
+      notSubmitted: [],
       unexpected: [],
       unclassified: [],
     });
@@ -39,7 +56,7 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["src/short-response.md"],
         declaredSections: declared,
-        hasJest: true,
+        hasTestRunner: true,
       }),
     ).toEqual({
       present: ["short_response"],
@@ -62,7 +79,7 @@ describe("classifySections", () => {
     "short.response.md",
   ])("recognises %s as a short response", (path) => {
     expect(
-      classifySections({ changedPaths: [path], declaredSections: declared, hasJest: true }).present,
+      classifySections({ changedPaths: [path], declaredSections: declared, hasTestRunner: true }).present,
     ).toEqual(["short_response"]);
   });
 
@@ -72,7 +89,7 @@ describe("classifySections", () => {
     "does not treat %s as the submission file",
     (path) => {
       expect(
-        classifySections({ changedPaths: [path], declaredSections: declared, hasJest: true })
+        classifySections({ changedPaths: [path], declaredSections: declared, hasTestRunner: true })
           .present,
       ).toEqual([]);
     },
@@ -83,7 +100,7 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["src/from-scratch.js", "short-response.md"],
         declaredSections: declared,
-        hasJest: true,
+        hasTestRunner: true,
       }),
     ).toEqual({
       present: ["coding_algorithm", "short_response"],
@@ -98,19 +115,19 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["src/components/Card.js"],
         declaredSections: [{ type: "coding_frontend" }],
-        hasJest: true,
+        hasTestRunner: true,
       }),
     ).toEqual({ present: ["coding_frontend"], notSubmitted: [], unexpected: [], unclassified: [] });
   });
 
   // A real submission classified as nothing before this was handled: a flat src/*.js file in a
   // frontend assignment with no Jest suite matched no rule at all.
-  it("classifies a flat src file without Jest as frontend rather than nothing", () => {
+  it("classifies a flat src file without a test runner as frontend rather than nothing", () => {
     expect(
       classifySections({
         changedPaths: ["src/RecipeCollection.js"],
         declaredSections: [{ type: "coding_frontend" }, { type: "short_response" }],
-        hasJest: false,
+        hasTestRunner: false,
       }),
     ).toEqual({
       present: ["coding_frontend"],
@@ -120,13 +137,13 @@ describe("classifySections", () => {
     });
   });
 
-  // `hasJest` is what makes the distinction, not how deeply the file is nested.
-  it("classifies the same flat src file WITH Jest as an algorithm exercise", () => {
+  // `hasTestRunner` is what makes the distinction, not how deeply the file is nested.
+  it("classifies the same flat src file WITH a test runner as an algorithm exercise", () => {
     expect(
       classifySections({
         changedPaths: ["src/RecipeCollection.js"],
         declaredSections: [{ type: "coding_algorithm" }],
-        hasJest: true,
+        hasTestRunner: true,
       }),
     ).toEqual({
       present: ["coding_algorithm"],
@@ -141,7 +158,7 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["queries.sql"],
         declaredSections: [{ type: "short_response" }],
-        hasJest: false,
+        hasTestRunner: false,
       }),
     ).toEqual({
       present: [],
@@ -151,16 +168,16 @@ describe("classifySections", () => {
     });
   });
 
-  // The template decides which rubric applies, never the student's own package.json. An
-  // assignment declaring only coding_algorithm whose template has no Jest suite is misconfigured,
-  // and the mismatch surfaces as `unexpected` — which routes the whole submission to manual
-  // review. Better than silently grading nothing.
-  it("surfaces the mismatch when a src file classifies as frontend without Jest", () => {
+  // The assignment's runner preset decides which rubric applies, never the student's own
+  // package.json. An assignment declaring only coding_algorithm with no runner preset is
+  // misconfigured, and the mismatch surfaces as `unexpected` — which routes the whole submission
+  // to manual review. Better than silently grading nothing.
+  it("surfaces the mismatch when a src file classifies as frontend without a test runner", () => {
     expect(
       classifySections({
         changedPaths: ["src/main.js"],
         declaredSections: [{ type: "coding_algorithm" }],
-        hasJest: false,
+        hasTestRunner: false,
       }),
     ).toEqual({
       present: [],
@@ -175,7 +192,7 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["tests/a.spec.js", "package.json", "scores/scores.json", "README.md"],
         declaredSections: declared,
-        hasJest: true,
+        hasTestRunner: true,
       }),
     ).toEqual({
       present: [],
@@ -194,7 +211,7 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["SHORT-ANSWERS.md", "notes.txt"],
         declaredSections: [{ type: "short_response" }],
-        hasJest: false,
+        hasTestRunner: false,
       }),
     ).toEqual({
       present: [],
@@ -211,7 +228,7 @@ describe("classifySections", () => {
       classifySections({
         changedPaths: ["package.json", "README.md", "tests/a.spec.js"],
         declaredSections: [{ type: "short_response" }],
-        hasJest: true,
+        hasTestRunner: true,
       }).unclassified,
     ).toEqual([]);
   });
@@ -231,7 +248,7 @@ describe("what is detected is also what is sent", () => {
         classifySections({
           changedPaths: [path],
           declaredSections: [{ type: "short_response" }],
-          hasJest: false,
+          hasTestRunner: false,
         }).present,
       ).toEqual(["short_response"]);
       expect(belongsToSection(path, "short_response")).toBe(true);

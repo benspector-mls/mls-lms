@@ -3,13 +3,13 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { db, type Tx } from "../prisma";
-import { readSections, repositorySource } from "../assignments/spec";
+import { readSections } from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { compareCommits, getPullRequestFiles } from "../github/prs";
 import type { GradingDraft } from "../generated/prisma/client";
 import type { NormalizedTest } from "../sandbox/parsers";
-import { resolveRunner } from "../sandbox/presets";
+import { NO_RUNNER, resolveRunner } from "../sandbox/presets";
 import { runTestsForSubmission } from "../sandbox/run-tests";
 import { GradingAssetsError, loadGradingAssets } from "./assets";
 import {
@@ -391,12 +391,11 @@ export async function generateReportForSubmission(submissionId: string): Promise
   const classification = classifySections({
     changedPaths,
     declaredSections,
-    // From the template, never the student's copy: a student must not be able to
-    // change which rubric they are graded against by editing their own package.json.
-    hasJest: await templateHasJest(
-      installationId,
-      repositorySource(submission.assignment).templateRepo,
-    ),
+    // From the assignment record, never the student's copy: a student must not be able
+    // to change which rubric they are graded against by editing their own package.json.
+    // The preset covers Jest, Vitest, and pytest alike, where reading the template's
+    // package.json for Jest left every Python assignment matching no section.
+    hasTestRunner: submission.assignment.runnerPreset !== NO_RUNNER,
   });
 
   if (classification.present.length === 0) {
@@ -711,40 +710,6 @@ export async function generateReportForSubmission(submissionId: string): Promise
   half of every prompt, and a previous-review block to the user half of a resubmission's.
 */
 const PROMPT_VERSION = "2026-10-07.1";
-
-/**
- * Narrows the suite to the tests that count toward one section.
- *
- * Returns null when the section declares no test evidence, which is what keeps an
- * untested section from being handed results that describe someone else's work.
- */
-
-/**
- * Whether a changed path is part of a section, so a short response report is not
- * handed a stylesheet to read.
- *
- * Deliberately permissive: a file that matches nothing specific is included, because
- * omitting a file the model needed is worse than including one it does not.
- */
-async function templateHasJest(installationId: number, templateRepo: string): Promise<boolean> {
-  const { owner, repo } = splitRepoFullName(templateRepo);
-  const packageJson = await fetchFile(installationId, {
-    owner,
-    repo,
-    ref: "HEAD",
-    path: "package.json",
-  });
-  if (!packageJson) return false;
-  try {
-    const parsed = JSON.parse(packageJson) as {
-      devDependencies?: Record<string, string>;
-      dependencies?: Record<string, string>;
-    };
-    return Boolean(parsed.devDependencies?.jest ?? parsed.dependencies?.jest);
-  } catch {
-    return false;
-  }
-}
 
 /** Returns null when the file does not exist, which is an ordinary outcome. */
 async function fetchFile(
