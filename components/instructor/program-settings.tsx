@@ -66,9 +66,9 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This program is archived. Every course in it is off everyone&apos;s active list and
-            their submissions are out of grading triage, no attendance day can be started, and
-            nobody new can join. Everything stays readable to the people who were in it.
+            This program is archived. Its courses are off everyone&apos;s active list, nothing new
+            can be handed in, no attendance day can be started, and nobody new can join. Everything
+            stays readable.
           </p>
         </div>
       )}
@@ -80,8 +80,6 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
         year is read at the end of the year.
       */}
       <IdentityCard data={data} />
-      <DisciplineCard data={data} />
-      <ProgramTestCard data={data} />
       <CoursesCard data={data} courses={courses} />
       <ProgramInstructors data={data} />
       <AttendancePointer data={data} />
@@ -106,45 +104,41 @@ function ownerNameIn(data: Data): string {
 }
 
 /**
- * What this program is, and when it was started.
+ * What this program is: its name and term, when it was started, which fellowship it runs, and
+ * whether it is a rehearsal.
  *
- * Read-only, and the doc comment above says why. It is here rather than left off the screen because
- * the term is what tells two years of one program apart everywhere else in the application — in the
- * switcher, in every breadcrumb, in the name of every exported file — and a screen called Settings
- * that did not show it would be the one place the reader could not check it.
+ * The name and the term are read-only, and the doc comment above says why. They are shown rather
+ * than left off the screen because the term is what tells two years of one program apart everywhere
+ * else in the application — in the switcher, in every breadcrumb, in the name of every exported
+ * file — and a screen called Settings that did not show it would be the one place the reader could
+ * not check it.
+ *
+ * The discipline and the test flag live in this card rather than in cards of their own because all
+ * four are facts about what the program *is*, where the courses, the instructors and the archive
+ * below are things it *does*.
  */
 function IdentityCard({ data }: { data: Data }) {
   return (
-    <section id="program" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="program"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{data.program.name}</h2>
         <p className="text-xs text-muted-foreground">
           {data.program.term} · started {formatDate(data.program.createdAt)} ·{" "}
           {countLabel(data.program.instructors.length, "instructor")}
         </p>
+        <p className="text-xs text-muted-foreground">
+          The name and term cannot be changed. If either is wrong, create the program again.
+        </p>
       </div>
-      <p className="text-xs text-muted-foreground">
-        The name and the term are settled when the program is created. Together they are what tells
-        this year of {data.program.name} from every other one — in the switcher, in every
-        breadcrumb, and in the name of every file exported from it — so neither can be changed
-        afterwards. A program is created empty, so one named by mistake is best created again.
-      </p>
+      <DisciplineField data={data} />
+      <TestProgramField data={data} />
     </section>
   );
 }
 
-/**
- * The courses of this program, and where a new one is made.
- *
- * **This is where a course is created**, and not the course list. A course belongs to exactly one
- * program, so making one from a screen that spans every year would have to ask which year
- * first — a question this screen answers by being the screen somebody is already on.
- *
- * Publication is shown and not set here. It is the course's own control, on the course's own
- * settings screen, because that is where the short name and the archive live and all three are
- * decisions about one course. What this list is for is seeing at a glance which courses of the year
- * fellows can actually reach, which is the question somebody asks in the week a term starts.
- */
 /**
  * Which fellowship this program runs, and so which competencies its fellows set goals against.
  *
@@ -157,7 +151,7 @@ function IdentityCard({ data }: { data: Data }) {
  * Saved on choosing rather than behind a Save button, which is the one-control-one-act shape: the
  * select has nothing to be submitted alongside.
  */
-function DisciplineCard({ data }: { data: Data }) {
+function DisciplineField({ data }: { data: Data }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
 
@@ -175,15 +169,10 @@ function DisciplineCard({ data }: { data: Data }) {
   );
 
   return (
-    <section id="discipline" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Discipline</h2>
-        <p className="text-xs text-muted-foreground">
-          Which fellowship this is a run of. It decides which competencies its fellows choose their
-          goals from — the sections every fellowship shares, plus this one&apos;s own.
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-medium" htmlFor="discipline">
+        Discipline
+      </label>
       <Select
         value={data.program.discipline}
         items={DISCIPLINE_ITEMS}
@@ -191,7 +180,7 @@ function DisciplineCard({ data }: { data: Data }) {
           value && save.mutate({ programId: data.program.id, discipline: value as Discipline })
         }
       >
-        <SelectTrigger className="w-full sm:w-72" disabled={save.isPending}>
+        <SelectTrigger id="discipline" className="w-full sm:w-72" disabled={save.isPending}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -202,15 +191,14 @@ function DisciplineCard({ data }: { data: Data }) {
           ))}
         </SelectContent>
       </Select>
-
       <p className="text-xs text-muted-foreground">
-        Goals already set are untouched by this: each one keeps the wording it was built on.{" "}
+        Decides which{" "}
         <Link href={competenciesHref()} className="underline underline-offset-2">
-          The competency list
+          competencies
         </Link>{" "}
-        itself is written by an admin and shared by every program.
+        fellows set goals against. Changing it does not change goals already set.
       </p>
-    </section>
+    </div>
   );
 }
 
@@ -219,13 +207,10 @@ function DisciplineCard({ data }: { data: Data }) {
  *
  * **It changes the Salesforce feed and nothing else**, and marking a real program by mistake is
  * silent: the feed simply stops carrying the term, nothing in this application looks any different,
- * and Salesforce keeps whatever it already holds. So the heading states which of the two a reader
- * is looking at, and the description names the consequence rather than the setting.
- *
- * Under the discipline because both are facts about what the program *is*, where the roster, the
- * attendance schedule and the archive below are things it *does*.
+ * and Salesforce keeps whatever it already holds. So the sentence states which of the two a reader
+ * is looking at and names the consequence rather than the setting.
  */
-function ProgramTestCard({ data }: { data: Data }) {
+function TestProgramField({ data }: { data: Data }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const isTest = data.program.isTest;
@@ -244,16 +229,12 @@ function ProgramTestCard({ data }: { data: Data }) {
   );
 
   return (
-    <section id="test" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">{isTest ? "A test program" : "A real program"}</h2>
-        <p className="text-xs text-muted-foreground">
-          {isTest
-            ? "Nothing in this program reaches Salesforce — not its courses, not its roster, not a morning of attendance or a single grade. Everything else about it works normally: it still appears in the gradebook and still counts in attendance figures."
-            : "This program and everything in it are sent to Salesforce, the school's system of record. Mark it as a test if it exists to rehearse a term rather than to run one."}
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        {isTest
+          ? "This is a test program. Nothing in it is sent to Salesforce."
+          : "This is a real program, and it is sent to Salesforce. Mark it as a test if it exists only to rehearse a term."}
+      </p>
       <Button
         size="sm"
         variant="outline"
@@ -264,7 +245,7 @@ function ProgramTestCard({ data }: { data: Data }) {
         <FlaskConical data-icon="inline-start" />
         {isTest ? "This is a real program" : "Mark as a test program"}
       </Button>
-    </section>
+    </div>
   );
 }
 
@@ -299,6 +280,9 @@ function CourseRow({ course }: { course: Data["program"]["courses"][number] }) {
 
 /**
  * The courses of this program, in the order they are read in, which the owner sets by dragging.
+ *
+ * **This is where a course is created**, and not the course list. Publication
+ * is shown and not set here: it is the course's own control, on the course's own settings screen.
  *
  * **The order reaches every list of them** — this card, and the sidebar for every instructor and
  * every fellow of the program. It was creation order everywhere before, which made the order an
@@ -384,13 +368,15 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
   );
 
   return (
-    <section id="courses" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="courses"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Courses</h2>
           <p className="text-xs text-muted-foreground">
-            Every course of {data.program.term}. Everybody on the roster is a student of all of
-            them, so publishing is what decides which ones they can find yet.
+            Everyone on the roster is in every course. Fellows see only the published ones.
           </p>
         </div>
         <NewCourseDialog programId={data.program.id} term={data.program.term} courses={courses} />
@@ -398,7 +384,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
 
       {ordered.length === 0 ? (
         <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-          No courses yet. A program is created empty — add the first one, or copy last year&apos;s.
+          No courses yet. Add one, or copy last year&apos;s.
         </p>
       ) : mayReorder ? (
         <>
@@ -414,8 +400,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
             {list}
           </SortableList>
           <p className="text-xs text-muted-foreground">
-            Drag a course to change the order it appears in — here, and in the sidebar for everybody
-            on this program.
+            Drag to reorder. The order is used here and in everyone&apos;s sidebar.
           </p>
         </>
       ) : (
@@ -439,18 +424,20 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
  */
 function AttendancePointer({ data }: { data: Data }) {
   return (
-    <section id="attendance" className="scroll-mt-(--outline-offset) flex flex-col gap-1 rounded-lg border border-border p-4">
+    <section
+      id="attendance"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-1 rounded-lg border border-border p-4"
+    >
       <h2 className="text-sm font-medium">Attendance</h2>
       <p className="text-xs text-muted-foreground">
-        When this program meets, what time class starts, when somebody counts as late, and the
-        calendar of its days are all on the{" "}
+        Meeting days, start time, and the lateness rule are on the{" "}
         <Link
           href={attendanceHref(data.program.id)}
           className="font-medium underline-offset-4 hover:underline"
         >
           Attendance screen
-        </Link>
-        , under Schedule.
+        </Link>{" "}
+        under Schedule.
       </p>
     </section>
   );
@@ -496,15 +483,18 @@ function ArchiveCard({ data }: { data: Data }) {
   const courseCount = data.program.courses.length;
 
   return (
-    <section id="archive" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="archive"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
           {archived ? "Reopen" : "Archive"} {data.program.term}
         </h2>
         <p className="text-xs text-muted-foreground">
           {archived
-            ? `It is archived. Reopening puts its ${countLabel(courseCount, "course")} back on everyone's active list, lets work be handed in again, and lets an attendance day be started.`
-            : `Archiving reaches all of it: ${countLabel(courseCount, "course")}, the roster, and the attendance. Fellows keep reading their feedback, nothing new can be handed in, and no morning can be opened. It is reversible.`}
+            ? `Reopening puts its ${countLabel(courseCount, "course")} back on everyone's active list and lets work be handed in again.`
+            : `Archives all ${countLabel(courseCount, "course")}. Fellows keep their feedback, but nothing new can be handed in. This can be undone.`}
         </p>
       </div>
 
@@ -514,8 +504,7 @@ function ArchiveCard({ data }: { data: Data }) {
           is it broken, am I doing it wrong — and the answer here is a fact about who to ask.
         */
         <p className="text-xs text-muted-foreground">
-          Only {ownerNameIn(data)} can {archived ? "reopen" : "archive"} this program, because they
-          own it. Everything else on this screen is yours as much as theirs.
+          Only {ownerNameIn(data)}, the owner, can {archived ? "reopen" : "archive"} this program.
         </p>
       ) : archived ? (
         <Button
@@ -621,15 +610,15 @@ function DeleteProgramCard({ data }: { data: Data }) {
 
   if (!open) {
     return (
-      <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+      <section
+        id="delete"
+        className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4"
+      >
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Delete this program</h2>
           <p className="text-xs text-muted-foreground">
-            Permanent, and the widest thing on any screen here. {data.program.name} ·{" "}
-            {data.program.term} goes, and with it every course in it, their assignments and
-            submissions and grades, the roster, the cohorts, and the whole attendance record. The
-            database&apos;s own backups are the only way back. Archiving is the reversible version
-            and this program is already archived.
+            Permanently deletes {data.program.name} · {data.program.term}: every course, assignment,
+            submission, and grade, the roster, and the attendance record. This cannot be undone.
           </p>
         </div>
         <Button
@@ -646,15 +635,15 @@ function DeleteProgramCard({ data }: { data: Data }) {
   }
 
   return (
-    <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+    <section
+      id="delete"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
           Delete {data.program.name} · {data.program.term}?
         </h2>
-        <p className="text-xs text-muted-foreground">
-          There is no undo and no recovery path here. The database&apos;s own backups are the only
-          way back.
-        </p>
+        <p className="text-xs text-muted-foreground">This cannot be undone.</p>
       </div>
 
       {impact.isPending ? (
@@ -720,9 +709,6 @@ function DeleteProgramCard({ data }: { data: Data }) {
               placeholder={impact.data.confirm}
               onChange={(event) => setTyped(event.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              The term, not the name — every year of this program is called {impact.data.name}.
-            </p>
           </div>
         </>
       ) : (

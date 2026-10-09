@@ -17,7 +17,7 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * **Who instructs it is on this screen rather than one of its own**, because it is a fact about the
  * program in the same way its name and its lateness rule are. It had its own address while the
- * question was whether it was a screen; it is three cards, two of which are read far less often than
+ * question was whether it was a screen; it is two cards, read far less often than
  * anything else here, and a sidebar item for them was a door onto a section.
  *
  * The course list is fetched alongside it so a new course can be copied from an earlier one. It is
@@ -51,17 +51,16 @@ async function Settings({ params }: { params: Promise<{ programId: string }> }) 
   /*
     The cards of `ProgramSettings` and of `ProgramInstructors` inside it, in their order and under
     their conditions: the teaching grid needs a course to put somebody on, and the delete card is
-    for the owner of an archived program, as the component decides and the procedure enforces.
+    for the owner of an archived program, as the component decides and the procedure enforces. The
+    discipline, the test flag and the instructor link are inside the Program and Instructors cards
+    rather than cards of their own, so they have no entry here.
   */
   const archived = data.program.archivedAt !== null;
   const sections: OutlineSection[] = [
     { id: "program", label: "Program" },
-    { id: "discipline", label: "Discipline" },
-    { id: "test", label: data.program.isTest ? "Test program" : "Real program" },
     { id: "courses", label: "Courses" },
     { id: "instructors", label: "Instructors" },
     ...(data.program.courses.length > 0 ? [{ id: "teaching", label: "Who teaches what" }] : []),
-    { id: "instructor-link", label: "Instructor link" },
     { id: "attendance", label: "Attendance" },
     { id: "archive", label: archived ? "Reopen" : "Archive" },
     ...(archived && data.callerActsAsOwner ? [{ id: "delete", label: "Delete" }] : []),

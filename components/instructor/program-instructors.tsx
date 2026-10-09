@@ -43,7 +43,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * person who set the term up.
  *
  * **It sits on the settings screen rather than one of its own.** Who runs a program is a fact
- * about the program, in the same way its term and its lateness rule are; and these are three
+ * about the program, in the same way its term and its lateness rule are; and these are two
  * cards read when somebody joins or leaves, which is rarer than anything else on that screen. A
  * sidebar item for them was a door onto a section.
  */
@@ -55,12 +55,16 @@ export function ProgramInstructors({ data }: { data: Data }) {
     <div className="flex flex-col gap-6">
       <InstructorsCard data={data} />
       {data.program.courses.length > 0 && <TeachingGrid data={data} />}
-      <InstructorLinkCard data={data} />
     </div>
   );
 }
 
-/** Everybody who instructs this program, with the two actions ownership gates. */
+/**
+ * Everybody who instructs this program, with the two actions ownership gates, and the link that
+ * adds somebody to the table. The link is at the bottom of this card because it is how the table
+ * grows, and a reader who has just looked for a colleague's name and not found it is the reader
+ * who needs it.
+ */
 function InstructorsCard({ data }: { data: Data }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
@@ -100,8 +104,7 @@ function InstructorsCard({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Instructors</h2>
         <p className="text-xs text-muted-foreground">
-          Everyone here can author assignments in every course of this program, read every
-          fellow&apos;s work, approve grades, and take attendance.
+          Everyone here can author, grade, and take attendance in every course of this program.
         </p>
       </div>
 
@@ -230,20 +233,21 @@ function InstructorsCard({ data }: { data: Data }) {
 
       {onlyOne ? (
         <p className="text-xs text-muted-foreground">
-          The only instructor on this program cannot be removed. Add another one first.
+          The only instructor cannot be removed. Add another first.
         </p>
       ) : (
         /*
-          The rule, said once beside the table rather than discovered by a refusal. The second
+          The rule, said once beside the table rather than discovered by a refusal. The last
           sentence is the one nobody would guess: an owner who leaves without handing the
           program on does not leave it ownerless.
         */
         <p className="text-xs text-muted-foreground">
-          The owner archives this program, says who teaches which course, and removes people. Only
-          they can leave it — anybody else here can be removed by anyone. If the owner leaves
-          without handing it on, the program goes to the longest-serving instructor left.
+          Only the owner can archive this program, assign courses, and remove themselves. If the
+          owner leaves, the longest-serving instructor becomes the owner.
         </p>
       )}
+
+      <InstructorLink data={data} />
     </section>
   );
 }
@@ -313,9 +317,9 @@ function TeachingGrid({ data }: { data: Data }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Who teaches what</h2>
         <p className="text-xs text-muted-foreground">
-          Everybody above can already work in every course, so this is not permission. It decides
-          whose name fellows see on a course, who is added as a collaborator on the repositories it
-          generates, and which course somebody&apos;s screens open on.
+          This does not change permissions. It decides whose name fellows see on a course, who is
+          added as a collaborator on its repositories, and which course an instructor&apos;s
+          screens open on.
         </p>
       </div>
 
@@ -369,9 +373,8 @@ function TeachingGrid({ data }: { data: Data }) {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Somebody added to a course now is a collaborator on the repositories it generates from now
-        on. The ones fellows have already accepted keep the collaborators they were created with, so
-        they need adding on GitHub by hand.
+        Repositories already created keep their collaborators. Add a new instructor to those on
+        GitHub by hand.
       </p>
     </section>
   );
@@ -418,7 +421,7 @@ function ReadOnlyTeaching({
  * instructors one at a time over a year. What bounds it is the role check rather than the token being
  * spent, and replacing it is the control over a link that reached the wrong person.
  */
-function InstructorLinkCard({ data }: { data: Data }) {
+function InstructorLink({ data }: { data: Data }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const [copied, setCopied] = React.useState(false);
@@ -441,16 +444,15 @@ function InstructorLinkCard({ data }: { data: Data }) {
   );
 
   return (
-    <section id="instructor-link" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+    <div className="flex flex-col gap-3 border-t border-border pt-4">
       <div className="flex flex-col gap-1">
         <span className="flex items-center gap-2 text-sm font-medium">
           <ShieldCheck className="size-4 text-muted-foreground" />
           Instructor link
         </span>
         <span className="text-xs text-muted-foreground">
-          Send this to a colleague who should instruct {data.program.term} with you. It works only
-          for accounts that are already instructors — if they have never signed in here, an admin
-          has to send them an instructor invitation from the Staff screen first.
+          Send this to a colleague to add them as an instructor. It works only for existing
+          instructor accounts. Someone new needs an admin invitation first.
         </span>
       </div>
 
@@ -472,23 +474,10 @@ function InstructorLinkCard({ data }: { data: Data }) {
         </Button>
       </div>
 
-      {/*
-        What the link actually reaches, said here rather than discovered. It is the widest grant in
-        the application short of making somebody an admin: every course of the year, every fellow's
-        work in them, and the roster and attendance above them.
-      */}
-      <p className="text-xs text-muted-foreground">
-        Whoever redeems it can author in every course of this program, read every fellow&apos;s
-        work, approve grades, and take attendance. It puts their name on no course — that is the
-        grid above.
-      </p>
-
       {confirming ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
-            The current link stops working immediately. Instructors already on this program are
-            unaffected — anyone you have sent it to and who has not used it yet will need the new
-            link.
+            The current link stops working. Instructors already on this program are unaffected.
           </span>
           <div className="flex gap-2">
             <Button
@@ -516,6 +505,6 @@ function InstructorLinkCard({ data }: { data: Data }) {
           Replace this link
         </button>
       )}
-    </section>
+    </div>
   );
 }
