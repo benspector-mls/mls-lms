@@ -2,6 +2,8 @@ import { Suspense } from "react";
 
 import { AttendanceCalendar } from "@/components/instructor/attendance-calendar";
 import { AttendanceDay } from "@/components/instructor/attendance-day";
+import { CohortPicker } from "@/components/instructor/cohort-picker";
+import { JumpToDate } from "@/components/instructor/jump-to-date";
 import { ProgramLateness } from "@/components/instructor/program-lateness";
 import { ProgramSchedule } from "@/components/instructor/program-schedule";
 import { AttendanceDownload } from "@/components/instructor/attendance-download";
@@ -10,9 +12,16 @@ import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { attendanceCsv, attendanceCsvIsEmpty } from "@/lib/attendance/csv";
+import type { FellowSummary } from "@/lib/attendance/summary";
+import { stateIsUnsettled } from "@/lib/attendance/window";
+import {
+  cohortSelectionLabel,
+  inCohortSelection,
+  parseCohortSelection,
+} from "@/lib/programs/cohorts";
+import { resolveCohort } from "@/lib/programs/resolve-cohort";
 import { formatSchoolDay } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
-import { stateIsUnsettled } from "@/lib/attendance/window";
 
 /**
  * Attendance: this morning, and the term behind it.
@@ -23,10 +32,18 @@ import { stateIsUnsettled } from "@/lib/attendance/window";
  * and wants the whole term at once. They were two addresses reached by a button, which put the
  * question an instructor asks every morning one click away from the one they ask once a month.
  *
- * **No cohort filter on either tab**, unlike the roster and the gradebook. `resolveCohort` falls back to an
- * instructor's *remembered* grading filter, so somebody who narrowed the gradebook to their fifteen
- * last Tuesday would open this at 9:00 and read "11 of 15" — a number that is wrong about the room
- * while looking entirely correct. Attendance is taken for everybody present, so it reads everybody.
+ * **The cohort picker narrows The whole term and nothing else.** Attendance is taken for everybody
+ * in the room, so Today reads everybody: `resolveCohort` falls back to an instructor's *remembered*
+ * grading filter, and somebody who narrowed the gradebook to their fifteen last Tuesday would
+ * otherwise open this at 9:00 and read "11 of 15" — a number that is wrong about the room while
+ * looking entirely correct. The term is read at a desk, as the gradebook is, by an instructor
+ * asking about their own fellows, and it narrows the same way. The drift list, the grid and the
+ * export all follow the picker, so the file somebody downloads describes the fellows on the screen
+ * they downloaded it from.
+ *
+ * **Today carries a way to any other morning.** The board is today's; correcting last Tuesday
+ * meant finding it on the term grid's column headings. Jump to a date opens the program's held
+ * days as a calendar, each square the way into that day's screen.
  *
  * Both payloads are fetched here regardless of which tab is open. They are two reads on a screen
  * whose whole content is a roster and a grid, and fetching the second only when it is opened would
@@ -34,22 +51,49 @@ import { stateIsUnsettled } from "@/lib/attendance/window";
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
-export default function AttendancePage({ params }: { params: Promise<{ programId: string }> }) {
+export default function AttendancePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ programId: string }>;
+  searchParams: Promise<{ cohort?: string }>;
+}) {
   return (
     <Suspense fallback={<PageFallback rows={8} width="full" />}>
-      <Attendance params={params} />
+      <Attendance params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function Attendance({ params }: { params: Promise<{ programId: string }> }) {
+async function Attendance({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ programId: string }>;
+  searchParams: Promise<{ cohort?: string }>;
+}) {
   const { programId } = await params;
+  const query = await searchParams;
   const queryClient = getQueryClient();
 
-  const [grid, history] = await Promise.all([
+  const [grid, history, cohorts] = await Promise.all([
     queryClient.fetchQuery(trpc.attendance.grid.queryOptions({ programId })),
     queryClient.fetchQuery(trpc.attendance.history.queryOptions({ programId })),
+    resolveCohort(programId, query.cohort),
   ]);
+
+  /*
+    Narrowed here, once, and every reading on the term tab is built from the narrowed lists: the
+    drift list, the grid, the removed table and the export. The procedure returns the whole
+    roster, because the Today tab reads the whole roster from the same screen.
+  */
+  const selection = parseCohortSelection(cohorts.cohort);
+  const inSelection = (summary: FellowSummary) =>
+    inCohortSelection(selection, history.cohorts[summary.fellow.enrollmentId] ?? null);
+  const active = history.active.filter(inSelection);
+  const removed = history.removed.filter(inSelection);
+  const setName =
+    selection.kind === "all" ? "the program" : cohortSelectionLabel(selection, cohorts.cohorts);
 
   /*
     A session whose check-in has not opened is reported the same way an open one is — nothing about
@@ -71,13 +115,13 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
   const csvData = {
     sessions,
     fellows: [
-      ...history.active.map((summary) => ({
+      ...active.map((summary) => ({
         enrollmentId: summary.fellow.enrollmentId,
         person: summary.fellow,
         enrollment: "Active",
         enrolledFrom: summary.fellow.enrolledFrom,
       })),
-      ...history.removed.map((summary) => ({
+      ...removed.map((summary) => ({
         enrollmentId: summary.fellow.enrollmentId,
         person: summary.fellow,
         enrollment: "Removed",
@@ -88,16 +132,6 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
   };
 
   const days = sessions.map((session) => session.day);
-
-  /*
-    The days behind and including today, for the calendar. It fetches the days ahead itself, from
-    `upcoming` — `history` deliberately carries nothing past today, and the calendar is the one
-    place on this screen that wants both halves.
-  */
-  const throughToday = history.sessions.map((session) => ({
-    day: session.day,
-    state: session.state,
-  }));
 
   return (
     <div className="mx-auto flex w-full flex-col gap-6 p-4 md:p-6">
@@ -117,8 +151,9 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
         */}
         <TabsContent value="today" className="mt-4">
           <div className="flex w-full max-w-5xl flex-col gap-6">
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-medium">{formatSchoolDay(grid.day)}</h2>
+              <JumpToDate programId={programId} today={grid.day} />
             </div>
             <AttendanceDay data={grid} />
           </div>
@@ -131,17 +166,20 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
                 {sessions.length} {sessions.length === 1 ? "session" : "sessions"}
               </h2>
               <p className="text-xs text-muted-foreground">
-                Every fellow against every day the program has held.
+                Every fellow in {setName} against every day the program has held.
               </p>
             </div>
-            {attendanceCsvIsEmpty(csvData) ? null : (
-              <AttendanceDownload
-                csv={attendanceCsv(csvData)}
-                term={history.program.term}
-                from={days[0] ?? null}
-                to={days[days.length - 1] ?? null}
-              />
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <CohortPicker choice={cohorts} />
+              {attendanceCsvIsEmpty(csvData) ? null : (
+                <AttendanceDownload
+                  csv={attendanceCsv(csvData)}
+                  term={history.program.term}
+                  from={days[0] ?? null}
+                  to={days[days.length - 1] ?? null}
+                />
+              )}
+            </div>
           </div>
 
           {history.openSessions.length > 0 && (
@@ -157,8 +195,8 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
             programId={programId}
             data={{
               sessions,
-              active: history.active,
-              removed: history.removed,
+              active,
+              removed,
               openDays: history.openSessions,
               arrivals: history.arrivals,
             }}
@@ -183,7 +221,6 @@ async function Attendance({ params }: { params: Promise<{ programId: string }> }
             <ProgramLateness program={grid.program} />
             <AttendanceCalendar
               programId={programId}
-              throughToday={throughToday}
               today={grid.day}
               hasSchedule={grid.program.hasSchedule}
               startsAt={grid.program.attendanceStartsAt}

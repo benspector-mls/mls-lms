@@ -1,5 +1,7 @@
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
-import type { SchoolDay } from "@/lib/school-time";
+import { addSchoolDays, type SchoolDay } from "@/lib/school-time";
+
+import { weekRange } from "./calendar";
 
 /**
  * A term of attendance, reduced to the two questions anybody asks of it.
@@ -351,4 +353,27 @@ export function programRate(summaries: FellowSummary[]): number | null {
 
   const attended = counted.reduce((total, summary) => total + summary.present + summary.late, 0);
   return attended / eligible;
+}
+
+/**
+ * Where the last two weeks of a term begin: the index of the first session the grid draws before
+ * anybody asks for more.
+ *
+ * **Two school weeks, counted from the latest session rather than from today.** The grid is read
+ * to see how the recent mornings went, and a term of sixty columns puts the recent ones off the
+ * right edge of the screen behind fifty-eight that are not. The week the latest session falls in
+ * and the whole week before it is enough to see a pattern forming and little enough to fit; the
+ * rest is one press away. Counting from the latest session rather than from today means a cohort
+ * on a break still opens on its last fortnight of mornings rather than on nothing.
+ *
+ * `sessions` are in date order, as `history` returns them. Zero when every session is recent, which
+ * is what tells the grid there is nothing earlier to offer.
+ */
+export function recentSessionsFrom(sessions: SummarySession[]): number {
+  const latest = sessions[sessions.length - 1];
+  if (!latest) return 0;
+  // Monday of the week before the latest session's week; `weekRange` runs Monday to Sunday.
+  const from = addSchoolDays(weekRange(latest.day).from, -7);
+  const index = sessions.findIndex((session) => session.day >= from);
+  return index === -1 ? 0 : index;
 }

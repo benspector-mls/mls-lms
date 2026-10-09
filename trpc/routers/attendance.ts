@@ -159,7 +159,11 @@ function publicSession(session: SessionRow, now: Date) {
     state,
     ...started,
     /** When the code begins to work: two hours before the day starts. */
-    opensAt: opensAt({ ...started, endedAt: session.endedAt, lateAfterMinutes: session.lateAfterMinutes }),
+    opensAt: opensAt({
+      ...started,
+      endedAt: session.endedAt,
+      lateAfterMinutes: session.lateAfterMinutes,
+    }),
   };
 }
 
@@ -1320,7 +1324,13 @@ export const attendanceRouter = createTRPCRouter({
       }),
       ctx.db.enrollment.findMany({
         where: enrollmentsIn(input.programId),
-        select: { id: true, status: true, createdAt: true, student: { select: personSelect } },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          cohortId: true,
+          student: { select: personSelect },
+        },
       }),
     ]);
 
@@ -1398,8 +1408,27 @@ export const attendanceRouter = createTRPCRouter({
       ]),
     );
 
-    const active = enrollments.filter((enrollment) => enrollment.status === "ACTIVE");
-    const removed = enrollments.filter((enrollment) => enrollment.status !== "ACTIVE");
+    /*
+      In the order the names are read, which is first name first. Settled here rather than by an
+      `orderBy`, for the reason `gridRows` gives: the name drawn falls through display name, GitHub
+      login and email, and sorting on the column alone would land anybody without a display name
+      at the end of the grid under a login that sorts elsewhere.
+    */
+    const byDrawnName = (
+      left: (typeof enrollments)[number],
+      right: (typeof enrollments)[number],
+    ): number =>
+      displayNameOf(left.student, "Unnamed").localeCompare(
+        displayNameOf(right.student, "Unnamed"),
+        undefined,
+        { sensitivity: "base" },
+      );
+    const active = enrollments
+      .filter((enrollment) => enrollment.status === "ACTIVE")
+      .sort(byDrawnName);
+    const removed = enrollments
+      .filter((enrollment) => enrollment.status !== "ACTIVE")
+      .sort(byDrawnName);
 
     return {
       program: {
@@ -1420,6 +1449,13 @@ export const attendanceRouter = createTRPCRouter({
        * the other's is the kind of near-miss that typechecks.
        */
       arrivals,
+      /**
+       * Which cohort each fellow is in, by enrollment id, null for none — keyed for the same
+       * reason. It is what the term tab's cohort picker narrows by, and it is read nowhere else.
+       */
+      cohorts: Object.fromEntries(
+        enrollments.map((enrollment) => [enrollment.id, enrollment.cohortId]),
+      ) as Record<string, string | null>,
       records,
     };
   }),
@@ -1478,6 +1514,29 @@ export const attendanceRouter = createTRPCRouter({
         };
       }),
     };
+  }),
+
+  /**
+   * Every day the program meets, behind and ahead, as a day and a state and nothing else.
+   *
+   * What the program's calendar is drawn from — on the Schedule tab and in the Jump to a date
+   * dialog, which the day screen carries as well as today's board. `history` answers for the days
+   * behind by loading every fellow's every record, and `upcoming` answers for the days ahead with a
+   * code on each; a calendar asks neither question, and a screen opened to correct one morning
+   * should not pay a term of records for the squares beside it.
+   */
+  days: programProcedure.query(async ({ ctx, input }) => {
+    const now = new Date();
+    const sessions = await ctx.db.attendanceSession.findMany({
+      where: { programId: input.programId },
+      orderBy: { date: "asc" },
+      select: sessionSelect,
+    });
+
+    return sessions.map((session) => ({
+      day: schoolDayFromColumn(session.date),
+      state: sessionStateOf(session, now),
+    }));
   }),
 
   /**
@@ -2044,9 +2103,7 @@ export const attendanceRouter = createTRPCRouter({
             }
           : null,
         /** When today's check-in starts accepting codes, on a morning it has not yet. */
-        opensAt: scheduledToday
-          ? publicSession(byId.get(scheduledToday.id)!, now).opensAt
-          : null,
+        opensAt: scheduledToday ? publicSession(byId.get(scheduledToday.id)!, now).opensAt : null,
       };
     });
 

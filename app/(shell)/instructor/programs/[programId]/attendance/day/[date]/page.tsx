@@ -2,10 +2,11 @@ import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { AttendanceDay } from "@/components/instructor/attendance-day";
+import { JumpToDate } from "@/components/instructor/jump-to-date";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { attendanceHref } from "@/lib/links";
-import { formatSchoolDay, schoolDaySchema } from "@/lib/school-time";
+import { formatSchoolDay, schoolDayOf, schoolDaySchema } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
@@ -18,6 +19,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * **Today redirects to the canonical address.** `/attendance` and `/attendance/day/<today>` would
  * otherwise be two addresses for one screen, and the sidebar can only highlight one of them.
+ *
+ * **Jump to a date sits in the header**, as it does on today's board, so correcting three
+ * mornings in a row is three jumps rather than three trips back through the term grid.
  */
 export default function AttendanceDayPage({
   params,
@@ -55,6 +59,11 @@ async function Day({ params }: { params: Promise<{ programId: string; date: stri
             ? "Every status here can still be changed. A correction records when you made it."
             : "Nobody started a check-in on this day. Starting one now records it by hand."
         }
+        /*
+          Today is read here and handed down, so the server and the browser agree on which square
+          the calendar rings. `grid.day` is the day this screen is about, which is never today.
+        */
+        actions={<JumpToDate programId={programId} today={schoolDayOf(new Date())} />}
       />
       <AttendanceDay data={grid} />
     </div>

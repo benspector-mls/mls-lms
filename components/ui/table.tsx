@@ -175,9 +175,18 @@ const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
  * does not. Switching the table to `border-separate` instead would be wrong here: `tr`-level
  * `border-b` does not render at all in the separate model, and every table in the app draws its
  * row lines that way.
+ *
+ * **And no row borders at all inside the header, because the shadow has made them redundant.**
+ * A border a row carries in the collapsed model belongs to the table's grid, and when the row
+ * group sticks the grid stays behind: the pixel row the border occupied is painted by nothing —
+ * not by the cells, whose boxes stop short of it, and not by the thead's background, which the
+ * browser paints through the cells. In a two-row header that left a transparent seam between the
+ * rows through which the body's text scrolled past. With the rule line drawn by each cell's shadow
+ * the border was doing nothing visible, so it is removed; `[&_tr]:border-b-0` has to be written
+ * this way because `TableHeader`'s own `[&_tr]:border-b` outranks any class on the row itself.
  */
 const stickyHeader =
-  "sticky top-0 z-20 bg-background [&_th]:shadow-[inset_0_-1px_0_var(--color-border)]";
+  "sticky top-0 z-20 bg-background [&_tr]:border-b-0 [&_th]:shadow-[inset_0_-1px_0_var(--color-border)]";
 
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return <thead data-slot="table-header" className={cn("[&_tr]:border-b", className)} {...props} />;

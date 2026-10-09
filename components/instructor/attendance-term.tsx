@@ -1,35 +1,19 @@
 import Link from "next/link";
 import { CalendarRange } from "lucide-react";
 
+import { AttendanceGrid, LETTER_CLASS } from "@/components/instructor/attendance-grid";
 import { EmptyState } from "@/components/list-states";
-import { TestStudentBadge } from "@/components/test-student-badge";
+import type { ArrivalAverages } from "@/lib/attendance/arrival";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  stickyColumn,
-  stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
-} from "@/components/ui/table";
-import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
-import {
-  dailyRates,
   driftList,
   DRIFT_RULE,
   programRate,
   type FellowSummary,
   type SummarySession,
 } from "@/lib/attendance/summary";
-import { attendanceDayHref, programStudentHref } from "@/lib/links";
+import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
-import { formatClockMinutes, formatSchoolDay, formatSchoolDayShort } from "@/lib/school-time";
 import { formatPercent } from "@/lib/status";
-import { cn } from "@/lib/utils";
-import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
 
 /**
  * The whole term: who is slipping, when people arrive, and everything behind both answers.
@@ -46,12 +30,11 @@ import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
  * reader scanning down a column sees the one late figure among the nine o'clocks. The weekday detail
  * is on the fellow's own record, and the hover on the cell says it in a sentence.
  *
- * The grid copies `gradebook.tsx` exactly: an `overflow-x-auto` wrapper, a sticky name column,
- * summary columns before the day columns, and removed fellows in a second table below with their
- * own explanation. One thing it does not copy is pinning a second column — see the note there
- * about why the summary columns scroll.
+ * The grid is `AttendanceGrid`, which opens on the last two weeks and brings the earlier dates in
+ * on request; removed fellows get a second one below with their own explanation.
  *
- * A server component with no `"use client"`. Every cell is static and every link is a link.
+ * A server component with no `"use client"`; the grid is a client island for the one piece of
+ * state its arrow holds.
  */
 
 type Term = {
@@ -61,20 +44,6 @@ type Term = {
   openDays: string[];
   /** One fellow's arrival averages, by enrollment id. See `lib/attendance/arrival.ts`. */
   arrivals: Record<string, ArrivalAverages>;
-};
-
-const LETTER: Record<AttendanceStatus, string> = {
-  PRESENT: "P",
-  LATE: "L",
-  ABSENT: "A",
-  EXCUSED: "E",
-};
-
-const LETTER_CLASS: Record<AttendanceStatus, string> = {
-  PRESENT: "text-emerald-700 dark:text-emerald-300",
-  LATE: "text-amber-700 dark:text-amber-300",
-  ABSENT: "text-destructive",
-  EXCUSED: "text-muted-foreground",
 };
 
 export function AttendanceTerm({ programId, data }: { programId: string; data: Term }) {
@@ -151,7 +120,7 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
             <Legend />
           </p>
         </div>
-        <Grid
+        <AttendanceGrid
           programId={programId}
           sessions={data.sessions}
           fellows={data.active}
@@ -168,7 +137,7 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
               on this screen. Days after they left read as not enrolled rather than as absences.
             </p>
           </div>
-          <Grid
+          <AttendanceGrid
             programId={programId}
             sessions={data.sessions}
             fellows={data.removed}
@@ -177,28 +146,6 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
         </section>
       )}
     </div>
-  );
-}
-
-/**
- * When this fellow usually checks in, as one clock time, with the weekday sentence on hover.
- *
- * A dash until there are enough check-ins for an average — `MIN_ARRIVALS` of them — for the reason
- * `arrival.ts` gives: a mean over one morning is a number somebody would quote. The sentence in the
- * title is `arrivalSentence`, the same words the fellow's record prints, so the two cannot differ.
- */
-function ArrivesCell({ averages }: { averages: ArrivalAverages | undefined }) {
-  const minutes = averages?.overall.minutes ?? null;
-  const sentence = averages ? arrivalSentence(averages) : null;
-
-  return (
-    <TableCell className="text-right tabular-nums whitespace-nowrap" title={sentence ?? undefined}>
-      {minutes === null ? (
-        <span className="text-muted-foreground">—</span>
-      ) : (
-        formatClockMinutes(minutes)
-      )}
-    </TableCell>
   );
 }
 
@@ -221,138 +168,5 @@ function Legend() {
         <span className="text-muted-foreground">·</span> not enrolled yet
       </span>
     </span>
-  );
-}
-
-function Grid({
-  programId,
-  sessions,
-  fellows,
-  arrivals,
-}: {
-  programId: string;
-  sessions: SummarySession[];
-  fellows: FellowSummary[];
-  arrivals: Record<string, ArrivalAverages>;
-}) {
-  // One figure per column, from the same summaries the letters below come from. See `dailyRates`.
-  const rates = dailyRates(sessions, fellows);
-
-  /*
-    The border's `overflow-hidden` is not a scroller: the container inside `Table` scrolls both
-    axes, and this div's overflow only clips the opaque frozen cells to the rounded corner. The
-    same arrangement `gradebook-grid.tsx` uses, and the note there explains it at length.
-  */
-  return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <Table containerClassName={stickyHeaderContainer}>
-        <TableHeader className={stickyHeader}>
-          <TableRow>
-            {/*
-              Only the name column is pinned. Pinning the summary columns too would leave a phone
-              with nothing but frozen columns and no grid — the same note `gradebook.tsx` makes.
-            */}
-            <TableHead className={stickyColumn}>Fellow</TableHead>
-            <TableHead className="text-right">Rate</TableHead>
-            <TableHead className="text-right">Arrives</TableHead>
-            <TableHead className="text-right">P</TableHead>
-            <TableHead className="text-right">L</TableHead>
-            <TableHead className="text-right">E</TableHead>
-            <TableHead className="text-right">A</TableHead>
-            {sessions.map((session) => (
-              <TableHead key={session.id} className="text-center whitespace-nowrap">
-                <Link
-                  href={attendanceDayHref(programId, session.day)}
-                  className="hover:underline"
-                  title={formatSchoolDay(session.day)}
-                >
-                  {formatSchoolDayShort(session.day)}
-                </Link>
-              </TableHead>
-            ))}
-          </TableRow>
-          {/*
-            How much of the roster turned up each day, directly under the date and above the
-            fellows.
-
-            **In the header group, so it stays put with the dates.** Reading down a column of
-            letters is reading one morning, and the figure that says how that morning went as a
-            whole is the thing to keep in view while doing it — a rate that scrolled away with the
-            rows was gone by the time the reader reached the fellow they were looking for. The
-            cells stay `<th>`s, so each one says what its column is about rather than naming a
-            fellow, and the row takes no hover.
-          */}
-          <TableRow className="hover:bg-transparent">
-            <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
-              Attendance rate
-            </TableHead>
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            {rates.map((rate, index) => (
-              <TableHead
-                key={sessions[index].id}
-                className="text-center text-xs font-medium tabular-nums text-muted-foreground"
-              >
-                {/*
-                  A dash where a fellow's own rate would show one: a day still running or still to
-                  come has settled nothing, and a figure over a moving denominator is worse than
-                  no figure.
-                */}
-                {rate === null ? "—" : formatPercent(rate)}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {fellows.map((summary) => (
-            <TableRow key={summary.fellow.enrollmentId}>
-              <TableCell className={stickyColumn}>
-                <div className={stickyColumnContent}>
-                  {summary.fellow.testStudentNumber !== null && <TestStudentBadge />}
-                  <Link
-                    href={programStudentHref(programId, summary.fellow.studentId)}
-                    className="font-medium hover:underline"
-                  >
-                    {displayNameOf(summary.fellow, "Unnamed")}
-                  </Link>
-                </div>
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {/*
-                  A test student has a dash rather than a figure. They are excluded from every
-                  count on this screen, and a percentage beside a badge saying "not real" would
-                  invite somebody to read it as one of the roster's numbers.
-                */}
-                {summary.fellow.testStudentNumber !== null || summary.rate === null
-                  ? "—"
-                  : formatPercent(summary.rate)}
-              </TableCell>
-              <ArrivesCell averages={arrivals[summary.fellow.enrollmentId]} />
-              <TableCell className="text-right tabular-nums">{summary.present}</TableCell>
-              <TableCell className="text-right tabular-nums">{summary.late}</TableCell>
-              <TableCell className="text-right tabular-nums">{summary.excused}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {summary.absent + summary.unrecorded}
-              </TableCell>
-              {summary.cells.map((status, index) => (
-                <TableCell key={sessions[index].id} className="text-center">
-                  {status === null ? (
-                    <span className="text-muted-foreground">·</span>
-                  ) : (
-                    <span className={cn("font-medium", LETTER_CLASS[status])}>
-                      {LETTER[status]}
-                    </span>
-                  )}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
   );
 }

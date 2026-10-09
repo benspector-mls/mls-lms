@@ -1,18 +1,8 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  addMonths,
-  formatMonth,
-  monthGrid,
-  monthOf,
-  monthRange,
-  WEEKDAY_INITIALS,
-  type SchoolMonth,
-} from "@/lib/attendance/calendar";
+import { MonthCalendar, squareClass, type CalendarKey } from "@/components/month-calendar";
 import { CELL, isMarked, kindOf, LATE_WEDGE_CLASS } from "@/lib/attendance/cells";
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
 import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
@@ -20,6 +10,11 @@ import { cn } from "@/lib/utils";
 
 /**
  * A fellow's own attendance, a month at a time.
+ *
+ * **The same calendar as the program's days on the attendance schedule**, drawn by `MonthCalendar`,
+ * so a fellow's record and the schedule an instructor reads it against are one grid at one size
+ * with one style of key. Only the squares differ: there, a square says whether the program met;
+ * here, it says whether this fellow was there.
  *
  * **The list this replaces was collapsed, and a record nobody opens is a record nobody checks.**
  * A term is sixty rows of mostly "present", which is why it was folded away — and folding it away
@@ -75,6 +70,29 @@ export type CalendarDay = {
   note: string | null;
 };
 
+/*
+  Each swatch is the square's own classes from `CELL`, so the key cannot come to disagree with the
+  grid. Scheduled is in the key because a dashed square is otherwise the one shape nobody can guess.
+*/
+const LEGEND: CalendarKey[] = [
+  { swatch: CELL.PRESENT.className, term: "Present" },
+  {
+    swatch: CELL.LATE.className,
+    mark: <span className={LATE_WEDGE_CLASS} />,
+    term: "Late",
+    detail: "here, after the on-time window",
+  },
+  { swatch: CELL.EXCUSED.className, term: "Excused", detail: "still a session you missed" },
+  { swatch: CELL.ABSENT.className, term: "Absent" },
+  { swatch: CELL.unrecorded.className, term: "Not recorded", detail: "a session with no mark" },
+  { swatch: CELL.upcoming.className, term: "Scheduled", detail: "class meets this day" },
+  {
+    swatch: "border border-border",
+    term: "No session",
+    detail: "the cohort did not meet, or you had not joined",
+  },
+];
+
 export function AttendanceCalendar({
   days,
   enrolledFrom,
@@ -86,136 +104,48 @@ export function AttendanceCalendar({
   today: SchoolDay;
 }) {
   const byDay = React.useMemo(() => new Map(days.map((entry) => [entry.day, entry])), [days]);
-  const months = React.useMemo(
-    () =>
-      monthRange(
-        days.map((entry) => entry.day),
-        today,
-      ),
-    [days, today],
-  );
-
-  /*
-    Opens on the most recent month that has anything in it rather than on today, because a cohort
-    between terms would otherwise open on an empty grid and look broken. `months` already runs
-    through today, so paging forward from there still reaches the current month.
-  */
-  const opensOn = months.at(-1) ?? monthOf(today);
-  const [month, setMonth] = React.useState<SchoolMonth>(opensOn);
-
-  if (months.length === 0) return null;
-
-  const first = months[0];
-  const last = months[months.length - 1];
-  const weeks = monthGrid(month);
+  const sessionDays = React.useMemo(() => days.map((entry) => entry.day), [days]);
 
   return (
-    /*
-      The calendar is deliberately small and the legend sits beside it rather than beneath. Twelve
-      months of a fellow's own attendance is a glance, not a document — at full page width the
-      squares were the size of buttons and implied they could be pressed, and the legend below
-      pushed the whole thing past a phone screen. Side by side, the pair is one block a reader
-      takes in at once, and the space the legend was costing vertically it now uses horizontally.
-    */
-    <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-      <div className="flex w-full max-w-[19rem] shrink-0 flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-medium">{formatMonth(month)}</h2>
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-6"
-              disabled={month <= first}
-              aria-label="The month before"
-              onClick={() => setMonth((current) => addMonths(current, -1))}
-            >
-              <ChevronLeft />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-6"
-              disabled={month >= last}
-              aria-label="The month after"
-              onClick={() => setMonth((current) => addMonths(current, 1))}
-            >
-              <ChevronRight />
-            </Button>
-          </div>
-        </div>
+    <MonthCalendar days={sessionDays} today={today} legend={LEGEND}>
+      {(cell) => {
+        const entry = byDay.get(cell.day);
+        const kind = kindOf(entry, cell.day, enrolledFrom);
+        const meta = CELL[kind];
+        const marked = isMarked(kind);
 
-        <div className="rounded-lg border border-border p-2">
-          <div className="grid grid-cols-7 gap-0.5">
-            {WEEKDAY_INITIALS.map((initial, index) => (
-              <div
-                key={index}
+        return (
+          <div
+            title={marked ? describe(cell.day, meta.label, entry) : undefined}
+            className={cn("relative", squareClass(cell, today), meta.className)}
+          >
+            <span className={cn(marked && "font-semibold")}>{Number(cell.day.slice(8))}</span>
+            {/* Late is green, because it counts as attended; the wedge is what says it was
+                not on time. See `LATE_WEDGE_CLASS`. */}
+            {kind === "LATE" && <span aria-hidden="true" className={LATE_WEDGE_CLASS} />}
+            {/*
+              The letter left the square when the square got smaller — two glyphs at this size
+              are unreadable, and the date is the one a reader is scanning for. It stays in the
+              title and here, so the record is still legible to a screen reader and to anybody
+              who cannot use the colour.
+            */}
+            {/*
+              A day with something written about it says so, so the tooltip is discoverable.
+              Bottom-left, clear of the late wedge in the opposite corner.
+            */}
+            {marked && entry?.note && (
+              <span
                 aria-hidden="true"
-                className="pb-0.5 text-center text-[0.65rem] font-medium text-muted-foreground"
-              >
-                {initial}
-              </div>
-            ))}
-
-            {weeks.flat().map((cell) => {
-              const entry = byDay.get(cell.day);
-              const kind = kindOf(entry, cell.day, enrolledFrom);
-              const meta = CELL[kind];
-              const marked = isMarked(kind);
-
-              return (
-                <div
-                  key={cell.day}
-                  title={marked ? describe(cell.day, meta.label, entry) : undefined}
-                  className={cn(
-                    "relative flex aspect-square items-center justify-center rounded text-[0.65rem] leading-none",
-                    !cell.inMonth && "opacity-35",
-                    meta.className,
-                    // Inset, so the ring cannot be clipped by the square beside it at this size.
-                    cell.day === today && "ring-2 ring-ring ring-inset",
-                  )}
-                >
-                  <span className={cn(marked && "font-semibold")}>{Number(cell.day.slice(8))}</span>
-                  {/* Late is green, because it counts as attended; the wedge is what says it was
-                      not on time. See `LATE_WEDGE_CLASS`. */}
-                  {kind === "LATE" && <span aria-hidden="true" className={LATE_WEDGE_CLASS} />}
-                  {/*
-                    The letter left the square when the square got smaller — two glyphs in 34
-                    pixels is unreadable, and the date is the one a reader is scanning for. It
-                    stays in the title and here, so the record is still legible to a screen reader
-                    and to anybody who cannot use the colour.
-                  */}
-                  {/*
-                    A day with something written about it says so, so the tooltip is discoverable.
-                    Bottom-left, clear of the late wedge in the opposite corner.
-                  */}
-                  {marked && entry?.note && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute bottom-0.5 left-0.5 size-1 rounded-full bg-current opacity-70"
-                    />
-                  )}
-                  <span className="sr-only">
-                    {marked ? describe(cell.day, meta.label, entry) : formatSchoolDay(cell.day)}
-                  </span>
-                </div>
-              );
-            })}
+                className="absolute bottom-0.5 left-0.5 size-1 rounded-full bg-current opacity-70"
+              />
+            )}
+            <span className="sr-only">
+              {marked ? describe(cell.day, meta.label, entry) : formatSchoolDay(cell.day)}
+            </span>
           </div>
-        </div>
-      </div>
-
-      <ul className="flex flex-col gap-1.5 text-xs text-muted-foreground sm:max-w-64">
-        <Key className="bg-emerald-500/85" label="Present" />
-        <Key className="bg-emerald-500/85" label="Late — here, after the on-time window" wedge />
-        <Key className="bg-amber-400/90" label="Excused — still a session you missed" />
-        <Key className="bg-destructive/85" label="Absent" />
-        <Key className="bg-muted-foreground/30" label="A session where nothing was recorded" />
-        <li className="pt-1 text-muted-foreground/80">
-          A blank square is a day the cohort did not meet.
-        </li>
-      </ul>
-    </section>
+        );
+      }}
+    </MonthCalendar>
   );
 }
 
@@ -229,17 +159,4 @@ function describe(day: SchoolDay, label: string, entry: CalendarDay | undefined)
   return [formatSchoolDay(day), label, entry?.detail, entry?.note && `"${entry.note}"`]
     .filter(Boolean)
     .join(" · ");
-}
-
-function Key({ className, label, wedge }: { className: string; label: string; wedge?: boolean }) {
-  return (
-    <li className="flex items-start gap-2">
-      <span className={cn("relative mt-0.5 size-3 shrink-0 rounded-sm", className)}>
-        {wedge && (
-          <span className="absolute top-0 right-0 size-0 border-t-[0.4rem] border-l-[0.4rem] border-t-amber-300 border-l-transparent" />
-        )}
-      </span>
-      {label}
-    </li>
-  );
 }

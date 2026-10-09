@@ -6,6 +6,7 @@ import {
   driftList,
   DRIFT_RULE,
   recentAttendance,
+  recentSessionsFrom,
   recentAttendanceSentence,
   summarize,
   type SummaryFellow,
@@ -579,5 +580,30 @@ describe("recentAttendance", () => {
     expect(recentAttendanceSentence({ missed: 0, missedOf: 0, late: 0, lateOf: 0 })).toBe(
       "no mornings have closed yet",
     );
+  });
+});
+
+describe("recentSessionsFrom", () => {
+  const at = (days: string[]): SummarySession[] =>
+    days.map((day, index) => ({ id: `s${index + 1}`, day, unsettled: false }));
+
+  it("starts at the Monday of the week before the latest session's week", () => {
+    // 2026-10-08 is a Thursday; its week starts Monday the 5th, the week before on the 28th.
+    const sessions = at(["2026-09-21", "2026-09-25", "2026-09-28", "2026-10-01", "2026-10-08"]);
+    expect(recentSessionsFrom(sessions)).toBe(2);
+  });
+
+  it("is zero when every session is within the last two weeks", () => {
+    expect(recentSessionsFrom(at(["2026-10-05", "2026-10-08"]))).toBe(0);
+  });
+
+  it("is zero with no sessions", () => {
+    expect(recentSessionsFrom([])).toBe(0);
+  });
+
+  it("counts from the latest session rather than from today, so a break still shows a fortnight", () => {
+    const sessions = at(["2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22"]);
+    // The 22nd is a Monday; the week before starts on the 15th.
+    expect(recentSessionsFrom(sessions)).toBe(2);
   });
 });

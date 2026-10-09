@@ -3,9 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, ChevronLeft, ChevronRight, ExternalLink, Printer } from "lucide-react";
+import { CalendarPlus, ExternalLink, Printer } from "lucide-react";
 import { toast } from "sonner";
 
+import { MonthCalendar, squareClass, type CalendarKey } from "@/components/month-calendar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,14 +18,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useServerMutation } from "@/hooks/use-server-mutation";
-import {
-  addMonths,
-  formatMonth,
-  monthGrid,
-  monthOf,
-  monthRange,
-  type SchoolMonth,
-} from "@/lib/attendance/calendar";
 import { attendanceCodesHref, attendanceDayHref } from "@/lib/links";
 import { formatSchoolClock, formatSchoolDay, type SchoolDay } from "@/lib/school-time";
 import { cn } from "@/lib/utils";
@@ -38,6 +31,10 @@ import { useTRPC } from "@/trpc/client";
  * that said the same thing a month grid says in a glance, and that could not be read against each
  * other at all. A holiday in the middle of a working week is a hole you can see here; in a list it
  * was an absent row nobody counts.
+ *
+ * **The same calendar a fellow's record draws**, by way of `MonthCalendar`, so the program's days
+ * and one fellow's mornings are one grid at one size and an instructor can read one against the
+ * other square for square.
  *
  * **Three kinds of square, and no fourth.** A day that was **held** and whose books are closed; a
  * day **scheduled** that has not settled, which is every day ahead and today until it lapses; and
@@ -56,17 +53,9 @@ import { useTRPC } from "@/trpc/client";
  * past is inert: `prepare` refuses a day that has been and gone, because a code for it is useless.
  */
 
-/** Sunday first, matching `monthGrid`. */
-const WEEKDAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
-
 type DayKind = "held" | "scheduled";
 
-/**
- * A day the calendar knows about.
- *
- * Both halves arrive as `state` — `history` carries the days behind, `upcoming` the days ahead —
- * so the split below is the same predicate `summarize` divides by, read once here.
- */
+/** A day the calendar knows about: one row of `days`. */
 export type CalendarSession = {
   day: SchoolDay;
   state: string;
@@ -88,6 +77,12 @@ const KIND_LABEL: Record<DayKind, string> = {
   scheduled: "Scheduled — it will open on its own",
 };
 
+const LEGEND: CalendarKey[] = [
+  { swatch: KIND_CLASS.held, term: "Held" },
+  { swatch: KIND_CLASS.scheduled, term: "Scheduled" },
+  { swatch: "border border-border", term: "No session" },
+];
+
 /** Which of the three a day is. Undefined means no session, which is the blank square. */
 function kindOf(session: CalendarSession | undefined): DayKind | undefined {
   if (!session) return undefined;
@@ -95,16 +90,96 @@ function kindOf(session: CalendarSession | undefined): DayKind | undefined {
   return session.state === "ended" || session.state === "lapsed" ? "held" : "scheduled";
 }
 
+/**
+ * The program's days, held and scheduled, as a month of squares — the calendar itself, without
+ * the Schedule tab's buttons around it.
+ *
+ * Drawn on the Schedule tab, where a blank day can be made into a session, and in the Jump to a
+ * date dialog on today's board and on any day's screen, where every square with a session is a
+ * way into that day's screen and a blank square is inert. It fetches its own days, from `days`,
+ * so a screen that carries it owes it nothing but the program.
+ */
+export function ProgramDaysCalendar({
+  programId,
+  today,
+  blankDay,
+}: {
+  programId: string;
+  /** Passed in rather than read here, so the server and the browser agree on which square is today. */
+  today: SchoolDay;
+  /**
+   * What a day with no session offers: the act of making one, or null for nothing. Left out, every
+   * blank square is a plain square; given, a day it answers null for is a plain square too, so a
+   * day that cannot be made never looks like a button.
+   */
+  blankDay?: (day: SchoolDay) => (() => void) | null;
+}) {
+  const trpc = useTRPC();
+  const days = useQuery(trpc.attendance.days.queryOptions({ programId }));
+
+  const byDay = React.useMemo(
+    () => new Map<SchoolDay, CalendarSession>((days.data ?? []).map((day) => [day.day, day])),
+    [days.data],
+  );
+
+  const sessionDays = React.useMemo(() => [...byDay.keys()], [byDay]);
+
+  return (
+    <MonthCalendar days={sessionDays} today={today} legend={LEGEND}>
+      {(cell) => {
+        const kind = kindOf(byDay.get(cell.day));
+        const date = Number(cell.day.slice(8));
+
+        const square = (
+          <div
+            className={cn(
+              squareClass(cell, today),
+              kind
+                ? KIND_CLASS[kind]
+                : "border border-transparent text-muted-foreground/50 hover:border-dashed hover:border-border hover:text-foreground",
+            )}
+          >
+            {date}
+          </div>
+        );
+
+        if (kind) {
+          return (
+            <Link
+              href={attendanceDayHref(programId, cell.day)}
+              title={`${formatSchoolDay(cell.day)} — ${KIND_LABEL[kind]}`}
+            >
+              {square}
+            </Link>
+          );
+        }
+
+        const add = blankDay?.(cell.day) ?? null;
+
+        return add ? (
+          <button
+            type="button"
+            onClick={add}
+            title={`${formatSchoolDay(cell.day)} — no session. Add one.`}
+            className="rounded"
+          >
+            {square}
+          </button>
+        ) : (
+          <div title={`${formatSchoolDay(cell.day)} — no session`}>{square}</div>
+        );
+      }}
+    </MonthCalendar>
+  );
+}
+
 export function AttendanceCalendar({
   programId,
-  throughToday,
   today,
   hasSchedule,
   startsAt,
 }: {
   programId: string;
-  /** Every day dated today or earlier, from `history`, which carries nothing ahead of today. */
-  throughToday: CalendarSession[];
   /** Passed in rather than read here, so the server and the browser agree on which square is today. */
   today: SchoolDay;
   /*
@@ -119,12 +194,10 @@ export function AttendanceCalendar({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const upcoming = useQuery(trpc.attendance.upcoming.queryOptions({ programId }));
-
   const invalidate = React.useCallback(
     () =>
       void queryClient.invalidateQueries({
-        queryKey: trpc.attendance.upcoming.queryKey({ programId }),
+        queryKey: trpc.attendance.days.queryKey({ programId }),
       }),
     [queryClient, trpc, programId],
   );
@@ -132,34 +205,6 @@ export function AttendanceCalendar({
   const [removing, setRemoving] = React.useState(false);
   /** The blank day somebody pressed, or null. Its own state because the dialog names the day. */
   const [adding, setAdding] = React.useState<SchoolDay | null>(null);
-
-  /*
-    Two payloads into one map. `history` stops at today and `upcoming` starts at today, so they
-    overlap by exactly one day and the later write wins — which is the same row either way.
-  */
-  const byDay = React.useMemo(() => {
-    const all = new Map<SchoolDay, CalendarSession>();
-    for (const session of throughToday) all.set(session.day, session);
-    for (const session of upcoming.data?.days ?? []) {
-      all.set(session.day, { day: session.day, state: session.state });
-    }
-    return all;
-  }, [throughToday, upcoming.data]);
-
-  const months = React.useMemo(() => monthRange([...byDay.keys()], today), [byDay, today]);
-
-  /*
-    Opens on the month today is in rather than on the first or last with anything in it. An
-    instructor opening this in November is asking about November, and a program that ran last year
-    would otherwise open ten months behind.
-  */
-  const [month, setMonth] = React.useState<SchoolMonth>(monthOf(today));
-
-  if (months.length === 0) return null;
-
-  const first = months[0];
-  const last = months[months.length - 1];
-  const weeks = monthGrid(month);
 
   return (
     <section className="flex flex-col gap-3">
@@ -187,129 +232,19 @@ export function AttendanceCalendar({
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-        <div className="flex w-full max-w-[21rem] shrink-0 flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">{formatMonth(month)}</h3>
-            <div className="flex items-center gap-1">
-              <Button
-                size="icon"
-                variant="outline"
-                className="size-6"
-                disabled={month <= first}
-                aria-label="The month before"
-                onClick={() => setMonth((current) => addMonths(current, -1))}
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                size="icon"
-                variant="outline"
-                className="size-6"
-                disabled={month >= last}
-                aria-label="The month after"
-                onClick={() => setMonth((current) => addMonths(current, 1))}
-              >
-                <ChevronRight />
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-border p-2">
-            <div className="grid grid-cols-7 gap-1">
-              {WEEKDAY_INITIALS.map((initial, index) => (
-                <div
-                  key={index}
-                  aria-hidden="true"
-                  className="pb-0.5 text-center text-[0.65rem] font-medium text-muted-foreground"
-                >
-                  {initial}
-                </div>
-              ))}
-
-              {weeks.flat().map((cell) => {
-                const kind = kindOf(byDay.get(cell.day));
-                const date = Number(cell.day.slice(8));
-
-                const square = (
-                  <div
-                    className={cn(
-                      "flex aspect-square items-center justify-center rounded text-xs leading-none tabular-nums",
-                      !cell.inMonth && "opacity-35",
-                      kind
-                        ? KIND_CLASS[kind]
-                        : "border border-transparent text-muted-foreground/50 hover:border-dashed hover:border-border hover:text-foreground",
-                      // Inset, so the ring cannot be clipped by the square beside it at this size.
-                      cell.day === today && "ring-2 ring-ring ring-inset",
-                    )}
-                  >
-                    {date}
-                  </div>
-                );
-
-                if (kind) {
-                  return (
-                    <Link
-                      key={cell.day}
-                      href={attendanceDayHref(programId, cell.day)}
-                      title={`${formatSchoolDay(cell.day)} — ${KIND_LABEL[kind]}`}
-                    >
-                      {square}
-                    </Link>
-                  );
-                }
-
-                /*
-                  A blank day today or later can be made. A day in the past cannot: `prepare`
-                  refuses it, because a code for a morning that has been and gone is useless, and
-                  writing such a day up by hand is the day screen's job.
-
-                  Without a schedule only today can be made, which is the same rule the server
-                  applies — a day ahead would have no start time to be given.
-                */
-                const canAdd = cell.day === today || (cell.day > today && hasSchedule);
-
-                return canAdd ? (
-                  <button
-                    key={cell.day}
-                    type="button"
-                    onClick={() => setAdding(cell.day)}
-                    title={`${formatSchoolDay(cell.day)} — no session. Add one.`}
-                    className="rounded"
-                  >
-                    {square}
-                  </button>
-                ) : (
-                  <div key={cell.day} title={`${formatSchoolDay(cell.day)} — no session`}>
-                    {square}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <dl className="flex flex-col gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span aria-hidden="true" className={cn("size-4 shrink-0 rounded", KIND_CLASS.held)} />
-            <dt className="font-medium">Held</dt>
-            <dd className="text-muted-foreground">the record is in</dd>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={cn("size-4 shrink-0 rounded", KIND_CLASS.scheduled)}
-            />
-            <dt className="font-medium">Scheduled</dt>
-            <dd className="text-muted-foreground">opens on its own</dd>
-          </div>
-          <div className="flex items-center gap-2">
-            <span aria-hidden="true" className="size-4 shrink-0 rounded border border-border" />
-            <dt className="font-medium">No session</dt>
-            <dd className="text-muted-foreground">the program does not meet</dd>
-          </div>
-        </dl>
-      </div>
+      {/*
+        A blank day today or later can be made. A day in the past cannot: `prepare` refuses it,
+        because a code for a morning that has been and gone is useless, and writing such a day up
+        by hand is the day screen's job. Without a schedule only today can be made, which is the
+        same rule the server applies — a day ahead would have no start time to be given.
+      */}
+      <ProgramDaysCalendar
+        programId={programId}
+        today={today}
+        blankDay={(day) =>
+          day === today || (day > today && hasSchedule) ? () => setAdding(day) : null
+        }
+      />
 
       <AddDay
         programId={programId}

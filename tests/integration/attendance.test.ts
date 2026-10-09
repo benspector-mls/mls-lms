@@ -1649,9 +1649,7 @@ describe("a program that declares when it meets", () => {
 
       expect(again.make).toEqual([]);
       expect(again.remove).toEqual([]);
-      expect(
-        await tx().attendanceSession.count({ where: { programId: world.programId } }),
-      ).toBe(7);
+      expect(await tx().attendanceSession.count({ where: { programId: world.programId } })).toBe(7);
     });
   });
 
@@ -1685,9 +1683,7 @@ describe("a program that declares when it meets", () => {
         daysFromToday(5),
         daysFromToday(6),
       ]);
-      expect(
-        await tx().attendanceSession.count({ where: { programId: world.programId } }),
-      ).toBe(3);
+      expect(await tx().attendanceSession.count({ where: { programId: world.programId } })).toBe(3);
     });
 
     /*
@@ -1732,9 +1728,7 @@ describe("a program that declares when it meets", () => {
     });
 
     it("makes and removes nothing, because the same days still meet", async () => {
-      expect(
-        await tx().attendanceSession.count({ where: { programId: world.programId } }),
-      ).toBe(4);
+      expect(await tx().attendanceSession.count({ where: { programId: world.programId } })).toBe(4);
     });
 
     // Today keeps the clock it ran under. Fellows may already have checked in against it, and the
@@ -1815,9 +1809,7 @@ describe("a program that declares when it meets", () => {
     });
 
     it("and the days either side of it are untouched", async () => {
-      expect(
-        await tx().attendanceSession.count({ where: { programId: world.programId } }),
-      ).toBe(6);
+      expect(await tx().attendanceSession.count({ where: { programId: world.programId } })).toBe(6);
     });
   });
 
@@ -1880,9 +1872,7 @@ describe("a program that declares when it meets", () => {
     });
 
     it("and writes nothing", async () => {
-      expect(
-        await tx().attendanceSession.count({ where: { programId: world.programId } }),
-      ).toBe(0);
+      expect(await tx().attendanceSession.count({ where: { programId: world.programId } })).toBe(0);
     });
   });
 
@@ -2151,9 +2141,7 @@ describe("making one day of a scheduled program", () => {
         where: { programId: world.programId, date: dateColumnFor(today) },
       });
 
-      expect(row.startedAt?.toISOString()).toBe(
-        instantAtSchoolClock(today, "09:30").toISOString(),
-      );
+      expect(row.startedAt?.toISOString()).toBe(instantAtSchoolClock(today, "09:30").toISOString());
     });
   });
 });
@@ -2428,6 +2416,17 @@ describe("the days ahead", () => {
       expect(ahead.days[6]!.day).toBe(daysFromToday(6));
     });
 
+    it("days carries every session, behind and ahead, as a day and a state", async () => {
+      const all = await createCaller(tx(), world.instructorId).attendance.days({
+        programId: world.programId,
+      });
+
+      expect(all).toHaveLength(7);
+      expect(all[0]!.day).toBe(today);
+      expect(all[6]!.day).toBe(daysFromToday(6));
+      expect(all.every((entry) => typeof entry.state === "string")).toBe(true);
+    });
+
     it("with the program's name, so the printable sheet needs nothing else", async () => {
       const ahead = await createCaller(tx(), world.instructorId).attendance.upcoming({
         programId: world.programId,
@@ -2516,9 +2515,7 @@ describe("the days ahead", () => {
     });
 
     it("and leaves the rest standing", async () => {
-      expect(
-        await tx().attendanceSession.count({ where: { programId: world.programId } }),
-      ).toBe(4);
+      expect(await tx().attendanceSession.count({ where: { programId: world.programId } })).toBe(4);
     });
 
     it("writing one audit event that names them", async () => {
@@ -2903,10 +2900,10 @@ describe("correcting a day's clock", () => {
 
     it("takes check-ins again once its window covers now", async () => {
       const row = await tx().attendanceSession.findUniqueOrThrow({ where: { id: sessionId } });
-      const checked = await createCaller(
-        tx(),
-        world.students[0]!.studentId,
-      ).attendance.checkIn({ programId: world.programId, code: codeFor(row) });
+      const checked = await createCaller(tx(), world.students[0]!.studentId).attendance.checkIn({
+        programId: world.programId,
+        code: codeFor(row),
+      });
 
       expect(checked.status).toBe("PRESENT");
     });
