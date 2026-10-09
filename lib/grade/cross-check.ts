@@ -255,16 +255,23 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
 
   // ---- Claims about test outcomes ---------------------------------------
   if (facts.tests !== null) {
-    // Keyed on both forms, because the prompt shows tests as "Suite › name" and a
-    // model that echoes that back is doing exactly as asked. Matching only the bare
-    // name would report every correct claim as unverifiable — a false positive on
-    // every submission, which is worse than no check at all.
+    // Keyed on every form a model writes back, because the prompt shows tests as
+    // "Suite › name" and a model that echoes that back is doing exactly as asked.
+    // Matching only the bare name would report every correct claim as unverifiable — a
+    // false positive on every submission, which is worse than no check at all.
+    //
+    // The "suite::name" form is pytest's own node id. The parser splits
+    // "tests/test_debug.py::test_describe_mood" into a suite and a name, and the prompt
+    // joins them back with "›", but a model that knows pytest writes the id as pytest
+    // prints it. Without this key, every claim on a Python assignment was reported as a
+    // test that did not run.
     const byName = new Map<string, TestOutcome>();
     for (const test of facts.tests) {
       byName.set(normalizeTestName(test.name), test);
       if (test.suite) {
         byName.set(normalizeTestName(`${test.suite} › ${test.name}`), test);
         byName.set(normalizeTestName(`${test.suite} > ${test.name}`), test);
+        byName.set(normalizeTestName(`${test.suite}::${test.name}`), test);
       }
     }
 

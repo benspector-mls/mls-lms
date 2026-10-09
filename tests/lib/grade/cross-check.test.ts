@@ -231,6 +231,44 @@ describe("claims about test outcomes", () => {
     ).toEqual(["TEST_CLAIM_CONTRADICTION"]);
   });
 
+  // A pytest test's real name is its node id, "tests/test_file.py::test_name". The prompt
+  // shows it joined with "›", but a model that knows pytest writes the id back as pytest
+  // prints it, and every claim on a Python assignment was reported as an unknown test.
+  it("matches a claim using pytest's file::test node id form", () => {
+    const pytestFacts: Facts = {
+      tests: [
+        { suite: "tests/test_debug.py", name: "test_describe_mood_output", status: "passed" },
+        { suite: "tests/test_from_scratch.py", name: "test_is_even", status: "failed" },
+      ],
+      tamperedPaths: [],
+      pointValue: 12,
+    };
+    expect(
+      crossCheck(
+        report({
+          testClaims: [
+            { testName: "tests/test_debug.py::test_describe_mood_output", claimedStatus: "passed" },
+            { testName: "tests/test_from_scratch.py::test_is_even", claimedStatus: "failed" },
+          ],
+        }),
+        pytestFacts,
+      ).needsManualReview,
+    ).toBe(false);
+
+    expect(
+      codes(
+        crossCheck(
+          report({
+            testClaims: [
+              { testName: "tests/test_from_scratch.py::test_is_even", claimedStatus: "passed" },
+            ],
+          }),
+          pytestFacts,
+        ),
+      ),
+    ).toEqual(["TEST_CLAIM_CONTRADICTION"]);
+  });
+
   it("is not broken by differences of case and whitespace", () => {
     expect(
       crossCheck(
