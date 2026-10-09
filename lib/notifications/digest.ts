@@ -9,7 +9,13 @@ import { feedbackIsUnread } from "@/lib/status";
 import { schoolHourAndWeekday } from "./recipients";
 import { awaitsReply, commentExcerpt, isUnread } from "@/lib/submissions/comments";
 
-import { absoluteHref, commentsDigestLine, digestDm, feedbackDigestLine } from "./messages";
+import {
+  absoluteHref,
+  commentsDigestLine,
+  digestDm,
+  feedbackDigestLine,
+  type DigestSection,
+} from "./messages";
 import { resolveSlackUserId } from "./slack";
 
 /**
@@ -23,6 +29,22 @@ import { resolveSlackUserId } from "./slack";
  * produces no line for a fellow, and a question answered before 9am produces none for an
  * instructor.
  */
+
+/**
+ * Lines gathered into one brief per course, in the order the courses were first met.
+ *
+ * Insertion order rather than alphabetical: the queries are ordered oldest first, so a course
+ * reads where its earliest news falls, and a digest does not reshuffle between mornings.
+ */
+function intoSections(entries: readonly { courseName: string; line: string }[]): DigestSection[] {
+  const byCourse = new Map<string, DigestSection>();
+  for (const entry of entries) {
+    const section = byCourse.get(entry.courseName) ?? { courseName: entry.courseName, lines: [] };
+    section.lines.push(entry.line);
+    byCourse.set(entry.courseName, section);
+  }
+  return [...byCourse.values()];
+}
 
 /** An event strictly after the watermark and at or before the run's own `now`. */
 type Window = { gt: Date; lte: Date };
@@ -39,7 +61,7 @@ export async function studentDigestLines(
   client: Tx,
   studentId: string,
   window: Window,
-): Promise<string[]> {
+): Promise<DigestSection[]> {
   const ownWork = {
     OR: [{ studentId }, { mirrors: { some: { studentId } } }],
   };
@@ -88,16 +110,21 @@ export async function studentDigestLines(
     const finalScorePossible = sections.reduce((total, s) => total + (s.scorePossible ?? 0), 0);
     const { assignment } = round.submission;
 
-    return feedbackDigestLine({
-      assignmentTitle: assignment.title,
-      courseName: assignment.course.name,
-      finalScore,
-      finalScorePossible,
-      isComplete:
-        finalScorePossible > 0 && finalScore / finalScorePossible >= assignment.completionThreshold,
-      href: absoluteHref(studentAssignmentHref(assignment.courseId, round.submission.assignmentId)),
+      return {
+        courseName: assignment.course.name,
+        line: feedbackDigestLine({
+          assignmentTitle: assignment.title,
+          finalScore,
+          finalScorePossible,
+          isComplete:
+            finalScorePossible > 0 &&
+            finalScore / finalScorePossible >= assignment.completionThreshold,
+          href: absoluteHref(
+            studentAssignmentHref(assignment.courseId, round.submission.assignmentId),
+          ),
+        }),
+      };
     });
-  });
 
   const comments = await client.submissionComment.findMany({
     where: {
@@ -114,7 +141,14 @@ export async function studentDigestLines(
       deletedAt: true,
       body: true,
       submissionId: true,
-      submission: { select: { assignmentId: true, assignment: { select: { title: true, courseId: true } } } },
+      submission: {
+        select: {
+          assignmentId: true,
+          assignment: {
+            select: { title: true, courseId: true, course: { select: { name: true } } },
+          },
+        },
+      },
     },
   });
 
@@ -140,17 +174,23 @@ export async function studentDigestLines(
 
   const commentLines = [...threads.values()].map((thread) => {
     const newest = thread[thread.length - 1]!;
-    return commentsDigestLine({
-      count: thread.length,
-      assignmentTitle: newest.submission.assignment.title,
-      newestExcerpt: commentExcerpt(newest.body),
-      href: absoluteHref(
-        studentAssignmentHref(newest.submission.assignment.courseId, newest.submission.assignmentId),
-      ),
-    });
+    return {
+      courseName: newest.submission.assignment.course.name,
+      line: commentsDigestLine({
+        count: thread.length,
+        assignmentTitle: newest.submission.assignment.title,
+        newestExcerpt: commentExcerpt(newest.body),
+        href: absoluteHref(
+          studentAssignmentHref(
+            newest.submission.assignment.courseId,
+            newest.submission.assignmentId,
+          ),
+        ),
+      }),
+    };
   });
 
-  return [...feedbackLines, ...commentLines];
+  return intoSections([...feedbackLines, ...commentLines]);
 }
 
 /**
@@ -166,7 +206,7 @@ export async function instructorDigestLines(
   client: Tx,
   instructorId: string,
   window: Window,
-): Promise<string[]> {
+): Promise<DigestSection[]> {
   const questions = await client.submissionComment.findMany({
     where: {
       authorRole: "STUDENT",
@@ -191,7 +231,9 @@ export async function instructorDigestLines(
       id: true,
       assignmentId: true,
       commentsResolvedAt: true,
-      assignment: { select: { title: true, courseId: true } },
+      assignment: {
+        select: { title: true, courseId: true, course: { select: { name: true } } },
+      },
       student: { select: { displayName: true, email: true, githubUsername: true } },
       comments: {
         orderBy: { createdAt: "asc" },
@@ -200,7 +242,7 @@ export async function instructorDigestLines(
     },
   });
 
-  return threads
+  const entries = threads
     .filter((thread) => awaitsReply(thread.comments, thread.commentsResolvedAt))
     .map((thread) => {
       const fromFellow = thread.comments.filter(
@@ -212,14 +254,21 @@ export async function instructorDigestLines(
       );
       const newest = fromFellow[fromFellow.length - 1] ?? thread.comments[thread.comments.length - 1]!;
 
-      return commentsDigestLine({
+      return {
+        courseName: thread.assignment.course.name,
+        line: commentsDigestLine({
         count: Math.max(fromFellow.length, 1),
         assignmentTitle: thread.assignment.title,
         fellowName: displayNameOf(thread.student, "a fellow"),
         newestExcerpt: commentExcerpt(newest.body),
-        href: absoluteHref(gradingQueueHref(thread.assignment.courseId, thread.assignmentId, thread.id)),
-      });
+          href: absoluteHref(
+            gradingQueueHref(thread.assignment.courseId, thread.assignmentId, thread.id),
+          ),
+        }),
+      };
     });
+
+  return intoSections(entries);
 }
 
 export type DigestSend = (

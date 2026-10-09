@@ -12,9 +12,8 @@ import { studentAssignmentHref } from "@/lib/links";
 
 import {
   absoluteHref,
-  outstandingSummary,
-  summaryCohortLine,
-  summaryCourseLink,
+  courseGradingLines,
+  OUTSTANDING_HEADING,
   summaryWorkLine,
   upcomingSummary,
 } from "./messages";
@@ -37,9 +36,6 @@ import type { DigestSend } from "./digest";
  * the part that genuinely differs: a screen asks about one course, a summary asks about all of
  * them.
  */
-
-/** A cohort's share of one instructor's pile. */
-type CohortTally = { name: string; count: number };
 
 /**
  * The grading pile for one instructor, across every course they teach, grouped by cohort.
@@ -75,15 +71,17 @@ export async function instructorSummaryLines(
     },
   });
 
-  const tallies = new Map<string, CohortTally>();
-  const courseLinks: { name: string; href: string | null; count: number }[] = [];
-  let total = 0;
-  const scopes = new Set<string>();
+  const briefs: string[][] = [];
 
   for (const membership of memberships) {
     if (membership.program.archivedAt !== null) continue;
-    scopes.add(membership.cohort?.name ?? "All Fellows");
 
+    /*
+      The scope belongs to the programme, so it is read per membership and reported on the course
+      it applies to. An instructor on two programmes has two of these, and joining them into one
+      phrase above one total is what made the first version of this message unreadable.
+    */
+    const scope = membership.cohort?.name ?? "All Fellows";
     const selection: CohortSelection = membership.cohortId
       ? { kind: "cohort", cohortId: membership.cohortId }
       : { kind: "all" };
@@ -96,35 +94,33 @@ export async function instructorSummaryLines(
       });
 
       if (outstanding.length === 0) continue;
-      total += outstanding.length;
-      courseLinks.push({
-        name: course.name,
-        href: absoluteHref(triageHref(course.id)),
-        count: outstanding.length,
-      });
 
+      const tallies = new Map<string, number>();
       for (const row of outstanding) {
         const name = row.cohortName ?? "No cohort";
-        const tally = tallies.get(name) ?? { name, count: 0 };
-        tally.count += 1;
-        tallies.set(name, tally);
+        tallies.set(name, (tallies.get(name) ?? 0) + 1);
       }
+
+      briefs.push(
+        courseGradingLines({
+          courseName: course.name,
+          count: outstanding.length,
+          scope,
+          cohorts: [...tallies.entries()]
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count),
+          href: absoluteHref(triageHref(course.id)),
+        }),
+      );
     }
   }
 
-  if (total === 0) return [];
+  if (briefs.length === 0) return [];
 
-  const lines = [outstandingSummary({ scope: [...scopes].join(", "), total })];
-
-  // One cohort means the heading already said it, so a single bullet repeating itself is noise.
-  if (tallies.size > 1) {
-    for (const tally of [...tallies.values()].sort((a, b) => b.count - a.count)) {
-      lines.push(summaryCohortLine(tally));
-    }
-  }
-
-  lines.push(summaryCourseLink(courseLinks));
-  return lines;
+  // A blank line between courses, so two piles do not read as one list.
+  return [OUTSTANDING_HEADING, "", ...briefs.flatMap((brief, index) =>
+    index === briefs.length - 1 ? brief : [...brief, ""],
+  )];
 }
 
 /**

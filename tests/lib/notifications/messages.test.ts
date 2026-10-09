@@ -1,8 +1,8 @@
 import {
   commentDmText,
-  outstandingSummary,
-  summaryCohortLine,
-  summaryCourseLink,
+  courseGradingLines,
+  courseHeading,
+  OUTSTANDING_HEADING,
   summaryWorkLine,
   upcomingSummary,
   commentsDigestLine,
@@ -62,59 +62,107 @@ describe("commentDmText", () => {
 });
 
 describe("digest lines and the digest itself", () => {
-  it("counts its updates and stacks one line per entry", () => {
-    const lines = [
-      feedbackDigestLine({
-        assignmentTitle: "Loops",
-        courseName: "Mod 1",
-        finalScore: 12,
-        finalScorePossible: 20,
-        isComplete: false,
-        href: null,
-      }),
-      commentsDigestLine({
-        count: 3,
-        assignmentTitle: "Objects",
-        fellowName: "Jordan",
-        newestExcerpt: "Still stuck on this one",
-        href: null,
-      }),
-    ];
+  /*
+    Grouped by course, because a reader acts on one course at a time. The first version totalled
+    every course into one list under a heading naming them all, which read as though every line
+    belonged to every course.
+  */
+  it("gathers its lines under a heading per course and counts them all", () => {
+    const dm = digestDm([
+      {
+        courseName: "Mod 1: JavaScript",
+        lines: [
+          feedbackDigestLine({
+            assignmentTitle: "Arrays and Loops",
+            finalScore: 17,
+            finalScorePossible: 20,
+            isComplete: true,
+            href: null,
+          }),
+          commentsDigestLine({
+            count: 2,
+            assignmentTitle: "Higher Order Functions",
+            newestExcerpt: "Take another look at the second case",
+            href: null,
+          }),
+        ],
+      },
+      {
+        courseName: "Mod 2: React",
+        lines: [
+          feedbackDigestLine({
+            assignmentTitle: "State and Props",
+            finalScore: 12,
+            finalScorePossible: 20,
+            isComplete: false,
+            href: null,
+          }),
+        ],
+      },
+    ]);
 
-    const dm = digestDm(lines);
-    expect(dm).toContain("2 updates");
+    expect(dm).toContain("3 updates");
+    expect(dm).toContain("*Mod 1: JavaScript*");
+    expect(dm).toContain("*Mod 2: React*");
+    expect(dm).toContain("17/20 — Complete");
     expect(dm).toContain("12/20 — Not yet complete");
-    expect(dm).toContain("3 new comments from Jordan on Objects");
-    expect(dm.split("\n")).toHaveLength(3);
+    expect(dm).toContain("2 new comments on Higher Order Functions");
+    // The course is on its heading and not repeated on every line beneath it.
+    expect(dm).not.toContain("(Mod 1: JavaScript)");
   });
 
   it("one update is singular", () => {
-    expect(digestDm(["• something"])).toContain("1 update:");
+    expect(digestDm([{ courseName: "Mod 1", lines: ["• something"] }])).toContain("1 update:");
     expect(
       commentsDigestLine({ count: 1, assignmentTitle: "T", newestExcerpt: "x", href: null }),
     ).toContain("1 new comment on");
   });
+
+  it("a course heading is bold", () => {
+    expect(courseHeading("Mod 1: JavaScript")).toBe("*Mod 1: JavaScript*");
+  });
 });
 
 describe("summary messages", () => {
-  it("an instructor's heading names the scope and the size of the pile", () => {
-    expect(outstandingSummary({ scope: "All Fellows", total: 23 })).toBe(
-      "Waiting on you — All Fellows, 23 submissions to grade",
-    );
-    // Singular, because "1 submissions" is the kind of thing people notice and nothing else is.
-    expect(outstandingSummary({ scope: "Cohort A", total: 1 })).toContain("1 submission to grade");
+  it("the heading stands alone above the per-course briefs", () => {
+    expect(OUTSTANDING_HEADING).toBe("Waiting on you");
   });
 
-  it("a cohort line carries its share, and the course links carry their counts", () => {
-    expect(summaryCohortLine({ name: "Cohort A", count: 9 })).toBe("• Cohort A — 9");
-    expect(
-      summaryCourseLink([
-        { name: "Mod 3", href: "https://lms.example.org/instructor/courses/c1/triage", count: 12 },
-        { name: "Mod 4", href: null, count: 2 },
-      ]),
-    ).toBe(
-      "Open triage: <https://lms.example.org/instructor/courses/c1/triage|Mod 3> (12) · Mod 4 (2)",
-    );
+  /*
+    Each course carries its own count, its own scope and its own link. An instructor on two
+    programmes has a cohort selection for each, and the first version joined those scopes into one
+    phrase above one total — which read as though both applied to all of the work.
+  */
+  it("a course brief names its own count, scope and link", () => {
+    const lines = courseGradingLines({
+      courseName: "Software Engineering",
+      count: 17,
+      scope: "Telos - Maxwell/Ben",
+      cohorts: [{ name: "Telos - Maxwell/Ben", count: 17 }],
+      href: "https://lms.example.org/instructor/courses/c1/triage",
+    });
+
+    expect(lines[0]).toBe("*Software Engineering* — 17 to grade · Telos - Maxwell/Ben");
+    // One cohort, so the breakdown would only repeat the scope already on the line above.
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe("<https://lms.example.org/instructor/courses/c1/triage|Open triage>");
+  });
+
+  it("the cohort breakdown appears only where one course spans several", () => {
+    const lines = courseGradingLines({
+      courseName: "Software Engineering",
+      count: 17,
+      scope: "All Fellows",
+      cohorts: [
+        { name: "Telos - Maxwell/Ben", count: 9 },
+        { name: "Odyssey - Sam", count: 8 },
+      ],
+      href: null,
+    });
+
+    expect(lines[1]).toBe("• Telos - Maxwell/Ben — 9");
+    expect(lines[2]).toBe("• Odyssey - Sam — 8");
+    expect(lines.at(-1)).toBe("Open triage");
   });
 
   /*

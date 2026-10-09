@@ -20,6 +20,7 @@ import {
   runDigests,
   studentDigestLines,
 } from "@/lib/notifications/digest";
+import type { DigestSection } from "@/lib/notifications/messages";
 import {
   instructorSummaryLines,
   runSummaries,
@@ -30,6 +31,8 @@ import {
   enroll,
   makeAccount,
   makeAssignment,
+  makeCourse,
+  makeUnit,
   makeSubmission,
   makeWorld,
   type World,
@@ -76,6 +79,8 @@ async function approveRound(
 describe("a fellow's digest", () => {
   const tx = withRollback();
   let world: World;
+  let sections: DigestSection[];
+  /** Every line of a digest, whichever course's brief it sits under. */
   let lines: string[];
 
   beforeAll(async () => {
@@ -188,7 +193,8 @@ describe("a fellow's digest", () => {
       },
     });
 
-    lines = await studentDigestLines(tx(), fellow, WINDOW);
+    sections = await studentDigestLines(tx(), fellow, WINDOW);
+    lines = sections.flatMap((section) => section.lines);
   });
 
   it("each released round is its own line, scored as that round was sent", () => {
@@ -261,7 +267,9 @@ describe("an instructor's digest", () => {
 
   it("a question on work they graded is a line", async () => {
     await threadWithQuestion({ title: "Graded By Me", gradedByInstructor: true });
-    const lines = await instructorDigestLines(tx(), world.instructorId, WINDOW);
+    const lines = (await instructorDigestLines(tx(), world.instructorId, WINDOW)).flatMap(
+      (section) => section.lines,
+    );
     expect(lines.some((line) => line.includes("Graded By Me"))).toBe(true);
   });
 
@@ -279,7 +287,9 @@ describe("an instructor's digest", () => {
         createdAt: new Date("2026-03-03T18:00:00Z"),
       },
     });
-    const lines = await instructorDigestLines(tx(), world.instructorId, WINDOW);
+    const lines = (await instructorDigestLines(tx(), world.instructorId, WINDOW)).flatMap(
+      (section) => section.lines,
+    );
     expect(lines.some((line) => line.includes("Answered Overnight"))).toBe(false);
   });
 
@@ -292,7 +302,9 @@ describe("an instructor's digest", () => {
       where: { id: submissionId },
       data: { commentsResolvedAt: new Date("2026-03-03T18:00:00Z") },
     });
-    const lines = await instructorDigestLines(tx(), world.instructorId, WINDOW);
+    const lines = (await instructorDigestLines(tx(), world.instructorId, WINDOW)).flatMap(
+      (section) => section.lines,
+    );
     expect(lines.some((line) => line.includes("Handled In Person"))).toBe(false);
   });
 
@@ -317,13 +329,17 @@ describe("an instructor's digest", () => {
         createdAt: new Date("2026-03-06T09:00:00Z"),
       },
     });
-    const lines = await instructorDigestLines(tx(), world.instructorId, WINDOW);
+    const lines = (await instructorDigestLines(tx(), world.instructorId, WINDOW)).flatMap(
+      (section) => section.lines,
+    );
     expect(lines.some((line) => line.includes("Wrote In It Before"))).toBe(true);
   });
 
   it("a question on work they never touched is not theirs to hear about", async () => {
     await threadWithQuestion({ title: "Somebody Else's Queue" });
-    const lines = await instructorDigestLines(tx(), world.instructorId, WINDOW);
+    const lines = (await instructorDigestLines(tx(), world.instructorId, WINDOW)).flatMap(
+      (section) => section.lines,
+    );
     expect(lines.some((line) => line.includes("Somebody Else's Queue"))).toBe(false);
   });
 });
@@ -588,8 +604,13 @@ describe("an instructor's summary of the grading pile", () => {
     });
 
     const lines = await instructorSummaryLines(tx(), world.instructorId);
-    expect(lines[0]).toContain("All Fellows");
-    expect(lines[0]).toContain("2 submissions");
+    const course = lines.find((line) => line.includes("Integration Course"));
+
+    expect(lines[0]).toBe("Waiting on you");
+    // One course, so its own line carries the count and the scope rather than a shared total.
+    expect(course).toContain("2 to grade");
+    expect(course).toContain("All Fellows");
+    // Two cohorts inside that one course, so the breakdown earns its place.
     expect(lines.some((line) => line.includes("Integration Cohort A") && line.includes("1"))).toBe(true);
     expect(lines.some((line) => line.includes("Integration Cohort B") && line.includes("1"))).toBe(true);
     expect(lines.at(-1)).toContain("Open triage");
@@ -607,8 +628,10 @@ describe("an instructor's summary of the grading pile", () => {
     });
 
     const lines = await instructorSummaryLines(tx(), world.instructorId);
-    expect(lines[0]).toContain("Integration Cohort A");
-    expect(lines[0]).toContain("1 submission");
+    const course = lines.find((line) => line.includes("Integration Course"));
+
+    expect(course).toContain("Integration Cohort A");
+    expect(course).toContain("1 to grade");
     // One group, so the heading already said it and no bullet repeats it.
     expect(lines.some((line) => line.includes("Integration Cohort B"))).toBe(false);
   });
@@ -760,5 +783,66 @@ describe("the summary cadence", () => {
     const afternoon = await runSummaries(new Date("2026-06-15T20:00:00Z"), { send, client: tx() });
     expect(afternoon.summarised).toBe(1);
     expect(sent).toEqual(["U-FELLOW"]);
+  });
+});
+
+/*
+  A digest spans courses, and a reader acts on one course at a time. The first version of this
+  message totalled every course into one list, which is what made a real one unreadable.
+*/
+describe("a digest spanning two courses", () => {
+  const tx = withRollback();
+  let world: World;
+  let sections: Awaited<ReturnType<typeof studentDigestLines>>;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+
+    // A second course of the same programme, which the same fellow is enrolled in by the roster.
+    const second = await makeCourse(tx(), { programId: world.programId, name: "Second Course" });
+    const secondUnit = await makeUnit(tx(), { courseId: second.id });
+
+    for (const [courseId, unitId, title] of [
+      [world.courseId, world.unitId, "First Course Work"],
+      [second.id, secondUnit.id, "Second Course Work"],
+    ] as const) {
+      const assignment = await makeAssignment(tx(), {
+        courseId,
+        courseUnitId: unitId,
+        title,
+        pointValue: 10,
+      });
+      const submission = await makeSubmission(tx(), {
+        assignmentId: assignment.id,
+        studentId: world.student.studentId,
+        graded: { score: 9, possible: 10, isComplete: true },
+      });
+      await approveRound(tx(), {
+        submissionId: submission.id,
+        approvedById: world.instructorId,
+        approvedAt: new Date("2026-03-03T12:00:00Z"),
+        scoreEarned: 9,
+        scorePossible: 10,
+      });
+    }
+
+    sections = await studentDigestLines(tx(), world.student.studentId, WINDOW);
+  });
+
+  it("gives each course its own brief rather than one combined list", () => {
+    expect(sections).toHaveLength(2);
+    const names = sections.map((section) => section.courseName);
+    expect(names).toContain("Second Course");
+    // Two distinct courses, so two distinct headings.
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it("each brief holds only its own course's lines", () => {
+    for (const section of sections) {
+      expect(section.lines).toHaveLength(1);
+    }
+    const second = sections.find((section) => section.courseName === "Second Course")!;
+    expect(second.lines[0]).toContain("Second Course Work");
+    expect(second.lines[0]).not.toContain("First Course Work");
   });
 });

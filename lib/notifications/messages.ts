@@ -68,10 +68,15 @@ export function commentDmText(args: {
   );
 }
 
-/** One digest entry: feedback released on one round. */
+/**
+ * One digest entry: feedback released on one round.
+ *
+ * The course is not on the line because the heading above it carries the course — see
+ * `digestDm`. Naming it twice is how the first version of this message came to read as one
+ * undifferentiated pile.
+ */
 export function feedbackDigestLine(args: {
   assignmentTitle: string;
-  courseName: string;
   finalScore: number;
   finalScorePossible: number;
   isComplete: boolean;
@@ -79,10 +84,7 @@ export function feedbackDigestLine(args: {
 }): string {
   const score = `${args.finalScore}/${args.finalScorePossible}`;
   const verdict = args.isComplete ? "Complete" : "Not yet complete";
-  return (
-    `• Feedback on ${linked(args.assignmentTitle, args.href)} ` +
-    `(${escapeMrkdwn(args.courseName)}): ${score} — ${verdict}.`
-  );
+  return `• Feedback on ${linked(args.assignmentTitle, args.href)}: ${score} — ${verdict}.`;
 }
 
 /** One digest entry: a thread's new comments, grouped so ten replies are one line. */
@@ -102,35 +104,66 @@ export function commentsDigestLine(args: {
   );
 }
 
-/** The whole digest DM. Callers only reach this with at least one line. */
-export function digestDm(lines: readonly string[]): string {
-  const count = lines.length === 1 ? "1 update" : `${lines.length} updates`;
-  return `While you were away — ${count}:\n${lines.join("\n")}`;
+/** One course's worth of a digest: the course it is about, and the lines under it. */
+export type DigestSection = { courseName: string; lines: string[] };
+
+/**
+ * The whole digest DM: a short count, then one brief per course.
+ *
+ * **Grouped by course rather than totalled across them**, because a reader acts on one course at a
+ * time. A single list summing every course asks them to sort it themselves, and a heading that
+ * names several courses at once is read as describing all of the lines below it.
+ *
+ * Callers only reach this with at least one section, each holding at least one line.
+ */
+export function digestDm(sections: readonly DigestSection[]): string {
+  const total = sections.reduce((count, section) => count + section.lines.length, 0);
+  const count = total === 1 ? "1 update" : `${total} updates`;
+  const body = sections
+    .map((section) => [courseHeading(section.courseName), ...section.lines].join("\n"))
+    .join("\n\n");
+
+  return `While you were away — ${count}:\n\n${body}`;
+}
+
+/** A course's name, standing over the lines that belong to it. */
+export function courseHeading(name: string): string {
+  return `*${escapeMrkdwn(name)}*`;
 }
 
 /* ---- Summaries: what is outstanding, rather than what happened ---------------------------- */
 
-/** An instructor's heading. Names the scope, so a summary widened by the cohort picker says so. */
-export function outstandingSummary(args: { scope: string; total: number }): string {
-  const work = args.total === 1 ? "1 submission" : `${args.total} submissions`;
-  return `Waiting on you — ${escapeMrkdwn(args.scope)}, ${work} to grade`;
-}
+/** The one line above the per-course briefs. */
+export const OUTSTANDING_HEADING = "Waiting on you";
 
-/** One cohort's share of that pile. Omitted by the caller when there is only one. */
-export function summaryCohortLine(args: { name: string; count: number }): string {
-  return `• ${escapeMrkdwn(args.name)} — ${args.count}`;
-}
+/**
+ * One course's pile: how much is waiting, whose work it covers, and where to go.
+ *
+ * **Per course, each with its own scope.** An instructor on two programmes has a cohort selection
+ * for each, and the first version of this message joined those scopes into one phrase above a
+ * single total — which read as though both scopes applied to all of the work. The cohort
+ * breakdown appears only where one course genuinely spans several cohorts, which is the case it
+ * was written for; below that it repeats the scope already on the line above.
+ */
+export function courseGradingLines(args: {
+  courseName: string;
+  count: number;
+  scope: string;
+  cohorts: readonly { name: string; count: number }[];
+  href: string | null;
+}): string[] {
+  const lines = [
+    `${courseHeading(args.courseName)} — ${args.count} to grade · ${escapeMrkdwn(args.scope)}`,
+  ];
 
-/** Where to go and do something about it, one link per course that has work waiting. */
-export function summaryCourseLink(
-  courses: readonly { name: string; href: string | null; count: number }[],
-): string {
-  const parts = courses.map((course) =>
-    course.href
-      ? `<${course.href}|${escapeMrkdwn(course.name)}> (${course.count})`
-      : `${escapeMrkdwn(course.name)} (${course.count})`,
-  );
-  return `Open triage: ${parts.join(" · ")}`;
+  if (args.cohorts.length > 1) {
+    for (const cohort of args.cohorts) {
+      lines.push(`• ${escapeMrkdwn(cohort.name)} — ${cohort.count}`);
+    }
+  }
+
+  lines.push(linked("Open triage", args.href));
+  return lines;
 }
 
 /**
