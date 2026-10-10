@@ -12,7 +12,7 @@
  */
 
 import * as React from "react";
-import { Eye, Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
+import { Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
 import { Markdown, sourceOffsetAt } from "@/components/markdown";
 import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -118,6 +118,7 @@ export function AssembledSectionEditor({
   onScoreBlur,
   onReset,
   unsaved = false,
+  previewing = false,
 }: {
   section: SectionFacts;
   parts: ReportParts;
@@ -126,13 +127,14 @@ export function AssembledSectionEditor({
   onScoreBlur?: () => void;
   onReset?: () => void;
   unsaved?: boolean;
+  /**
+   * Shows the comment exactly as it will be posted, in place of the rows. The application writes
+   * the title, the headings and every score, so without this the first time an instructor saw them
+   * would be on the pull request. Switched from the bar at the foot of the form, for every section
+   * at once — see `DraftEditor`.
+   */
+  previewing?: boolean;
 }) {
-  /*
-    The comment exactly as it will be posted, in place of the rows. The application writes the
-    title, the headings and every score, so without this the first time an instructor saw them
-    would be on the pull request.
-  */
-  const [previewing, setPreviewing] = React.useState(false);
   const label = sectionLabel(section.sectionType);
   const total = rowTotals(parts.rows);
 
@@ -156,18 +158,14 @@ export function AssembledSectionEditor({
       </SectionHeader>
 
       <CardContent className="flex flex-col gap-4">
-        <div className="flex items-center justify-end gap-1">
-          {unsaved && onReset && (
+        {unsaved && onReset && (
+          <div className="flex justify-end">
             <Button size="sm" variant="ghost" onClick={onReset}>
               <Undo2 data-icon="inline-start" />
               Undo
             </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => setPreviewing((open) => !open)}>
-            {previewing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-            {previewing ? "Edit rows" : "Preview comment"}
-          </Button>
-        </div>
+          </div>
+        )}
 
         {previewing ? (
           <div className="rounded-md border border-border bg-muted/20 p-4">

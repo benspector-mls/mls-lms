@@ -15,7 +15,16 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
-import { AlertTriangle, CheckCircle2, Loader2, PenLine, RotateCcw, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  Loader2,
+  PenLine,
+  Pencil,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import type { ReleaseGrade } from "@/hooks/use-release-grade";
@@ -224,6 +233,8 @@ export function DraftEditor({
   const [savingCount, setSavingCount] = React.useState(0);
   const [saveFailed, setSaveFailed] = React.useState(false);
   const [armed, setArmed] = React.useState(false);
+  /** Whether the row-by-row sections show their assembled comments instead of their rows. */
+  const [previewing, setPreviewing] = React.useState(false);
   const [opening, setOpening] = React.useState(false);
   /*
     A refusal to open the round, kept on the screen rather than in a toast that goes away.
@@ -289,6 +300,7 @@ export function DraftEditor({
       openedRef.current = null;
       setOpenFailure(null);
       setArmed(false);
+      setPreviewing(false);
     }
   }
 
@@ -825,6 +837,7 @@ export function DraftEditor({
                 onScoreBlur={scoreSettled}
                 onReset={() => resetRow(row.key)}
                 unsaved={dirtyKeys.includes(row.key)}
+                previewing={previewing}
               />
             );
           }
@@ -930,6 +943,18 @@ export function DraftEditor({
             >
               {discard.isPending && <Loader2 data-icon="inline-start" className="animate-spin" />}
               {discard.isPending ? "Discarding…" : "Discard"}
+            </Button>
+          )}
+          {/*
+            Every row-by-row section's comment as it will be posted, in place of its rows. In the
+            bar rather than on each card, beside the release, because reading what the student
+            will receive is the last thing an instructor does before sending it — and it stays
+            while the release is armed, since a press inside the bar does not stand it down.
+          */}
+          {rows.some((row) => parts[row.key]) && (
+            <Button variant="ghost" onClick={() => setPreviewing((open) => !open)}>
+              {previewing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
+              {previewing ? "Edit rows" : "Preview comment"}
             </Button>
           )}
           {/*
