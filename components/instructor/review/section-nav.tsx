@@ -21,8 +21,9 @@
  * is wide and one when it is narrow, and the narrow order is not the wide one: the work is the left
  * column when split and the *last* thing when stacked, by a CSS `order` on the same markup. The
  * document order is therefore wrong in one of the two modes, so the bar sorts by position on the
- * screen — left to right between the columns, top to bottom within one — and sorts again when the
- * window is resized, which is the one event that can change the mode without any card re-rendering.
+ * screen — left to right between the columns, top to bottom within one — and sorts again whenever a
+ * card changes width, which is what happens when the mode changes, whether the window resized or
+ * grading mode widened the pane.
  * When split, a thin line separates the left column's icons from the right column's, so the
  * instructor can tell which half of the pane an icon will scroll.
  */
@@ -179,14 +180,35 @@ export function SectionNavBar({
   const entries = React.useContext(EntriesContext);
 
   /*
-    Re-sorted on resize. Sorting reads each card's position, which the window's width decides
-    through the pane's container query, and nothing registers anew when the width changes.
+    Re-sorted whenever a card changes width. Sorting reads each card's position during render,
+    when the page still has the layout of the previous render — so entering grading mode, which
+    re-renders this bar for its own buttons and in the same commit widens the pane from one
+    column to two, sorts by the stacked positions and never sorts again. Nothing registers anew
+    when the columns change, and the window has not resized.
+
+    A `ResizeObserver` reports after the browser has laid the page out, so the render it causes
+    reads the new positions. It watches the cards rather than the window because the pane's
+    width moves without the window's, when grading mode puts the queue list away. Switching
+    between one column and two always changes the cards' widths, so only a change of width
+    counts: a card growing taller as the instructor types cannot reorder the bar.
   */
-  const [, resized] = React.useReducer((count: number) => count + 1, 0);
+  const [, relayout] = React.useReducer((count: number) => count + 1, 0);
   React.useEffect(() => {
-    window.addEventListener("resize", resized);
-    return () => window.removeEventListener("resize", resized);
-  }, []);
+    const widths = new Map<Element, number>();
+    const observer = new ResizeObserver((records) => {
+      let changed = false;
+      for (const record of records) {
+        const width = record.contentRect.width;
+        if (widths.get(record.target) !== width) {
+          widths.set(record.target, width);
+          changed = true;
+        }
+      }
+      if (changed) relayout();
+    });
+    for (const entry of entries.values()) observer.observe(entry.element);
+    return () => observer.disconnect();
+  }, [entries]);
 
   const jumps = entries.size >= 2;
   if (!jumps && !actions) return null;
