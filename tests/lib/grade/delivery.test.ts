@@ -181,6 +181,20 @@ describe("statedScoreInText", () => {
     expect(statedScoreInText("# Report\n\nNo score anywhere.")).toBeNull();
   });
 
+  it("reads the coding fluency title, which has no percentage", () => {
+    expect(statedScoreInText("# Coding Fluency Score Report: 23/39\n\nGood start.")).toEqual({
+      earned: 23,
+      possible: 39,
+    });
+  });
+
+  it("reads the frontend title, whose word before the score is Report", () => {
+    expect(statedScoreInText("# Frontend Coding Report: 5.5/6 = 92%")).toEqual({
+      earned: 5.5,
+      possible: 6,
+    });
+  });
+
   it("reads half credit", () => {
     expect(statedScoreInText("## Score: 20.5/25 = 82%")).toEqual({ earned: 20.5, possible: 25 });
   });

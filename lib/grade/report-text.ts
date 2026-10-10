@@ -11,14 +11,15 @@
 /**
  * The score a report's own text claims, or null if it states none.
  *
- * Matches the score line the coding report templates put under the heading. The short
- * response template states no total — the LMS shows the score beside the report — so for
- * that section there is nothing to compare and the check passes. An instructor can
+ * Matches the heading the coding report templates carry the score in: "Coding Fluency
+ * Score Report: 23/39" and "Frontend Coding Report: 5.5/6 = 92%", with or without the
+ * percentage. The short response template states no total — the LMS shows the score
+ * beside the report — so for that section there is nothing to compare and the check passes. An instructor can
  * change the prose and the recorded number independently, and editing "28/30" into the
  * text while the column still says 30 would hand the student one figure and the
  * gradebook another.
  */
 export function statedScoreInText(markdown: string): { earned: number; possible: number } | null {
-  const match = markdown.match(/^#{1,3}\s.*?Score:\s*([\d.]+)\s*\/\s*([\d.]+)/im);
+  const match = markdown.match(/^#{1,3}\s.*?(?:Score|Report):\s*([\d.]+)\s*\/\s*([\d.]+)/im);
   return match ? { earned: Number(match[1]), possible: Number(match[2]) } : null;
 }

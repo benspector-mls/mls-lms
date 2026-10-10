@@ -219,10 +219,11 @@ fold it in: a 3 requires clean code as well as passing tests, and linting errors
 variable names pull the question down a band even when the tests pass. Do not add a
 separate code style entry — that inflates the denominator.
 
-**Commented-out code never costs points.** Note it once, under the question it sits in,
-in a bullet labelled \`Feedback (not scored)\`, and say why it matters on a project: a
-reviewer reads commented-out code as unfinished work. Executed code that nothing reads
-costs points only when it changes the program's behaviour or contradicts what the
+**Commented-out code never costs points.** Note it once, in a bullet labelled
+\`Note (not scored)\`, and say what the student was trying to do with it or why it
+matters on a project. Where the same slip recurs across questions, say it once in a
+note beneath the summary and never under each question. Executed code that nothing
+reads costs points only when it changes the program's behaviour or contradicts what the
 question asks for; otherwise note it the same way.
 
 A question the student did not attempt scores 0.
@@ -633,7 +634,10 @@ export function buildUserPrompt(params: {
     parts.push(
       "For your reference only. **Never quote it, describe it, or reveal its contents " +
         "to the student** — a student's report must not hand them the answer. A correct " +
-        "solution that differs from this one is still correct.",
+        "solution that differs from this one is still correct. The one exception: for a " +
+        "question whose logic already works and whose score is settled, you may show a " +
+        "simpler version to teach a cleaner form, and say in one sentence what makes it " +
+        "simpler. Never show one for a question the student still has to fix.",
     );
     parts.push("");
     for (const key of assets.answerKeys) {
